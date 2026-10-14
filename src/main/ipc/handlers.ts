@@ -8,6 +8,7 @@ import type {
   SetupEvent,
   SetupState,
   Task,
+  TaskStatus,
   TaskView,
   TerminalDef,
 } from '../../shared/types';
@@ -64,8 +65,24 @@ export async function recoverInterruptedTasks(
   return changed;
 }
 
+/** Keys (repo:branch, repo:worktree) of tasks being created right now, across handler bundles. */
+const creating = new Set<string>();
+
 export function createHandlers(s: Services): Handlers {
   const setupStates = new Map<string, SetupState>();
+  const inFlight = new Set<string>();
+
+  /** Synchronous guard: call before the first await of an operation that changes a task's status. */
+  const claim = (taskId: string, allowed: TaskStatus[], action: string) => {
+    const status = taskById(taskId).status;
+    if (!allowed.includes(status))
+      throw new Error(`Cannot ${action} a task that is ${status}`);
+    if (inFlight.has(taskId)) throw new Error('Task is busy');
+    inFlight.add(taskId);
+  };
+  const release = (taskId: string) => {
+    inFlight.delete(taskId);
+  };
 
   const taskById = (id: string): Task => {
     const t = s.store.state.tasks.find((x) => x.id === id);
@@ -77,7 +94,10 @@ export function createHandlers(s: Services): Handlers {
     Promise.all(
       s.store.state.tasks.map(async (t) => ({
         ...t,
-        worktreeMissing: t.status !== 'done' && !(await exists(t.worktreePath)),
+        worktreeMissing:
+          t.status !== 'done' &&
+          t.status !== 'setting-up' &&
+          !(await exists(t.worktreePath)),
       })),
     );
 
@@ -88,6 +108,18 @@ export function createHandlers(s: Services): Handlers {
     await s.store.update((st) => {
       const t = st.tasks.find((x) => x.id === id);
       if (t) Object.assign(t, patch);
+    });
+    await tasksChanged();
+  };
+
+  /** Applies a change to the stored terminal list of a task (never from a stale snapshot). */
+  const updateTerminals = async (
+    id: string,
+    change: (list: TerminalDef[]) => TerminalDef[],
+  ) => {
+    await s.store.update((st) => {
+      const t = st.tasks.find((x) => x.id === id);
+      if (t) t.terminals = change(t.terminals);
     });
     await tasksChanged();
   };
@@ -158,46 +190,63 @@ export function createHandlers(s: Services): Handlers {
     };
   };
 
+  /** Runs the setup. The caller must hold the in-flight claim; it is released before the final 'finished' event. */
   const runSetup = async (taskId: string, fromStep?: number): Promise<void> => {
-    const task = taskById(taskId);
-    const plan = await buildPlan(task);
-    const steps = planSteps(plan);
-    const state: SetupState = {
-      steps: steps.map((def) => ({ def, status: 'todo' })),
-      log: [],
-      finished: false,
-      ok: null,
-      failedStep: null,
-    };
-    setupStates.set(taskId, state);
+    let state: SetupState | undefined;
     let finishedEvent: SetupEvent | null = null;
-    const result = await s.runner.run(plan, {
-      fromStep,
-      onEvent: (e) => {
-        applySetupEvent(state, e);
-        // Hold back 'finished' until the task status is persisted, so listeners never see a stale status.
-        if (e.type === 'finished') finishedEvent = e;
-        else s.broadcast('setup', e);
-      },
-      startTerminals: async () => {
-        const defs = initialTerminals(task);
-        for (const def of defs)
-          spawnTerminal({ ...task, terminals: defs }, def);
-        await patchTask(taskId, { terminals: defs });
-      },
-    });
-    await patchTask(taskId, { status: result.ok ? 'ready' : 'setup-failed' });
+    try {
+      const task = taskById(taskId);
+      const plan = await buildPlan(task);
+      const steps = planSteps(plan);
+      const current: SetupState = {
+        steps: steps.map((def) => ({ def, status: 'todo' })),
+        log: [],
+        finished: false,
+        ok: null,
+        failedStep: null,
+      };
+      state = current;
+      setupStates.set(taskId, current);
+      const result = await s.runner.run(plan, {
+        fromStep,
+        onEvent: (e) => {
+          applySetupEvent(current, e);
+          // Hold back 'finished' until the task status is persisted, so listeners never see a stale status.
+          if (e.type === 'finished') finishedEvent = e;
+          else s.broadcast('setup', e);
+        },
+        startTerminals: async () => {
+          const defs = initialTerminals(task);
+          for (const def of defs)
+            spawnTerminal({ ...task, terminals: defs }, def);
+          await updateTerminals(taskId, (list) => [...list, ...defs]);
+        },
+      });
+      await patchTask(taskId, { status: result.ok ? 'ready' : 'setup-failed' });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      s.broadcast('notice', {
+        level: 'error',
+        message: `Setup failed: ${message}`,
+      });
+      if (state) {
+        state.finished = true;
+        state.ok = false;
+      }
+      finishedEvent = { taskId, type: 'finished', ok: false };
+      try {
+        await patchTask(taskId, { status: 'setup-failed' });
+      } catch {
+        // the store itself is failing; nothing more we can persist
+      }
+    } finally {
+      release(taskId);
+    }
     if (finishedEvent) s.broadcast('setup', finishedEvent);
   };
 
   const startSetupInBackground = (taskId: string, fromStep?: number) => {
-    void runSetup(taskId, fromStep).catch(async (e: Error) => {
-      s.broadcast('notice', {
-        level: 'error',
-        message: `Setup failed: ${e.message}`,
-      });
-      await patchTask(taskId, { status: 'setup-failed' });
-    });
+    void runSetup(taskId, fromStep);
   };
 
   return {
@@ -241,6 +290,18 @@ export function createHandlers(s: Services): Handlers {
       const worktreePath = path.join(worktreeRoot(repo.path), slug);
       if (await exists(worktreePath))
         throw new Error(`Folder ${worktreePath} already exists`);
+      const keys = [`${repo.id}:${branch}`, `${repo.id}:${worktreePath}`];
+      if (
+        keys.some((k) => creating.has(k)) ||
+        s.store.state.tasks.some(
+          (t) =>
+            t.repoId === repo.id &&
+            t.status !== 'done' &&
+            (t.branch === branch || t.worktreePath === worktreePath),
+        )
+      )
+        throw new Error(`Branch ${branch} is already being created`);
+      for (const k of keys) creating.add(k);
       const task: Task = {
         id: randomUUID(),
         repoId: repo.id,
@@ -261,35 +322,51 @@ export function createHandlers(s: Services): Handlers {
         createdAt: new Date().toISOString(),
         finishedAt: null,
       };
-      await s.store.update((st) => {
-        st.tasks.push(task);
-      });
-      await tasksChanged();
+      inFlight.add(task.id);
+      try {
+        await s.store.update((st) => {
+          st.tasks.push(task);
+        });
+      } catch (e) {
+        release(task.id);
+        throw e;
+      } finally {
+        for (const k of keys) creating.delete(k);
+      }
       startSetupInBackground(task.id);
+      await tasksChanged();
       return task;
     },
     'tasks:setupState': async (taskId) => setupStates.get(taskId) ?? null,
     'tasks:retrySetup': async (taskId) => {
-      const task = taskById(taskId);
-      if (task.status !== 'setup-failed')
-        throw new Error('Only a failed setup can be retried');
+      claim(taskId, ['setup-failed'], 'retry the setup of');
       const from = setupStates.get(taskId)?.failedStep ?? 0;
-      await patchTask(taskId, { status: 'setting-up' });
+      try {
+        await patchTask(taskId, { status: 'setting-up' });
+      } catch (e) {
+        release(taskId);
+        throw e;
+      }
       startSetupInBackground(taskId, from);
     },
     'tasks:cancelSetup': async (taskId) => {
-      const task = taskById(taskId);
-      const repo = s.repos.get(task.repoId);
-      s.terminals.killAllForTask(taskId);
-      if (await exists(task.worktreePath))
-        await s.git.worktreeRemove(repo.path, task.worktreePath, true);
-      if (await s.git.branchExists(repo.path, task.branch))
-        await s.git.deleteBranch(repo.path, task.branch);
-      setupStates.delete(taskId);
-      await s.store.update((st) => {
-        st.tasks = st.tasks.filter((t) => t.id !== taskId);
-      });
-      await tasksChanged();
+      claim(taskId, ['setup-failed'], 'cancel the setup of');
+      try {
+        const task = taskById(taskId);
+        const repo = s.repos.get(task.repoId);
+        s.terminals.killAllForTask(taskId);
+        if (await exists(task.worktreePath))
+          await s.git.worktreeRemove(repo.path, task.worktreePath, true);
+        if (await s.git.branchExists(repo.path, task.branch))
+          await s.git.deleteBranch(repo.path, task.branch);
+        setupStates.delete(taskId);
+        await s.store.update((st) => {
+          st.tasks = st.tasks.filter((t) => t.id !== taskId);
+        });
+        await tasksChanged();
+      } finally {
+        release(taskId);
+      }
     },
     'tasks:gitSummary': async (taskId) => {
       const task = taskById(taskId);
@@ -305,24 +382,31 @@ export function createHandlers(s: Services): Handlers {
       };
     },
     'tasks:finish': async (taskId, options) => {
-      const task = taskById(taskId);
-      const repo = s.repos.get(task.repoId);
-      await patchTask(taskId, { status: 'finishing' });
+      claim(taskId, ['ready'], 'finish');
       try {
-        if (options.closeTerminals) s.terminals.killAllForTask(taskId);
-        if (options.removeWorktree)
-          await s.git.worktreeRemove(repo.path, task.worktreePath, true);
-        if (options.deleteBranch)
-          await s.git.deleteBranch(repo.path, task.branch);
-      } catch (e) {
-        await patchTask(taskId, { status: 'ready' });
-        throw e;
+        const task = taskById(taskId);
+        const repo = s.repos.get(task.repoId);
+        await patchTask(taskId, { status: 'finishing' });
+        try {
+          if (options.closeTerminals) {
+            s.terminals.killAllForTask(taskId);
+            await patchTask(taskId, { terminals: [] });
+          }
+          if (options.removeWorktree)
+            await s.git.worktreeRemove(repo.path, task.worktreePath, true);
+          if (options.deleteBranch)
+            await s.git.deleteBranch(repo.path, task.branch);
+        } catch (e) {
+          await patchTask(taskId, { status: 'ready' });
+          throw e;
+        }
+        await patchTask(taskId, {
+          status: 'done',
+          finishedAt: new Date().toISOString(),
+        });
+      } finally {
+        release(taskId);
       }
-      await patchTask(taskId, {
-        status: 'done',
-        finishedAt: new Date().toISOString(),
-        terminals: options.closeTerminals ? [] : task.terminals,
-      });
     },
     'tasks:openInEditor': async (taskId) => {
       const task = taskById(taskId);
@@ -330,10 +414,15 @@ export function createHandlers(s: Services): Handlers {
     },
 
     'terminals:open': async (taskId, def) => {
-      const task = taskById(taskId);
-      const full: TerminalDef = { id: randomUUID(), ...def };
-      spawnTerminal(task, full);
-      await patchTask(taskId, { terminals: [...task.terminals, full] });
+      claim(taskId, ['ready'], 'open a terminal in');
+      let full: TerminalDef;
+      try {
+        full = { id: randomUUID(), ...def };
+        spawnTerminal(taskById(taskId), full);
+      } finally {
+        release(taskId);
+      }
+      await updateTerminals(taskId, (list) => [...list, full]);
       return full;
     },
     'terminals:write': async (id, data) => s.terminals.write(id, data),
@@ -345,9 +434,9 @@ export function createHandlers(s: Services): Handlers {
         t.terminals.some((x) => x.id === id),
       );
       if (owner)
-        await patchTask(owner.id, {
-          terminals: owner.terminals.filter((x) => x.id !== id),
-        });
+        await updateTerminals(owner.id, (list) =>
+          list.filter((x) => x.id !== id),
+        );
     },
     'terminals:restart': async (id) => s.terminals.restart(id),
     'terminals:buffer': async (id) => s.terminals.buffer(id),

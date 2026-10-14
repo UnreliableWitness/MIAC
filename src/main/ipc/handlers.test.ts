@@ -243,6 +243,93 @@ describe('handlers: finish', () => {
   });
 });
 
+describe('handlers: concurrency guards', () => {
+  const finishedCount = (b: { event: string; payload: unknown }[]) =>
+    b.filter(
+      (x) =>
+        x.event === 'setup' &&
+        (x.payload as { type: string }).type === 'finished',
+    ).length;
+
+  it('retrySetup twice at once runs setup once', async () => {
+    const { h, input, setupDone, broadcasts } = await harness();
+    const first = setupDone();
+    const t = await h['tasks:create'](
+      input({ commands: ['exit 7'], openShell: false }),
+    );
+    await first;
+    expect(finishedCount(broadcasts)).toBe(1);
+    const retry = setupDone();
+    const results = await Promise.allSettled([
+      h['tasks:retrySetup'](t.id),
+      h['tasks:retrySetup'](t.id),
+    ]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    const rejected = results.find(
+      (r) => r.status === 'rejected',
+    ) as PromiseRejectedResult;
+    expect(String(rejected.reason)).toMatch(/busy|already/);
+    await retry;
+    await new Promise((r) => setTimeout(r, 200));
+    expect(finishedCount(broadcasts)).toBe(2);
+  });
+
+  it('finish is rejected while setup runs', async () => {
+    const { h, input, setupDone, terminals } = await harness();
+    const done = setupDone();
+    const t = await h['tasks:create'](input({ commands: ['sleep 1'] }));
+    await expect(
+      h['tasks:finish'](t.id, {
+        closeTerminals: true,
+        removeWorktree: true,
+        deleteBranch: true,
+      }),
+    ).rejects.toThrow(/setting-up/);
+    await done;
+    terminals.killAllForTask(t.id);
+  });
+
+  it('cancelSetup is rejected on a ready task', async () => {
+    const { h, input, setupDone, terminals } = await harness();
+    const done = setupDone();
+    const t = await h['tasks:create'](input({ openShell: false }));
+    await done;
+    await expect(h['tasks:cancelSetup'](t.id)).rejects.toThrow(/ready/);
+    terminals.killAllForTask(t.id);
+  });
+
+  it('two concurrent creates for the same branch: one is rejected', async () => {
+    const { h, input, setupDone, terminals } = await harness();
+    const done = setupDone();
+    const results = await Promise.allSettled([
+      h['tasks:create'](input({ openShell: false })),
+      h['tasks:create'](input({ openShell: false })),
+    ]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    const rejected = results.find(
+      (r) => r.status === 'rejected',
+    ) as PromiseRejectedResult;
+    expect(String(rejected.reason)).toMatch(/already being created/);
+    await done;
+    for (const id of terminals.ids()) terminals.kill(id);
+  });
+
+  it('two concurrent terminals:open calls keep both terminals', async () => {
+    const { h, input, setupDone, terminals, store } = await harness();
+    const done = setupDone();
+    const t = await h['tasks:create'](input({ openShell: false }));
+    await done;
+    const [a, b] = await Promise.all([
+      h['terminals:open'](t.id, { kind: 'shell', label: 'a' }),
+      h['terminals:open'](t.id, { kind: 'shell', label: 'b' }),
+    ]);
+    const ids = store.state.tasks[0].terminals.map((x) => x.id);
+    expect(ids).toContain(a.id);
+    expect(ids).toContain(b.id);
+    terminals.killAllForTask(t.id);
+  });
+});
+
 describe('handlers: terminals', () => {
   it('opens a run terminal, exposes its buffer, restarts and kills it', async () => {
     const { h, input, setupDone, terminals, store } = await harness();

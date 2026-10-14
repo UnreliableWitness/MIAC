@@ -176,6 +176,32 @@ describe('SetupRunner', () => {
     ).toBe(true);
   });
 
+  it('reuses an existing worktree and branch when run again from step 0', async () => {
+    const repo = makeRepo();
+    const p = plan(repo);
+    const first = await runner.run(p, {
+      onEvent: () => {},
+      startTerminals: async () => {},
+    });
+    expect(first.ok).toBe(true);
+    const { events, onEvent } = collect();
+    const second = await runner.run(p, {
+      onEvent,
+      startTerminals: async () => {},
+    });
+    expect(second).toEqual({ ok: true });
+    expect(
+      events.some(
+        (e) =>
+          e.type === 'log' &&
+          e.line === `worktree ${p.worktreePath} already exists, reusing it`,
+      ),
+    ).toBe(true);
+    expect(existsSync(path.join(p.worktreePath, '.miac', 'task.md'))).toBe(
+      true,
+    );
+  });
+
   it('reports a git failure on the worktree step', async () => {
     const repo = makeRepo();
     const p = plan(repo, { baseRef: 'does-not-exist' });

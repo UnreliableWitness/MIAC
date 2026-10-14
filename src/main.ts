@@ -19,7 +19,8 @@ let mainWindow: BrowserWindow | null = null;
 const terminals = new TerminalManager();
 
 function broadcast<K extends keyof Events>(event: K, payload: Events[K]): void {
-  mainWindow?.webContents.send(`${EVENT_PREFIX}${event}`, payload);
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send(`${EVENT_PREFIX}${event}`, payload);
 }
 
 function createWindow(): BrowserWindow {
@@ -50,6 +51,9 @@ function createWindow(): BrowserWindow {
       path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`),
     );
   }
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null;
+  });
   return win;
 }
 
@@ -94,9 +98,6 @@ async function boot(): Promise<void> {
   );
 
   mainWindow = createWindow();
-  mainWindow.on('closed', () => {
-    mainWindow = null;
-  });
   mainWindow.webContents.once('did-finish-load', () => {
     if (loaded.recovered)
       broadcast('notice', {
@@ -111,7 +112,13 @@ async function boot(): Promise<void> {
   });
 }
 
-app.whenReady().then(boot);
+app
+  .whenReady()
+  .then(boot)
+  .catch((e) => {
+    console.error(e);
+    app.quit();
+  });
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow();

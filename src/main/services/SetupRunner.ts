@@ -174,6 +174,13 @@ export class SetupRunner {
         return;
       }
       case 'worktree':
+        if (
+          (await exists(plan.worktreePath)) &&
+          (await this.git.branchExists(plan.repoPath, plan.branch))
+        ) {
+          log(`worktree ${plan.worktreePath} already exists, reusing it`);
+          return;
+        }
         log(
           `$ git worktree add -b ${plan.branch} ${plan.worktreePath} ${plan.baseRef}`,
         );
