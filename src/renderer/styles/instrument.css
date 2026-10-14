@@ -1,0 +1,91 @@
+.tickrule {
+  height: 1px;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--tick) 0 1px,
+    transparent 1px 10px
+  );
+}
+.ilabel {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.ilabel::before {
+  content: '\25E6  ';
+  color: var(--accent);
+}
+.bracketed {
+  position: relative;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+}
+.bracketed::before,
+.bracketed::after {
+  content: '';
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border: solid var(--tick);
+  pointer-events: none;
+}
+.bracketed::before {
+  left: -1px;
+  top: -1px;
+  border-width: 1px 0 0 1px;
+}
+.bracketed::after {
+  right: -1px;
+  bottom: -1px;
+  border-width: 0 1px 1px 0;
+}
+.bracketed.is-active {
+  border-color: #3a3322;
+  background: #14120d;
+}
+.bracketed.is-active::before,
+.bracketed.is-active::after {
+  border-color: var(--accent);
+}
+.ibtn {
+  width: 24px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  padding: 0;
+  transition:
+    border-color 140ms var(--ease),
+    color 140ms var(--ease);
+}
+.ibtn:hover:not(:disabled) {
+  border-color: var(--tick);
+  color: var(--text-bright);
+}
+.ibtn:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+.ibtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.ibtn-accent {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.ibtn-green {
+  border-color: var(--green-border);
+  color: var(--green);
+}
+.ring {
+  flex: none;
+  display: block;
+}

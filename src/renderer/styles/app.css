@@ -1,5 +1,6 @@
 @import './tokens.css';
 @import './screens.css';
+@import './instrument.css';
 
 * {
   box-sizing: border-box;
