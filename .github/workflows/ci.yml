@@ -25,6 +25,12 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+      # The packaged app must load node-pty and spawn a pty (Windows does this in the installer jobs).
+      - name: Package and smoke-test (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          npx electron-forge package
+          node tools/forge/smoke.mjs
 
   windows-installer:
     # Unsigned build for pull requests and non-release branches. Never signs.
@@ -41,6 +47,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run make
+      - name: Smoke-test the packaged app
+        run: node tools/forge/smoke.mjs
       - name: Summary
         shell: pwsh
         run: '"Windows installer: **unsigned** (this is not main or a v* tag)" >> $env:GITHUB_STEP_SUMMARY'
@@ -99,6 +107,7 @@ jobs:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          allow-no-subscriptions: true
       - name: Prepare signing tools
         if: env.SIGN == 'true'
         shell: pwsh
@@ -113,11 +122,15 @@ jobs:
           "ARTIFACT_SIGNING_METADATA=$meta" >> $env:GITHUB_ENV
           "ARTIFACT_SIGNING_ENDPOINT=$env:AS_ENDPOINT" >> $env:GITHUB_ENV
       - run: npm run make
+      - name: Smoke-test the packaged app
+        run: node tools/forge/smoke.mjs
       - name: Verify signatures
         if: env.SIGN == 'true'
         shell: pwsh
         run: |
           # electron-winstaller's nested windows-sign swallows hook errors, so verify every exe we produced.
+          # That includes node-pty's OpenConsole.exe and winpty-agent.exe under app.asar.unpacked: the
+          # packager's windows-sign walks the whole app folder and signs them with the rest.
           $exes = @(Get-ChildItem out -Recurse -Filter *.exe)
           if ($exes.Count -eq 0) { throw 'No exe files found under out/' }
           $failed = 0
@@ -139,4 +152,8 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           $setup = Get-ChildItem out/make/squirrel.windows -Recurse -Filter MIAC-Setup.exe | Select-Object -First 1
-          gh release create $env:TAG $setup.FullName --title "MIAC $env:TAG" --generate-notes
+          if ($env:SIGN -eq 'true') {
+            gh release create $env:TAG $setup.FullName --title "MIAC $env:TAG" --generate-notes
+          } else {
+            gh release create $env:TAG $setup.FullName --title "MIAC $env:TAG (unsigned)" --prerelease --generate-notes
+          }
