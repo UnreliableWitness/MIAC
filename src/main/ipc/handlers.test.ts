@@ -73,6 +73,7 @@ async function harness() {
       id: '48231',
       type: 'User Story',
       title: 'Show estimated delivery date',
+      url: null,
     },
     branch: 'feature/48231-show-estimated-delivery-date',
     copy: true,
@@ -163,7 +164,9 @@ describe('handlers: create task', () => {
     terminals.killAllForTask(t.id);
     await expect(
       h['tasks:create'](
-        input({ workItem: { id: '1', type: 'Bug', title: 'other' } }),
+        input({
+          workItem: { id: '1', type: 'Bug', title: 'other', url: null },
+        }),
       ),
     ).rejects.toThrow(/already exists/);
     await expect(

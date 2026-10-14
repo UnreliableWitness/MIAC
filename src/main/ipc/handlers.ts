@@ -462,5 +462,5 @@ export function createHandlers(s: Services): Handlers {
     },
     'terminals:buffer': async (id) => s.terminals.buffer(id),
     'terminals:isRunning': async (id) => s.terminals.isRunning(id),
-  };
+  } as Handlers;
 }

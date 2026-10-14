@@ -1,8 +1,11 @@
 import type {
+  Connection,
+  ConnectionInput,
   CreateTaskInput,
   FinishChecks,
   FinishOptions,
   GitSummary,
+  Iteration,
   MiacConfig,
   NewTerminal,
   Repo,
@@ -11,6 +14,8 @@ import type {
   Task,
   TaskView,
   TerminalDef,
+  WorkItemSearch,
+  WorkItemSummary,
 } from './types';
 
 /** Request/response channels. `args` is the tuple the renderer passes; `result` is what main resolves. */
@@ -24,6 +29,23 @@ export type Channels = {
     args: [repoId: string];
     result: { config: MiacConfig; worktreeRoot: string };
   };
+  'connections:list': { args: []; result: Connection[] };
+  'connections:save': { args: [input: ConnectionInput]; result: Connection };
+  'connections:remove': { args: [id: string]; result: void };
+  'connections:verify': { args: [id: string]; result: Connection };
+  'repos:setConnection': {
+    args: [repoId: string, connectionId: string | null];
+    result: Repo;
+  };
+  'workItems:currentIteration': {
+    args: [connectionId: string];
+    result: Iteration | null;
+  };
+  'workItems:search': {
+    args: [connectionId: string, search: WorkItemSearch];
+    result: WorkItemSummary[];
+  };
+  'shell:openExternal': { args: [url: string]; result: void };
   'tasks:list': { args: []; result: TaskView[] };
   'tasks:create': { args: [input: CreateTaskInput]; result: Task };
   'tasks:setupState': { args: [taskId: string]; result: SetupState | null };
@@ -58,6 +80,7 @@ export type Events = {
   'terminal:exit': { id: string; exitCode: number };
   'tasks:changed': TaskView[];
   'repos:changed': Repo[];
+  'connections:changed': Connection[];
   notice: { level: 'info' | 'warn' | 'error'; message: string };
 };
 

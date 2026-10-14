@@ -1,12 +1,13 @@
 import { z } from 'zod';
 
-export const WorkItemTypeSchema = z.enum(['User Story', 'Bug', 'Task']);
-export type WorkItemType = z.infer<typeof WorkItemTypeSchema>;
+/** Work item type names come from the project's process (Agile, Scrum, Basic, custom); any string is valid. */
+export type WorkItemType = string;
 
 export const WorkItemRefSchema = z.object({
   id: z.string().min(1),
-  type: WorkItemTypeSchema,
+  type: z.string().min(1),
   title: z.string().min(1),
+  url: z.string().nullable().default(null),
 });
 export type WorkItemRef = z.infer<typeof WorkItemRefSchema>;
 
@@ -155,3 +156,54 @@ export type Notice = {
   level: 'info' | 'warn' | 'error';
   message: string;
 };
+
+export const ConnectionStatusSchema = z.enum([
+  'unknown',
+  'ok',
+  'unauthorized',
+  'unreachable',
+]);
+export type ConnectionStatus = z.infer<typeof ConnectionStatusSchema>;
+
+export const ConnectionSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  organizationUrl: z.string().min(1),
+  project: z.string().min(1),
+  user: z.string().nullable(),
+  status: ConnectionStatusSchema,
+  checkedAt: z.string().nullable(),
+});
+export type Connection = z.infer<typeof ConnectionSchema>;
+
+export const ConnectionsFileSchema = z.object({
+  version: z.literal(1),
+  connections: z.array(
+    ConnectionSchema.extend({ tokenCiphertext: z.string() }),
+  ),
+});
+export type ConnectionsFile = z.infer<typeof ConnectionsFileSchema>;
+
+/** What the renderer sends to save a connection. The PAT travels only in this direction. */
+export type ConnectionInput = {
+  id?: string;
+  name?: string;
+  organizationUrl: string;
+  project: string;
+  pat: string;
+};
+
+export type Iteration = { path: string; name: string };
+
+export type WorkItemSummary = {
+  id: string;
+  type: string;
+  title: string;
+  state: string;
+  areaPath: string;
+  iterationPath: string;
+  assignedTo: string | null;
+  url: string;
+};
+
+export type WorkItemSearch = { scope: 'sprint' | 'mine'; text: string };

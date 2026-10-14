@@ -110,7 +110,12 @@ describe('NewTaskScreen', () => {
       repoId: 'r1',
       baseRef: 'origin/main',
       name: '',
-      workItem: { id: '48231', type: 'User Story', title: 'Delivery date' },
+      workItem: {
+        id: '48231',
+        type: 'User Story',
+        title: 'Delivery date',
+        url: null,
+      },
       branch: 'feature/48231-delivery-date',
       copy: true,
       commands: ['npm ci'],

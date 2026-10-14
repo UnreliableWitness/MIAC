@@ -65,7 +65,7 @@ export function NewTaskScreen() {
   const workItem: WorkItemRef | null = useMemo(
     () =>
       mode === 'work-item' && (id.trim() || title.trim())
-        ? { id: id.trim(), type, title: title.trim() }
+        ? { id: id.trim(), type, title: title.trim(), url: null }
         : null,
     [mode, id, type, title],
   );

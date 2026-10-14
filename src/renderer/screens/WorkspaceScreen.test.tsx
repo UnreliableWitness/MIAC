@@ -26,6 +26,7 @@ const task: TaskView = {
     id: '48213',
     type: 'User Story',
     title: 'Checkout: allow saving a delivery address',
+    url: null,
   },
   slug: 'a',
   branch: 'feature/48213-save-delivery-address',
@@ -186,7 +187,7 @@ describe('WorkspaceScreen', () => {
     const second: TaskView = {
       ...task,
       id: 'b',
-      workItem: { id: '2', type: 'Bug', title: 'Second task' },
+      workItem: { id: '2', type: 'Bug', title: 'Second task', url: null },
       terminals: [{ id: 'c2', kind: 'claude', label: 'Claude Code' }],
     };
     useStore.setState({ tasks: [task, second] });

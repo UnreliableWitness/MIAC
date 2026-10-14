@@ -14,6 +14,7 @@ const task: TaskView = {
     id: '48231',
     type: 'User Story',
     title: 'Show estimated delivery date',
+    url: null,
   },
   slug: '48231-show',
   branch: 'feature/48231-show',
