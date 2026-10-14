@@ -243,6 +243,7 @@ export class SetupRunner {
         cwd,
         env: { ...process.env, ...env },
         stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
       });
       const pipe = (stream: NodeJS.ReadableStream) => {
         let buf = '';
