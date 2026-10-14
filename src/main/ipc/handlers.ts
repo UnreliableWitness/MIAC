@@ -393,14 +393,14 @@ export function createHandlers(s: Services): Handlers {
             s.terminals.killAllForTask(taskId);
             await patchTask(taskId, { terminals: [] });
           }
-          const folderExists = await exists(task.worktreePath);
-          if ((options.removeWorktree || options.deleteBranch) && folderExists)
+          if (options.removeWorktree && (await exists(task.worktreePath)))
             await s.git.worktreeRemove(repo.path, task.worktreePath, true);
-          // A deleted folder leaves a stale registration that blocks branch deletion.
-          if (options.removeWorktree || options.deleteBranch)
+          if (options.deleteBranch) {
+            // A deleted folder leaves a stale registration that blocks branch deletion.
+            // A folder that still exists keeps the refusal, which protects uncommitted work.
             await s.git.worktreePrune(repo.path);
-          if (options.deleteBranch)
             await s.git.deleteBranch(repo.path, task.branch);
+          }
         } catch (e) {
           await patchTask(taskId, { status: 'ready' });
           throw e;

@@ -207,7 +207,8 @@ export function FinishScreen({ taskId }: { taskId: string }) {
           </label>
           {!removeWorktree && deleteBranch && (
             <div className="muted small">
-              Deleting the branch also detaches the worktree.
+              The branch cannot be deleted while its worktree folder exists.
+              Tick &quot;Remove worktree folder&quot; too, or untick this.
             </div>
           )}
           <label className="checkbox">

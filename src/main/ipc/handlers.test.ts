@@ -237,6 +237,24 @@ describe('handlers: missing worktree folder', () => {
 });
 
 describe('handlers: finish', () => {
+  it('finish does not delete an unticked worktree folder', async () => {
+    const { h, input, setupDone, store, terminals, repo } = await harness();
+    const done = setupDone();
+    const t = await h['tasks:create'](input({ openShell: false }));
+    await done;
+    await expect(
+      h['tasks:finish'](t.id, {
+        closeTerminals: true,
+        removeWorktree: false,
+        deleteBranch: true,
+      }),
+    ).rejects.toThrow();
+    expect(existsSync(t.worktreePath)).toBe(true);
+    expect(await new GitClient().branchExists(repo, t.branch)).toBe(true);
+    expect(store.state.tasks[0].status).toBe('ready');
+    terminals.killAllForTask(t.id);
+  });
+
   it('reports checks, then removes worktree and branch and marks done', async () => {
     const { h, input, setupDone, terminals, repo } = await harness();
     const done = setupDone();
