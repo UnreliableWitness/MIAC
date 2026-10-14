@@ -8,6 +8,7 @@ import { VitePlugin } from '@electron-forge/plugin-vite';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
 import { keepInPackage } from './tools/forge/packageFilter.mjs';
+import { trimLocales } from './tools/forge/trimLocales.mjs';
 
 // Signing is switched on by CI only (Azure Artifact Signing), see tools/windows-sign.
 const signing = process.env.ARTIFACT_SIGNING_ENDPOINT
@@ -31,6 +32,21 @@ const config: ForgeConfig = {
     ...(signing ? { windowsSign: signing } : {}),
   },
   rebuildConfig: {},
+  hooks: {
+    // Runs on the freshly extracted Electron folder, before the app is copied in, before signing and
+    // before any maker reads the output. Locale packs sit outside app.asar, so asar integrity is unaffected.
+    // Windows/Linux only: keeps en-US and nl, drops the other Chromium locale packs (about 50 MB).
+    packageAfterExtract: async (
+      _config,
+      buildPath,
+      _electronVersion,
+      platform,
+    ) => {
+      const { removed } = trimLocales(buildPath, platform);
+      if (removed.length > 0)
+        console.log(`Removed ${removed.length} unused Chromium locale packs`);
+    },
+  },
   makers: [
     new MakerSquirrel({
       name: 'miac',
