@@ -89,6 +89,7 @@ export type Channels = {
   'usage:fieldsStatus': { args: [connectionId: string]; result: FieldsStatus };
   'usage:receiverStatus': { args: []; result: ReceiverStatus };
   'rates:list': { args: []; result: { rates: Rate[]; officialAsOf: string } };
+  'app:info': { args: []; result: { version: string } };
   'settings:get': { args: []; result: AppSettings };
   'settings:save': { args: [settings: AppSettings]; result: AppSettings };
 };

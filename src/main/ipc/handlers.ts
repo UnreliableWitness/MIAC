@@ -59,6 +59,7 @@ export type Services = {
   broadcast: <K extends keyof Events>(event: K, payload: Events[K]) => void;
   usage: UsageStore;
   settings: SettingsStore;
+  appVersion: string;
   receiver: Pick<UsageReceiver, 'start' | 'status'>;
   copilot: Pick<CopilotFileTailer, 'stats' | 'poll'>;
   usageDir: string;
@@ -738,6 +739,7 @@ export function createHandlers(s: Services): Handlers {
       rates: OFFICIAL_RATES,
       officialAsOf: OFFICIAL_RATES_AS_OF,
     }),
+    'app:info': async () => ({ version: s.appVersion }),
     'settings:get': async () => s.settings.get(),
     'settings:save': async (next) => {
       const before = s.settings.get();

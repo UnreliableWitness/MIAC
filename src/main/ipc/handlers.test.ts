@@ -125,6 +125,7 @@ async function harness(
       hourly.push(fn);
     },
     finishFlushMs: 0,
+    appVersion: '9.9.9',
     ...over,
     broadcast: (event, payload) => {
       broadcasts.push({ event, payload });
@@ -1110,6 +1111,11 @@ describe('handlers: usage', () => {
     expect(await hx.h['usage:exportCsv']('tx')).toContain(
       ',s1,claude-opus-5-5,1000000,0,0,0,false,4,3.68,false,',
     );
+  });
+
+  it('reports the app version', async () => {
+    const hx = await harness();
+    expect(await hx.h['app:info']()).toEqual({ version: '9.9.9' });
   });
 
   it('saves settings, moves the receiver and reports a busy port', async () => {

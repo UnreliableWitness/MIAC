@@ -23,6 +23,7 @@ const settings = {
   version: 1 as const,
   receiverPort: 4319,
   hourlySync: true,
+  showSplash: true,
 };
 
 beforeEach(() => {
@@ -62,6 +63,7 @@ describe('CostSection', () => {
       version: 1,
       receiverPort: 4319,
       hourlySync: false,
+      showSplash: true,
     });
   });
   it('shows the receiver status and Copilot counters', async () => {

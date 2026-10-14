@@ -152,4 +152,28 @@ describe('SettingsScreen', () => {
       ).toEqual(['r1', 'c1']),
     );
   });
+
+  it('toggles the splash setting', async () => {
+    const { calls } = installFakeApi({ 'settings:save': (next) => next });
+    render(<SettingsScreen />);
+    const box = await screen.findByRole('checkbox', {
+      name: 'Show splash on start',
+    });
+    await waitFor(() => expect(box).toBeChecked());
+    await userEvent.click(box);
+    expect(
+      calls.find((c) => c.channel === 'settings:save')?.args[0],
+    ).toMatchObject({ showSplash: false });
+  });
+
+  it('shows the About panel with the version', async () => {
+    installFakeApi();
+    render(<SettingsScreen />);
+    const about = await screen.findByRole('region', { name: 'About' });
+    expect(about).toHaveTextContent("Me, I'm Counting");
+    expect(about).toHaveTextContent(
+      'General Systems Vehicle (accounting division)',
+    );
+    await waitFor(() => expect(about).toHaveTextContent('1.0.0'));
+  });
 });

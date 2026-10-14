@@ -505,3 +505,93 @@
 .rates td {
   padding: 4px 6px;
 }
+
+/* Sub-project 6: instrument surfaces */
+.dialog {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.7);
+}
+.dialog-head {
+  position: relative;
+  border-bottom: 0;
+}
+.dialog-head::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--tick) 0 1px,
+    transparent 1px 10px
+  );
+}
+.btn-primary {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-bg);
+}
+.setup-log-body {
+  background: var(--void);
+}
+.steps-rule {
+  position: relative;
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 18px;
+}
+.steps-rule::before {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 6px;
+  bottom: 6px;
+  width: 1px;
+  background: repeating-linear-gradient(
+    180deg,
+    var(--tick) 0 1px,
+    transparent 1px 6px
+  );
+}
+.steps-rule .step-icon {
+  position: absolute;
+  left: -18px;
+  width: 11px;
+  text-align: center;
+  font-family: var(--font-mono);
+}
+.steps-rule .step[data-status='done'] .step-icon {
+  color: var(--accent);
+}
+.steps-rule .step[data-status='running'] .step-icon {
+  color: var(--accent);
+  animation: pulse 1.6s var(--ease) infinite;
+}
+.steps-rule .step[data-status='failed'] .step-icon {
+  color: var(--red);
+}
+.steps-rule .step[data-status='todo'] .step-icon {
+  color: var(--faint);
+}
+.steps-rule .step {
+  position: relative;
+}
+.about {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 28px 20px;
+  text-align: center;
+}
+.about h2,
+.about p {
+  margin: 0;
+}

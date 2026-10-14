@@ -112,6 +112,7 @@ async function boot(): Promise<void> {
   const receiver = new UsageReceiver(ingest);
   const copilot = new CopilotFileTailer(path.join(usageDir, 'copilot'), ingest);
   const handlers = createHandlers({
+    appVersion: app.getVersion(),
     usage,
     settings,
     receiver,

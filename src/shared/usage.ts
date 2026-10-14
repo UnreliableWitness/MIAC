@@ -50,12 +50,14 @@ export const AppSettingsSchema = z.object({
   version: z.literal(1),
   receiverPort: z.number().int().min(1024).max(65535),
   hourlySync: z.boolean(),
+  showSplash: z.boolean().default(true),
 });
 export type AppSettings = z.infer<typeof AppSettingsSchema>;
 export const defaultSettings = (): AppSettings => ({
   version: 1,
   receiverPort: 4319,
   hourlySync: true,
+  showSplash: true,
 });
 
 export type SessionSummary = {

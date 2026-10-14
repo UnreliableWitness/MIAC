@@ -154,14 +154,14 @@ export function SetupScreen({ taskId }: { taskId: string }) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {task.workItem ? (
               <span
-                className="pill pill-blue"
+                className="mono strip-id"
                 style={{ alignSelf: 'flex-start' }}
               >
                 {task.workItem.type} {task.workItem.id}
               </span>
             ) : (
               <span
-                className="pill pill-accent"
+                className="mono strip-id"
                 style={{ alignSelf: 'flex-start' }}
               >
                 Blank task

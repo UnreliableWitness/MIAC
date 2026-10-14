@@ -7,11 +7,13 @@ import type {
 } from '../../shared/usage';
 import { OFFICIAL_USD_TO_EUR } from '../../shared/usage';
 import { api, tryInvoke } from '../api';
+import { Label } from './instrument';
 import { useStore } from '../store';
 
 type SettingsDraft = {
   receiverPort: string;
   hourlySync: boolean;
+  showSplash: boolean;
 };
 
 /** A number typed in a field, or null when it is blank or not a number (Number('') would be 0). */
@@ -45,6 +47,7 @@ function InvoicingPart() {
         setDraft({
           receiverPort: String(s.receiverPort),
           hourlySync: s.hourlySync,
+          showSplash: s.showSplash,
         });
     });
     const load = () =>
@@ -74,6 +77,7 @@ function InvoicingPart() {
       version: 1,
       receiverPort,
       hourlySync: draft.hourlySync,
+      showSplash: draft.showSplash,
     };
     const saved = await tryInvoke(
       () => api().invoke('settings:save', settings),
@@ -272,7 +276,9 @@ export function CostSection() {
   return (
     <section id="cost" className="section">
       <div className="section-head">
-        <h2>AI cost and invoicing</h2>
+        <h2>
+          <Label>AI cost and invoicing</Label>
+        </h2>
       </div>
       <InvoicingPart />
       <RatesPart />
