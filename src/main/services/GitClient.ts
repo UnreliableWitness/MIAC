@@ -10,9 +10,11 @@ export class GitError extends Error {
     public readonly args: string[],
     public readonly stderr: string,
     public readonly code: number | null,
+    cause?: unknown,
   ) {
     super(
       `git ${args.join(' ')} failed${code === null ? '' : ` (${code})`}: ${stderr.trim()}`,
+      { cause },
     );
     this.name = 'GitError';
   }
@@ -35,7 +37,8 @@ export class GitClient {
         message: string;
       };
       const code = typeof err.code === 'number' ? err.code : null;
-      throw new GitError(args, err.stderr ?? err.message, code);
+      const stderr = (err.stderr ?? '').trim() || err.message;
+      throw new GitError(args, stderr, code, e);
     }
   }
 
@@ -70,7 +73,7 @@ export class GitClient {
   async validBranchName(cwd: string, branch: string): Promise<boolean> {
     if (branch.length === 0 || branch.startsWith('-')) return false;
     try {
-      await this.run(cwd, ['check-ref-format', '--branch', branch]);
+      await this.run(cwd, ['check-ref-format', `refs/heads/${branch}`]);
       return true;
     } catch {
       return false;
@@ -128,7 +131,13 @@ export class GitClient {
     const lines = out.split('\n');
     const head = lines.shift() ?? '';
     const m = /^## (\S+?)(?:\.\.\.(\S+))?(?: \[([^\]]+)\])?$/.exec(head);
-    const branch = m?.[1] ?? '';
+    let branch = m?.[1] ?? '';
+    if (!m || branch === 'HEAD') {
+      const current = (
+        await this.run(worktree, ['branch', '--show-current'])
+      ).trim();
+      branch = current || 'HEAD';
+    }
     const upstream = m?.[2];
     const track = m?.[3] ?? '';
     const num = (re: RegExp) => Number(re.exec(track)?.[1] ?? 0);

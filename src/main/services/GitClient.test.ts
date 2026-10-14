@@ -31,6 +31,8 @@ describe('GitClient', () => {
     expect(await client.validBranchName(repo, 'bad name')).toBe(false);
     expect(await client.validBranchName(repo, 'bad..name')).toBe(false);
     expect(await client.validBranchName(repo, '-bad')).toBe(false);
+    expect(await client.validBranchName(repo, '@{-1}')).toBe(false);
+    expect(await client.validBranchName(repo, 'feature/trailing/')).toBe(false);
   });
 
   it('adds a worktree on a new branch from a base ref, then removes it', async () => {
@@ -112,6 +114,40 @@ describe('GitClient', () => {
     expect(s.hasUpstream).toBe(false);
     expect(s.ahead).toBe(1);
     expect(s.files).toEqual([]);
+  });
+
+  it('reports HEAD for a detached worktree', async () => {
+    const repo = makeRepo();
+    const wt = path.join(path.dirname(repo), 'wt3');
+    await client.worktreeAdd(repo, {
+      branch: 'feature/d',
+      path: wt,
+      baseRef: 'main',
+    });
+    git(wt, 'checkout', '-q', '--detach');
+    const s = await client.summary(wt, 'main');
+    expect(s.branch).toBe('HEAD');
+    expect(s.hasUpstream).toBe(false);
+  });
+
+  it('reports the branch name in a repo with no commits', async () => {
+    const repo = makeRepo();
+    const empty = path.join(path.dirname(repo), 'empty');
+    git(path.dirname(repo), 'init', '-q', '-b', 'main', 'empty');
+    const s = await client.summary(empty, 'main');
+    expect(s.branch).toBe('main');
+    expect(s.files).toEqual([]);
+  });
+
+  it('gives a non-empty reason when git cannot be spawned', async () => {
+    const err = await client
+      .run('/nonexistent-dir-miac', ['status'])
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(GitError);
+    expect((err as GitError).message).toMatch(/ENOENT|spawn|no such file/i);
+    expect((err as GitError).message.length).toBeGreaterThan(
+      'git status failed'.length + 5,
+    );
   });
 
   it('returns the common git dir for a worktree', async () => {
