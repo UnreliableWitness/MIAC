@@ -35,9 +35,14 @@ export function NewTaskScreen() {
   const repo = repos.find((r) => r.id === repoId) ?? null;
 
   useEffect(() => {
-    if (!repo) return;
+    if (!repoId) return;
     let live = true;
-    void tryInvoke(() => api().invoke('repos:config', repo.id), notify).then(
+    setConfig(null);
+    setBaseRef('');
+    setCopy(true);
+    setCommands({});
+    setBranchEdited(false);
+    void tryInvoke(() => api().invoke('repos:config', repoId), notify).then(
       (result) => {
         if (!live || !result) return;
         setConfig(result);
@@ -50,7 +55,12 @@ export function NewTaskScreen() {
     return () => {
       live = false;
     };
-  }, [repo, notify]);
+  }, [repoId, notify]);
+
+  const changeMode = (next: Mode) => {
+    setMode(next);
+    setBranchEdited(false);
+  };
 
   const workItem: WorkItemRef | null = useMemo(
     () =>
@@ -80,7 +90,13 @@ export function NewTaskScreen() {
     ? [`origin/${config.config.base}`, config.config.base]
     : [];
 
+  const canCreate =
+    mode === 'work-item'
+      ? Boolean(id.trim() && title.trim())
+      : Boolean(name.trim());
+
   const create = async () => {
+    if (busy) return;
     if (!repo) return notify('error', 'Add a repository in Settings first');
     setBusy(true);
     const task = await tryInvoke(
@@ -116,8 +132,7 @@ export function NewTaskScreen() {
               type="button"
               role="tab"
               aria-selected={mode === 'work-item'}
-              aria-pressed={mode === 'work-item'}
-              onClick={() => setMode('work-item')}
+              onClick={() => changeMode('work-item')}
             >
               Work item
             </button>
@@ -125,8 +140,7 @@ export function NewTaskScreen() {
               type="button"
               role="tab"
               aria-selected={mode === 'blank'}
-              aria-pressed={mode === 'blank'}
-              onClick={() => setMode('blank')}
+              onClick={() => changeMode('blank')}
             >
               Blank task
             </button>
@@ -236,6 +250,9 @@ export function NewTaskScreen() {
                   setBranchEdited(true);
                   setBranch(e.target.value);
                 }}
+                onBlur={(e) => {
+                  if (!e.target.value) setBranchEdited(false);
+                }}
               />
               <span className="label">Folder</span>
               <span className="mono small" style={{ overflowWrap: 'anywhere' }}>
@@ -262,9 +279,10 @@ export function NewTaskScreen() {
                   <input
                     type="checkbox"
                     checked={commands[c] ?? false}
-                    onChange={(e) =>
-                      setCommands({ ...commands, [c]: e.target.checked })
-                    }
+                    onChange={(e) => {
+                      const { checked } = e.target;
+                      setCommands((prev) => ({ ...prev, [c]: checked }));
+                    }}
                   />
                   <span className="mono">{c}</span>
                 </label>
@@ -307,7 +325,9 @@ export function NewTaskScreen() {
               <button
                 type="button"
                 className="btn btn-primary"
-                disabled={busy || !repo || !branch}
+                disabled={
+                  busy || !repo || !config || !baseRef || !branch || !canCreate
+                }
                 onClick={create}
               >
                 Create task

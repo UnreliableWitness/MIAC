@@ -127,11 +127,27 @@ describe('NewTaskScreen', () => {
       },
     });
     render(<NewTaskScreen />);
+    await userEvent.type(screen.getByLabelText('Work item id'), '48231');
     await userEvent.type(screen.getByLabelText('Title'), 'x');
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Create task' })).toBeEnabled(),
+    );
     await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
     await waitFor(() =>
       expect(useStore.getState().notices[0]?.message).toMatch(/already exists/),
     );
     expect(useStore.getState().screen).toEqual({ kind: 'new-task' });
+  });
+
+  it('requires both id and title in work-item mode', async () => {
+    installFakeApi({ 'repos:config': () => config });
+    render(<NewTaskScreen />);
+    await userEvent.type(screen.getByLabelText('Title'), 'Only a title');
+    await waitFor(() =>
+      expect(screen.getByLabelText('npm run build')).toBeChecked(),
+    );
+    expect(screen.getByRole('button', { name: 'Create task' })).toBeDisabled();
+    await userEvent.type(screen.getByLabelText('Work item id'), '48231');
+    expect(screen.getByRole('button', { name: 'Create task' })).toBeEnabled();
   });
 });
