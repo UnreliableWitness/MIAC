@@ -145,3 +145,8 @@ vite.config.ts.timestamp-*
 # Electron-Forge
 out/
 .superpowers/
+
+# Gemini art: the key and the raw candidates stay local
+tools/art/gemini.local.key
+tools/art/incoming/*
+!tools/art/incoming/.gitkeep
