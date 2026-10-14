@@ -3,6 +3,7 @@ import { api } from './api';
 import { Notices } from './components/Notices';
 import { NewTaskScreen } from './screens/NewTaskScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
+import { SetupScreen } from './screens/SetupScreen';
 import { WorkspaceScreen } from './screens/WorkspaceScreen';
 import { useStore } from './store';
 
@@ -25,7 +26,13 @@ export function App() {
 
   return (
     <div className="app">
-      {screen.kind === 'settings' ? <SettingsScreen /> : <WorkspaceScreen />}
+      {screen.kind === 'settings' ? (
+        <SettingsScreen />
+      ) : screen.kind === 'setup' ? (
+        <SetupScreen taskId={screen.taskId} />
+      ) : (
+        <WorkspaceScreen />
+      )}
       {screen.kind === 'new-task' && <NewTaskScreen />}
       <Notices />
     </div>
