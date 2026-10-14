@@ -42,6 +42,7 @@ export function NewTaskScreen() {
   const [commands, setCommands] = useState<Record<string, boolean>>({});
   const [startClaude, setStartClaude] = useState(true);
   const [openShell, setOpenShell] = useState(true);
+  const [openCopilot, setOpenCopilot] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const repo = repos.find((r) => r.id === repoId) ?? null;
@@ -154,6 +155,7 @@ export function NewTaskScreen() {
           commands: (config?.config.setup ?? []).filter((c) => commands[c]),
           startClaude,
           openShell,
+          openCopilot,
         }),
       notify,
     );
@@ -369,6 +371,14 @@ export function NewTaskScreen() {
                   onChange={(e) => setOpenShell(e.target.checked)}
                 />
                 Open a shell tab
+              </label>
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={openCopilot}
+                  onChange={(e) => setOpenCopilot(e.target.checked)}
+                />
+                Start Copilot CLI with the task
               </label>
             </fieldset>
             <div className="actions">

@@ -22,6 +22,14 @@ export const emptyUsage = (taskId: string): TaskUsage => ({
 });
 
 const defaults: FakeHandlers = {
+  'settings:get': () => ({
+    version: 1,
+    receiverPort: 4319,
+    usdToEur: 0.92,
+    markupPct: 0,
+    hourlySync: true,
+  }),
+  'rates:list': () => ({ rates: [], officialAsOf: '2026-10-14' }),
   'usage:task': (taskId) => emptyUsage(taskId),
   'repos:list': () => [],
   'connections:list': () => [],

@@ -725,3 +725,22 @@
   border-radius: var(--radius);
   margin: 0;
 }
+
+.rates {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.rates th {
+  text-align: left;
+  color: var(--muted);
+  font-weight: 500;
+  padding: 8px 6px;
+}
+.rates td {
+  padding: 4px 6px;
+}
+.rates .field {
+  width: 100%;
+  min-width: 70px;
+}

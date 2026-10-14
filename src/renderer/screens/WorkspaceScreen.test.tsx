@@ -207,6 +207,34 @@ describe('WorkspaceScreen', () => {
     );
   });
 
+  it('opens a Copilot CLI terminal from the tab bar', async () => {
+    const { calls } = installFakeApi({
+      'repos:config': () => config,
+      'tasks:gitSummary': () => ({
+        branch: 'x',
+        ahead: 0,
+        behind: 0,
+        hasUpstream: false,
+        files: [],
+      }),
+      'terminals:open': () => ({
+        id: 'n2',
+        kind: 'copilot',
+        label: 'Copilot CLI',
+      }),
+    });
+    render(<WorkspaceScreen />);
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Copilot CLI' }),
+    );
+    await waitFor(() =>
+      expect(calls.find((c) => c.channel === 'terminals:open')?.args).toEqual([
+        'a',
+        { kind: 'copilot', label: 'Copilot CLI' },
+      ]),
+    );
+  });
+
   it('opens the editor and the finish dialog from the header', async () => {
     const { calls } = installFakeApi({
       'repos:config': () => config,
