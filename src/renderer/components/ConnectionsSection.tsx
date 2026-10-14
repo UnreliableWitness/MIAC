@@ -20,32 +20,48 @@ function ConnectionRow({ connection }: { connection: Connection }) {
   const notify = useStore((s) => s.notify);
   const setConnections = useStore((s) => s.setConnections);
   const repos = useStore((s) => s.repos);
+  const setRepos = useStore((s) => s.setRepos);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const users = repos.filter((r) => r.connectionId === connection.id).length;
   const status = statusText(connection);
 
-  const refresh = async () =>
-    setConnections(await api().invoke('connections:list'));
-  const verify = async () => {
-    setBusy(true);
-    await tryInvoke(
-      () => api().invoke('connections:verify', connection.id),
+  const refresh = async () => {
+    const list = await tryInvoke(
+      () => api().invoke('connections:list'),
       notify,
     );
-    await refresh();
-    setBusy(false);
+    if (list) setConnections(list);
+  };
+  const verify = async () => {
+    setBusy(true);
+    try {
+      await tryInvoke(
+        () => api().invoke('connections:verify', connection.id),
+        notify,
+      );
+      await refresh();
+    } finally {
+      setBusy(false);
+    }
   };
   const remove = async () => {
     if (users > 0 && !confirming) return setConfirming(true);
     setBusy(true);
-    const ok = await tryInvoke(async () => {
-      await api().invoke('connections:remove', connection.id);
-      return true;
-    }, notify);
-    setBusy(false);
-    setConfirming(false);
-    if (ok) await refresh();
+    try {
+      const ok = await tryInvoke(async () => {
+        await api().invoke('connections:remove', connection.id);
+        return true;
+      }, notify);
+      setConfirming(false);
+      if (ok) {
+        await refresh();
+        const list = await tryInvoke(() => api().invoke('repos:list'), notify);
+        if (list) setRepos(list);
+      }
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -72,18 +88,19 @@ function ConnectionRow({ connection }: { connection: Connection }) {
           type="button"
           className="btn btn-ghost btn-sm"
           onClick={remove}
-          disabled={busy}
+          disabled={busy || confirming}
         >
           Remove
         </button>
       </div>
       {confirming && (
-        <div className="conn-confirm">
+        <div className="conn-confirm" role="status">
           <span>{`${users} ${users === 1 ? 'repository uses' : 'repositories use'} this connection; they will be unlinked.`}</span>
           <button
             type="button"
             className="btn btn-warn btn-sm"
             onClick={remove}
+            disabled={busy}
           >
             Remove anyway
           </button>
@@ -91,6 +108,7 @@ function ConnectionRow({ connection }: { connection: Connection }) {
             type="button"
             className="btn btn-ghost btn-sm"
             onClick={() => setConfirming(false)}
+            disabled={busy}
           >
             Keep
           </button>
@@ -118,7 +136,8 @@ function AddConnectionForm({ onDone }: { onDone: () => void }) {
       setPat('');
       onDone();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const message = e instanceof Error ? e.message : String(e);
+      setError(pat ? message.split(pat).join('***') : message);
     } finally {
       setBusy(false);
     }
@@ -151,7 +170,11 @@ function AddConnectionForm({ onDone }: { onDone: () => void }) {
         onChange={(e) => setPat(e.target.value)}
       />
       {error && (
-        <div className="conn-status-bad" style={{ gridColumn: '1 / -1' }}>
+        <div
+          role="alert"
+          className="conn-status-bad"
+          style={{ gridColumn: '1 / -1' }}
+        >
           {error}
         </div>
       )}

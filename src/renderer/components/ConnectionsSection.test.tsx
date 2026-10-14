@@ -72,6 +72,7 @@ describe('ConnectionsSection', () => {
       screen.getByLabelText('Personal access token'),
       'secret-pat',
     );
+    expect(document.body.textContent).not.toContain('secret-pat');
     expect(screen.getByLabelText('Personal access token')).toHaveAttribute(
       'type',
       'password',
@@ -152,5 +153,48 @@ describe('ConnectionsSection', () => {
         ),
       ).toBe(true),
     );
+  });
+
+  it('redacts the token from a save error', async () => {
+    installFakeApi({
+      'connections:save': () => {
+        throw new Error('bad token secret-pat here');
+      },
+    });
+    render(<ConnectionsSection />);
+    await userEvent.click(
+      screen.getByRole('button', { name: /Add connection/ }),
+    );
+    await userEvent.type(
+      screen.getByLabelText('Organization URL'),
+      'dev.azure.com/o',
+    );
+    await userEvent.type(screen.getByLabelText('Project'), 'P');
+    await userEvent.type(
+      screen.getByLabelText('Personal access token'),
+      'secret-pat',
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('***');
+    expect(document.body.textContent).not.toContain('secret-pat');
+  });
+
+  it('removes an unused connection without a confirm row', async () => {
+    const { calls } = installFakeApi({
+      'connections:remove': () => undefined,
+      'connections:list': () => [],
+    });
+    useStore.setState({ connections: [ok], repos: [] });
+    render(<ConnectionsSection />);
+    await userEvent.click(screen.getByRole('button', { name: 'Remove' }));
+    await waitFor(() =>
+      expect(
+        calls.some(
+          (c) => c.channel === 'connections:remove' && c.args[0] === 'c1',
+        ),
+      ).toBe(true),
+    );
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 });
