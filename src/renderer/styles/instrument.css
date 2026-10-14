@@ -196,3 +196,93 @@
   color: var(--blue);
   padding: 0;
 }
+
+.tasknav {
+  width: 168px;
+  flex: none;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  padding: 6px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow-y: auto;
+}
+.tasknav.is-rail {
+  width: 40px;
+  align-items: center;
+  padding: 6px 0;
+  gap: 6px;
+}
+.tasknav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.tasknav-group > .ilabel {
+  padding: 6px 6px 3px;
+}
+.taskrow {
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  color: var(--text);
+}
+.taskrow-frame {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 6px;
+  border-color: transparent;
+  background: transparent;
+  font-size: 12px;
+}
+.taskrow:hover .taskrow-frame {
+  background: var(--panel-2);
+}
+.taskrow-id {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+.taskrow[aria-current='true'] .taskrow-id {
+  color: var(--accent);
+}
+.taskrow-title {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.taskrow-cost {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--muted);
+}
+.railrow {
+  background: none;
+  border: 0;
+  padding: 0;
+}
+.railrow .bracketed {
+  border-color: transparent;
+  background: transparent;
+  padding: 3px;
+}
+.tasknav-foot {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+.tasknav-foot .linkbtn {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  color: var(--muted);
+}

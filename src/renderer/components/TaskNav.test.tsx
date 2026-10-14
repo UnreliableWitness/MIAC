@@ -97,16 +97,18 @@ const tasks: TaskView[] = [
   },
 ];
 
-beforeEach(() =>
+beforeEach(() => {
+  localStorage.clear();
   useStore.setState({
+    navCollapsed: false,
     repos,
     tasks,
     connections: [],
     notices: [],
     screen: { kind: 'workspace' },
     selectedTaskId: 'a',
-  }),
-);
+  });
+});
 
 describe('groupTasks', () => {
   it('groups open tasks by repo and collects done tasks separately', () => {
@@ -177,5 +179,34 @@ describe('TaskNav', () => {
     expect(
       await screen.findByText(`${String.fromCharCode(0x20ac)}12.50`),
     ).toBeInTheDocument();
+  });
+
+  it('collapses to a rail of cost rings and back, and remembers it', async () => {
+    installFakeApi();
+    render(<TaskNav />);
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Collapse task list' }),
+    );
+    expect(screen.getByRole('navigation', { name: 'Tasks' })).toHaveClass(
+      'is-rail',
+    );
+    expect(localStorage.getItem('miac.ui.navCollapsed')).toBe('true');
+    expect(
+      screen.getByRole('button', { name: /48213 Checkout/ }),
+    ).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Expand task list' }),
+    );
+    expect(screen.getByRole('navigation', { name: 'Tasks' })).not.toHaveClass(
+      'is-rail',
+    );
+  });
+
+  it('shows one dense row per task with id, title and cost', () => {
+    installFakeApi();
+    render(<TaskNav />);
+    const row = screen.getByRole('button', { name: /48213/ });
+    expect(row).toHaveTextContent('Checkout: save address');
+    expect(row).not.toHaveTextContent('feature/48213-a');
   });
 });
