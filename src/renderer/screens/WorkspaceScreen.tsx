@@ -35,10 +35,27 @@ export function WorkspaceScreen() {
       <div className="workspace">
         <TaskNav />
         <main className="taskmain">
-          {task && task.status !== 'done' ? (
+          {task &&
+          (task.status === 'setting-up' || task.status === 'setup-failed') ? (
+            <div className="empty">
+              <h2>{task.workItem?.title ?? task.name}</h2>
+              <p>
+                {task.status === 'setting-up'
+                  ? 'This task is still setting up.'
+                  : 'Setup failed for this task.'}
+              </p>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => go({ kind: 'setup', taskId: task.id })}
+              >
+                Open setup
+              </button>
+            </div>
+          ) : task && task.status !== 'done' ? (
             <>
-              <TaskHeader key={task.id} task={task} />
-              <TerminalTabs key={task.id} task={task} />
+              <TaskHeader key={`head-${task.id}`} task={task} />
+              <TerminalTabs key={`tabs-${task.id}`} task={task} />
             </>
           ) : task ? (
             <div className="empty">

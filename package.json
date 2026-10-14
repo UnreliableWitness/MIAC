@@ -3,12 +3,12 @@
   "productName": "miac",
   "version": "1.0.0",
   "private": true,
-  "description": "My Electron application description",
+  "description": "Me, I'm Counting: isolated dev task workspaces with per-task AI cost tracking",
   "keywords": [],
   "license": "MIT",
   "author": {
-    "name": "dries hoebeke",
-    "email": "dries.hoebeke@gmail.com"
+    "name": "Dries Hoebeke",
+    "email": "dries.hoebeke@pm.me"
   },
   "main": ".vite/build/main.cjs",
   "scripts": {

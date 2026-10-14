@@ -208,4 +208,19 @@ describe('WorkspaceScreen', () => {
       ),
     );
   });
+
+  it('shows an Open setup panel instead of the header for a setup-failed task', async () => {
+    installFakeApi();
+    useStore.setState({ tasks: [{ ...task, status: 'setup-failed' }] });
+    render(<WorkspaceScreen />);
+    expect(screen.getByText('Setup failed for this task.')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Finish task' }),
+    ).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Open setup' }));
+    expect(useStore.getState().screen).toEqual({
+      kind: 'setup',
+      taskId: 'a',
+    });
+  });
 });

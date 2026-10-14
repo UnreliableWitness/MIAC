@@ -233,14 +233,16 @@ describe('SetupScreen', () => {
     await userEvent.click(
       await screen.findByRole('button', { name: 'Retry from npm ci' }),
     );
-    act(() =>
+    act(() => {
+      // main broadcasts tasks:changed (status setting-up) before the step events
+      useStore.setState({ tasks: [{ ...task, status: 'setting-up' }] });
       emit('setup', {
         taskId: 't1',
         type: 'step',
         index: 2,
         status: 'running',
-      }),
-    );
+      });
+    });
     expect(screen.queryByText(/Setup failed/)).not.toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: /Retry from/ }),
@@ -259,5 +261,24 @@ describe('SetupScreen', () => {
       expect(useStore.getState().notices.length).toBeGreaterThan(0),
     );
     expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
+  });
+
+  it('offers a plain Retry for a setup-failed task with no setup state (after a relaunch)', async () => {
+    useStore.setState({ tasks: [{ ...task, status: 'setup-failed' }] });
+    const { calls } = installFakeApi({
+      'tasks:setupState': () => null,
+      'tasks:retrySetup': () => undefined,
+    });
+    render(<SetupScreen taskId="t1" />);
+    expect(screen.getByText(/Setup failed/)).toBeInTheDocument();
+    expect(screen.queryByText(/Setting up your task/)).not.toBeInTheDocument();
+    await userEvent.click(await screen.findByRole('button', { name: 'Retry' }));
+    await waitFor(() =>
+      expect(
+        calls.some(
+          (c) => c.channel === 'tasks:retrySetup' && c.args[0] === 't1',
+        ),
+      ).toBe(true),
+    );
   });
 });

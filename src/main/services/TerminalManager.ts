@@ -113,6 +113,10 @@ export class TerminalManager extends EventEmitter<{
     return this.get(id).buffer;
   }
 
+  has(id: string): boolean {
+    return this.entries.has(id);
+  }
+
   ids(): string[] {
     return [...this.entries.keys()];
   }

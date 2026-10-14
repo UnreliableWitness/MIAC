@@ -165,9 +165,11 @@ export function SetupScreen({ taskId }: { taskId: string }) {
             )}
             <h1>{task.workItem?.title ?? task.name}</h1>
             <div className="muted">
-              {failedStep !== null
-                ? 'Setup failed. Fix the cause, then retry from the failed step, or remove the task.'
-                : 'Setting up your task. You can go back to the task list; it keeps going in the background.'}
+              {task.status === 'setup-failed'
+                ? 'Setup failed. Fix the cause, then retry, or remove the task.'
+                : task.status === 'ready'
+                  ? 'Setup finished.'
+                  : 'Setting up your task. You can go back to the task list; it keeps going in the background.'}
             </div>
           </div>
           {state ? (
@@ -183,12 +185,10 @@ export function SetupScreen({ taskId }: { taskId: string }) {
             >
               Back to tasks
             </button>
-            {failedLabel && task.status === 'setup-failed' && (
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={retry}
-              >{`Retry from ${failedLabel}`}</button>
+            {task.status === 'setup-failed' && (
+              <button type="button" className="btn btn-primary" onClick={retry}>
+                {failedLabel ? `Retry from ${failedLabel}` : 'Retry'}
+              </button>
             )}
             <button
               type="button"

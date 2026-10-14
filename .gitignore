@@ -150,3 +150,7 @@ out/
 tools/art/gemini.local.key
 tools/art/incoming/*
 !tools/art/incoming/.gitkeep
+
+# OS files
+.DS_Store
+Thumbs.db

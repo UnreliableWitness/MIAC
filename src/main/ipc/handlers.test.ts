@@ -81,7 +81,17 @@ async function harness() {
     openShell: true,
     ...over,
   });
-  return { h, store, terminals, broadcasts, repo, added, setupDone, input };
+  return {
+    h,
+    store,
+    terminals,
+    broadcasts,
+    repo,
+    added,
+    setupDone,
+    input,
+    services,
+  };
 }
 
 describe('handlers: repos', () => {
@@ -194,6 +204,38 @@ describe('handlers: create task', () => {
   });
 });
 
+describe('handlers: missing worktree folder', () => {
+  it('cancelSetup succeeds on a setup-failed task whose folder was deleted', async () => {
+    const { h, input, setupDone, store, repo } = await harness();
+    const done = setupDone();
+    const t = await h['tasks:create'](
+      input({ commands: ['exit 1'], openShell: false }),
+    );
+    await done;
+    rmSync(t.worktreePath, { recursive: true, force: true });
+    await h['tasks:cancelSetup'](t.id);
+    expect(store.state.tasks).toHaveLength(0);
+    expect(await new GitClient().branchExists(repo, t.branch)).toBe(false);
+  });
+
+  it('finish cleans up a task whose folder was deleted', async () => {
+    const { h, input, setupDone, terminals, repo } = await harness();
+    const done = setupDone();
+    const t = await h['tasks:create'](input({ openShell: false }));
+    await done;
+    rmSync(t.worktreePath, { recursive: true, force: true });
+    await h['tasks:finish'](t.id, {
+      closeTerminals: true,
+      removeWorktree: true,
+      deleteBranch: true,
+    });
+    const [view] = await h['tasks:list']();
+    expect(view.status).toBe('done');
+    expect(await new GitClient().branchExists(repo, t.branch)).toBe(false);
+    terminals.killAllForTask(t.id);
+  });
+});
+
 describe('handlers: finish', () => {
   it('reports checks, then removes worktree and branch and marks done', async () => {
     const { h, input, setupDone, terminals, repo } = await harness();
@@ -222,23 +264,21 @@ describe('handlers: finish', () => {
   });
 
   it('keeps the task ready when cleanup fails', async () => {
-    const { h, input, setupDone, store, terminals } = await harness();
+    const { h, input, setupDone, store, terminals, services } = await harness();
     const done = setupDone();
     const t = await h['tasks:create'](input({ openShell: false }));
     await done;
-    rmSync(t.worktreePath, { recursive: true, force: true });
-    // Modern git removes a worktree whose folder is already gone without complaint, so make the branch deletion
-    // fail instead: the branch is still registered as checked out in the missing worktree.
+    services.git.deleteBranch = async () => {
+      throw new Error('boom');
+    };
     await expect(
       h['tasks:finish'](t.id, {
         closeTerminals: true,
         removeWorktree: false,
         deleteBranch: true,
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/boom/);
     expect(store.state.tasks[0].status).toBe('ready');
-    const [view] = await h['tasks:list']();
-    expect(view.worktreeMissing).toBe(true);
     terminals.killAllForTask(t.id);
   });
 });
@@ -345,11 +385,32 @@ describe('handlers: terminals', () => {
     await new Promise((r) => setTimeout(r, 300));
     expect(await h['terminals:buffer'](def.id)).toContain('dev-server-up');
     expect(await h['terminals:isRunning'](def.id)).toBe(true);
+    await h['terminals:restart'](def.id);
+    expect(await h['terminals:isRunning'](def.id)).toBe(true);
     await h['terminals:kill'](def.id);
     expect(store.state.tasks[0].terminals.map((x) => x.id)).not.toContain(
       def.id,
     );
     expect(terminals.runningCount(t.id)).toBe(0);
+  });
+});
+
+describe('handlers: after a relaunch', () => {
+  it('restarts a persisted terminal that the new TerminalManager does not know', async () => {
+    const { h, input, setupDone, terminals, store, services } = await harness();
+    const done = setupDone();
+    const t = await h['tasks:create'](input());
+    await done;
+    const shellId = store.state.tasks[0].terminals[0].id;
+    terminals.killAllForTask(t.id);
+    const fresh = new TerminalManager();
+    allTerminals.push(fresh);
+    const h2 = createHandlers({ ...services, terminals: fresh });
+    expect(fresh.runningCount(t.id)).toBe(0);
+    await h2['terminals:restart'](shellId);
+    expect(fresh.runningCount(t.id)).toBe(1);
+    expect(typeof (await h2['terminals:buffer'](shellId))).toBe('string');
+    await expect(h2['terminals:restart']('nope')).rejects.toThrow();
   });
 });
 

@@ -17,7 +17,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
   const notify = useStore((s) => s.notify);
   const [checks, setChecks] = useState<FinishChecks | null>(null);
   const [closeTerminals, setCloseTerminals] = useState(true);
-  const [removeWorktree, setRemoveWorktree] = useState(!task?.worktreeMissing);
+  const [removeWorktree, setRemoveWorktree] = useState(true);
   const [deleteBranch, setDeleteBranch] = useState(true);
   const [busy, setBusy] = useState(false);
   const [checksFailed, setChecksFailed] = useState<string | null>(null);
@@ -205,6 +205,11 @@ export function FinishScreen({ taskId }: { taskId: string }) {
             />
             Remove worktree folder
           </label>
+          {!removeWorktree && deleteBranch && (
+            <div className="muted small">
+              Deleting the branch also detaches the worktree.
+            </div>
+          )}
           <label className="checkbox">
             <input
               type="checkbox"

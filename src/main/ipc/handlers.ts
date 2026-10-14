@@ -357,6 +357,7 @@ export function createHandlers(s: Services): Handlers {
         s.terminals.killAllForTask(taskId);
         if (await exists(task.worktreePath))
           await s.git.worktreeRemove(repo.path, task.worktreePath, true);
+        await s.git.worktreePrune(repo.path);
         if (await s.git.branchExists(repo.path, task.branch))
           await s.git.deleteBranch(repo.path, task.branch);
         setupStates.delete(taskId);
@@ -392,8 +393,12 @@ export function createHandlers(s: Services): Handlers {
             s.terminals.killAllForTask(taskId);
             await patchTask(taskId, { terminals: [] });
           }
-          if (options.removeWorktree)
+          const folderExists = await exists(task.worktreePath);
+          if ((options.removeWorktree || options.deleteBranch) && folderExists)
             await s.git.worktreeRemove(repo.path, task.worktreePath, true);
+          // A deleted folder leaves a stale registration that blocks branch deletion.
+          if (options.removeWorktree || options.deleteBranch)
+            await s.git.worktreePrune(repo.path);
           if (options.deleteBranch)
             await s.git.deleteBranch(repo.path, task.branch);
         } catch (e) {
@@ -438,7 +443,23 @@ export function createHandlers(s: Services): Handlers {
           list.filter((x) => x.id !== id),
         );
     },
-    'terminals:restart': async (id) => s.terminals.restart(id),
+    'terminals:restart': async (id) => {
+      if (s.terminals.isRunning(id) || s.terminals.has(id)) {
+        s.terminals.restart(id);
+        return;
+      }
+      // After an app relaunch the manager is empty while the task still lists its terminals.
+      const owner = s.store.state.tasks.find((t) =>
+        t.terminals.some((x) => x.id === id),
+      );
+      const def = owner?.terminals.find((x) => x.id === id);
+      if (!owner || !def) throw new Error(`Unknown terminal ${id}`);
+      if (owner.status !== 'ready')
+        throw new Error(
+          `Cannot restart a terminal of a task that is ${owner.status}`,
+        );
+      spawnTerminal(owner, def);
+    },
     'terminals:buffer': async (id) => s.terminals.buffer(id),
     'terminals:isRunning': async (id) => s.terminals.isRunning(id),
   };

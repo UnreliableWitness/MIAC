@@ -118,12 +118,17 @@ export class GitClient {
     ]);
   }
 
+  async worktreePrune(cwd: string): Promise<void> {
+    await this.run(cwd, ['worktree', 'prune']);
+  }
+
   async deleteBranch(cwd: string, branch: string): Promise<void> {
     await this.run(cwd, ['branch', '-D', branch]);
   }
 
   async summary(worktree: string, baseRef: string): Promise<GitSummary> {
     const out = await this.run(worktree, [
+      '--no-optional-locks',
       'status',
       '--porcelain=v1',
       '--branch',
