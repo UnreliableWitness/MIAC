@@ -1,5 +1,7 @@
 # MIAC — "Me, I'm Counting"
 
+[![CI](https://github.com/UnreliableWitness/MIAC/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/UnreliableWitness/MIAC/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/UnreliableWitness/MIAC?include_prereleases&sort=semver)](https://github.com/UnreliableWitness/MIAC/releases) ![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS-blue) ![Electron](https://img.shields.io/badge/Electron-44.7.2-47848F?logo=electron&logoColor=white)
+
 Named after a Culture ship. A desktop app for running development tasks as isolated workspaces, with AI cost tracking per task.
 
 ## What it does
@@ -11,7 +13,7 @@ Named after a Culture ship. A desktop app for running development tasks as isola
   - Clean up the worktree and branch when the task is done.
 - **AI cost tracking per task.**
   - Track Claude Code and Copilot token usage per task via OpenTelemetry, tagged with the task id.
-  - Price usage with a configurable rate table, in EUR.
+  - Price usage with the official list prices, in EUR.
   - Log the cost on the work item via custom fields plus a comment.
 
 ## Tech

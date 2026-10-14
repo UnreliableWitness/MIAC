@@ -74,6 +74,15 @@ Out:
   - The command sits on its own lines, so a trailing `# comment` does not swallow the rest of the wrapper.
   - `&&` and `||` need PowerShell 7; 5.1 rejects them.
   - The user's PATH comes from the environment. No profile is needed.
+  - Used by SetupRunner only (output to pipes).
+- **`runCommand(cmd)`:** for `run` terminals in a pty (the dev server) and the packaged smoke check. Same args, with `wrapped` (`psRunWrapper`):
+    ```
+    & {
+    <cmd>
+    }
+    if ($LASTEXITCODE) { exit $LASTEXITCODE }
+    ```
+  - No pipe: the program keeps the console, so it sees a TTY, UTF-8 output is not decoded through the OEM code page, and logs are not block-buffered. In a real console 5.1 does not wrap native stderr. A `throw` exits 1. On macOS `runCommand` equals `shellCommand`.
 - **`claudeCommand(prompt)`:** resolve `which('claude')`.
   - `.exe` (native installer): `{ command: <full path>, args: [prompt] }`. node-pty quotes the argument for ConPTY, so quotes in work item titles survive.
   - `.cmd`/`.bat`/`.ps1` shim (npm install): `{ command: shell, args: ['-NoLogo', '-ExecutionPolicy', 'Bypass', '-NoProfile', '-Command', '& claude $env:MIAC_CLAUDE_PROMPT'] }`. The prompt goes in the env var `MIAC_CLAUDE_PROMPT`, so it is never parsed as PowerShell.
@@ -118,7 +127,7 @@ A shared helper `renameWithRetry(from, to)` retries `fs.rename` on `EPERM`, `EBU
   - No test is deleted.
 - Git tests set `core.autocrlf=false` in their temp repos so output comparisons match on Windows.
 - `scripts/fix-node-pty-perms.mjs` stays as it is. It already does nothing on Windows, because there is no `spawn-helper`.
-- A Windows-only block in `shell.test.ts` runs the setup wrapper under both `powershell.exe` (5.1) and `pwsh`: native stderr with exit 0 succeeds, `cmd /c exit 3` exits 3, a missing command and `Write-Error` fail, a silenced error does not, and a trailing comment is harmless.
+- A Windows-only block in `shell.test.ts` runs the setup wrapper under both `powershell.exe` (5.1) and `pwsh`: native stderr with exit 0 succeeds, `cmd /c exit 3` exits 3, a missing command and `Write-Error` fail, a silenced error does not, a trailing comment is harmless, `throw` exits 1 and native stdout passes through intact. A Windows-only block in `TerminalManager.test.ts` runs `runCommand` in ConPTY: a U+279C marker from node arrives intact, node sees a TTY, native stderr with exit 0 succeeds, a native exit code and `throw` are passed on.
 
 ### CI: `.github/workflows/ci.yml`
 
