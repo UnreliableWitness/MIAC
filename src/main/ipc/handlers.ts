@@ -15,6 +15,7 @@ import type {
 } from '../../shared/types';
 import { worktreeRoot } from '../paths';
 import type { Command, Platform } from '../platform/Platform';
+import { OFFICIAL_RATES_AS_OF } from '../pricing/officialRates';
 import { AdoClient, AdoError } from '../services/AdoClient';
 import type { AdoRegistry } from '../services/AdoRegistry';
 import {
@@ -30,6 +31,14 @@ import {
 } from '../services/SetupRunner';
 import type { TaskStore } from '../services/TaskStore';
 import type { TerminalManager } from '../services/TerminalManager';
+import type { CopilotFileTailer } from '../usage/CopilotFileTailer';
+import { usageCsv } from '../usage/csv';
+import type { RateStore } from '../usage/RateStore';
+import type { SettingsStore } from '../usage/SettingsStore';
+import { telemetryEnv } from '../usage/telemetryEnv';
+import type { UsageReceiver } from '../usage/UsageReceiver';
+import type { UsageStore } from '../usage/UsageStore';
+import { UsageSync } from '../usage/UsageSync';
 
 export type Services = {
   store: TaskStore;
@@ -45,6 +54,16 @@ export type Services = {
   pickFolder: () => Promise<string | null>;
   launch: (cmd: Command) => Promise<void>;
   broadcast: <K extends keyof Events>(event: K, payload: Events[K]) => void;
+  usage: UsageStore;
+  rates: RateStore;
+  settings: SettingsStore;
+  receiver: Pick<UsageReceiver, 'start' | 'status'>;
+  copilot: Pick<CopilotFileTailer, 'stats' | 'poll'>;
+  usageDir: string;
+  /** Registers a function to run every hour (main uses setInterval; tests capture it). */
+  onHourly: (fn: () => void) => void;
+  /** How long Finish waits after closing terminals so the last telemetry batch arrives (main 2500, tests 0). */
+  finishFlushMs: number;
 };
 
 async function exists(p: string): Promise<boolean> {
@@ -208,6 +227,37 @@ export function createHandlers(s: Services): Handlers {
     await tasksChanged();
   };
 
+  const usageSync = new UsageSync({
+    task: taskById,
+    tasks: () => s.store.state.tasks,
+    target: (task) => {
+      const connectionId =
+        s.repos.list().find((r) => r.id === task.repoId)?.connectionId ?? null;
+      if (!connectionId) return null;
+      try {
+        return {
+          connectionId,
+          project: s.connections.get(connectionId).project,
+        };
+      } catch {
+        return null;
+      }
+    },
+    client: (connectionId) => s.ado.client(connectionId),
+    run: withConnection,
+    usage: (taskId) => s.usage.summarize(taskId, s.settings.get()),
+    changedSince: (iso) => s.usage.changedSince(iso),
+    patchTask,
+  });
+  s.usage.on('changed', (taskId) => s.broadcast('usage:changed', { taskId }));
+  s.onHourly(() => {
+    if (s.settings.get().hourlySync) void usageSync.syncChanged();
+  });
+  const receiverStatus = () => ({
+    ...s.receiver.status,
+    copilot: s.copilot.stats,
+  });
+
   /** Applies a change to the stored terminal list of a task (never from a stale snapshot). */
   const updateTerminals = async (
     id: string,
@@ -225,6 +275,7 @@ export function createHandlers(s: Services): Handlers {
       return s.platform.claudeCommand(claudePrompt(task));
     if (def.kind === 'run' && def.command)
       return s.platform.shellCommand(def.command);
+    if (def.kind === 'copilot') return s.platform.copilotCommand();
     return s.platform.interactiveShell();
   };
 
@@ -236,6 +287,7 @@ export function createHandlers(s: Services): Handlers {
       cwd: task.worktreePath,
       command: cmd.command,
       args: cmd.args,
+      env: telemetryEnv(task.id, s.settings.get().receiverPort, s.usageDir),
     });
   };
 
@@ -243,6 +295,8 @@ export function createHandlers(s: Services): Handlers {
     const defs: TerminalDef[] = [];
     if (task.setup.startClaude)
       defs.push({ id: randomUUID(), kind: 'claude', label: 'Claude Code' });
+    if (task.setup.openCopilot)
+      defs.push({ id: randomUUID(), kind: 'copilot', label: 'Copilot CLI' });
     if (task.setup.openShell)
       defs.push({
         id: randomUUID(),
@@ -413,7 +467,7 @@ export function createHandlers(s: Services): Handlers {
           commands: input.commands,
           startClaude: input.startClaude,
           openShell: input.openShell,
-          openCopilot: false,
+          openCopilot: input.openCopilot ?? false,
         },
         terminals: [],
         createdAt: new Date().toISOString(),
@@ -509,6 +563,28 @@ export function createHandlers(s: Services): Handlers {
           status: 'done',
           finishedAt: new Date().toISOString(),
         });
+        if (options.syncUsage) {
+          try {
+            if (options.closeTerminals && s.finishFlushMs > 0)
+              await new Promise((r) => setTimeout(r, s.finishFlushMs));
+            await s.copilot.poll();
+            const result = await usageSync.syncTask(taskId, {
+              comment: true,
+              refreshFields: true,
+            });
+            if (!result.ok)
+              s.broadcast('notice', {
+                level: 'warn',
+                message: `Task finished, but the AI usage could not be written to the work item: ${result.error}. Use Sync now on the Usage screen to retry.`,
+              });
+          } catch (e) {
+            const message = e instanceof Error ? e.message : String(e);
+            s.broadcast('notice', {
+              level: 'warn',
+              message: `Task finished, but the AI usage could not be written to the work item: ${message}. Use Sync now on the Usage screen to retry.`,
+            });
+          }
+        }
       } finally {
         release(taskId);
       }
@@ -621,5 +697,57 @@ export function createHandlers(s: Services): Handlers {
         throw new Error(`Opening ${url} is not allowed`);
       await s.openExternal(url);
     },
-  } as Handlers;
+
+    'usage:task': async (taskId) => s.usage.summarize(taskId, s.settings.get()),
+    'usage:setBillable': async (taskId, sessionId, billable) => {
+      await s.usage.setBillable(taskId, sessionId, billable);
+      return s.usage.summarize(taskId, s.settings.get());
+    },
+    'usage:sync': async (taskId) =>
+      usageSync.syncTask(taskId, { refreshFields: true }),
+    'usage:exportCsv': async (taskId) => {
+      const st = s.settings.get();
+      return usageCsv(
+        s.usage.records(taskId),
+        (sessionId) => s.usage.isBillable(taskId, sessionId),
+        st.usdToEur * (1 + st.markupPct / 100),
+      );
+    },
+    'usage:fieldsStatus': async (connectionId) =>
+      usageSync.fieldsStatus(
+        connectionId,
+        s.connections.get(connectionId).project,
+      ),
+    'usage:receiverStatus': async () => receiverStatus(),
+    'rates:list': async () => ({
+      rates: s.rates.list(),
+      officialAsOf: OFFICIAL_RATES_AS_OF,
+    }),
+    'rates:save': async (rates) => s.rates.save(rates),
+    'rates:reset': async () => s.rates.reset(),
+    'settings:get': async () => s.settings.get(),
+    'settings:save': async (next) => {
+      const before = s.settings.get();
+      const saved = await s.settings.save(next);
+      if (
+        saved.receiverPort !== before.receiverPort ||
+        !s.receiver.status.listening
+      ) {
+        const st = await s.receiver.start(saved.receiverPort);
+        s.broadcast('usage:receiverStatus', receiverStatus());
+        if (!st.listening)
+          s.broadcast('notice', {
+            level: 'warn',
+            message: `AI usage capture is off: ${st.error}. Pick another port in Settings.`,
+          });
+        else if (saved.receiverPort !== before.receiverPort)
+          s.broadcast('notice', {
+            level: 'info',
+            message: `AI usage is now received on port ${saved.receiverPort}. Terminals started before this change keep using the old port until you restart them.`,
+          });
+      }
+      s.broadcast('usage:changed', { taskId: '*' });
+      return saved;
+    },
+  };
 }
