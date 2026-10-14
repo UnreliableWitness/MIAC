@@ -1,8 +1,10 @@
 import { render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useStore } from './store';
 import { installFakeApi } from './test-helpers/fakeApi';
 import { App } from './App';
+
+vi.mock('./components/TerminalView', () => ({ TerminalView: () => null }));
 
 beforeEach(() =>
   useStore.setState({

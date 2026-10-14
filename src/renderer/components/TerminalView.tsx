@@ -50,22 +50,43 @@ export function TerminalView({
         /* hidden tab: no size yet */
       }
     };
-    void api()
-      .invoke('terminals:buffer', terminalId)
-      .then((buf) => {
-        if (buf) t.write(buf);
-      });
-    void api()
-      .invoke('terminals:isRunning', terminalId)
-      .then((running) => {
-        if (!running) setExitCode((c) => c ?? -1);
-      });
+    // Live chunks are queued until the buffer snapshot is written, so output is
+    // neither lost nor duplicated. Chunks that arrived before main took the
+    // snapshot are already in the buffer: skip the longest queued prefix that
+    // the buffer ends with.
+    let replayed = false;
+    const queued: string[] = [];
     const offData = api().on('terminal:data', (e) => {
-      if (e.id === terminalId) t.write(e.data);
+      if (e.id !== terminalId) return;
+      if (replayed) t.write(e.data);
+      else queued.push(e.data);
     });
     const offExit = api().on('terminal:exit', (e) => {
       if (e.id === terminalId) setExitCode(e.exitCode);
     });
+    let live = true;
+    void api()
+      .invoke('terminals:buffer', terminalId)
+      .catch(() => '')
+      .then((buf) => {
+        if (!live) return;
+        const snapshot = buf ?? '';
+        if (snapshot) t.write(snapshot);
+        let skip = 0;
+        let joined = '';
+        for (let k = 1; k <= queued.length; k++) {
+          joined += queued[k - 1];
+          if (snapshot.endsWith(joined)) skip = k;
+        }
+        for (const chunk of queued.slice(skip)) t.write(chunk);
+        queued.length = 0;
+        replayed = true;
+        return api().invoke('terminals:isRunning', terminalId);
+      })
+      .then((running) => {
+        if (live && running === false) setExitCode((c) => c ?? -1);
+      })
+      .catch(() => undefined);
     const onData = t.onData((data) => {
       void api().invoke('terminals:write', terminalId, data);
     });
@@ -76,6 +97,7 @@ export function TerminalView({
     sendSize();
 
     return () => {
+      live = false;
       observer.disconnect();
       onData.dispose();
       offData();
@@ -106,14 +128,15 @@ export function TerminalView({
   }, [active, terminalId]);
 
   const restart = async () => {
+    // Reset first so a fast exit of the new process is not wiped afterwards.
+    const previous = exitCode;
+    term.current?.reset();
+    setExitCode(null);
     const ok = await tryInvoke(async () => {
       await api().invoke('terminals:restart', terminalId);
       return true;
     }, notify);
-    if (ok) {
-      term.current?.reset();
-      setExitCode(null);
-    }
+    if (!ok) setExitCode((c) => c ?? previous);
   };
   const close = () =>
     tryInvoke(() => api().invoke('terminals:kill', terminalId), notify);

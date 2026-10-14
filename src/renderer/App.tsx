@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { api } from './api';
+import { invalidateRepoConfig } from './hooks/useRepoConfig';
 import { Notices } from './components/Notices';
 import { NewTaskScreen } from './screens/NewTaskScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
@@ -18,7 +19,10 @@ export function App() {
     void load().catch((e: Error) => notify('error', e.message));
     const offs = [
       api().on('tasks:changed', setTasks),
-      api().on('repos:changed', setRepos),
+      api().on('repos:changed', (repos) => {
+        invalidateRepoConfig();
+        setRepos(repos);
+      }),
       api().on('notice', (n) => notify(n.level, n.message)),
     ];
     return () => offs.forEach((off) => off());

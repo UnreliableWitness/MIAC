@@ -37,8 +37,8 @@ export function WorkspaceScreen() {
         <main className="taskmain">
           {task && task.status !== 'done' ? (
             <>
-              <TaskHeader task={task} />
-              <TerminalTabs task={task} />
+              <TaskHeader key={task.id} task={task} />
+              <TerminalTabs key={task.id} task={task} />
             </>
           ) : task ? (
             <div className="empty">

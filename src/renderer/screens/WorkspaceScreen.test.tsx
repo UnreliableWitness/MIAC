@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TaskView } from '../../shared/types';
@@ -170,5 +170,42 @@ describe('WorkspaceScreen', () => {
     useStore.setState({ tasks: [], selectedTaskId: null });
     render(<WorkspaceScreen />);
     expect(screen.getByText(/No task selected/)).toBeInTheDocument();
+  });
+
+  it('shows the other task when the selection changes', async () => {
+    installFakeApi({
+      'repos:config': () => config,
+      'tasks:gitSummary': () => ({
+        branch: 'x',
+        ahead: 0,
+        behind: 0,
+        hasUpstream: false,
+        files: [],
+      }),
+    });
+    const second: TaskView = {
+      ...task,
+      id: 'b',
+      workItem: { id: '2', type: 'Bug', title: 'Second task' },
+      terminals: [{ id: 'c2', kind: 'claude', label: 'Claude Code' }],
+    };
+    useStore.setState({ tasks: [task, second] });
+    render(<WorkspaceScreen />);
+    expect(screen.getByTestId('term-c1')).toBeInTheDocument();
+    act(() => useStore.setState({ selectedTaskId: 'b' }));
+    expect(
+      screen.getByRole('heading', { name: 'Second task' }),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('term-c2')).toHaveAttribute(
+      'data-active',
+      'true',
+    );
+    expect(screen.queryByTestId('term-c1')).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: /Claude Code/ })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      ),
+    );
   });
 });
