@@ -5,7 +5,12 @@ import type { SetupEvent } from '../../shared/types';
 import { darwinPlatform } from '../platform/darwin';
 import { addOrigin, cleanupTempRepos, makeRepo } from '../test-helpers/gitRepo';
 import { GitClient } from './GitClient';
-import { planSteps, SetupRunner, type SetupPlan } from './SetupRunner';
+import {
+  ensureExcluded,
+  planSteps,
+  SetupRunner,
+  type SetupPlan,
+} from './SetupRunner';
 
 afterAll(cleanupTempRepos);
 
@@ -181,8 +186,71 @@ describe('SetupRunner', () => {
     });
     expect(result.ok).toBe(false);
     expect(result.failedStep).toBe(1);
+    const failed = events.find(
+      (e) => e.type === 'step' && e.status === 'failed',
+    );
+    expect(failed).toMatchObject({
+      index: 1,
+      detail: expect.stringMatching(/invalid reference|not a valid|fatal/i),
+    });
     expect(
-      events.some((e) => e.type === 'log' && e.line.includes('does-not-exist')),
+      events.some(
+        (e) =>
+          e.type === 'log' &&
+          !e.line.startsWith('$ git worktree add') &&
+          /invalid reference|not a valid|fatal/i.test(e.line),
+      ),
     ).toBe(true);
+  });
+
+  it('rejects a fromStep outside the plan', async () => {
+    const repo = makeRepo();
+    await expect(
+      runner.run(plan(repo), {
+        onEvent: () => {},
+        startTerminals: async () => {},
+        fromStep: 99,
+      }),
+    ).rejects.toThrow('Cannot retry from step 99: the plan has 3 steps');
+  });
+
+  it('skips copy entries that escape the repository or worktree', async () => {
+    const repo = makeRepo();
+    writeFileSync(path.join(repo, '.env'), 'SECRET=1');
+    writeFileSync(path.join(path.dirname(repo), 'outside.txt'), 'x');
+    const p = plan(repo, { copy: ['../outside.txt', '/etc/hosts', '.env'] });
+    const { events, onEvent } = collect();
+    const result = await runner.run(p, {
+      onEvent,
+      startTerminals: async () => {},
+    });
+    expect(result).toEqual({ ok: true });
+    const lines = events.flatMap((e) => (e.type === 'log' ? [e.line] : []));
+    expect(lines).toContain('skipped ../outside.txt (outside the repository)');
+    expect(lines).toContain('skipped /etc/hosts (outside the repository)');
+    expect(readFileSync(path.join(p.worktreePath, '.env'), 'utf8')).toBe(
+      'SECRET=1',
+    );
+    expect(
+      existsSync(path.join(path.dirname(p.worktreePath), 'outside.txt')),
+    ).toBe(false);
+    expect(existsSync(path.join(p.worktreePath, 'hosts'))).toBe(false);
+  });
+});
+
+describe('ensureExcluded', () => {
+  it('adds the pattern exactly once under concurrent calls', async () => {
+    const repo = makeRepo();
+    await Promise.all(
+      Array.from({ length: 5 }, () => ensureExcluded(git, repo, '.miac/')),
+    );
+    const text = readFileSync(
+      path.join(repo, '.git', 'info', 'exclude'),
+      'utf8',
+    );
+    expect(text.split('\n').filter((l) => l.trim() === '.miac/')).toHaveLength(
+      1,
+    );
+    expect(text.endsWith('\n')).toBe(true);
   });
 });

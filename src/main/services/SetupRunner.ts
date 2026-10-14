@@ -72,15 +72,34 @@ export async function ensureExcluded(
   const common = await git.commonDir(repoPath);
   const file = path.join(common, 'info', 'exclude');
   await fs.mkdir(path.dirname(file), { recursive: true });
-  let text = '';
+  // Serialise check-then-append per file within this process; appending (never rewriting) keeps other writers' lines.
+  const previous = excludeLocks.get(file) ?? Promise.resolve();
+  const current = previous.then(async () => {
+    let text = '';
+    try {
+      text = await fs.readFile(file, 'utf8');
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+    }
+    if (text.split('\n').some((l) => l.trim() === pattern)) return;
+    const sep = text.length === 0 || text.endsWith('\n') ? '' : '\n';
+    await fs.appendFile(file, `${sep}${pattern}\n`, 'utf8');
+  });
+  const tail = current.catch(() => {});
+  excludeLocks.set(file, tail);
   try {
-    text = await fs.readFile(file, 'utf8');
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+    await current;
+  } finally {
+    if (excludeLocks.get(file) === tail) excludeLocks.delete(file);
   }
-  if (text.split('\n').some((l) => l.trim() === pattern)) return;
-  const sep = text.length === 0 || text.endsWith('\n') ? '' : '\n';
-  await fs.writeFile(file, `${text}${sep}${pattern}\n`, 'utf8');
+}
+
+const excludeLocks = new Map<string, Promise<void>>();
+
+function insideDir(base: string, rel: string): string | null {
+  const root = path.resolve(base);
+  const target = path.resolve(root, rel);
+  return target === root || target.startsWith(root + path.sep) ? target : null;
 }
 
 async function exists(p: string): Promise<boolean> {
@@ -104,6 +123,11 @@ export class SetupRunner {
   ): Promise<{ ok: boolean; failedStep?: number }> {
     const steps = planSteps(plan);
     const from = hooks.fromStep ?? 0;
+    if (from < 0 || from >= steps.length) {
+      throw new Error(
+        `Cannot retry from step ${from}: the plan has ${steps.length} steps`,
+      );
+    }
     const emit = (e: DistributiveOmit<SetupEvent, 'taskId'>) =>
       hooks.onEvent({ taskId: plan.taskId, ...e } as SetupEvent);
     const log = (line: string) => emit({ type: 'log', line });
@@ -161,14 +185,19 @@ export class SetupRunner {
         return;
       case 'copy':
         for (const rel of plan.copy) {
-          const src = path.join(plan.repoPath, rel);
+          const src = insideDir(plan.repoPath, rel);
+          const dest = insideDir(plan.worktreePath, rel);
+          if (src === null || dest === null) {
+            log(`skipped ${rel} (outside the repository)`);
+            continue;
+          }
           if (!(await exists(src))) {
             log(
               `skipped ${rel} (not present in ${path.basename(plan.repoPath)})`,
             );
             continue;
           }
-          await fs.cp(src, path.join(plan.worktreePath, rel), {
+          await fs.cp(src, dest, {
             recursive: true,
           });
           log(`copied ${rel}`);
@@ -226,11 +255,12 @@ export class SetupRunner {
       pipe(child.stdout);
       pipe(child.stderr);
       child.on('error', reject);
-      child.on('close', (code) =>
-        code === 0
-          ? resolve()
-          : reject(new Error(`${cmd} exited with code ${code}`)),
-      );
+      child.on('close', (code, signal) => {
+        if (code === 0) resolve();
+        else if (code === null)
+          reject(new Error(`${cmd} was killed by signal ${signal}`));
+        else reject(new Error(`${cmd} exited with code ${code}`));
+      });
     });
   }
 }
