@@ -1,0 +1,5 @@
+# Keep LF everywhere so the formatter and tests see the same bytes on Windows.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary
