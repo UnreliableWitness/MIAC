@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { z } from 'zod';
 import type {
   AppSettings,
   Rate,
@@ -13,6 +14,7 @@ import type {
 import { priceEvent, round6 } from '../pricing/RateTable';
 
 const TOOLS: UsageTool[] = ['claude-code', 'copilot-cli'];
+const BillableSchema = z.record(z.string(), z.array(z.string()));
 
 /** Priced usage records in append-only monthly JSON-lines files, indexed in memory by task. */
 export class UsageStore extends EventEmitter<{ changed: [taskId: string] }> {
@@ -29,7 +31,10 @@ export class UsageStore extends EventEmitter<{ changed: [taskId: string] }> {
     super();
   }
 
-  async load(): Promise<{ damagedLines: number }> {
+  async load(): Promise<{
+    damagedLines: number;
+    billableBackup: string | null;
+  }> {
     let damaged = 0;
     let files: string[] = [];
     try {
@@ -53,17 +58,32 @@ export class UsageStore extends EventEmitter<{ changed: [taskId: string] }> {
         }
       }
     }
+    const billableFile = path.join(this.dir, 'billable.json');
+    let billableBackup: string | null = null;
+    this.notBillable = new Map();
+    let raw: string | null = null;
     try {
-      const raw = JSON.parse(
-        await fs.readFile(path.join(this.dir, 'billable.json'), 'utf8'),
-      ) as Record<string, string[]>;
-      this.notBillable = new Map(
-        Object.entries(raw).map(([t, ids]) => [t, new Set(ids)]),
-      );
-    } catch {
-      this.notBillable = new Map();
+      raw = await fs.readFile(billableFile, 'utf8');
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
     }
-    return { damagedLines: damaged };
+    if (raw !== null) {
+      let parsed: z.infer<typeof BillableSchema> | null = null;
+      try {
+        parsed = BillableSchema.parse(JSON.parse(raw));
+      } catch {
+        parsed = null;
+      }
+      if (parsed) {
+        this.notBillable = new Map(
+          Object.entries(parsed).map(([t, ids]) => [t, new Set(ids)]),
+        );
+      } else {
+        billableBackup = `${billableFile}.corrupt-${Date.now()}`;
+        await fs.rename(billableFile, billableBackup);
+      }
+    }
+    return { damagedLines: damaged, billableBackup };
   }
 
   add(e: UsageEvent): Promise<UsageRecord | null> {
@@ -96,26 +116,32 @@ export class UsageStore extends EventEmitter<{ changed: [taskId: string] }> {
     return !this.notBillable.get(taskId)?.has(sessionId);
   }
 
-  async setBillable(
+  setBillable(
     taskId: string,
     sessionId: string,
     billable: boolean,
   ): Promise<void> {
-    const set = this.notBillable.get(taskId) ?? new Set<string>();
-    if (billable) set.delete(sessionId);
-    else set.add(sessionId);
-    this.notBillable.set(taskId, set);
-    const obj = Object.fromEntries(
-      [...this.notBillable]
-        .filter(([, s]) => s.size > 0)
-        .map(([t, s]) => [t, [...s]]),
-    );
-    await fs.mkdir(this.dir, { recursive: true });
-    const file = path.join(this.dir, 'billable.json');
-    await fs.writeFile(`${file}.tmp`, JSON.stringify(obj), 'utf8');
-    await fs.rename(`${file}.tmp`, file);
-    this.lastChange.set(taskId, new Date().toISOString());
-    this.emit('changed', taskId);
+    const run = async () => {
+      const next = new Map<string, Set<string>>();
+      for (const [t, ids] of this.notBillable) next.set(t, new Set(ids));
+      const set = next.get(taskId) ?? new Set<string>();
+      if (billable) set.delete(sessionId);
+      else set.add(sessionId);
+      next.set(taskId, set);
+      const obj = Object.fromEntries(
+        [...next].filter(([, s]) => s.size > 0).map(([t, s]) => [t, [...s]]),
+      );
+      await fs.mkdir(this.dir, { recursive: true });
+      const file = path.join(this.dir, 'billable.json');
+      await fs.writeFile(`${file}.tmp`, JSON.stringify(obj), 'utf8');
+      await fs.rename(`${file}.tmp`, file);
+      this.notBillable = next;
+      this.lastChange.set(taskId, new Date().toISOString());
+      this.emit('changed', taskId);
+    };
+    const result = this.queue.then(run, run);
+    this.queue = result.catch(() => undefined);
+    return result;
   }
 
   changedSince(iso: string): string[] {

@@ -1,9 +1,11 @@
 import {
   appendFileSync,
+  existsSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
+  writeFileSync,
 } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -88,7 +90,7 @@ describe('UsageStore', () => {
     await a.add(ev());
     appendFileSync(path.join(d, 'records-2026-10.jsonl'), '{"id":"broken"\n');
     const b = new UsageStore(d, () => OFFICIAL_RATES);
-    expect(await b.load()).toEqual({ damagedLines: 1 });
+    expect(await b.load()).toEqual({ damagedLines: 1, billableBackup: null });
     expect(b.records('t1')).toHaveLength(1);
   });
 
@@ -140,5 +142,41 @@ describe('UsageStore', () => {
     await new Promise((r) => setTimeout(r, 5));
     await s.add(ev({ id: 'y', taskId: 'tB' }));
     expect(s.changedSince(mark)).toEqual(['tB']);
+  });
+
+  it('backs up a corrupt billable.json and starts with every session billable', async () => {
+    for (const garbage of ['{not json', '[1,2]']) {
+      const d = dir();
+      const a = new UsageStore(d, () => OFFICIAL_RATES);
+      await a.load();
+      await a.add(ev());
+      await a.setBillable('t1', 's1', false);
+      writeFileSync(path.join(d, 'billable.json'), garbage);
+      const b = new UsageStore(d, () => OFFICIAL_RATES);
+      const res = await b.load();
+      expect(res.damagedLines).toBe(0);
+      expect(res.billableBackup).not.toBeNull();
+      expect(res.billableBackup).toMatch(/billable\.json\.corrupt-\d+$/);
+      expect(existsSync(res.billableBackup as string)).toBe(true);
+      expect(existsSync(path.join(d, 'billable.json'))).toBe(false);
+      expect(b.isBillable('t1', 's1')).toBe(true);
+      expect(b.summarize('t1', defaultSettings()).sessions[0].billable).toBe(
+        true,
+      );
+    }
+  });
+
+  it('persists concurrent setBillable calls for different sessions', async () => {
+    const d = dir();
+    const s = new UsageStore(d, () => OFFICIAL_RATES);
+    await s.load();
+    await Promise.all([
+      s.setBillable('t1', 's1', false),
+      s.setBillable('t1', 's2', false),
+    ]);
+    const b = new UsageStore(d, () => OFFICIAL_RATES);
+    await b.load();
+    expect(b.isBillable('t1', 's1')).toBe(false);
+    expect(b.isBillable('t1', 's2')).toBe(false);
   });
 });
