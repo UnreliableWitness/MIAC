@@ -3,6 +3,7 @@ import { UsagePanel } from '../components/UsagePanel';
 import { TerminalTabs } from '../components/TerminalTabs';
 import { IconButton } from '../components/instrument';
 import { CrumbStrip, TaskStrip } from '../components/TaskStrip';
+import { useShortcuts } from '../hooks/useShortcuts';
 import { useStore } from '../store';
 
 const PLUS = String.fromCharCode(0xff0b);
@@ -13,9 +14,12 @@ export function WorkspaceScreen() {
   const task = useStore(
     (s) => s.tasks.find((t) => t.id === s.selectedTaskId) ?? null,
   );
+  const focus = useStore((s) => s.focus);
+  const navCollapsed = useStore((s) => s.navCollapsed);
+  useShortcuts(task);
   return (
     <>
-      {task ? (
+      {focus ? null : task ? (
         <TaskStrip key={`strip-${task.id}`} task={task} />
       ) : (
         <CrumbStrip crumb="Tasks">
@@ -32,7 +36,7 @@ export function WorkspaceScreen() {
         </CrumbStrip>
       )}
       <div className="workspace">
-        <TaskNav />
+        {(!focus || navCollapsed) && <TaskNav />}
         <main className="taskmain">
           {task &&
           (task.status === 'setting-up' || task.status === 'setup-failed') ? (

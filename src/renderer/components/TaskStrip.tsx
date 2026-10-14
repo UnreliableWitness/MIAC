@@ -116,14 +116,29 @@ function TaskDetails({
   );
 }
 
+export function CostPill({ taskId }: { taskId: string }) {
+  const openUsage = useStore((s) => s.openUsage);
+  const usage = useTaskUsage(taskId);
+  const cost = usage?.billable.costEur ?? 0;
+  return (
+    <button
+      type="button"
+      className="strip-cost"
+      aria-label={`AI cost ${usage ? eur(cost) : 'unknown'}, open usage`}
+      onClick={() => openUsage(taskId)}
+    >
+      <RingGauge value={cost} />{' '}
+      <span className="mono">{usage ? eur(cost) : DASH}</span>
+    </button>
+  );
+}
+
 export function TaskStrip({ task }: { task: TaskView }) {
   const go = useStore((s) => s.go);
-  const openUsage = useStore((s) => s.openUsage);
   const notify = useStore((s) => s.notify);
   const usage = useTaskUsage(task.id);
   const git = useGitSummary(task.id, task.worktreeMissing);
   const [card, setCard] = useState(false);
-  const cost = usage?.billable.costEur ?? 0;
   return (
     <header className="strip">
       <Home />
@@ -173,15 +188,7 @@ export function TaskStrip({ task }: { task: TaskView }) {
           ` ${UP}${git.ahead}${git.behind ? ` ${DOWN}${git.behind}` : ''} ${DOT} ${git.files.length ? `${git.files.length}${DELTA}` : 'clean'}`}
       </span>
       <span className="spacer" />
-      <button
-        type="button"
-        className="strip-cost"
-        aria-label={`AI cost ${usage ? eur(cost) : 'unknown'}, open usage`}
-        onClick={() => openUsage(task.id)}
-      >
-        <RingGauge value={cost} />{' '}
-        <span className="mono">{usage ? eur(cost) : DASH}</span>
-      </button>
+      <CostPill taskId={task.id} />
       {task.status === 'ready' && (
         <>
           <IconButton

@@ -444,3 +444,84 @@ rect.is-live {
 .done-banner p {
   margin: 0;
 }
+
+/* Tab row */
+.tabrow {
+  height: 26px;
+  flex: none;
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 0 6px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--line);
+}
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  background: none;
+  color: var(--muted);
+  font-size: 11.5px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  transition: color 120ms var(--ease);
+}
+.tab:hover {
+  color: var(--text);
+}
+.tab[aria-selected='true'] {
+  color: var(--text-bright);
+  background: var(--void);
+  border-color: var(--line);
+  margin-bottom: -1px;
+  box-shadow: inset 0 1px 0 var(--accent);
+}
+.tab-pin {
+  border-right-color: var(--line);
+  margin-right: 4px;
+}
+.tab-glyph {
+  color: var(--accent);
+}
+.tab-new {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 1.6s var(--ease) infinite;
+}
+.tabrow-brand {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 8px;
+  margin-right: 4px;
+  border-right: 1px solid var(--line);
+  color: var(--accent);
+  font-size: 10.5px;
+}
+.tabrow-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.chip {
+  font: 10.5px var(--font-mono);
+  padding: 1px 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text);
+}
+.chip:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.tabrow .ibtn {
+  height: 18px;
+  width: 20px;
+  font-size: 10px;
+}

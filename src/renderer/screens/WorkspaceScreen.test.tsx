@@ -1,4 +1,12 @@
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import {
+  act,
+  createEvent,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TaskView } from '../../shared/types';
@@ -280,5 +288,136 @@ describe('WorkspaceScreen', () => {
       kind: 'setup',
       taskId: 'a',
     });
+  });
+});
+
+function setup(over: Partial<TaskView> = {}) {
+  const { emit } = installFakeApi({
+    'repos:config': () => config,
+    'tasks:gitSummary': () => ({
+      branch: 'x',
+      ahead: 0,
+      behind: 0,
+      hasUpstream: false,
+      files: [],
+    }),
+  });
+  useStore.setState({
+    tasks: [{ ...task, ...over }],
+    selectedTaskId: 'a',
+  });
+  return { emit };
+}
+
+const FOCUS_KEYS = {
+  key: 'F',
+  code: 'KeyF',
+  shiftKey: true,
+  ctrlKey: true,
+  metaKey: true,
+};
+
+describe('tabs and focus', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    useStore.setState({ focus: false, navCollapsed: false, tabByTask: {} });
+  });
+
+  it('pins Usage first, before the terminals', async () => {
+    setup();
+    render(<WorkspaceScreen />);
+    const tabs = await screen.findAllByRole('tab');
+    expect(tabs.map((t) => t.textContent)).toEqual([
+      expect.stringContaining('Usage'),
+      'Claude Code',
+      'zsh',
+    ]);
+  });
+
+  it('switches with Mod+0 and Mod+2 even when the key comes from inside the terminal', async () => {
+    setup();
+    render(<WorkspaceScreen />);
+    const term = await screen.findByTestId('term-c1');
+    fireEvent.keyDown(term, {
+      key: '0',
+      code: 'Digit0',
+      ctrlKey: true,
+      metaKey: true,
+    });
+    expect(screen.getByRole('region', { name: 'AI usage' })).toBeVisible();
+    fireEvent.keyDown(term, {
+      key: '2',
+      code: 'Digit2',
+      ctrlKey: true,
+      metaKey: true,
+    });
+    expect(screen.getByTestId('term-s1')).toHaveAttribute(
+      'data-active',
+      'true',
+    );
+  });
+
+  it('leaves other keys alone', async () => {
+    setup();
+    render(<WorkspaceScreen />);
+    const term = await screen.findByTestId('term-c1');
+    const ev = createEvent.keyDown(term, { key: 'c', ctrlKey: true });
+    fireEvent(term, ev);
+    expect(ev.defaultPrevented).toBe(false);
+  });
+
+  it('keeps the same terminal node across Usage, terminals and Focus', async () => {
+    setup();
+    render(<WorkspaceScreen />);
+    const before = await screen.findByTestId('term-c1');
+    await userEvent.click(screen.getByRole('tab', { name: /Usage/ }));
+    await userEvent.click(screen.getByRole('tab', { name: 'Claude Code' }));
+    fireEvent.keyDown(window, FOCUS_KEYS);
+    expect(screen.getByTestId('term-c1')).toBe(before);
+  });
+
+  it('Focus hides the strip and the nav, persists, and double-click toggles it back', async () => {
+    setup();
+    render(<WorkspaceScreen />);
+    fireEvent.keyDown(window, FOCUS_KEYS);
+    expect(screen.queryByRole('navigation', { name: 'Tasks' })).toBeNull();
+    expect(document.querySelector('header.strip')).toBeNull();
+    expect(localStorage.getItem('miac.ui.focus')).toBe('true');
+    await userEvent.dblClick(
+      screen.getByRole('tablist', { name: 'Terminals' }),
+    );
+    expect(
+      screen.getByRole('navigation', { name: 'Tasks' }),
+    ).toBeInTheDocument();
+  });
+
+  it('keeps the rail in Focus when the nav was collapsed', async () => {
+    setup();
+    useStore.setState({ navCollapsed: true });
+    render(<WorkspaceScreen />);
+    fireEvent.keyDown(window, FOCUS_KEYS);
+    expect(screen.getByRole('navigation', { name: 'Tasks' })).toHaveClass(
+      'is-rail',
+    );
+  });
+
+  it('shows a new-usage dot on the Usage tab until it is selected', async () => {
+    const { emit } = setup();
+    render(<WorkspaceScreen />);
+    await screen.findByTestId('term-c1');
+    act(() => emit('usage:changed', { taskId: 'a' }));
+    expect(
+      screen.getByRole('tab', { name: /Usage, new usage/ }),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('tab', { name: /Usage/ }));
+    expect(screen.getByRole('tab', { name: 'Usage' })).toBeInTheDocument();
+  });
+
+  it('falls back to Usage when a task has no terminals', async () => {
+    setup({ terminals: [] });
+    render(<WorkspaceScreen />);
+    expect(
+      await screen.findByRole('region', { name: 'AI usage' }),
+    ).toBeVisible();
   });
 });
