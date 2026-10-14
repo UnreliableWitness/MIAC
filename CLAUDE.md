@@ -37,7 +37,7 @@ Named after a Culture ship. A desktop app for running development tasks as isola
 
 ## Status
 
-- Sub-project 1 (app shell and task lifecycle) merged 2026-10-14 (PR #1). Sub-project 2 (Azure DevOps connections and work item picker) merged 2026-10-14 (PR #2). Sub-project 3 (AI usage capture, pricing and work item write-back) implemented 2026-10-14 on `feat/usage-capture`.
+- Sub-project 1 (app shell and task lifecycle) merged 2026-10-14 (PR #1). Sub-project 2 (Azure DevOps connections and work item picker) merged 2026-10-14 (PR #2). Sub-project 3 (AI usage capture, pricing and work item write-back) merged 2026-10-14 (PR #3).
 - Run with `npm start`; checks are `npm test`, `npm run typecheck`, `npm run lint`. Run `npm install` after pulling: a `postinstall` step fixes node-pty's spawn-helper permissions.
 - Build order: (1) app shell and task lifecycle, done; (2) Azure DevOps integration, done (read-only: connections, picker, header link); (3) usage capture and pricing, done (Claude Code via OTLP receiver on 127.0.0.1:4319, Copilot CLI via per-task file, official-price rate table, EUR, fields + comment on the work item); (4) invoicing and reconciliation.
 - Azure DevOps test project `unreliablewitness/MIAC` (Basic process, Sprint 1) has seeded items 1-4 from `tools/ado/seed-test-items.mjs`. PAT for dev scripts lives in the macOS Keychain (account `miac`, service `miac-ado-unreliablewitness`); the app itself stores connections in `connections.json`, encrypted with safeStorage.
