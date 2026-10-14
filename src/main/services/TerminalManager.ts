@@ -47,10 +47,12 @@ export class TerminalManager extends EventEmitter<{
     const entry: Entry = { options, proc, exited: false, buffer: '' };
     this.entries.set(options.id, entry);
     proc.onData((data) => {
+      if (this.entries.get(options.id) !== entry) return;
       entry.buffer = (entry.buffer + data).slice(-BUFFER_LIMIT);
       this.emit('data', options.id, data);
     });
     proc.onExit(({ exitCode }) => {
+      if (this.entries.get(options.id) !== entry) return;
       entry.exited = true;
       this.emit('exit', options.id, exitCode);
     });
@@ -78,9 +80,16 @@ export class TerminalManager extends EventEmitter<{
   }
 
   restart(id: string): void {
-    const { options } = this.get(id);
+    const old = this.get(id);
     this.kill(id);
-    this.spawn(options);
+    try {
+      this.spawn(old.options);
+    } catch (error) {
+      // Keep the terminal known (and its scrollback readable) when the respawn fails.
+      old.exited = true;
+      this.entries.set(id, old);
+      throw error;
+    }
   }
 
   killAllForTask(taskId: string): void {
