@@ -237,11 +237,11 @@ export class SetupRunner {
     cwd: string,
     log: (l: string) => void,
   ): Promise<void> {
-    const { command, args } = this.platform.shellCommand(cmd);
+    const { command, args, env } = this.platform.shellCommand(cmd);
     return new Promise((resolve, reject) => {
       const child = spawn(command, args, {
         cwd,
-        env: process.env,
+        env: { ...process.env, ...env },
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       const pipe = (stream: NodeJS.ReadableStream) => {

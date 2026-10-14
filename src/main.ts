@@ -139,6 +139,8 @@ async function boot(): Promise<void> {
         const child = spawn(cmd.command, cmd.args, {
           detached: true,
           stdio: 'ignore',
+          windowsHide: true,
+          env: { ...process.env, ...cmd.env },
         });
         child.on('error', (e) =>
           reject(new Error(`Could not start ${cmd.command}: ${e.message}`)),

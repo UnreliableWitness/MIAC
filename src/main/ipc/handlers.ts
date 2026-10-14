@@ -292,7 +292,10 @@ export function createHandlers(s: Services): Handlers {
       cwd: task.worktreePath,
       command: cmd.command,
       args: cmd.args,
-      env: telemetryEnv(task.id, s.settings.get().receiverPort, s.usageDir),
+      env: {
+        ...telemetryEnv(task.id, s.settings.get().receiverPort, s.usageDir),
+        ...cmd.env,
+      },
     });
   };
 

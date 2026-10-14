@@ -1,4 +1,9 @@
-export type Command = { command: string; args: string[] };
+/** `env` is merged over the process environment by every caller that starts the command. */
+export type Command = {
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
+};
 
 export interface Platform {
   /** Short name shown on the shell tab, e.g. "zsh" or "PowerShell". */
