@@ -13,7 +13,6 @@ import { useStore } from '../store';
 type SettingsDraft = {
   receiverPort: string;
   hourlySync: boolean;
-  showSplash: boolean;
 };
 
 /** A number typed in a field, or null when it is blank or not a number (Number('') would be 0). */
@@ -47,7 +46,6 @@ function InvoicingPart() {
         setDraft({
           receiverPort: String(s.receiverPort),
           hourlySync: s.hourlySync,
-          showSplash: s.showSplash,
         });
     });
     const load = () =>
@@ -73,16 +71,16 @@ function InvoicingPart() {
       return;
     }
     setError(null);
-    const settings: AppSettings = {
-      version: 1,
-      receiverPort,
-      hourlySync: draft.hourlySync,
-      showSplash: draft.showSplash,
-    };
-    const saved = await tryInvoke(
-      () => api().invoke('settings:save', settings),
-      notify,
-    );
+    // Read fresh so a save from another section is not overwritten.
+    const saved = await tryInvoke(async () => {
+      const fresh = await api().invoke('settings:get');
+      const settings: AppSettings = {
+        ...fresh,
+        receiverPort,
+        hourlySync: draft.hourlySync,
+      };
+      return api().invoke('settings:save', settings);
+    }, notify);
     if (saved) notify('info', 'Settings saved');
   };
 

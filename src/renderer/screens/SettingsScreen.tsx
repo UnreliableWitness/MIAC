@@ -120,10 +120,11 @@ function AppearanceSection() {
 
   const toggle = async (showSplash: boolean) => {
     if (!settings) return;
-    const saved = await tryInvoke(
-      () => api().invoke('settings:save', { ...settings, showSplash }),
-      notify,
-    );
+    // Read fresh so a save from another section is not overwritten.
+    const saved = await tryInvoke(async () => {
+      const fresh = await api().invoke('settings:get');
+      return api().invoke('settings:save', { ...fresh, showSplash });
+    }, notify);
     if (saved) setSettings(saved);
   };
 
