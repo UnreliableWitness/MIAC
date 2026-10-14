@@ -1,0 +1,43 @@
+# TEMPORARY diagnostic workflow for the Windows access violation. Remove before merging.
+name: diag
+on:
+  push:
+    branches: ['fix/windows-ci-flake']
+permissions:
+  contents: read
+jobs:
+  diag:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        pty: ['1.1.0', '1.2.0-beta.15']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - if: matrix.pty != '1.1.0'
+        run: npm install --no-save node-pty@${{ matrix.pty }}
+      - run: node -e "console.log(require('node-pty/package.json').version)"
+      - name: stress (conpty.dll)
+        shell: pwsh
+        run: |
+          $codes = @()
+          for ($i = 0; $i -lt 10; $i++) { node .github/diag/pty-stress.mjs dll 20; $codes += $LASTEXITCODE }
+          "stress dll exit codes: $($codes -join ' ')"
+      - name: stress (system conpty)
+        shell: pwsh
+        run: |
+          $codes = @()
+          for ($i = 0; $i -lt 10; $i++) { node .github/diag/pty-stress.mjs system 20; $codes += $LASTEXITCODE }
+          "stress system exit codes: $($codes -join ' ')"
+      - name: handlers.test.ts x10
+        shell: pwsh
+        run: |
+          $codes = @()
+          for ($i = 0; $i -lt 10; $i++) { npx vitest run src/main/ipc/handlers.test.ts src/main/services/TerminalManager.test.ts 2>&1 | Select-String -Pattern 'Worker exited|Test Files|Tests ' ; $codes += $LASTEXITCODE }
+          "handlers exit codes: $($codes -join ' ')"
