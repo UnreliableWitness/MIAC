@@ -27,3 +27,7 @@ Named after a Culture ship. A desktop app for running development tasks as isola
 ## Status
 
 Early design stage. No application code yet.
+
+## Windows
+
+The Windows installer (`MIAC-Setup.exe`) is built by CI. Get it from the Actions run (artifact `MIAC-Setup-<sha>`) or, for `v*` tags, from the GitHub Release. Verify a build with [docs/windows-checklist.md](docs/windows-checklist.md). Signing details are in `tools/windows-sign/README.md`.

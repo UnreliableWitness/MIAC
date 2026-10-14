@@ -1,0 +1,89 @@
+name: CI
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+
+  windows-installer:
+    needs: test
+    runs-on: windows-latest
+    permissions:
+      contents: write
+      id-token: write
+    env:
+      SIGN: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && vars.AZURE_CLIENT_ID != '' && vars.AZURE_TENANT_ID != '' && vars.AZURE_SUBSCRIPTION_ID != '' && vars.ARTIFACT_SIGNING_ENDPOINT != '' && vars.ARTIFACT_SIGNING_ACCOUNT != '' && vars.ARTIFACT_SIGNING_PROFILE != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Azure login (OIDC)
+        if: env.SIGN == 'true'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Prepare signing tools
+        if: env.SIGN == 'true'
+        shell: pwsh
+        run: |
+          nuget install Microsoft.ArtifactSigning.Client -OutputDirectory "$env:RUNNER_TEMP\as" -ExcludeVersion
+          $dlib = Get-ChildItem "$env:RUNNER_TEMP\as" -Recurse -Filter Azure.CodeSigning.Dlib.dll | Where-Object FullName -match 'x64' | Select-Object -First 1
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe | Where-Object FullName -match '\\x64\\' | Sort-Object FullName -Descending | Select-Object -First 1
+          $meta = "$env:RUNNER_TEMP\metadata.json"
+          @{ Endpoint = "${{ vars.ARTIFACT_SIGNING_ENDPOINT }}"; CodeSigningAccountName = "${{ vars.ARTIFACT_SIGNING_ACCOUNT }}"; CertificateProfileName = "${{ vars.ARTIFACT_SIGNING_PROFILE }}"; ExcludeCredentials = @('ManagedIdentityCredential','EnvironmentCredential','WorkloadIdentityCredential','SharedTokenCacheCredential','VisualStudioCredential','VisualStudioCodeCredential','AzurePowerShellCredential','AzureDeveloperCliCredential','InteractiveBrowserCredential') } | ConvertTo-Json | Set-Content $meta
+          "ARTIFACT_SIGNING_DLIB=$($dlib.FullName)" >> $env:GITHUB_ENV
+          "SIGNTOOL_PATH=$($signtool.FullName)" >> $env:GITHUB_ENV
+          "ARTIFACT_SIGNING_METADATA=$meta" >> $env:GITHUB_ENV
+          "ARTIFACT_SIGNING_ENDPOINT=${{ vars.ARTIFACT_SIGNING_ENDPOINT }}" >> $env:GITHUB_ENV
+      - run: npm run make
+      - name: Verify signature
+        if: env.SIGN == 'true'
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem out/make/squirrel.windows -Recurse -Filter MIAC-Setup.exe | Select-Object -First 1
+          & $env:SIGNTOOL_PATH verify /pa /v $setup.FullName
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Summary
+        shell: pwsh
+        run: |
+          if ($env:SIGN -eq 'true') { "Windows installer: **signed** with Azure Artifact Signing" >> $env:GITHUB_STEP_SUMMARY }
+          else { "Windows installer: **unsigned** (signing variables not set, or not a push to main / v* tag)" >> $env:GITHUB_STEP_SUMMARY }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MIAC-Setup-${{ github.sha }}
+          path: out/make/squirrel.windows/**/MIAC-Setup.exe
+          if-no-files-found: error
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $setup = Get-ChildItem out/make/squirrel.windows -Recurse -Filter MIAC-Setup.exe | Select-Object -First 1
+          gh release create "${{ github.ref_name }}" $setup.FullName --title "MIAC ${{ github.ref_name }}" --generate-notes
