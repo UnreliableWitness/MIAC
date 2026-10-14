@@ -8,7 +8,6 @@ import { AdoRegistry } from '../services/AdoRegistry';
 import { ConnectionStore, type TokenCrypto } from '../services/ConnectionStore';
 import { fakeCrypto } from '../test-helpers/fakeCrypto';
 import { startAdoServer, type AdoServer } from '../test-helpers/adoServer';
-import { darwinPlatform } from '../platform/darwin';
 import { OFFICIAL_RATES } from '../pricing/officialRates';
 import { SettingsStore } from '../usage/SettingsStore';
 import { UsageStore } from '../usage/UsageStore';
@@ -19,6 +18,14 @@ import { SetupRunner } from '../services/SetupRunner';
 import { TaskStore } from '../services/TaskStore';
 import { TerminalManager } from '../services/TerminalManager';
 import { cleanupTempRepos, makeRepo } from '../test-helpers/gitRepo';
+import {
+  echoCmd,
+  envRef,
+  isWindows,
+  sleepCmd,
+  testPlatform,
+  writeLineCmd,
+} from '../test-helpers/shell';
 import {
   createHandlers,
   pruneDanglingConnectionLinks,
@@ -59,7 +66,7 @@ async function harness(
   servers.push(server);
   const opened: string[] = [];
   const git = new GitClient();
-  const platform = darwinPlatform({ SHELL: '/bin/sh' });
+  const platform = testPlatform();
   const terminals = new TerminalManager();
   allTerminals.push(terminals);
   const usageDir = mkdtempSync(path.join(os.tmpdir(), 'miac-usage-'));
@@ -148,7 +155,7 @@ async function harness(
     },
     branch: 'feature/48231-show-estimated-delivery-date',
     copy: true,
-    commands: ['echo ok > ok.txt'],
+    commands: [writeLineCmd('ok', 'ok.txt')],
     startClaude: false,
     openShell: true,
     ...over,
@@ -421,7 +428,7 @@ describe('handlers: concurrency guards', () => {
   it('finish is rejected while setup runs', async () => {
     const { h, input, setupDone, terminals } = await harness();
     const done = setupDone();
-    const t = await h['tasks:create'](input({ commands: ['sleep 1'] }));
+    const t = await h['tasks:create'](input({ commands: [sleepCmd(1)] }));
     await expect(
       h['tasks:finish'](t.id, {
         closeTerminals: true,
@@ -484,11 +491,14 @@ describe('handlers: terminals', () => {
     const def = await h['terminals:open'](t.id, {
       kind: 'run',
       label: 'dev',
-      command: 'echo dev-server-up; sleep 30',
+      command: `${echoCmd('dev-server-up')}; ${sleepCmd(30)}`,
     });
     expect(store.state.tasks[0].terminals.map((x) => x.id)).toContain(def.id);
-    await new Promise((r) => setTimeout(r, 300));
-    expect(await h['terminals:buffer'](def.id)).toContain('dev-server-up');
+    await vi.waitFor(
+      async () =>
+        expect(await h['terminals:buffer'](def.id)).toContain('dev-server-up'),
+      { timeout: 10_000 },
+    );
     expect(await h['terminals:isRunning'](def.id)).toBe(true);
     await h['terminals:restart'](def.id);
     expect(await h['terminals:isRunning'](def.id)).toBe(true);
@@ -909,23 +919,24 @@ describe('handlers: usage', () => {
     const def = await hx.h['terminals:open'](t.id, {
       kind: 'run',
       label: 'env',
-      command:
-        'echo "T=$OTEL_RESOURCE_ATTRIBUTES E=$OTEL_EXPORTER_OTLP_LOGS_ENDPOINT C=$CLAUDE_CODE_ENABLE_TELEMETRY"; sleep 5',
+      command: `${isWindows ? 'Write-Output' : 'echo'} "T=${envRef('OTEL_RESOURCE_ATTRIBUTES')} E=${envRef('OTEL_EXPORTER_OTLP_LOGS_ENDPOINT')} C=${envRef('CLAUDE_CODE_ENABLE_TELEMETRY')}"; ${sleepCmd(5)}`,
     });
-    await new Promise((r) => setTimeout(r, 300));
-    expect(await hx.h['terminals:buffer'](def.id)).toContain(
-      `T=miac.task.id=${t.id} E=http://127.0.0.1:4319/v1/logs C=1`,
+    await vi.waitFor(
+      async () =>
+        expect(await hx.h['terminals:buffer'](def.id)).toContain(
+          `T=miac.task.id=${t.id} E=http://127.0.0.1:4319/v1/logs C=1`,
+        ),
+      { timeout: 10_000 },
     );
     hx.terminals.killAllForTask(t.id);
   });
 
   it('opens a Copilot CLI terminal with the platform command', async () => {
+    const base = testPlatform();
     const platform = {
-      ...darwinPlatform({ SHELL: '/bin/sh' }),
-      copilotCommand: () => ({
-        command: '/bin/sh',
-        args: ['-c', 'echo copilot-started; sleep 5'],
-      }),
+      ...base,
+      copilotCommand: () =>
+        base.shellCommand(`${echoCmd('copilot-started')}; ${sleepCmd(5)}`),
     };
     const hx = await harness(fakeCrypto(), { platform });
     const done = hx.setupDone();
@@ -937,9 +948,12 @@ describe('handlers: usage', () => {
       (x) => x.kind === 'copilot',
     );
     expect(def?.label).toBe('Copilot CLI');
-    await new Promise((r) => setTimeout(r, 300));
-    expect(await hx.h['terminals:buffer'](def!.id)).toContain(
-      'copilot-started',
+    await vi.waitFor(
+      async () =>
+        expect(await hx.h['terminals:buffer'](def!.id)).toContain(
+          'copilot-started',
+        ),
+      { timeout: 10_000 },
     );
     hx.terminals.killAllForTask(t.id);
   });

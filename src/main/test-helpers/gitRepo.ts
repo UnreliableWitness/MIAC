@@ -28,6 +28,7 @@ export function makeRepo(name = 'repo'): string {
   tempRoots.push(root);
   const repo = path.join(root, name);
   git(root, 'init', '-q', '-b', 'main', name);
+  git(repo, 'config', 'core.autocrlf', 'false');
   git(repo, 'config', 'user.email', 'tests@miac.local');
   git(repo, 'config', 'user.name', 'MIAC tests');
   commitFile(repo, 'README.md', '# test\n');

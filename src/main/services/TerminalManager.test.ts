@@ -1,6 +1,16 @@
 import os from 'node:os';
 import { afterEach, describe, expect, it } from 'vitest';
+import {
+  echoCmd,
+  failCmd,
+  isWindows,
+  sleepCmd,
+  testPlatform,
+} from '../test-helpers/shell';
 import { TerminalManager } from './TerminalManager';
+
+/** command and args that run one command line in this OS's shell. */
+const sh = (cmd: string) => testPlatform().shellCommand(cmd);
 
 const managers: TerminalManager[] = [];
 const create = () => {
@@ -36,8 +46,7 @@ describe('TerminalManager', () => {
       id: 't1',
       taskId: 'task',
       cwd: os.tmpdir(),
-      command: '/bin/sh',
-      args: ['-c', 'echo hello-miac'],
+      ...sh(echoCmd('hello-miac')),
     });
     expect(await exited).toBe(0);
     expect(chunks.join('')).toContain('hello-miac');
@@ -52,11 +61,15 @@ describe('TerminalManager', () => {
       id: 't2',
       taskId: 'task',
       cwd: os.tmpdir(),
-      command: '/bin/sh',
-      args: ['-c', 'read x; echo got:$x'],
+      ...sh(
+        isWindows
+          ? '$x = [Console]::In.ReadLine(); Write-Output "got:$x"'
+          : 'read x; echo got:$x',
+      ),
     });
     expect(m.runningCount('task')).toBe(1);
-    m.write('t2', 'abc\n');
+    // ConPTY needs a carriage return for Enter; a POSIX pty accepts a line feed.
+    m.write('t2', isWindows ? 'abc\r' : 'abc\n');
     expect(await exited).toBe(0);
     expect(m.buffer('t2')).toContain('got:abc');
     expect(m.runningCount('task')).toBe(0);
@@ -68,22 +81,19 @@ describe('TerminalManager', () => {
       id: 'a',
       taskId: 'x',
       cwd: os.tmpdir(),
-      command: '/bin/sh',
-      args: ['-c', 'sleep 30'],
+      ...sh(sleepCmd(30)),
     });
     m.spawn({
       id: 'b',
       taskId: 'x',
       cwd: os.tmpdir(),
-      command: '/bin/sh',
-      args: ['-c', 'sleep 30'],
+      ...sh(sleepCmd(30)),
     });
     m.spawn({
       id: 'c',
       taskId: 'y',
       cwd: os.tmpdir(),
-      command: '/bin/sh',
-      args: ['-c', 'sleep 30'],
+      ...sh(sleepCmd(30)),
     });
     m.killAllForTask('x');
     expect(m.runningCount('x')).toBe(0);
@@ -99,8 +109,7 @@ describe('TerminalManager', () => {
       id: 'r',
       taskId: 'task',
       cwd: os.tmpdir(),
-      command: '/bin/sh',
-      args: ['-c', 'echo run'],
+      ...sh(echoCmd('run')),
     });
     await first;
     const second = waitFor(m, 'r');
@@ -115,16 +124,14 @@ describe('TerminalManager', () => {
       id: 'd',
       taskId: 't',
       cwd: os.tmpdir(),
-      command: '/bin/sh',
-      args: ['-c', 'sleep 30'],
+      ...sh(sleepCmd(30)),
     });
     expect(() =>
       m.spawn({
         id: 'd',
         taskId: 't',
         cwd: os.tmpdir(),
-        command: '/bin/sh',
-        args: [],
+        ...sh(sleepCmd(30)),
       }),
     ).toThrow(/already/);
     expect(m.ids()).toEqual(['d']);
@@ -137,8 +144,7 @@ describe('TerminalManager', () => {
       id: 'live',
       taskId: 't',
       cwd: os.tmpdir(),
-      command: '/bin/sh',
-      args: ['-c', 'sleep 30'],
+      ...sh(sleepCmd(30)),
     });
     await sleep(100);
     const exits: number[] = [];
@@ -159,8 +165,7 @@ describe('TerminalManager', () => {
       id: 'e',
       taskId: 't',
       cwd: os.tmpdir(),
-      command: '/bin/sh',
-      args: ['-c', 'echo bye'],
+      ...sh(echoCmd('bye')),
     });
     await exited;
     expect(m.ids()).toEqual(['e']);
@@ -175,8 +180,7 @@ describe('TerminalManager', () => {
       id: 'w',
       taskId: 't',
       cwd: os.tmpdir(),
-      command: '/bin/sh',
-      args: ['-c', 'true'],
+      ...sh(failCmd(0)),
     });
     await exited;
     expect(() => m.write('w', 'x')).not.toThrow();
@@ -190,8 +194,7 @@ describe('TerminalManager', () => {
       id: 'n',
       taskId: 't',
       cwd: os.tmpdir(),
-      command: '/bin/sh',
-      args: ['-c', 'exit 3'],
+      ...sh(failCmd(3)),
     });
     expect(await exited).toBe(3);
   });
@@ -203,8 +206,7 @@ describe('TerminalManager', () => {
       id: 'f',
       taskId: 't',
       cwd: os.tmpdir(),
-      command: '/bin/sh',
-      args: ['-c', 'echo before'],
+      ...sh(echoCmd('before')),
     });
     await exited;
     const entry = (
