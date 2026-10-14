@@ -28,9 +28,9 @@ import { SetupRunner } from './main/services/SetupRunner';
 import { TaskStore } from './main/services/TaskStore';
 import { TerminalManager } from './main/services/TerminalManager';
 import { CopilotFileTailer } from './main/usage/CopilotFileTailer';
-import { RateStore } from './main/usage/RateStore';
 import { SettingsStore } from './main/usage/SettingsStore';
 import { UsageReceiver } from './main/usage/UsageReceiver';
+import { OFFICIAL_RATES } from './main/pricing/officialRates';
 import { UsageStore } from './main/usage/UsageStore';
 
 if (started) app.quit();
@@ -100,9 +100,7 @@ async function boot(): Promise<void> {
   await fs.mkdir(path.join(usageDir, 'copilot'), { recursive: true });
   const settings = new SettingsStore(path.join(userData, 'settings.json'));
   const settingsLoaded = await settings.load();
-  const rates = new RateStore(path.join(userData, 'rates.json'));
-  const ratesLoaded = await rates.load();
-  const usage = new UsageStore(usageDir, () => rates.list());
+  const usage = new UsageStore(usageDir, () => OFFICIAL_RATES);
   const usageLoaded = await usage.load();
   const ingest = (events: UsageEvent[]) => {
     for (const e of events)
@@ -114,7 +112,6 @@ async function boot(): Promise<void> {
   const copilot = new CopilotFileTailer(path.join(usageDir, 'copilot'), ingest);
   const handlers = createHandlers({
     usage,
-    rates,
     settings,
     receiver,
     copilot,
@@ -193,10 +190,7 @@ async function boot(): Promise<void> {
         level: 'warn',
         message: `billable.json was unreadable and was moved to ${path.basename(usageLoaded.billableBackup)}; all sessions are billable again. Review them on the Usage screen.`,
       });
-    for (const [name, r] of [
-      ['settings.json', settingsLoaded],
-      ['rates.json', ratesLoaded],
-    ] as const)
+    for (const [name, r] of [['settings.json', settingsLoaded]] as const)
       if (r.recovered)
         broadcast('notice', {
           level: 'warn',

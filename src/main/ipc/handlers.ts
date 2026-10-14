@@ -15,7 +15,11 @@ import type {
 } from '../../shared/types';
 import { worktreeRoot } from '../paths';
 import type { Command, Platform } from '../platform/Platform';
-import { OFFICIAL_RATES_AS_OF } from '../pricing/officialRates';
+import {
+  OFFICIAL_RATES,
+  OFFICIAL_RATES_AS_OF,
+  OFFICIAL_USD_TO_EUR,
+} from '../pricing/officialRates';
 import { AdoClient, AdoError } from '../services/AdoClient';
 import type { AdoRegistry } from '../services/AdoRegistry';
 import {
@@ -33,7 +37,6 @@ import type { TaskStore } from '../services/TaskStore';
 import type { TerminalManager } from '../services/TerminalManager';
 import type { CopilotFileTailer } from '../usage/CopilotFileTailer';
 import { usageCsv } from '../usage/csv';
-import type { RateStore } from '../usage/RateStore';
 import type { SettingsStore } from '../usage/SettingsStore';
 import { telemetryEnv } from '../usage/telemetryEnv';
 import type { UsageReceiver } from '../usage/UsageReceiver';
@@ -55,7 +58,6 @@ export type Services = {
   launch: (cmd: Command) => Promise<void>;
   broadcast: <K extends keyof Events>(event: K, payload: Events[K]) => void;
   usage: UsageStore;
-  rates: RateStore;
   settings: SettingsStore;
   receiver: Pick<UsageReceiver, 'start' | 'status'>;
   copilot: Pick<CopilotFileTailer, 'stats' | 'poll'>;
@@ -245,7 +247,7 @@ export function createHandlers(s: Services): Handlers {
     },
     client: (connectionId) => s.ado.client(connectionId),
     run: withConnection,
-    usage: (taskId) => s.usage.summarize(taskId, s.settings.get()),
+    usage: (taskId) => s.usage.summarize(taskId),
     changedSince: (iso) => s.usage.changedSince(iso),
     patchTask,
   });
@@ -701,10 +703,10 @@ export function createHandlers(s: Services): Handlers {
       await s.openExternal(url);
     },
 
-    'usage:task': async (taskId) => s.usage.summarize(taskId, s.settings.get()),
+    'usage:task': async (taskId) => s.usage.summarize(taskId),
     'usage:setBillable': async (taskId, sessionId, billable) => {
       await s.usage.setBillable(taskId, sessionId, billable);
-      return s.usage.summarize(taskId, s.settings.get());
+      return s.usage.summarize(taskId);
     },
     'usage:sync': async (taskId) =>
       usageSync.syncTask(taskId, {
@@ -713,11 +715,10 @@ export function createHandlers(s: Services): Handlers {
         comment: taskById(taskId).status === 'done',
       }),
     'usage:exportCsv': async (taskId) => {
-      const st = s.settings.get();
       return usageCsv(
         s.usage.records(taskId),
         (sessionId) => s.usage.isBillable(taskId, sessionId),
-        st.usdToEur * (1 + st.markupPct / 100),
+        OFFICIAL_USD_TO_EUR,
       );
     },
     'usage:fieldsStatus': async (connectionId) =>
@@ -727,11 +728,9 @@ export function createHandlers(s: Services): Handlers {
       ),
     'usage:receiverStatus': async () => receiverStatus(),
     'rates:list': async () => ({
-      rates: s.rates.list(),
+      rates: OFFICIAL_RATES,
       officialAsOf: OFFICIAL_RATES_AS_OF,
     }),
-    'rates:save': async (rates) => s.rates.save(rates),
-    'rates:reset': async () => s.rates.reset(),
     'settings:get': async () => s.settings.get(),
     'settings:save': async (next) => {
       const before = s.settings.get();

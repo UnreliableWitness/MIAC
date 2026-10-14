@@ -41,7 +41,6 @@ const usage: TaskUsage = {
   sessions: [],
   unpricedRequests: 0,
   usdToEur: 0.92,
-  markupPct: 0,
   billable: { costUsd: 10, costEur: 9.2, tokens: 5000 },
   byTool: {
     'claude-code': { costUsd: 10, costEur: 9.2, sessions: 1, tokens: 5000 },

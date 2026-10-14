@@ -3,7 +3,6 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import type {
-  AppSettings,
   Rate,
   SessionSummary,
   TaskUsage,
@@ -11,6 +10,7 @@ import type {
   UsageRecord,
   UsageTool,
 } from '../../shared/usage';
+import { OFFICIAL_USD_TO_EUR } from '../pricing/officialRates';
 import { priceEvent, round6 } from '../pricing/RateTable';
 
 const TOOLS: UsageTool[] = ['claude-code', 'copilot-cli'];
@@ -154,7 +154,7 @@ export class UsageStore extends EventEmitter<{ changed: [taskId: string] }> {
     return [...this.lastChange].filter(([, at]) => at > iso).map(([t]) => t);
   }
 
-  summarize(taskId: string, settings: AppSettings): TaskUsage {
+  summarize(taskId: string): TaskUsage {
     const sessions = new Map<string, SessionSummary>();
     for (const r of this.records(taskId)) {
       const s = sessions.get(r.sessionId) ?? {
@@ -184,7 +184,7 @@ export class UsageStore extends EventEmitter<{ changed: [taskId: string] }> {
     const list = [...sessions.values()].sort((a, b) =>
       a.startedAt.localeCompare(b.startedAt),
     );
-    const factor = settings.usdToEur * (1 + settings.markupPct / 100);
+    const factor = OFFICIAL_USD_TO_EUR;
     const tokensOf = (s: SessionSummary) =>
       s.inputTokens + s.outputTokens + s.cacheReadTokens + s.cacheWriteTokens;
     const billableList = list.filter((s) => s.billable);
@@ -214,8 +214,7 @@ export class UsageStore extends EventEmitter<{ changed: [taskId: string] }> {
       },
       byTool,
       unpricedRequests: list.reduce((n, s) => n + s.unpricedRequests, 0),
-      usdToEur: settings.usdToEur,
-      markupPct: settings.markupPct,
+      usdToEur: OFFICIAL_USD_TO_EUR,
     };
   }
 

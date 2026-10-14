@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -21,10 +21,40 @@ describe('SettingsStore', () => {
     const a = new SettingsStore(f);
     await a.load();
     expect(a.get()).toEqual(defaultSettings());
-    await a.save({ ...defaultSettings(), usdToEur: 0.9, receiverPort: 5000 });
+    await a.save({
+      ...defaultSettings(),
+      hourlySync: false,
+      receiverPort: 5000,
+    });
     const b = new SettingsStore(f);
     await b.load();
-    expect(b.get()).toMatchObject({ usdToEur: 0.9, receiverPort: 5000 });
+    expect(b.get()).toMatchObject({ hourlySync: false, receiverPort: 5000 });
+  });
+  it('loads a settings file from sub-project 3 and drops the old keys on save', async () => {
+    const f = file();
+    writeFileSync(
+      f,
+      JSON.stringify({
+        version: 1,
+        receiverPort: 5000,
+        usdToEur: 0.95,
+        markupPct: 15,
+        hourlySync: false,
+      }),
+    );
+    const s = new SettingsStore(f);
+    expect(await s.load()).toEqual({ recovered: false });
+    expect(s.get()).toEqual({
+      version: 1,
+      receiverPort: 5000,
+      hourlySync: false,
+    });
+    await s.save({ ...s.get(), hourlySync: true });
+    expect(JSON.parse(readFileSync(f, 'utf8'))).toEqual({
+      version: 1,
+      receiverPort: 5000,
+      hourlySync: true,
+    });
   });
   it('rejects invalid values', async () => {
     const s = new SettingsStore(file());

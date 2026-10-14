@@ -10,8 +10,8 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { defaultSettings, type UsageEvent } from '../../shared/usage';
-import { OFFICIAL_RATES } from '../pricing/officialRates';
+import { type UsageEvent } from '../../shared/usage';
+import { OFFICIAL_RATES, OFFICIAL_USD_TO_EUR } from '../pricing/officialRates';
 import { UsageStore } from './UsageStore';
 
 const dirs: string[] = [];
@@ -116,20 +116,21 @@ describe('UsageStore', () => {
       }),
     );
     await s.setBillable('t1', 's1', true);
-    let u = s.summarize('t1', {
-      ...defaultSettings(),
-      usdToEur: 0.5,
-      markupPct: 10,
-    });
+    let u = s.summarize('t1');
     expect(u.sessions.map((x) => [x.sessionId, x.requests, x.models])).toEqual([
       ['s1', 2, ['claude-opus-5-5', 'claude-sonnet-5-5']],
       ['s2', 1, ['mystery']],
     ]);
     expect(u.unpricedRequests).toBe(1);
     expect(u.byTool['claude-code'].sessions).toBe(1);
-    expect(u.billable.costEur).toBeCloseTo(u.billable.costUsd * 0.5 * 1.1, 6);
+    expect(u.billable.costEur).toBeCloseTo(
+      u.billable.costUsd * OFFICIAL_USD_TO_EUR,
+      6,
+    );
+    expect(u.usdToEur).toBe(0.92);
+    expect('markupPct' in u).toBe(false);
     await s.setBillable('t1', 's1', false);
-    u = s.summarize('t1', defaultSettings());
+    u = s.summarize('t1');
     expect(u.sessions.find((x) => x.sessionId === 's1')?.billable).toBe(false);
     expect(u.billable.costUsd).toBe(0);
   });
@@ -160,9 +161,7 @@ describe('UsageStore', () => {
       expect(existsSync(res.billableBackup as string)).toBe(true);
       expect(existsSync(path.join(d, 'billable.json'))).toBe(false);
       expect(b.isBillable('t1', 's1')).toBe(true);
-      expect(b.summarize('t1', defaultSettings()).sessions[0].billable).toBe(
-        true,
-      );
+      expect(b.summarize('t1').sessions[0].billable).toBe(true);
     }
   });
 
