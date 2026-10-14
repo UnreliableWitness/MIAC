@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { StateSchema, type State } from '../../shared/types';
+import { renameWithRetry } from '../fsRetry';
 
 export type LoadResult = { recovered: boolean; backup?: string };
 
@@ -34,7 +35,7 @@ export class TaskStore {
     } catch {
       const backup = `${this.filePath}.corrupt-${Date.now()}`;
       try {
-        await fs.rename(this.filePath, backup);
+        await renameWithRetry(this.filePath, backup);
       } catch {
         // Rename can fail on Windows when the file is locked; keep a copy instead.
         try {
@@ -69,6 +70,6 @@ export class TaskStore {
     await fs.mkdir(path.dirname(this.filePath), { recursive: true });
     const tmp = `${this.filePath}.tmp`;
     await fs.writeFile(tmp, JSON.stringify(s, null, 2), 'utf8');
-    await fs.rename(tmp, this.filePath);
+    await renameWithRetry(tmp, this.filePath);
   }
 }

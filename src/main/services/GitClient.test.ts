@@ -1,6 +1,6 @@
 import { existsSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import {
   addOrigin,
   cleanupTempRepos,
@@ -159,5 +159,34 @@ describe('GitClient', () => {
       baseRef: 'main',
     });
     expect(await client.commonDir(wt)).toBe(path.join(repo, '.git'));
+  });
+
+  it('runs worktree add, remove and prune with core.longpaths on every OS', async () => {
+    const repo = makeRepo();
+    const wt = path.join(path.dirname(repo), 'longpaths');
+    const spy = vi.spyOn(client, 'run');
+    await client.worktreeAdd(repo, {
+      branch: 'feature/lp',
+      path: wt,
+      baseRef: 'main',
+    });
+    await client.worktreeRemove(repo, wt, true);
+    await client.worktreePrune(repo);
+    const argsPerCall = spy.mock.calls.map(([, args]) => args);
+    spy.mockRestore();
+    expect(argsPerCall).toEqual([
+      [
+        '-c',
+        'core.longpaths=true',
+        'worktree',
+        'add',
+        '-b',
+        'feature/lp',
+        wt,
+        'main',
+      ],
+      ['-c', 'core.longpaths=true', 'worktree', 'remove', '--force', wt],
+      ['-c', 'core.longpaths=true', 'worktree', 'prune'],
+    ]);
   });
 });

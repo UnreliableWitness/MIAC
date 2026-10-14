@@ -102,7 +102,16 @@ export class GitClient {
     cwd: string,
     o: { branch: string; path: string; baseRef: string },
   ): Promise<void> {
-    await this.run(cwd, ['worktree', 'add', '-b', o.branch, o.path, o.baseRef]);
+    await this.run(cwd, [
+      '-c',
+      'core.longpaths=true',
+      'worktree',
+      'add',
+      '-b',
+      o.branch,
+      o.path,
+      o.baseRef,
+    ]);
   }
 
   async worktreeRemove(
@@ -111,6 +120,8 @@ export class GitClient {
     force: boolean,
   ): Promise<void> {
     await this.run(cwd, [
+      '-c',
+      'core.longpaths=true',
       'worktree',
       'remove',
       ...(force ? ['--force'] : []),
@@ -119,7 +130,7 @@ export class GitClient {
   }
 
   async worktreePrune(cwd: string): Promise<void> {
-    await this.run(cwd, ['worktree', 'prune']);
+    await this.run(cwd, ['-c', 'core.longpaths=true', 'worktree', 'prune']);
   }
 
   async deleteBranch(cwd: string, branch: string): Promise<void> {
