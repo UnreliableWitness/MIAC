@@ -24,7 +24,15 @@ export class RepoRegistry {
   }
 
   async add(folder: string): Promise<Repo> {
-    const real = await fs.realpath(folder);
+    let real: string;
+    try {
+      real = await fs.realpath(folder);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new Error(`${folder} does not exist`);
+      }
+      throw e;
+    }
     const top = await this.git.toplevel(real);
     if (!top) throw new Error(`${folder} is not a git repository`);
     if (this.store.state.repos.some((r) => r.path === top)) {
@@ -35,7 +43,11 @@ export class RepoRegistry {
       path: top,
       connectionId: null,
     });
+    // Re-check inside the update: a concurrent add may have registered the same path while we awaited.
     await this.store.update((s) => {
+      if (s.repos.some((r) => r.path === top)) {
+        throw new Error(`${path.basename(top)} is already registered`);
+      }
       s.repos.push(repo);
     });
     return repo;

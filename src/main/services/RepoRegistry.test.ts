@@ -79,6 +79,27 @@ describe('RepoRegistry', () => {
     );
   });
 
+  it('rejects a folder that does not exist', async () => {
+    const reg = await registry();
+    await expect(
+      reg.add(path.join(tempDir('miac-missing-'), 'nope')),
+    ).rejects.toThrow(/does not exist/);
+  });
+
+  it('rejects a concurrent duplicate add', async () => {
+    const reg = await registry();
+    const repo = makeRepo('webshop');
+    const results = await Promise.allSettled([reg.add(repo), reg.add(repo)]);
+    const fulfilled = results.filter((r) => r.status === 'fulfilled');
+    const rejected = results.filter((r) => r.status === 'rejected');
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason).toEqual(
+      expect.objectContaining({ message: expect.stringMatching(/already/) }),
+    );
+    expect(reg.list()).toHaveLength(1);
+  });
+
   it('removes a repo and refuses when it still has open tasks', async () => {
     const reg = await registry();
     const repo = await reg.add(makeRepo('webshop'));
