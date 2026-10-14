@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Notice, Repo, TaskView } from '../shared/types';
+import type { Connection, Notice, Repo, TaskView } from '../shared/types';
 import { api } from './api';
 
 export type Screen =
@@ -13,12 +13,14 @@ type Store = {
   screen: Screen;
   repos: Repo[];
   tasks: TaskView[];
+  connections: Connection[];
   selectedTaskId: string | null;
   notices: Notice[];
   go(screen: Screen): void;
   select(taskId: string | null): void;
   setRepos(repos: Repo[]): void;
   setTasks(tasks: TaskView[]): void;
+  setConnections(connections: Connection[]): void;
   notify(level: Notice['level'], message: string): void;
   dismiss(id: string): void;
   load(): Promise<void>;
@@ -30,11 +32,13 @@ export const useStore = create<Store>((set, get) => ({
   screen: { kind: 'workspace' },
   repos: [],
   tasks: [],
+  connections: [],
   selectedTaskId: null,
   notices: [],
   go: (screen) => set({ screen }),
   select: (selectedTaskId) => set({ selectedTaskId }),
   setRepos: (repos) => set({ repos }),
+  setConnections: (connections) => set({ connections }),
   setTasks: (tasks) => {
     const selected = get().selectedTaskId;
     const stillThere = tasks.some((t) => t.id === selected);
@@ -48,11 +52,13 @@ export const useStore = create<Store>((set, get) => ({
   },
   dismiss: (id) => set({ notices: get().notices.filter((n) => n.id !== id) }),
   load: async () => {
-    const [repos, tasks] = await Promise.all([
+    const [repos, tasks, connections] = await Promise.all([
       api().invoke('repos:list'),
       api().invoke('tasks:list'),
+      api().invoke('connections:list'),
     ]);
     get().setRepos(repos);
     get().setTasks(tasks);
+    get().setConnections(connections);
   },
 }));

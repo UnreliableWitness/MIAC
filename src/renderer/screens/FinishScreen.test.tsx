@@ -44,6 +44,7 @@ beforeEach(() =>
   useStore.setState({
     repos: [],
     tasks: [task],
+    connections: [],
     notices: [],
     screen: { kind: 'finish', taskId: 'a' },
     selectedTaskId: 'a',

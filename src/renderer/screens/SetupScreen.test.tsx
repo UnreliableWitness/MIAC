@@ -76,6 +76,7 @@ beforeEach(() =>
       },
     ],
     tasks: [task],
+    connections: [],
     notices: [],
     screen: { kind: 'setup', taskId: 't1' },
   }),

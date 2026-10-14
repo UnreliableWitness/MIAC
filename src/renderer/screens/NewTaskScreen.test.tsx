@@ -30,6 +30,7 @@ beforeEach(() =>
   useStore.setState({
     repos: [webshop],
     tasks: [],
+    connections: [],
     notices: [],
     screen: { kind: 'new-task' },
   }),

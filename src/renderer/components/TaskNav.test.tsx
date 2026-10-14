@@ -89,6 +89,7 @@ beforeEach(() =>
   useStore.setState({
     repos,
     tasks,
+    connections: [],
     notices: [],
     screen: { kind: 'workspace' },
     selectedTaskId: 'a',

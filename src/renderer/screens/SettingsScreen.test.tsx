@@ -22,6 +22,7 @@ beforeEach(() => {
   useStore.setState({
     repos: [],
     tasks: [],
+    connections: [],
     notices: [],
     screen: { kind: 'settings' },
   });
@@ -115,5 +116,36 @@ describe('SettingsScreen', () => {
       expect(screen.getByText(/dev: npm run dev/)).toBeInTheDocument(),
     );
     expect(screen.getByText(/copy: \[\.env\]/)).toBeInTheDocument();
+  });
+
+  it('links a repo to a connection', async () => {
+    const { calls } = installFakeApi({
+      'repos:setConnection': () => ({ ...webshop, connectionId: 'c1' }),
+      'repos:list': () => [{ ...webshop, connectionId: 'c1' }],
+    });
+    useStore.setState({
+      repos: [webshop],
+      connections: [
+        {
+          id: 'c1',
+          name: 'unreliablewitness',
+          organizationUrl: 'https://dev.azure.com/unreliablewitness',
+          project: 'MIAC',
+          user: null,
+          status: 'ok',
+          checkedAt: null,
+        },
+      ],
+    });
+    render(<SettingsScreen />);
+    await userEvent.selectOptions(
+      screen.getByLabelText('Connection for webshop'),
+      'c1',
+    );
+    await waitFor(() =>
+      expect(
+        calls.find((c) => c.channel === 'repos:setConnection')?.args,
+      ).toEqual(['r1', 'c1']),
+    );
   });
 });

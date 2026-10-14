@@ -534,3 +534,36 @@
   max-height: 160px;
   overflow: auto;
 }
+.conn-form {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  gap: 12px 16px;
+  align-items: center;
+  padding: 14px 16px;
+  border-top: 1px solid var(--border);
+}
+.conn-form label {
+  color: var(--muted);
+}
+.conn-form .actions {
+  grid-column: 1 / -1;
+  margin-top: 4px;
+}
+.conn-status-ok {
+  font-size: 12px;
+  color: var(--green);
+}
+.conn-status-bad {
+  font-size: 12px;
+  color: var(--red);
+}
+.conn-confirm {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 16px;
+  background: var(--warn-bg);
+  border-top: 1px solid var(--warn-border);
+  color: var(--warn-text);
+  font-size: 13px;
+}

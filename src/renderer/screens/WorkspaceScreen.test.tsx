@@ -67,6 +67,7 @@ beforeEach(() =>
       },
     ],
     tasks: [task],
+    connections: [],
     notices: [],
     screen: { kind: 'workspace' },
     selectedTaskId: 'a',

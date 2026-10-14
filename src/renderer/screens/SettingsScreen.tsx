@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { MiacConfig, Repo } from '../../shared/types';
 import { api, tryInvoke } from '../api';
+import { ConnectionsSection } from '../components/ConnectionsSection';
 import { TopBar } from '../components/TopBar';
 import { useStore } from '../store';
 
@@ -27,6 +28,7 @@ function renderConfig(
 function RepoRow({ repo }: { repo: Repo }) {
   const notify = useStore((s) => s.notify);
   const setRepos = useStore((s) => s.setRepos);
+  const connections = useStore((s) => s.connections);
   const [shown, setShown] = useState<string | null>(null);
 
   const show = async () => {
@@ -60,6 +62,26 @@ function RepoRow({ repo }: { repo: Repo }) {
         ) : (
           <span className="tag tag-warn">No .miac.yml, using defaults</span>
         )}
+        <select
+          className="field"
+          aria-label={`Connection for ${repo.name}`}
+          value={repo.connectionId ?? ''}
+          onChange={async (e) => {
+            const value = e.target.value || null;
+            const ok = await tryInvoke(
+              () => api().invoke('repos:setConnection', repo.id, value),
+              notify,
+            );
+            if (ok) setRepos(await api().invoke('repos:list'));
+          }}
+        >
+          <option value="">No connection</option>
+          {connections.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name} / {c.project}
+            </option>
+          ))}
+        </select>
         <button type="button" className="btn btn-ghost btn-sm" onClick={show}>
           {shown === null ? 'Show setup' : 'Hide setup'}
         </button>
@@ -117,9 +139,7 @@ export function SettingsScreen() {
           <a href="#repos" className="active">
             Repositories
           </a>
-          <a href="#ado" className="disabled" aria-disabled="true">
-            Azure DevOps
-          </a>
+          <a href="#ado">Azure DevOps</a>
           <a href="#cost" className="disabled" aria-disabled="true">
             AI cost and invoicing
           </a>
@@ -150,15 +170,7 @@ export function SettingsScreen() {
               </div>
             )}
           </section>
-          <section id="ado" className="section">
-            <div className="section-head">
-              <h2>Azure DevOps</h2>
-            </div>
-            <p className="placeholder">
-              Connections to one or more Azure DevOps organizations arrive in
-              the next release.
-            </p>
-          </section>
+          <ConnectionsSection />
           <section id="cost" className="section">
             <div className="section-head">
               <h2>AI cost and invoicing</h2>
