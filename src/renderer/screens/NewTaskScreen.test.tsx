@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Repo } from '../../shared/types';
@@ -30,6 +30,7 @@ beforeEach(() =>
   useStore.setState({
     repos: [webshop],
     tasks: [],
+    connections: [],
     notices: [],
     screen: { kind: 'new-task' },
   }),
@@ -110,7 +111,12 @@ describe('NewTaskScreen', () => {
       repoId: 'r1',
       baseRef: 'origin/main',
       name: '',
-      workItem: { id: '48231', type: 'User Story', title: 'Delivery date' },
+      workItem: {
+        id: '48231',
+        type: 'User Story',
+        title: 'Delivery date',
+        url: null,
+      },
       branch: 'feature/48231-delivery-date',
       copy: true,
       commands: ['npm ci'],
@@ -149,5 +155,158 @@ describe('NewTaskScreen', () => {
     expect(screen.getByRole('button', { name: 'Create task' })).toBeDisabled();
     await userEvent.type(screen.getByLabelText('Work item id'), '48231');
     expect(screen.getByRole('button', { name: 'Create task' })).toBeEnabled();
+  });
+
+  it('creates a task from a picked work item when the repo has a connection', async () => {
+    const { calls } = installFakeApi({
+      'repos:config': () => config,
+      'workItems:currentIteration': () => ({
+        path: 'MIAC\\Sprint 1',
+        name: 'Sprint 1',
+      }),
+      'workItems:search': () => [
+        {
+          id: '12',
+          type: 'Issue',
+          title: 'Save delivery address',
+          state: 'To Do',
+          areaPath: 'MIAC',
+          iterationPath: 'MIAC\\Sprint 1',
+          assignedTo: null,
+          url: 'https://dev.azure.com/unreliablewitness/MIAC/_workitems/edit/12',
+        },
+      ],
+      'tasks:create': () => ({ id: 't9' }) as never,
+    });
+    useStore.setState({
+      repos: [{ ...webshop, connectionId: 'c1' }],
+      connections: [
+        {
+          id: 'c1',
+          name: 'uw',
+          organizationUrl: 'https://dev.azure.com/unreliablewitness',
+          project: 'MIAC',
+          user: 'D',
+          status: 'ok',
+          checkedAt: null,
+        },
+      ],
+    });
+    render(<NewTaskScreen />);
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Save delivery address/ }),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText('Branch')).toHaveValue(
+        'feature/12-save-delivery-address',
+      ),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    await waitFor(() =>
+      expect(
+        calls.find((c) => c.channel === 'tasks:create')?.args[0],
+      ).toMatchObject({
+        workItem: {
+          id: '12',
+          type: 'Issue',
+          title: 'Save delivery address',
+          url: 'https://dev.azure.com/unreliablewitness/MIAC/_workitems/edit/12',
+        },
+      }),
+    );
+  });
+
+  const conn = {
+    id: 'c1',
+    name: 'uw',
+    organizationUrl: 'https://dev.azure.com/unreliablewitness',
+    project: 'MIAC',
+    user: 'D',
+    status: 'ok' as const,
+    checkedAt: null,
+  };
+  const pickerApi = {
+    'repos:config': () => config,
+    'workItems:currentIteration': () => ({ path: 'p', name: 'S' }),
+    'workItems:search': () => [],
+  };
+
+  it('follows the selected repo between picker and typed form', async () => {
+    installFakeApi(pickerApi);
+    useStore.setState({
+      repos: [
+        { ...webshop, connectionId: 'c1' },
+        { ...webshop, id: 'r2', name: 'plain' },
+      ],
+      connections: [conn],
+    });
+    render(<NewTaskScreen />);
+    expect(
+      await screen.findByLabelText('Search work items'),
+    ).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText('Repo'), 'plain');
+    expect(await screen.findByLabelText('Work item id')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('tab', { name: 'Work item' }),
+    ).not.toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText('Repo'), 'webshop');
+    expect(
+      await screen.findByLabelText('Search work items'),
+    ).toBeInTheDocument();
+  });
+
+  it('falls back to the typed form when the repo loses its connection', async () => {
+    installFakeApi(pickerApi);
+    useStore.setState({
+      repos: [{ ...webshop, connectionId: 'c1' }],
+      connections: [conn],
+    });
+    render(<NewTaskScreen />);
+    expect(
+      await screen.findByLabelText('Search work items'),
+    ).toBeInTheDocument();
+    act(() =>
+      useStore.setState({ repos: [{ ...webshop, connectionId: null }] }),
+    );
+    expect(await screen.findByLabelText('Work item id')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('tab', { name: 'Work item' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('clears the picked item when the repo switches to another connection', async () => {
+    installFakeApi({
+      ...pickerApi,
+      'workItems:search': () => [
+        {
+          id: '12',
+          type: 'Issue',
+          title: 'Save delivery address',
+          state: 'To Do',
+          areaPath: 'MIAC',
+          iterationPath: 'p',
+          assignedTo: null,
+          url: 'https://dev.azure.com/o/p/_workitems/edit/12',
+        },
+      ],
+    });
+    useStore.setState({
+      repos: [{ ...webshop, connectionId: 'c1' }],
+      connections: [conn, { ...conn, id: 'c2', name: 'other' }],
+    });
+    render(<NewTaskScreen />);
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Save delivery address/ }),
+    );
+    const create = screen.getByRole('button', { name: 'Create task' });
+    await waitFor(() => expect(create).toBeEnabled());
+    act(() =>
+      useStore.setState({ repos: [{ ...webshop, connectionId: 'c2' }] }),
+    );
+    await waitFor(() => expect(create).toBeDisabled());
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Save delivery address/ }),
+    );
+    await waitFor(() => expect(create).toBeEnabled());
   });
 });

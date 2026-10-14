@@ -10,6 +10,7 @@ beforeEach(() =>
   useStore.setState({
     repos: [],
     tasks: [],
+    connections: [],
     notices: [],
     screen: { kind: 'workspace' },
   }),
@@ -22,6 +23,7 @@ describe('App', () => {
     expect(screen.getByText('MIAC')).toBeInTheDocument();
     await waitFor(() =>
       expect(calls.map((c) => c.channel).sort()).toEqual([
+        'connections:list',
         'repos:list',
         'tasks:list',
       ]),

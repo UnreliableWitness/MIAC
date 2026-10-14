@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { StateSchema } from './types';
+import { ConnectionsFileSchema, StateSchema, WorkItemRefSchema } from './types';
 
 describe('StateSchema', () => {
   it('accepts an empty state', () => {
@@ -41,6 +41,65 @@ describe('StateSchema', () => {
   it('rejects a future version', () => {
     expect(() =>
       StateSchema.parse({ version: 2, repos: [], tasks: [] }),
+    ).toThrow();
+  });
+});
+
+describe('WorkItemRefSchema', () => {
+  it('accepts any type string and defaults url to null', () => {
+    expect(
+      WorkItemRefSchema.parse({ id: '7', type: 'Issue', title: 'x' }),
+    ).toEqual({ id: '7', type: 'Issue', title: 'x', url: null });
+  });
+  it('keeps a url when given', () => {
+    expect(
+      WorkItemRefSchema.parse({
+        id: '7',
+        type: 'Bug',
+        title: 'x',
+        url: 'https://dev.azure.com/o/p/_workitems/edit/7',
+      }).url,
+    ).toContain('/edit/7');
+  });
+});
+
+describe('ConnectionsFileSchema', () => {
+  it('accepts an empty file and a connection with ciphertext', () => {
+    expect(
+      ConnectionsFileSchema.parse({ version: 1, connections: [] }).connections,
+    ).toEqual([]);
+    const c = {
+      id: 'c1',
+      name: 'unreliablewitness',
+      organizationUrl: 'https://dev.azure.com/unreliablewitness',
+      project: 'MIAC',
+      user: null,
+      status: 'unknown',
+      checkedAt: null,
+      tokenCiphertext: 'AAAA',
+    };
+    expect(
+      ConnectionsFileSchema.parse({ version: 1, connections: [c] })
+        .connections[0].tokenCiphertext,
+    ).toBe('AAAA');
+  });
+  it('rejects an unknown status', () => {
+    expect(() =>
+      ConnectionsFileSchema.parse({
+        version: 1,
+        connections: [
+          {
+            id: 'c',
+            name: 'n',
+            organizationUrl: 'u',
+            project: 'p',
+            user: null,
+            status: 'weird',
+            checkedAt: null,
+            tokenCiphertext: 'x',
+          },
+        ],
+      }),
     ).toThrow();
   });
 });

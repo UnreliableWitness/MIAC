@@ -1,20 +1,32 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { renderBranch, taskSlug } from '../../shared/naming';
 import type { MiacConfig, WorkItemRef, WorkItemType } from '../../shared/types';
 import { api, tryInvoke } from '../api';
+import { WorkItemPicker } from '../components/WorkItemPicker';
 import { useStore } from '../store';
 
-type Mode = 'work-item' | 'blank';
-const TYPES: WorkItemType[] = ['User Story', 'Bug', 'Task'];
+type Mode = 'pick' | 'typed' | 'blank';
+const TYPES: WorkItemType[] = ['Issue', 'User Story', 'Bug', 'Task', 'Epic'];
 
 export function NewTaskScreen() {
   const repos = useStore((s) => s.repos);
   const go = useStore((s) => s.go);
   const select = useStore((s) => s.select);
   const notify = useStore((s) => s.notify);
+  const connections = useStore((s) => s.connections);
 
-  const [mode, setMode] = useState<Mode>('work-item');
   const [repoId, setRepoId] = useState(repos[0]?.id ?? '');
+  const connectionOf = (rid: string) => {
+    const cid = repos.find((x) => x.id === rid)?.connectionId;
+    return cid ? (connections.find((c) => c.id === cid) ?? null) : null;
+  };
+  const [rawMode, setMode] = useState<Mode>(() =>
+    connectionOf(repoId) ? 'pick' : 'typed',
+  );
+  const modeChosen = useRef(false);
+  const lastRepo = useRef(repoId);
+  const lastConnection = useRef<string | null>(null);
+  const [picked, setPicked] = useState<WorkItemRef | null>(null);
   const [config, setConfig] = useState<{
     config: MiacConfig;
     worktreeRoot: string;
@@ -33,6 +45,28 @@ export function NewTaskScreen() {
   const [busy, setBusy] = useState(false);
 
   const repo = repos.find((r) => r.id === repoId) ?? null;
+  const connection = connectionOf(repoId);
+  const connectionId = connection?.id ?? null;
+  const mode: Mode = rawMode === 'pick' && !connection ? 'typed' : rawMode;
+
+  useEffect(() => {
+    const repoChanged = lastRepo.current !== repoId;
+    lastRepo.current = repoId;
+    const connectionChanged = lastConnection.current !== connectionId;
+    lastConnection.current = connectionId;
+    if (repoChanged) modeChosen.current = false;
+    // A pick belongs to one connection; drop it when the repo or its connection changes.
+    if (repoChanged || connectionChanged) setPicked(null);
+    setMode((m) =>
+      connectionId
+        ? repoChanged || !modeChosen.current
+          ? 'pick'
+          : m
+        : m === 'pick'
+          ? 'typed'
+          : m,
+    );
+  }, [repoId, connectionId]);
 
   useEffect(() => {
     if (!repoId) return;
@@ -58,18 +92,24 @@ export function NewTaskScreen() {
   }, [repoId, notify]);
 
   const changeMode = (next: Mode) => {
+    modeChosen.current = true;
     setMode(next);
     setBranchEdited(false);
   };
 
   const workItem: WorkItemRef | null = useMemo(
     () =>
-      mode === 'work-item' && (id.trim() || title.trim())
-        ? { id: id.trim(), type, title: title.trim() }
-        : null,
-    [mode, id, type, title],
+      mode === 'pick'
+        ? picked
+        : mode === 'typed' && (id.trim() || title.trim())
+          ? { id: id.trim(), type, title: title.trim(), url: null }
+          : null,
+    [mode, picked, id, type, title],
   );
-  const label = mode === 'work-item' ? title : name;
+  const label =
+    mode === 'blank'
+      ? name
+      : (workItem?.title ?? (mode === 'typed' ? title : ''));
   const template = config?.config.branch ?? '{type}/{id}-{slug}';
 
   useEffect(() => {
@@ -91,9 +131,11 @@ export function NewTaskScreen() {
     : [];
 
   const canCreate =
-    mode === 'work-item'
-      ? Boolean(id.trim() && title.trim())
-      : Boolean(name.trim());
+    mode === 'pick'
+      ? picked !== null
+      : mode === 'typed'
+        ? Boolean(id.trim() && title.trim())
+        : Boolean(name.trim());
 
   const create = async () => {
     if (busy) return;
@@ -106,7 +148,7 @@ export function NewTaskScreen() {
           baseRef,
           name: mode === 'blank' ? name : '',
           workItem:
-            mode === 'work-item' && workItem && workItem.id ? workItem : null,
+            mode === 'blank' ? null : workItem && workItem.id ? workItem : null,
           branch,
           copy,
           commands: (config?.config.setup ?? []).filter((c) => commands[c]),
@@ -128,13 +170,23 @@ export function NewTaskScreen() {
         <div className="dialog-head">
           <h2 id="nt-title">New task</h2>
           <div role="tablist" aria-label="Start from" className="segmented">
+            {connection && (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mode === 'pick'}
+                onClick={() => changeMode('pick')}
+              >
+                Work item
+              </button>
+            )}
             <button
               type="button"
               role="tab"
-              aria-selected={mode === 'work-item'}
-              onClick={() => changeMode('work-item')}
+              aria-selected={mode === 'typed'}
+              onClick={() => changeMode('typed')}
             >
-              Work item
+              Typed
             </button>
             <button
               type="button"
@@ -157,14 +209,17 @@ export function NewTaskScreen() {
         <div className="newtask-body">
           <section
             className="newtask-left"
-            aria-label={mode === 'work-item' ? 'Work item' : 'Task'}
+            aria-label={mode === 'blank' ? 'Task' : 'Work item'}
           >
-            {mode === 'work-item' ? (
+            {mode === 'pick' && connection ? (
+              <WorkItemPicker
+                key={connection.id}
+                connectionId={connection.id}
+                selectedId={picked?.id ?? null}
+                onPick={setPicked}
+              />
+            ) : mode === 'typed' ? (
               <div className="form-stack">
-                <p className="muted small" style={{ margin: 0 }}>
-                  Type the work item for now. Picking from Azure DevOps arrives
-                  in the next release.
-                </p>
                 <label>
                   Work item id
                   <input
@@ -210,7 +265,9 @@ export function NewTaskScreen() {
           <section className="newtask-right" aria-label="Task preview">
             <div>
               <div className="muted small">
-                {workItem?.id ? `${type} ${workItem.id}` : 'Blank task'}
+                {workItem?.id
+                  ? `${workItem.type} ${workItem.id}`
+                  : 'Blank task'}
               </div>
               <div style={{ fontSize: 16, fontWeight: 600 }}>
                 {label || 'New task'}

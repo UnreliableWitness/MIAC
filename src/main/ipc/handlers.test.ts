@@ -4,6 +4,10 @@ import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import type { Events } from '../../shared/ipc';
 import type { CreateTaskInput, SetupEvent, Task } from '../../shared/types';
+import { AdoRegistry } from '../services/AdoRegistry';
+import { ConnectionStore, type TokenCrypto } from '../services/ConnectionStore';
+import { fakeCrypto } from '../test-helpers/fakeCrypto';
+import { startAdoServer, type AdoServer } from '../test-helpers/adoServer';
 import { darwinPlatform } from '../platform/darwin';
 import { GitClient } from '../services/GitClient';
 import { loadMiacConfig } from '../services/MiacConfig';
@@ -14,6 +18,7 @@ import { TerminalManager } from '../services/TerminalManager';
 import { cleanupTempRepos, makeRepo } from '../test-helpers/gitRepo';
 import {
   createHandlers,
+  pruneDanglingConnectionLinks,
   recoverInterruptedTasks,
   type Services,
 } from './handlers';
@@ -22,16 +27,31 @@ type Finished = Extract<SetupEvent, { type: 'finished' }>;
 type Broadcast = { event: keyof Events; payload: unknown };
 
 const allTerminals: TerminalManager[] = [];
-afterAll(() => {
+const servers: AdoServer[] = [];
+const connDirs: string[] = [];
+afterAll(async () => {
+  await Promise.all(servers.map((v) => v.close()));
   for (const t of allTerminals) for (const id of t.ids()) t.kill(id);
+  for (const d of connDirs) rmSync(d, { recursive: true, force: true });
   cleanupTempRepos();
 });
 
-async function harness() {
+async function harness(crypto: TokenCrypto = fakeCrypto()) {
   const store = new TaskStore(
     path.join(mkdtempSync(path.join(os.tmpdir(), 'miac-ipc-')), 'state.json'),
   );
   await store.load();
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'miac-conn-'));
+  connDirs.push(dir);
+  const connections = new ConnectionStore(
+    path.join(dir, 'connections.json'),
+    crypto,
+    { allowLoopbackHttp: true },
+  );
+  await connections.load();
+  const server = await startAdoServer();
+  servers.push(server);
+  const opened: string[] = [];
   const git = new GitClient();
   const platform = darwinPlatform({ SHELL: '/bin/sh' });
   const terminals = new TerminalManager();
@@ -44,6 +64,11 @@ async function harness() {
     platform,
     terminals,
     repos: new RepoRegistry(store, git),
+    connections,
+    ado: new AdoRegistry(connections),
+    openExternal: async (url) => {
+      opened.push(url);
+    },
     runner: new SetupRunner(git, platform),
     loadConfig: loadMiacConfig,
     pickFolder: async () => '/picked',
@@ -73,6 +98,7 @@ async function harness() {
       id: '48231',
       type: 'User Story',
       title: 'Show estimated delivery date',
+      url: null,
     },
     branch: 'feature/48231-show-estimated-delivery-date',
     copy: true,
@@ -91,6 +117,9 @@ async function harness() {
     setupDone,
     input,
     services,
+    server,
+    connections,
+    opened,
   };
 }
 
@@ -163,7 +192,9 @@ describe('handlers: create task', () => {
     terminals.killAllForTask(t.id);
     await expect(
       h['tasks:create'](
-        input({ workItem: { id: '1', type: 'Bug', title: 'other' } }),
+        input({
+          workItem: { id: '1', type: 'Bug', title: 'other', url: null },
+        }),
       ),
     ).rejects.toThrow(/already exists/);
     await expect(
@@ -468,5 +499,293 @@ describe('recoverInterruptedTasks', () => {
       'ready',
       'ready',
     ]);
+  });
+});
+
+function routeHealthyOrg(server: AdoServer, org = 'unreliablewitness') {
+  server.route('GET', `/${org}/_apis/connectionData`, {
+    body: { authenticatedUser: { providerDisplayName: 'Dries Hoebeke' } },
+  });
+  server.route('GET', `/${org}/_apis/projects/MIAC`, {
+    body: { name: 'MIAC' },
+  });
+  server.route('GET', `/${org}/MIAC/_apis/work/teamsettings/iterations`, {
+    body: {
+      value: [
+        {
+          name: 'Sprint 1',
+          path: 'MIAC\\Sprint 1',
+          attributes: { timeFrame: 'current' },
+        },
+      ],
+    },
+  });
+  server.route('POST', `/${org}/MIAC/_apis/wit/wiql`, {
+    body: { workItems: [{ id: 5 }] },
+  });
+  server.route('GET', `/${org}/_apis/wit/workitems`, {
+    body: {
+      value: [
+        {
+          id: 5,
+          fields: {
+            'System.WorkItemType': 'Issue',
+            'System.Title': 'Five',
+            'System.State': 'To Do',
+            'System.AreaPath': 'MIAC',
+            'System.IterationPath': 'MIAC\\Sprint 1',
+          },
+        },
+      ],
+    },
+  });
+}
+
+describe('handlers: connections', () => {
+  it('saves after verifying, lists without the token, and broadcasts', async () => {
+    const { h, server, broadcasts } = await harness();
+    routeHealthyOrg(server);
+    const c = await h['connections:save']({
+      organizationUrl: `${server.url}/unreliablewitness`,
+      project: 'MIAC',
+      pat: 'secret-pat',
+    });
+    expect(c).toMatchObject({
+      project: 'MIAC',
+      status: 'ok',
+      user: 'Dries Hoebeke',
+    });
+    expect(JSON.stringify(await h['connections:list']())).not.toContain(
+      'secret-pat',
+    );
+    expect(broadcasts.some((b) => b.event === 'connections:changed')).toBe(
+      true,
+    );
+  });
+  it('does not save when verification fails', async () => {
+    const { h, server } = await harness();
+    server.route('GET', '/unreliablewitness/_apis/connectionData', {
+      status: 401,
+      body: {},
+    });
+    await expect(
+      h['connections:save']({
+        organizationUrl: `${server.url}/unreliablewitness`,
+        project: 'MIAC',
+        pat: 'bad',
+      }),
+    ).rejects.toThrow(/rejected the token/);
+    expect(await h['connections:list']()).toEqual([]);
+  });
+  it('verify flips status to unauthorized on 401 and back to ok', async () => {
+    const { h, server } = await harness();
+    routeHealthyOrg(server);
+    const c = await h['connections:save']({
+      organizationUrl: `${server.url}/unreliablewitness`,
+      project: 'MIAC',
+      pat: 'p',
+    });
+    server.route('GET', '/unreliablewitness/_apis/connectionData', {
+      status: 401,
+      body: {},
+    });
+    await expect(h['connections:verify'](c.id)).rejects.toThrow();
+    expect((await h['connections:list']())[0].status).toBe('unauthorized');
+    routeHealthyOrg(server);
+    expect((await h['connections:verify'](c.id)).status).toBe('ok');
+  });
+  it('removing a connection unlinks its repos', async () => {
+    const { h, server, added } = await harness();
+    routeHealthyOrg(server);
+    const c = await h['connections:save']({
+      organizationUrl: `${server.url}/unreliablewitness`,
+      project: 'MIAC',
+      pat: 'p',
+    });
+    expect((await h['repos:setConnection'](added.id, c.id)).connectionId).toBe(
+      c.id,
+    );
+    await h['connections:remove'](c.id);
+    expect((await h['repos:list']())[0].connectionId).toBeNull();
+    await expect(h['repos:setConnection'](added.id, 'ghost')).rejects.toThrow(
+      /Unknown connection/,
+    );
+  });
+});
+
+describe('handlers: connection robustness', () => {
+  it('validates before any network call', async () => {
+    const { h, server } = await harness();
+    await expect(
+      h['connections:save']({
+        organizationUrl: `${server.url}/unreliablewitness`,
+        project: ' ',
+        pat: 'secret',
+      }),
+    ).rejects.toThrow(/project/);
+    expect(server.requests).toHaveLength(0);
+  });
+  it('keeps the original error when the connection disappears mid-call', async () => {
+    const { h, server, connections } = await harness();
+    routeHealthyOrg(server);
+    const c = await h['connections:save']({
+      organizationUrl: `${server.url}/unreliablewitness`,
+      project: 'MIAC',
+      pat: 'p',
+    });
+    server.route('POST', '/unreliablewitness/MIAC/_apis/wit/wiql', () => {
+      void connections.remove(c.id);
+      return { status: 401, body: {} };
+    });
+    await expect(
+      h['workItems:search'](c.id, { scope: 'mine', text: '' }),
+    ).rejects.toThrow(/rejected the token/);
+  });
+  it('an undecryptable stored token flips the status without a network call', async () => {
+    let broken = false;
+    const base = fakeCrypto();
+    const { h, server, connections } = await harness({
+      ...base,
+      decrypt: (b) => {
+        if (broken) throw new Error('decrypt failed');
+        return base.decrypt(b);
+      },
+    });
+    const c = await connections.save({
+      organizationUrl: `${server.url}/unreliablewitness`,
+      project: 'MIAC',
+      pat: 'p',
+    });
+    broken = true;
+    await expect(
+      h['workItems:search'](c.id, { scope: 'mine', text: '' }),
+    ).rejects.toThrow(/could not be decrypted/);
+    expect((await h['connections:list']())[0].status).toBe('unauthorized');
+    expect(server.requests).toHaveLength(0);
+  });
+});
+
+describe('handlers: work items', () => {
+  it('returns the current iteration and search results through the connection', async () => {
+    const { h, server } = await harness();
+    routeHealthyOrg(server);
+    const c = await h['connections:save']({
+      organizationUrl: `${server.url}/unreliablewitness`,
+      project: 'MIAC',
+      pat: 'p',
+    });
+    expect(await h['workItems:currentIteration'](c.id)).toEqual({
+      path: 'MIAC\\Sprint 1',
+      name: 'Sprint 1',
+    });
+    const items = await h['workItems:search'](c.id, {
+      scope: 'sprint',
+      text: '',
+    });
+    expect(items.map((i) => i.id)).toEqual(['5']);
+    const wiql = server.requests.find((r) => r.method === 'POST');
+    expect(JSON.parse(wiql!.body).query).toContain(
+      "[System.IterationPath] = 'MIAC\\Sprint 1'",
+    );
+  });
+  it('a 401 during search marks the connection unauthorized and broadcasts', async () => {
+    const { h, server, broadcasts } = await harness();
+    routeHealthyOrg(server);
+    const c = await h['connections:save']({
+      organizationUrl: `${server.url}/unreliablewitness`,
+      project: 'MIAC',
+      pat: 'p',
+    });
+    broadcasts.length = 0;
+    server.route('POST', '/unreliablewitness/MIAC/_apis/wit/wiql', {
+      status: 401,
+      body: {},
+    });
+    await expect(
+      h['workItems:search'](c.id, { scope: 'mine', text: '' }),
+    ).rejects.toThrow(/rejected the token/);
+    expect((await h['connections:list']())[0].status).toBe('unauthorized');
+    expect(broadcasts.some((b) => b.event === 'connections:changed')).toBe(
+      true,
+    );
+  });
+});
+
+describe('handlers: work item robustness', () => {
+  it('a successful call heals a stale unreachable status and broadcasts', async () => {
+    const { h, server, broadcasts, connections } = await harness();
+    routeHealthyOrg(server);
+    const c = await h['connections:save']({
+      organizationUrl: `${server.url}/unreliablewitness`,
+      project: 'MIAC',
+      pat: 'p',
+    });
+    await connections.setStatus(c.id, 'unreachable');
+    broadcasts.length = 0;
+    await h['workItems:search'](c.id, { scope: 'mine', text: '' });
+    expect(connections.get(c.id)).toMatchObject({
+      status: 'ok',
+      user: 'Dries Hoebeke',
+    });
+    expect(broadcasts.some((b) => b.event === 'connections:changed')).toBe(
+      true,
+    );
+  });
+  it('sprint scope without a current iteration returns nothing and skips wiql', async () => {
+    const { h, server } = await harness();
+    routeHealthyOrg(server);
+    const c = await h['connections:save']({
+      organizationUrl: `${server.url}/unreliablewitness`,
+      project: 'MIAC',
+      pat: 'p',
+    });
+    server.route(
+      'GET',
+      '/unreliablewitness/MIAC/_apis/work/teamsettings/iterations',
+      { body: { value: [] } },
+    );
+    server.requests.length = 0;
+    expect(
+      await h['workItems:search'](c.id, { scope: 'sprint', text: '' }),
+    ).toEqual([]);
+    expect(server.requests.some((r) => r.path.includes('/wiql'))).toBe(false);
+  });
+  it('prunes repo links to connections that no longer exist', async () => {
+    const { h, services, added, connections } = await harness();
+    await services.repos.setConnection(added.id, 'gone');
+    expect(
+      await pruneDanglingConnectionLinks(services.repos, connections),
+    ).toBe(1);
+    expect(services.repos.get(added.id).connectionId).toBeNull();
+    expect(
+      await pruneDanglingConnectionLinks(services.repos, connections),
+    ).toBe(0);
+    expect(await h['repos:list']()).toHaveLength(1);
+  });
+});
+
+describe('handlers: shell', () => {
+  it('opens only Azure DevOps urls', async () => {
+    const { h, opened } = await harness();
+    await h['shell:openExternal'](
+      'https://dev.azure.com/unreliablewitness/MIAC/_workitems/edit/5',
+    );
+    await h['shell:openExternal'](
+      'https://contoso.visualstudio.com/P/_workitems/edit/1',
+    );
+    await expect(
+      h['shell:openExternal']('https://evil.example/x'),
+    ).rejects.toThrow(/not allowed/);
+    await expect(
+      h['shell:openExternal']('javascript:alert(1)'),
+    ).rejects.toThrow(/not allowed/);
+    for (const bad of [
+      'http://dev.azure.com/o/x',
+      'https://dev.azure.com.evil.com/x',
+      'https://evil@dev.azure.com/x',
+      'https://dev.azure.com:8443/x',
+    ])
+      await expect(h['shell:openExternal'](bad)).rejects.toThrow(/not allowed/);
+    expect(opened).toHaveLength(2);
   });
 });

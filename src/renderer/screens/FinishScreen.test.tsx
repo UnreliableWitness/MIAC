@@ -14,6 +14,7 @@ const task: TaskView = {
     id: '48213',
     type: 'User Story',
     title: 'Checkout: allow saving a delivery address',
+    url: null,
   },
   slug: 'a',
   branch: 'feature/48213-save-delivery-address',
@@ -43,6 +44,7 @@ beforeEach(() =>
   useStore.setState({
     repos: [],
     tasks: [task],
+    connections: [],
     notices: [],
     screen: { kind: 'finish', taskId: 'a' },
     selectedTaskId: 'a',

@@ -1,11 +1,24 @@
 import { spawn } from 'node:child_process';
 import path from 'node:path';
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  safeStorage,
+  shell,
+} from 'electron';
 import started from 'electron-squirrel-startup';
 import { EVENT_PREFIX, type Events } from './shared/ipc';
-import { createHandlers, recoverInterruptedTasks } from './main/ipc/handlers';
+import {
+  createHandlers,
+  pruneDanglingConnectionLinks,
+  recoverInterruptedTasks,
+} from './main/ipc/handlers';
 import { registerIpc } from './main/ipc/register';
 import { createPlatform } from './main/platform';
+import { AdoRegistry } from './main/services/AdoRegistry';
+import { ConnectionStore } from './main/services/ConnectionStore';
 import { GitClient } from './main/services/GitClient';
 import { loadMiacConfig } from './main/services/MiacConfig';
 import { RepoRegistry } from './main/services/RepoRegistry';
@@ -63,12 +76,26 @@ async function boot(): Promise<void> {
   const recovered = await recoverInterruptedTasks(store);
   const git = new GitClient();
   const platform = createPlatform();
+  const connections = new ConnectionStore(
+    path.join(app.getPath('userData'), 'connections.json'),
+    {
+      available: () => safeStorage.isEncryptionAvailable(),
+      encrypt: (plain) => safeStorage.encryptString(plain),
+      decrypt: (cipher) => safeStorage.decryptString(cipher),
+    },
+  );
+  const connectionsLoaded = await connections.load();
+  const repos = new RepoRegistry(store, git);
+  await pruneDanglingConnectionLinks(repos, connections);
   const handlers = createHandlers({
+    connections,
+    ado: new AdoRegistry(connections),
+    openExternal: (url) => shell.openExternal(url),
     store,
     git,
     platform,
     terminals,
-    repos: new RepoRegistry(store, git),
+    repos,
     runner: new SetupRunner(git, platform),
     loadConfig: loadMiacConfig,
     pickFolder: async () => {
@@ -103,6 +130,11 @@ async function boot(): Promise<void> {
       broadcast('notice', {
         level: 'warn',
         message: `state.json was unreadable and was moved to ${path.basename(loaded.backup ?? '')}. Starting empty.`,
+      });
+    if (connectionsLoaded.recovered)
+      broadcast('notice', {
+        level: 'warn',
+        message: `connections.json was unreadable and was moved to ${path.basename(connectionsLoaded.backup ?? '')}; add your connections again.`,
       });
     if (recovered > 0)
       broadcast('notice', {

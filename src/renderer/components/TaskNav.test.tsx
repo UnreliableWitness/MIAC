@@ -42,6 +42,7 @@ const tasks: TaskView[] = [
       id: '48213',
       type: 'User Story',
       title: 'Checkout: save address',
+      url: null,
     },
     slug: 'a',
     branch: 'feature/48213-a',
@@ -64,7 +65,7 @@ const tasks: TaskView[] = [
     id: 'c',
     repoId: 'r2',
     name: '',
-    workItem: { id: '47988', type: 'Task', title: 'Export orders' },
+    workItem: { id: '47988', type: 'Task', title: 'Export orders', url: null },
     slug: 'c',
     branch: 'feature/47988-c',
     worktreePath: '/w/c',
@@ -76,7 +77,7 @@ const tasks: TaskView[] = [
     id: 'd',
     repoId: 'r1',
     name: '',
-    workItem: { id: '1', type: 'Bug', title: 'Broken' },
+    workItem: { id: '1', type: 'Bug', title: 'Broken', url: null },
     slug: 'd',
     branch: 'bugfix/1-d',
     worktreePath: '/w/d',
@@ -88,6 +89,7 @@ beforeEach(() =>
   useStore.setState({
     repos,
     tasks,
+    connections: [],
     notices: [],
     screen: { kind: 'workspace' },
     selectedTaskId: 'a',
@@ -105,6 +107,27 @@ describe('groupTasks', () => {
 });
 
 describe('TaskNav', () => {
+  it('shows the selected task repo connection status in the footer', () => {
+    installFakeApi();
+    useStore.setState({
+      repos: [{ ...repos[0], connectionId: 'c1' }, repos[1]],
+      connections: [
+        {
+          id: 'c1',
+          name: 'unreliablewitness',
+          organizationUrl: 'https://dev.azure.com/unreliablewitness',
+          project: 'MIAC',
+          user: 'D',
+          status: 'unauthorized',
+          checkedAt: null,
+        },
+      ],
+    });
+    render(<TaskNav />);
+    expect(
+      screen.getByText('unreliablewitness: token rejected'),
+    ).toBeInTheDocument();
+  });
   it('renders rows with id or name, state dots and selects on click', async () => {
     installFakeApi();
     render(<TaskNav />);

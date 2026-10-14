@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { Events, Handlers } from '../../shared/ipc';
 import { claudePrompt, renderTaskMd, taskSlug } from '../../shared/naming';
 import type {
+  Connection,
   MiacConfig,
   SetupEvent,
   SetupState,
@@ -14,6 +15,12 @@ import type {
 } from '../../shared/types';
 import { worktreeRoot } from '../paths';
 import type { Command, Platform } from '../platform/Platform';
+import { AdoClient, AdoError } from '../services/AdoClient';
+import type { AdoRegistry } from '../services/AdoRegistry';
+import {
+  TokenUnavailableError,
+  type ConnectionStore,
+} from '../services/ConnectionStore';
 import type { GitClient } from '../services/GitClient';
 import type { RepoRegistry } from '../services/RepoRegistry';
 import {
@@ -29,6 +36,9 @@ export type Services = {
   git: GitClient;
   platform: Platform;
   repos: RepoRegistry;
+  connections: ConnectionStore;
+  ado: AdoRegistry;
+  openExternal: (url: string) => Promise<void>;
   terminals: TerminalManager;
   runner: SetupRunner;
   loadConfig: (repoPath: string) => Promise<MiacConfig>;
@@ -68,7 +78,93 @@ export async function recoverInterruptedTasks(
 /** Keys (repo:branch, repo:worktree) of tasks being created right now, across handler bundles. */
 const creating = new Set<string>();
 
+/** Clears connection links that point at connections which no longer exist. Returns how many were cleared. */
+export async function pruneDanglingConnectionLinks(
+  repos: RepoRegistry,
+  connections: ConnectionStore,
+): Promise<number> {
+  const valid = new Set(connections.list().map((c) => c.id));
+  let cleared = 0;
+  for (const r of repos.list()) {
+    if (r.connectionId !== null && !valid.has(r.connectionId)) {
+      await repos.setConnection(r.id, null);
+      cleared++;
+    }
+  }
+  return cleared;
+}
+
 export function createHandlers(s: Services): Handlers {
+  const connectionsChanged = () =>
+    s.broadcast('connections:changed', s.connections.list());
+
+  /** Runs an Azure DevOps call for a connection; a rejected token flips the status so Settings and the footer turn red. */
+  const withConnection = async <T>(
+    connectionId: string,
+    run: () => Promise<T>,
+  ): Promise<T> => {
+    let result: T;
+    try {
+      result = await run();
+    } catch (e) {
+      const status =
+        (e instanceof AdoError && e.kind === 'unauthorized') ||
+        e instanceof TokenUnavailableError
+          ? 'unauthorized'
+          : e instanceof AdoError && e.kind === 'unreachable'
+            ? 'unreachable'
+            : null;
+      if (status) {
+        try {
+          await s.connections.setStatus(connectionId, status);
+          connectionsChanged();
+        } catch {
+          // The connection may be gone; keep the original error.
+        }
+      }
+      throw e;
+    }
+    // A working call proves the token is fine again; heal a stale red status.
+    try {
+      const current = s.connections.get(connectionId);
+      if (current.status !== 'ok') {
+        await s.connections.setStatus(connectionId, 'ok');
+        connectionsChanged();
+      }
+    } catch {
+      // Status bookkeeping must never fail a successful call.
+    }
+    return result;
+  };
+
+  const verifyConnection = async (
+    connectionId: string,
+  ): Promise<Connection> => {
+    const c = s.connections.get(connectionId);
+    const { user } = await withConnection(connectionId, () =>
+      s.ado.client(connectionId).verify(c.project),
+    );
+    const updated = await s.connections.setStatus(connectionId, 'ok', user);
+    connectionsChanged();
+    return updated;
+  };
+
+  const allowedExternal = (url: string): boolean => {
+    try {
+      const u = new URL(url);
+      return (
+        u.protocol === 'https:' &&
+        !u.username &&
+        !u.password &&
+        u.port === '' &&
+        (u.hostname === 'dev.azure.com' ||
+          u.hostname.endsWith('.visualstudio.com'))
+      );
+    } catch {
+      return false;
+    }
+  };
+
   const setupStates = new Map<string, SetupState>();
   const inFlight = new Set<string>();
 
@@ -462,5 +558,64 @@ export function createHandlers(s: Services): Handlers {
     },
     'terminals:buffer': async (id) => s.terminals.buffer(id),
     'terminals:isRunning': async (id) => s.terminals.isRunning(id),
+    'connections:list': async () => s.connections.list(),
+    'connections:save': async (input) => {
+      // Verify with a throwaway client before anything is written, so a bad token never lands on disk.
+      s.connections.assertCanSave(input);
+      const organizationUrl = s.connections.normalizeUrl(input.organizationUrl);
+      const probe = new AdoClient(organizationUrl, async () =>
+        input.pat.trim(),
+      );
+      const { user } = await probe.verify(input.project.trim());
+      const saved = await s.connections.save(input);
+      s.ado.invalidate(saved.id);
+      const verified = await s.connections.setStatus(saved.id, 'ok', user);
+      connectionsChanged();
+      return verified;
+    },
+    'connections:remove': async (id) => {
+      s.connections.get(id);
+      for (const r of s.repos.list())
+        if (r.connectionId === id) await s.repos.setConnection(r.id, null);
+      await s.connections.remove(id);
+      s.ado.invalidate(id);
+      connectionsChanged();
+      s.broadcast('repos:changed', s.repos.list());
+    },
+    'connections:verify': async (id) => verifyConnection(id),
+    'repos:setConnection': async (repoId, connectionId) => {
+      if (connectionId !== null) s.connections.get(connectionId);
+      const repo = await s.repos.setConnection(repoId, connectionId);
+      s.broadcast('repos:changed', s.repos.list());
+      return repo;
+    },
+    'workItems:currentIteration': async (connectionId) => {
+      const c = s.connections.get(connectionId);
+      return withConnection(connectionId, () =>
+        s.ado.client(connectionId).currentIteration(c.project),
+      );
+    },
+    'workItems:search': async (connectionId, search) => {
+      const c = s.connections.get(connectionId);
+      return withConnection(connectionId, async () => {
+        const client = s.ado.client(connectionId);
+        const iteration =
+          search.scope === 'sprint'
+            ? await client.currentIteration(c.project)
+            : null;
+        if (search.scope === 'sprint' && !iteration) return [];
+        return client.searchWorkItems({
+          project: c.project,
+          scope: search.scope,
+          text: search.text,
+          iterationPath: iteration?.path ?? null,
+        });
+      });
+    },
+    'shell:openExternal': async (url) => {
+      if (!allowedExternal(url))
+        throw new Error(`Opening ${url} is not allowed`);
+      await s.openExternal(url);
+    },
   };
 }

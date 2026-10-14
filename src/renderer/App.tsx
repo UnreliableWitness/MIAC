@@ -14,6 +14,7 @@ export function App() {
   const load = useStore((s) => s.load);
   const setTasks = useStore((s) => s.setTasks);
   const setRepos = useStore((s) => s.setRepos);
+  const setConnections = useStore((s) => s.setConnections);
   const notify = useStore((s) => s.notify);
 
   useEffect(() => {
@@ -24,10 +25,11 @@ export function App() {
         invalidateRepoConfig();
         setRepos(repos);
       }),
+      api().on('connections:changed', setConnections),
       api().on('notice', (n) => notify(n.level, n.message)),
     ];
     return () => offs.forEach((off) => off());
-  }, [load, setTasks, setRepos, notify]);
+  }, [load, setTasks, setRepos, setConnections, notify]);
 
   return (
     <div className="app">

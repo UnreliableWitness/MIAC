@@ -26,6 +26,7 @@ const task: TaskView = {
     id: '48213',
     type: 'User Story',
     title: 'Checkout: allow saving a delivery address',
+    url: null,
   },
   slug: 'a',
   branch: 'feature/48213-save-delivery-address',
@@ -66,6 +67,7 @@ beforeEach(() =>
       },
     ],
     tasks: [task],
+    connections: [],
     notices: [],
     screen: { kind: 'workspace' },
     selectedTaskId: 'a',
@@ -73,6 +75,60 @@ beforeEach(() =>
 );
 
 describe('WorkspaceScreen', () => {
+  it('opens the work item in Azure DevOps from the header badge', async () => {
+    const { calls } = installFakeApi({
+      'repos:config': () => config,
+      'tasks:gitSummary': () => ({
+        branch: 'x',
+        ahead: 0,
+        behind: 0,
+        hasUpstream: false,
+        files: [],
+      }),
+      'shell:openExternal': () => undefined,
+    });
+    useStore.setState({
+      tasks: [
+        {
+          ...task,
+          workItem: {
+            ...task.workItem!,
+            url: 'https://dev.azure.com/unreliablewitness/MIAC/_workitems/edit/48213',
+          },
+        },
+      ],
+    });
+    render(<WorkspaceScreen />);
+    await userEvent.click(
+      screen.getByRole('button', {
+        name: /Open User Story 48213 in Azure DevOps/,
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        calls.find((c) => c.channel === 'shell:openExternal')?.args,
+      ).toEqual([
+        'https://dev.azure.com/unreliablewitness/MIAC/_workitems/edit/48213',
+      ]),
+    );
+  });
+  it('shows a plain badge for typed work items without a url', () => {
+    installFakeApi({
+      'repos:config': () => config,
+      'tasks:gitSummary': () => ({
+        branch: 'x',
+        ahead: 0,
+        behind: 0,
+        hasUpstream: false,
+        files: [],
+      }),
+    });
+    render(<WorkspaceScreen />);
+    expect(
+      screen.queryByRole('button', { name: /in Azure DevOps/ }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText('User Story 48213')).toBeInTheDocument();
+  });
   it('shows the task header with git summary and the terminal tabs', async () => {
     installFakeApi({
       'repos:config': () => config,
@@ -186,7 +242,7 @@ describe('WorkspaceScreen', () => {
     const second: TaskView = {
       ...task,
       id: 'b',
-      workItem: { id: '2', type: 'Bug', title: 'Second task' },
+      workItem: { id: '2', type: 'Bug', title: 'Second task', url: null },
       terminals: [{ id: 'c2', kind: 'claude', label: 'Claude Code' }],
     };
     useStore.setState({ tasks: [task, second] });

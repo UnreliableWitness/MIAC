@@ -37,6 +37,7 @@ Named after a Culture ship. A desktop app for running development tasks as isola
 
 ## Status
 
-- Repo created 2026-10-14. No application code yet.
-- Build order: (1) app shell and task lifecycle, (2) Azure DevOps integration, (3) usage capture and pricing, (4) invoicing and reconciliation.
-- Specs live in `docs/superpowers/specs/`.
+- Sub-project 1 (app shell and task lifecycle) merged 2026-10-14 (PR #1). Runs from `npm start`; `npm test`, `npm run typecheck`, `npm run lint` are the checks.
+- Build order: (1) app shell and task lifecycle, done; (2) Azure DevOps integration; (3) usage capture and pricing; (4) invoicing and reconciliation.
+- Known gaps carried forward: a running setup cannot be cancelled; nav rows show only the branch; no app icon yet (Gemini key needed, see `tools/art/README.md`); Windows `Platform` not implemented.
+- Specs live in `docs/superpowers/specs/`, plans in `docs/superpowers/plans/`.

@@ -130,4 +130,15 @@ describe('RepoRegistry', () => {
     });
     await expect(reg.remove(again.id)).rejects.toThrow(/open task/);
   });
+
+  it('links and unlinks a connection', async () => {
+    const reg = await registry();
+    const repo = await reg.add(makeRepo('webshop'));
+    expect((await reg.setConnection(repo.id, 'c1')).connectionId).toBe('c1');
+    expect(reg.get(repo.id).connectionId).toBe('c1');
+    expect((await reg.setConnection(repo.id, null)).connectionId).toBeNull();
+    await expect(reg.setConnection('nope', 'c1')).rejects.toThrow(
+      /Unknown repo/,
+    );
+  });
 });

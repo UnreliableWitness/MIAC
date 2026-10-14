@@ -9,6 +9,7 @@ export type FakeHandlers = Partial<{
 
 const defaults: FakeHandlers = {
   'repos:list': () => [],
+  'connections:list': () => [],
   'tasks:list': () => [],
   'tasks:setupState': () => null,
   'terminals:buffer': () => '',
