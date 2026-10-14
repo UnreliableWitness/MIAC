@@ -70,8 +70,26 @@ function Row({ task }: { task: TaskView }) {
 export function TaskNav() {
   const tasks = useStore((s) => s.tasks);
   const repos = useStore((s) => s.repos);
+  const connections = useStore((s) => s.connections);
+  const selectedTaskId = useStore((s) => s.selectedTaskId);
   const [showDone, setShowDone] = useState(false);
   const { open, done } = groupTasks(tasks, repos);
+  const selected = tasks.find((t) => t.id === selectedTaskId) ?? null;
+  const repo = repos.find((r) => r.id === selected?.repoId) ?? repos[0] ?? null;
+  const connection = repo?.connectionId
+    ? (connections.find((c) => c.id === repo.connectionId) ?? null)
+    : null;
+  const footer = !connection
+    ? { color: 'var(--idle)', text: 'Azure DevOps: not connected' }
+    : connection.status === 'ok'
+      ? {
+          color: 'var(--green)',
+          text: `${connection.name}: ${connection.project}`,
+        }
+      : {
+          color: 'var(--red)',
+          text: `${connection.name}: ${connection.status === 'unauthorized' ? 'token rejected' : connection.status === 'unreachable' ? 'unreachable' : 'not verified'}`,
+        };
   return (
     <nav aria-label="Tasks" className="tasknav">
       {open.map(({ repo, tasks: list }) => (
@@ -103,8 +121,8 @@ export function TaskNav() {
         </div>
       )}
       <div className="tasknav-foot">
-        <span className="dot" style={{ background: 'var(--idle)' }} />
-        Azure DevOps: not connected
+        <span className="dot" style={{ background: footer.color }} />
+        {footer.text}
       </div>
     </nav>
   );

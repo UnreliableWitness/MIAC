@@ -107,6 +107,27 @@ describe('groupTasks', () => {
 });
 
 describe('TaskNav', () => {
+  it('shows the selected task repo connection status in the footer', () => {
+    installFakeApi();
+    useStore.setState({
+      repos: [{ ...repos[0], connectionId: 'c1' }, repos[1]],
+      connections: [
+        {
+          id: 'c1',
+          name: 'unreliablewitness',
+          organizationUrl: 'https://dev.azure.com/unreliablewitness',
+          project: 'MIAC',
+          user: 'D',
+          status: 'unauthorized',
+          checkedAt: null,
+        },
+      ],
+    });
+    render(<TaskNav />);
+    expect(
+      screen.getByText('unreliablewitness: token rejected'),
+    ).toBeInTheDocument();
+  });
   it('renders rows with id or name, state dots and selects on click', async () => {
     installFakeApi();
     render(<TaskNav />);
