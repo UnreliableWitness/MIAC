@@ -20,7 +20,8 @@
     "lint:fix": "oxlint --fix && oxfmt --write",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "postinstall": "node scripts/fix-node-pty-perms.mjs"
   },
   "devDependencies": {
     "@electron-forge/cli": "^8.0.1",
