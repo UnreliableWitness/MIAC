@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { api } from './api';
 import { invalidateRepoConfig } from './hooks/useRepoConfig';
 import { Notices } from './components/Notices';
+import { FinishScreen } from './screens/FinishScreen';
 import { NewTaskScreen } from './screens/NewTaskScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { SetupScreen } from './screens/SetupScreen';
@@ -38,6 +39,7 @@ export function App() {
         <WorkspaceScreen />
       )}
       {screen.kind === 'new-task' && <NewTaskScreen />}
+      {screen.kind === 'finish' && <FinishScreen taskId={screen.taskId} />}
       <Notices />
     </div>
   );

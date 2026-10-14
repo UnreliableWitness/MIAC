@@ -472,3 +472,60 @@
   background: var(--panel);
   font-size: 12px;
 }
+.finish {
+  max-width: 620px;
+  gap: 20px;
+  padding: 24px;
+}
+.finish h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+.finish-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.finish-section > .label {
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.check {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+}
+.check-warn {
+  background: var(--warn-bg);
+  border-color: var(--warn-border);
+  color: var(--warn-text);
+}
+.check-ok {
+  background: var(--green-bg);
+  border-color: var(--green-border);
+  color: #c9e9d2;
+}
+.check .body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.check .title {
+  font-weight: 600;
+}
+.finish-foot {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
