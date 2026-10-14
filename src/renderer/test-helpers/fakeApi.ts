@@ -11,6 +11,7 @@ export type FakeHandlers = Partial<{
 export const emptyUsage = (taskId: string): TaskUsage => ({
   taskId,
   sessions: [],
+  recent: [],
   unpricedRequests: 0,
   usdToEur: 0.92,
   billable: { costUsd: 0, costEur: 0, tokens: 0 },

@@ -62,6 +62,7 @@ export type SessionSummary = {
   sessionId: string;
   tool: UsageTool;
   startedAt: string;
+  lastAt: string;
   models: string[];
   requests: number;
   inputTokens: number;
@@ -75,6 +76,9 @@ export type SessionSummary = {
 
 export type ToolTotals = { costUsd: number; sessions: number; tokens: number };
 
+/** One billable, priced request from the last 6 hours, for the usage timeline. */
+export type RecentPoint = { at: string; tool: UsageTool; costEur: number };
+
 export type TaskUsage = {
   taskId: string;
   sessions: SessionSummary[];
@@ -82,6 +86,7 @@ export type TaskUsage = {
   byTool: Record<UsageTool, ToolTotals & { costEur: number }>;
   unpricedRequests: number;
   usdToEur: number;
+  recent: RecentPoint[];
 };
 
 export type ReceiverStatus = {
