@@ -102,7 +102,7 @@ Out:
 
 ### Terminals and processes
 
-- `TerminalManager.spawn` passes `useConptyDll: true` on Windows: node-pty uses its bundled `conpty.dll` and `OpenConsole.exe`. The default system-ConPTY kill path calls `child_process.fork` for a console process list; with the RunAsNode fuse off, that fork relaunches `MIAC.exe`. The conpty.dll kill path does not fork.
+- `TerminalManager.spawn` passes `useConptyDll: true` on Windows: node-pty uses its bundled `conpty.dll` and `OpenConsole.exe`. The default system-ConPTY kill path calls `child_process.fork` for a console process list; with the RunAsNode fuse off, that fork relaunches `MIAC.exe`. The conpty.dll kill path does not fork. node-pty is pinned to `1.2.0-beta.15`: 1.1.0 has an unsynchronized global pty handle list on Windows (microsoft/node-pty#921, fixed in 1.2.0-beta.13), and a pty exiting while another is spawned, resized or killed can crash the process with an access violation (0xC0000005). The pin keeps the `useConptyDll` reason intact: the beta still forks on the system-ConPTY kill path.
 - `kill` and `killAllForTask` return promises that resolve when the pty exits, or after 3 s. Finish and Cancel setup await them before `git worktree remove`, because Windows will not remove a folder that is a running process's cwd.
 - `main.ts` takes `app.requestSingleInstanceLock()`. A second instance quits before `boot()`, and the first one focuses its window.
 
@@ -142,14 +142,14 @@ A shared helper `renameWithRetry(from, to)` retries `fs.rename` on `EPERM`, `EBU
   - Before `make`, CI logs in with `azure/login` (OIDC, `allow-no-subscriptions: true`). The federated credential trusts the environment `release`, so a pull request can never obtain a token.
   - The Azure CLI token from OIDC cannot be refreshed; it lasts about 60 to 90 minutes, so a signing build must finish inside that window.
   - CI then exports the variables that the Forge signing hook reads.
-  - After `make`, `signtool verify /pa /v` runs on every `*.exe` under `out/` (the packaged `MIAC.exe`, node-pty's `OpenConsole.exe` and `winpty-agent.exe` under `app.asar.unpacked`, and `MIAC-Setup.exe`), and any failure fails the job. The packager's signer walks the whole app folder (`.exe`, `.dll`, `.node`), so the node-pty binaries are signed with the rest. This is needed because the nested signer in `electron-winstaller` swallows hook errors.
+  - After `make`, `signtool verify /pa /v` runs on every `*.exe` under `out/` (the packaged `MIAC.exe`, node-pty's `OpenConsole.exe` under `app.asar.unpacked`, and `MIAC-Setup.exe`), and any failure fails the job. The packager's signer walks the whole app folder (`.exe`, `.dll`, `.node`), so the node-pty binaries are signed with the rest. This is needed because the nested signer in `electron-winstaller` swallows hook errors.
   - In the signing job, every action is pinned to a full commit SHA.
 
 ### Packaging and signing: `forge.config.mts`
 
 - `packagerConfig`: `executableName: 'MIAC'`, and `windowsSign` when signing is enabled.
   - `ignore` is `keepInPackage` (`tools/forge/packageFilter.mjs`): `/.vite`, plus node-pty's `package.json`, `lib` and the prebuilds for the host platform and arch (no `.pdb`, no sources, no `binding.gyp`, so Forge's rebuild leaves the N-API prebuilds alone). The Vite plugin's default keeps only `/.vite`, but `node-pty` is external to the main bundle and is required at runtime. Its only dependency, `node-addon-api`, is build-only.
-  - `asar: { unpack: '**/node_modules/node-pty/**' }`: the `.node` files, `spawn-helper` (macOS), the conpty worker script, `conpty.dll`, `OpenConsole.exe` and `winpty-agent.exe` must be real files on disk.
+  - `asar: { unpack: '**/node_modules/node-pty/**' }`: the `.node` files, `spawn-helper` (macOS), the conpty worker script, `conpty.dll` and `OpenConsole.exe` must be real files on disk.
 - `MakerSquirrel`: `{ name: 'miac', setupExe: 'MIAC-Setup.exe', windowsSign }` when signing is enabled. The Squirrel id stays lowercase `miac`, matching `package.json` `name`, so installs and future updates share one id.
 - `windowsSign` uses a hook module, `tools/windows-sign/sign.cjs`, called for each file. For each file it runs:
   ```

@@ -61,6 +61,9 @@ export class TerminalManager extends EventEmitter<{
       env,
       // Windows: the bundled conpty.dll. The default (system ConPTY) kill path forks a helper with
       // child_process.fork, which the RunAsNode fuse turns into a second MIAC.exe launch.
+      // node-pty is pinned to 1.2.0-beta.15 or later: 1.1.0 has a data race on its Windows pty handle
+      // list (microsoft/node-pty#921, fixed in 1.2.0-beta.13) that crashes the process with an access
+      // violation when one pty exits while another is spawned, resized or killed.
       ...(process.platform === 'win32' ? { useConptyDll: true } : {}),
     });
     let exitResolve = () => {};

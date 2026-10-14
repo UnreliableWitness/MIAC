@@ -24,7 +24,7 @@ const config: ForgeConfig = {
   packagerConfig: {
     // node-pty is loaded at runtime (external to the Vite bundle), so it must be in the package, and
     // unpacked: its .node binaries, spawn-helper (macOS), the conpty worker script, conpty.dll,
-    // OpenConsole.exe and winpty-agent.exe (Windows) have to exist on disk.
+    // OpenConsole.exe (Windows) have to exist on disk.
     // Packaging targets the host platform and arch (see keepInPackage).
     asar: { unpack: '**/node_modules/node-pty/**' },
     ignore: (file: string) => !keepInPackage(file),

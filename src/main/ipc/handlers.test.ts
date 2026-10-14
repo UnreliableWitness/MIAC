@@ -41,7 +41,9 @@ const servers: AdoServer[] = [];
 const connDirs: string[] = [];
 afterAll(async () => {
   await Promise.all(servers.map((v) => v.close()));
-  for (const t of allTerminals) for (const id of t.ids()) t.kill(id);
+  await Promise.all(
+    allTerminals.flatMap((t) => t.ids().map((id) => t.kill(id))),
+  );
   for (const d of connDirs) rmSync(d, { recursive: true, force: true });
   cleanupTempRepos();
 });

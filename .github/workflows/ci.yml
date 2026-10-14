@@ -132,7 +132,7 @@ jobs:
         shell: pwsh
         run: |
           # electron-winstaller's nested windows-sign swallows hook errors, so verify every exe we produced.
-          # That includes node-pty's OpenConsole.exe and winpty-agent.exe under app.asar.unpacked: the
+          # That includes node-pty's OpenConsole.exe under app.asar.unpacked: the
           # packager's windows-sign walks the whole app folder and signs them with the rest.
           $exes = @(Get-ChildItem out -Recurse -Filter *.exe)
           if ($exes.Count -eq 0) { throw 'No exe files found under out/' }
