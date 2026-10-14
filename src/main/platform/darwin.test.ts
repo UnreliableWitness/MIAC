@@ -13,6 +13,12 @@ describe('darwinPlatform', () => {
       args: ['-l', '-c', 'npm run dev'],
     });
   });
+  it('runs a terminal command the same way as a setup command', () => {
+    expect(p.runCommand('npm run dev')).toEqual({
+      command: '/bin/zsh',
+      args: ['-l', '-c', 'npm run dev'],
+    });
+  });
   it('starts claude with a quoted prompt', () => {
     expect(p.claudeCommand("Work item 1: it's done")).toEqual({
       command: '/bin/zsh',

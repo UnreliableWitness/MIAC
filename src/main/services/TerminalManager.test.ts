@@ -1,10 +1,24 @@
 import os from 'node:os';
 import { afterEach, describe, expect, it } from 'vitest';
-import { TerminalManager } from './TerminalManager';
+import {
+  echoCmd,
+  failCmd,
+  isWindows,
+  sleepCmd,
+  testPlatform,
+} from '../test-helpers/shell';
+import {
+  normaliseExitCode,
+  TerminalManager,
+  UNKNOWN_EXIT,
+} from './TerminalManager';
+
+/** command and args that run one command line in this OS's shell, as a `run` terminal does. */
+const sh = (cmd: string) => testPlatform().runCommand(cmd);
 
 const managers: TerminalManager[] = [];
-const create = () => {
-  const m = new TerminalManager();
+const create = (o?: { killWaitMs?: number }) => {
+  const m = new TerminalManager(o);
   managers.push(m);
   return m;
 };
@@ -36,8 +50,7 @@ describe('TerminalManager', () => {
       id: 't1',
       taskId: 'task',
       cwd: os.tmpdir(),
-      command: '/bin/sh',
-      args: ['-c', 'echo hello-miac'],
+      ...sh(echoCmd('hello-miac')),
     });
     expect(await exited).toBe(0);
     expect(chunks.join('')).toContain('hello-miac');
@@ -52,11 +65,15 @@ describe('TerminalManager', () => {
       id: 't2',
       taskId: 'task',
       cwd: os.tmpdir(),
-      command: '/bin/sh',
-      args: ['-c', 'read x; echo got:$x'],
+      ...sh(
+        isWindows
+          ? '$x = [Console]::In.ReadLine(); Write-Output "got:$x"'
+          : 'read x; echo got:$x',
+      ),
     });
     expect(m.runningCount('task')).toBe(1);
-    m.write('t2', 'abc\n');
+    // ConPTY needs a carriage return for Enter; a POSIX pty accepts a line feed.
+    m.write('t2', isWindows ? 'abc\r' : 'abc\n');
     expect(await exited).toBe(0);
     expect(m.buffer('t2')).toContain('got:abc');
     expect(m.runningCount('task')).toBe(0);
@@ -68,22 +85,19 @@ describe('TerminalManager', () => {
       id: 'a',
       taskId: 'x',
       cwd: os.tmpdir(),
-      command: '/bin/sh',
-      args: ['-c', 'sleep 30'],
+      ...sh(sleepCmd(30)),
     });
     m.spawn({
       id: 'b',
       taskId: 'x',
       cwd: os.tmpdir(),
-      command: '/bin/sh',
-      args: ['-c', 'sleep 30'],
+      ...sh(sleepCmd(30)),
     });
     m.spawn({
       id: 'c',
       taskId: 'y',
       cwd: os.tmpdir(),
-      command: '/bin/sh',
-      args: ['-c', 'sleep 30'],
+      ...sh(sleepCmd(30)),
     });
     m.killAllForTask('x');
     expect(m.runningCount('x')).toBe(0);
@@ -99,8 +113,7 @@ describe('TerminalManager', () => {
       id: 'r',
       taskId: 'task',
       cwd: os.tmpdir(),
-      command: '/bin/sh',
-      args: ['-c', 'echo run'],
+      ...sh(echoCmd('run')),
     });
     await first;
     const second = waitFor(m, 'r');
@@ -115,16 +128,14 @@ describe('TerminalManager', () => {
       id: 'd',
       taskId: 't',
       cwd: os.tmpdir(),
-      command: '/bin/sh',
-      args: ['-c', 'sleep 30'],
+      ...sh(sleepCmd(30)),
     });
     expect(() =>
       m.spawn({
         id: 'd',
         taskId: 't',
         cwd: os.tmpdir(),
-        command: '/bin/sh',
-        args: [],
+        ...sh(sleepCmd(30)),
       }),
     ).toThrow(/already/);
     expect(m.ids()).toEqual(['d']);
@@ -137,8 +148,7 @@ describe('TerminalManager', () => {
       id: 'live',
       taskId: 't',
       cwd: os.tmpdir(),
-      command: '/bin/sh',
-      args: ['-c', 'sleep 30'],
+      ...sh(sleepCmd(30)),
     });
     await sleep(100);
     const exits: number[] = [];
@@ -159,8 +169,7 @@ describe('TerminalManager', () => {
       id: 'e',
       taskId: 't',
       cwd: os.tmpdir(),
-      command: '/bin/sh',
-      args: ['-c', 'echo bye'],
+      ...sh(echoCmd('bye')),
     });
     await exited;
     expect(m.ids()).toEqual(['e']);
@@ -175,8 +184,7 @@ describe('TerminalManager', () => {
       id: 'w',
       taskId: 't',
       cwd: os.tmpdir(),
-      command: '/bin/sh',
-      args: ['-c', 'true'],
+      ...sh(failCmd(0)),
     });
     await exited;
     expect(() => m.write('w', 'x')).not.toThrow();
@@ -190,8 +198,7 @@ describe('TerminalManager', () => {
       id: 'n',
       taskId: 't',
       cwd: os.tmpdir(),
-      command: '/bin/sh',
-      args: ['-c', 'exit 3'],
+      ...sh(failCmd(3)),
     });
     expect(await exited).toBe(3);
   });
@@ -203,8 +210,7 @@ describe('TerminalManager', () => {
       id: 'f',
       taskId: 't',
       cwd: os.tmpdir(),
-      command: '/bin/sh',
-      args: ['-c', 'echo before'],
+      ...sh(echoCmd('before')),
     });
     await exited;
     const entry = (
@@ -216,5 +222,132 @@ describe('TerminalManager', () => {
     expect(() => m.restart('f')).toThrow();
     expect(m.isRunning('f')).toBe(false);
     expect(m.buffer('f')).toContain('before');
+  });
+
+  it('kill resolves once the process has exited', async () => {
+    // A long fallback, so resolving in time proves the exit was seen.
+    const m = create({ killWaitMs: 60_000 });
+    m.spawn({ id: 'k', taskId: 't', cwd: os.tmpdir(), ...sh(sleepCmd(30)) });
+    await sleep(200);
+    const pid = (
+      m as unknown as { entries: Map<string, { proc: { pid: number } }> }
+    ).entries.get('k')?.proc.pid;
+    const started = Date.now();
+    await m.kill('k');
+    expect(Date.now() - started).toBeLessThan(10_000);
+    expect(m.has('k')).toBe(false);
+    if (!isWindows && pid) expect(() => process.kill(pid, 0)).toThrow();
+  });
+
+  it('killAllForTask resolves once every terminal of the task has exited', async () => {
+    const m = create({ killWaitMs: 60_000 });
+    for (const id of ['p', 'q'])
+      m.spawn({ id, taskId: 'x', cwd: os.tmpdir(), ...sh(sleepCmd(30)) });
+    await sleep(200);
+    await m.killAllForTask('x');
+    expect(m.ids()).toEqual([]);
+  });
+
+  it('kill gives up waiting after the fallback when the process does not exit', async () => {
+    const m = create({ killWaitMs: 300 });
+    m.spawn({ id: 'z', taskId: 't', cwd: os.tmpdir(), ...sh(sleepCmd(30)) });
+    await sleep(200);
+    const entry = (
+      m as unknown as { entries: Map<string, { proc: { kill(): void } }> }
+    ).entries.get('z');
+    if (!entry) throw new Error('missing entry');
+    const realKill = entry.proc.kill.bind(entry.proc);
+    entry.proc.kill = () => {};
+    const started = Date.now();
+    await m.kill('z');
+    expect(Date.now() - started).toBeGreaterThanOrEqual(250);
+    realKill();
+  });
+
+  it('kill of an unknown or exited terminal resolves at once', async () => {
+    const m = create({ killWaitMs: 60_000 });
+    await m.kill('nope');
+    const exited = waitFor(m, 'gone');
+    m.spawn({ id: 'gone', taskId: 't', cwd: os.tmpdir(), ...sh(failCmd(0)) });
+    await exited;
+    await m.kill('gone');
+    expect(m.ids()).toEqual([]);
+  });
+
+  it('reports an unknown exit code as UNKNOWN_EXIT, never undefined', () => {
+    expect(UNKNOWN_EXIT).toBe(-1);
+    expect(normaliseExitCode(0)).toBe(0);
+    expect(normaliseExitCode(3)).toBe(3);
+    expect(normaliseExitCode(undefined)).toBe(UNKNOWN_EXIT);
+    expect(normaliseExitCode(null)).toBe(UNKNOWN_EXIT);
+    expect(normaliseExitCode(Number.NaN)).toBe(UNKNOWN_EXIT);
+  });
+});
+
+// The `run` terminal wrapper inside ConPTY: the program must keep the console (no pipe in between).
+describe.runIf(isWindows)('run terminals on Windows', () => {
+  const node = `& '${process.execPath.replaceAll("'", "''")}'`;
+
+  it('passes non-ASCII output from a native program through intact', async () => {
+    const m = create();
+    const exited = waitFor(m, 'u');
+    // U+279C (the arrow Vite prints before "Local:"), then " ok".
+    m.spawn({
+      id: 'u',
+      taskId: 't',
+      cwd: os.tmpdir(),
+      ...sh(
+        `${node} -e 'process.stdout.write(String.fromCharCode(0x279C,32,111,107,10))'`,
+      ),
+    });
+    expect(await exited).toBe(0);
+    expect(m.buffer('u')).toContain(`${String.fromCharCode(0x279c)} ok`);
+  });
+
+  it('gives a native program a TTY', async () => {
+    const m = create();
+    const exited = waitFor(m, 'tty');
+    m.spawn({
+      id: 'tty',
+      taskId: 't',
+      cwd: os.tmpdir(),
+      ...sh(
+        `${node} -e 'process.stdout.write(String(process.stdout.isTTY===true))'`,
+      ),
+    });
+    expect(await exited).toBe(0);
+    expect(m.buffer('tty')).toContain('true');
+  });
+
+  it('native stderr with exit 0 succeeds', async () => {
+    const m = create();
+    const exited = waitFor(m, 'se');
+    m.spawn({
+      id: 'se',
+      taskId: 't',
+      cwd: os.tmpdir(),
+      ...sh('cmd /c "echo warn 1>&2"'),
+    });
+    expect(await exited).toBe(0);
+    expect(m.buffer('se')).toContain('warn');
+  });
+
+  it('passes a native exit code on', async () => {
+    const m = create();
+    const exited = waitFor(m, 'ne');
+    m.spawn({
+      id: 'ne',
+      taskId: 't',
+      cwd: os.tmpdir(),
+      ...sh('cmd /c exit 5'),
+    });
+    expect(await exited).toBe(5);
+  });
+
+  it('exits 1 on throw', async () => {
+    const m = create();
+    const exited = waitFor(m, 'th');
+    m.spawn({ id: 'th', taskId: 't', cwd: os.tmpdir(), ...sh("throw 'boom'") });
+    expect(await exited).toBe(1);
   });
 });

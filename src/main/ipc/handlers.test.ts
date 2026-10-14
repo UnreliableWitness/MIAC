@@ -8,7 +8,6 @@ import { AdoRegistry } from '../services/AdoRegistry';
 import { ConnectionStore, type TokenCrypto } from '../services/ConnectionStore';
 import { fakeCrypto } from '../test-helpers/fakeCrypto';
 import { startAdoServer, type AdoServer } from '../test-helpers/adoServer';
-import { darwinPlatform } from '../platform/darwin';
 import { OFFICIAL_RATES } from '../pricing/officialRates';
 import { SettingsStore } from '../usage/SettingsStore';
 import { UsageStore } from '../usage/UsageStore';
@@ -19,6 +18,14 @@ import { SetupRunner } from '../services/SetupRunner';
 import { TaskStore } from '../services/TaskStore';
 import { TerminalManager } from '../services/TerminalManager';
 import { cleanupTempRepos, makeRepo } from '../test-helpers/gitRepo';
+import {
+  echoCmd,
+  envRef,
+  isWindows,
+  sleepCmd,
+  testPlatform,
+  writeLineCmd,
+} from '../test-helpers/shell';
 import {
   createHandlers,
   pruneDanglingConnectionLinks,
@@ -59,7 +66,7 @@ async function harness(
   servers.push(server);
   const opened: string[] = [];
   const git = new GitClient();
-  const platform = darwinPlatform({ SHELL: '/bin/sh' });
+  const platform = testPlatform();
   const terminals = new TerminalManager();
   allTerminals.push(terminals);
   const usageDir = mkdtempSync(path.join(os.tmpdir(), 'miac-usage-'));
@@ -148,7 +155,7 @@ async function harness(
     },
     branch: 'feature/48231-show-estimated-delivery-date',
     copy: true,
-    commands: ['echo ok > ok.txt'],
+    commands: [writeLineCmd('ok', 'ok.txt')],
     startClaude: false,
     openShell: true,
     ...over,
@@ -320,6 +327,102 @@ describe('handlers: missing worktree folder', () => {
 });
 
 describe('handlers: finish', () => {
+  it('finish waits for the terminals to exit before removing the worktree', async () => {
+    const { h, input, setupDone, terminals, services } = await harness();
+    const done = setupDone();
+    const t = await h['tasks:create'](input());
+    await done;
+    const order: string[] = [];
+    const realKill = terminals.killAllForTask.bind(terminals);
+    vi.spyOn(terminals, 'killAllForTask').mockImplementation(async (id) => {
+      await realKill(id);
+      await new Promise((r) => setTimeout(r, 50));
+      order.push('terminals exited');
+    });
+    const realRemove = services.git.worktreeRemove.bind(services.git);
+    vi.spyOn(services.git, 'worktreeRemove').mockImplementation(
+      async (...a) => {
+        order.push('remove');
+        return realRemove(...a);
+      },
+    );
+    await h['tasks:finish'](t.id, {
+      closeTerminals: true,
+      removeWorktree: true,
+      deleteBranch: true,
+      syncUsage: false,
+    });
+    expect(order).toEqual(['terminals exited', 'remove']);
+  });
+
+  it('removing the worktree closes the terminals first, even when Close terminals is unticked', async () => {
+    const { h, input, setupDone, terminals, services, store } = await harness();
+    const done = setupDone();
+    const t = await h['tasks:create'](input());
+    await done;
+    expect(terminals.runningCount(t.id)).toBe(1);
+    const order: string[] = [];
+    const realKill = terminals.killAllForTask.bind(terminals);
+    vi.spyOn(terminals, 'killAllForTask').mockImplementation(async (id) => {
+      await realKill(id);
+      await new Promise((r) => setTimeout(r, 50));
+      order.push('terminals exited');
+    });
+    const realRemove = services.git.worktreeRemove.bind(services.git);
+    vi.spyOn(services.git, 'worktreeRemove').mockImplementation(
+      async (...a) => {
+        order.push('remove');
+        return realRemove(...a);
+      },
+    );
+    await h['tasks:finish'](t.id, {
+      closeTerminals: false,
+      removeWorktree: true,
+      deleteBranch: true,
+      syncUsage: false,
+    });
+    expect(order).toEqual(['terminals exited', 'remove']);
+    expect(terminals.runningCount(t.id)).toBe(0);
+    expect(store.state.tasks[0].terminals).toEqual([]);
+    expect(existsSync(t.worktreePath)).toBe(false);
+  });
+
+  it('keeps the terminals when neither Close terminals nor Remove worktree is ticked', async () => {
+    const { h, input, setupDone, terminals } = await harness();
+    const done = setupDone();
+    const t = await h['tasks:create'](input());
+    await done;
+    await h['tasks:finish'](t.id, {
+      closeTerminals: false,
+      removeWorktree: false,
+      deleteBranch: false,
+      syncUsage: false,
+    });
+    expect(terminals.runningCount(t.id)).toBe(1);
+    await terminals.killAllForTask(t.id);
+  });
+
+  it('cancelSetup waits for the terminals to exit before removing the worktree', async () => {
+    const { h, input, setupDone, terminals, services } = await harness();
+    const done = setupDone();
+    const t = await h['tasks:create'](input({ commands: ['exit 1'] }));
+    await done;
+    const order: string[] = [];
+    vi.spyOn(terminals, 'killAllForTask').mockImplementation(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+      order.push('terminals exited');
+    });
+    const realRemove = services.git.worktreeRemove.bind(services.git);
+    vi.spyOn(services.git, 'worktreeRemove').mockImplementation(
+      async (...a) => {
+        order.push('remove');
+        return realRemove(...a);
+      },
+    );
+    await h['tasks:cancelSetup'](t.id);
+    expect(order).toEqual(['terminals exited', 'remove']);
+  });
+
   it('finish does not delete an unticked worktree folder', async () => {
     const { h, input, setupDone, store, terminals, repo } = await harness();
     const done = setupDone();
@@ -421,7 +524,7 @@ describe('handlers: concurrency guards', () => {
   it('finish is rejected while setup runs', async () => {
     const { h, input, setupDone, terminals } = await harness();
     const done = setupDone();
-    const t = await h['tasks:create'](input({ commands: ['sleep 1'] }));
+    const t = await h['tasks:create'](input({ commands: [sleepCmd(1)] }));
     await expect(
       h['tasks:finish'](t.id, {
         closeTerminals: true,
@@ -484,11 +587,14 @@ describe('handlers: terminals', () => {
     const def = await h['terminals:open'](t.id, {
       kind: 'run',
       label: 'dev',
-      command: 'echo dev-server-up; sleep 30',
+      command: `${echoCmd('dev-server-up')}; ${sleepCmd(30)}`,
     });
     expect(store.state.tasks[0].terminals.map((x) => x.id)).toContain(def.id);
-    await new Promise((r) => setTimeout(r, 300));
-    expect(await h['terminals:buffer'](def.id)).toContain('dev-server-up');
+    await vi.waitFor(
+      async () =>
+        expect(await h['terminals:buffer'](def.id)).toContain('dev-server-up'),
+      { timeout: 10_000 },
+    );
     expect(await h['terminals:isRunning'](def.id)).toBe(true);
     await h['terminals:restart'](def.id);
     expect(await h['terminals:isRunning'](def.id)).toBe(true);
@@ -497,6 +603,37 @@ describe('handlers: terminals', () => {
       def.id,
     );
     expect(terminals.runningCount(t.id)).toBe(0);
+  });
+});
+
+describe('handlers: run terminal command', () => {
+  it('starts a run terminal with runCommand, not the setup wrapper', async () => {
+    const base = testPlatform();
+    const ran: string[] = [];
+    const platform = {
+      ...base,
+      runCommand: (cmd: string) => {
+        ran.push(cmd);
+        return base.runCommand(cmd);
+      },
+    };
+    const hx = await harness(fakeCrypto(), { platform });
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](hx.input({ openShell: false }));
+    await done;
+    const command = `${echoCmd('via-run')}; ${sleepCmd(5)}`;
+    const def = await hx.h['terminals:open'](t.id, {
+      kind: 'run',
+      label: 'dev',
+      command,
+    });
+    expect(ran).toEqual([command]);
+    await vi.waitFor(
+      async () =>
+        expect(await hx.h['terminals:buffer'](def.id)).toContain('via-run'),
+      { timeout: 10_000 },
+    );
+    await hx.terminals.killAllForTask(t.id);
   });
 });
 
@@ -909,23 +1046,24 @@ describe('handlers: usage', () => {
     const def = await hx.h['terminals:open'](t.id, {
       kind: 'run',
       label: 'env',
-      command:
-        'echo "T=$OTEL_RESOURCE_ATTRIBUTES E=$OTEL_EXPORTER_OTLP_LOGS_ENDPOINT C=$CLAUDE_CODE_ENABLE_TELEMETRY"; sleep 5',
+      command: `${isWindows ? 'Write-Output' : 'echo'} "T=${envRef('OTEL_RESOURCE_ATTRIBUTES')} E=${envRef('OTEL_EXPORTER_OTLP_LOGS_ENDPOINT')} C=${envRef('CLAUDE_CODE_ENABLE_TELEMETRY')}"; ${sleepCmd(5)}`,
     });
-    await new Promise((r) => setTimeout(r, 300));
-    expect(await hx.h['terminals:buffer'](def.id)).toContain(
-      `T=miac.task.id=${t.id} E=http://127.0.0.1:4319/v1/logs C=1`,
+    await vi.waitFor(
+      async () =>
+        expect(await hx.h['terminals:buffer'](def.id)).toContain(
+          `T=miac.task.id=${t.id} E=http://127.0.0.1:4319/v1/logs C=1`,
+        ),
+      { timeout: 10_000 },
     );
     hx.terminals.killAllForTask(t.id);
   });
 
   it('opens a Copilot CLI terminal with the platform command', async () => {
+    const base = testPlatform();
     const platform = {
-      ...darwinPlatform({ SHELL: '/bin/sh' }),
-      copilotCommand: () => ({
-        command: '/bin/sh',
-        args: ['-c', 'echo copilot-started; sleep 5'],
-      }),
+      ...base,
+      copilotCommand: () =>
+        base.shellCommand(`${echoCmd('copilot-started')}; ${sleepCmd(5)}`),
     };
     const hx = await harness(fakeCrypto(), { platform });
     const done = hx.setupDone();
@@ -937,9 +1075,12 @@ describe('handlers: usage', () => {
       (x) => x.kind === 'copilot',
     );
     expect(def?.label).toBe('Copilot CLI');
-    await new Promise((r) => setTimeout(r, 300));
-    expect(await hx.h['terminals:buffer'](def!.id)).toContain(
-      'copilot-started',
+    await vi.waitFor(
+      async () =>
+        expect(await hx.h['terminals:buffer'](def!.id)).toContain(
+          'copilot-started',
+        ),
+      { timeout: 10_000 },
     );
     hx.terminals.killAllForTask(t.id);
   });

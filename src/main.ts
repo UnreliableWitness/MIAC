@@ -32,6 +32,7 @@ import { SettingsStore } from './main/usage/SettingsStore';
 import { UsageReceiver } from './main/usage/UsageReceiver';
 import { OFFICIAL_RATES } from './main/pricing/officialRates';
 import { UsageStore } from './main/usage/UsageStore';
+import { runSmoke } from './main/smoke';
 
 if (started) app.quit();
 
@@ -139,6 +140,8 @@ async function boot(): Promise<void> {
         const child = spawn(cmd.command, cmd.args, {
           detached: true,
           stdio: 'ignore',
+          windowsHide: true,
+          env: { ...process.env, ...cmd.env },
         });
         child.on('error', (e) =>
           reject(new Error(`Could not start ${cmd.command}: ${e.message}`)),
@@ -204,13 +207,42 @@ async function boot(): Promise<void> {
   });
 }
 
-app
-  .whenReady()
-  .then(boot)
-  .catch((e) => {
-    console.error(e);
-    app.quit();
+if (process.env.MIAC_SMOKE === '1') {
+  // Packaged-app smoke check for CI: one pty, then exit. No window, no stores, no single-instance lock.
+  app
+    .whenReady()
+    .then(() =>
+      runSmoke({
+        terminals,
+        platform: createPlatform(),
+        log: (line) => console.error(line),
+      }),
+    )
+    .then((ok) => {
+      if (ok) console.log('MIAC_SMOKE_OK');
+      app.exit(ok ? 0 : 1);
+    })
+    .catch((e) => {
+      console.error(e);
+      app.exit(1);
+    });
+} else if (!started && !app.requestSingleInstanceLock()) {
+  // A second MIAC (a double launch, or a stray relaunch of MIAC.exe) hands over to the first one.
+  app.quit();
+} else if (!started) {
+  app.on('second-instance', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
   });
+  app
+    .whenReady()
+    .then(boot)
+    .catch((e) => {
+      console.error(e);
+      app.quit();
+    });
+}
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow();

@@ -12,6 +12,7 @@ export function darwinPlatform(env: NodeJS.ProcessEnv): Platform {
     shellLabel: path.basename(shell),
     interactiveShell: () => login([]),
     shellCommand: (cmd) => login(['-c', cmd]),
+    runCommand: (cmd) => login(['-c', cmd]),
     claudeCommand: (prompt) =>
       login(['-c', `exec claude ${shellQuote(prompt)}`]),
     copilotCommand: () => login(['-c', 'exec copilot']),

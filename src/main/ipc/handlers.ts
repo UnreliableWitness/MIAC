@@ -279,7 +279,7 @@ export function createHandlers(s: Services): Handlers {
     if (def.kind === 'claude')
       return s.platform.claudeCommand(claudePrompt(task));
     if (def.kind === 'run' && def.command)
-      return s.platform.shellCommand(def.command);
+      return s.platform.runCommand(def.command);
     if (def.kind === 'copilot') return s.platform.copilotCommand();
     return s.platform.interactiveShell();
   };
@@ -292,7 +292,10 @@ export function createHandlers(s: Services): Handlers {
       cwd: task.worktreePath,
       command: cmd.command,
       args: cmd.args,
-      env: telemetryEnv(task.id, s.settings.get().receiverPort, s.usageDir),
+      env: {
+        ...telemetryEnv(task.id, s.settings.get().receiverPort, s.usageDir),
+        ...cmd.env,
+      },
     });
   };
 
@@ -513,7 +516,8 @@ export function createHandlers(s: Services): Handlers {
       try {
         const task = taskById(taskId);
         const repo = s.repos.get(task.repoId);
-        s.terminals.killAllForTask(taskId);
+        // Windows will not remove a folder that a running process has as its cwd.
+        await s.terminals.killAllForTask(taskId);
         if (await exists(task.worktreePath))
           await s.git.worktreeRemove(repo.path, task.worktreePath, true);
         await s.git.worktreePrune(repo.path);
@@ -547,9 +551,12 @@ export function createHandlers(s: Services): Handlers {
         const task = taskById(taskId);
         const repo = s.repos.get(task.repoId);
         await patchTask(taskId, { status: 'finishing' });
+        // A terminal running in the folder blocks its removal on Windows (and a terminal without its
+        // folder is useless), so removing the worktree closes the terminals even when that was unticked.
+        const killTerminals = options.closeTerminals || options.removeWorktree;
         try {
-          if (options.closeTerminals) {
-            s.terminals.killAllForTask(taskId);
+          if (killTerminals) {
+            await s.terminals.killAllForTask(taskId);
             await patchTask(taskId, { terminals: [] });
           }
           if (options.removeWorktree && (await exists(task.worktreePath)))
@@ -570,7 +577,7 @@ export function createHandlers(s: Services): Handlers {
         });
         if (options.syncUsage) {
           try {
-            if (options.closeTerminals && s.finishFlushMs > 0)
+            if (killTerminals && s.finishFlushMs > 0)
               await new Promise((r) => setTimeout(r, s.finishFlushMs));
             await s.copilot.poll();
             const result = await usageSync.syncTask(taskId, {

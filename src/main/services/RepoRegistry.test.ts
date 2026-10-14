@@ -1,6 +1,7 @@
 import {
   mkdirSync,
   mkdtempSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -16,7 +17,7 @@ import { TaskStore } from './TaskStore';
 /** Scratch folders this test creates itself (state dirs, non-git dirs), removed in afterAll. */
 const scratch: string[] = [];
 function tempDir(prefix: string): string {
-  const dir = mkdtempSync(path.join(os.tmpdir(), prefix));
+  const dir = realpathSync.native(mkdtempSync(path.join(os.tmpdir(), prefix)));
   scratch.push(dir);
   return dir;
 }
@@ -64,7 +65,8 @@ describe('RepoRegistry', () => {
     const repo = makeRepo('webshop');
     mkdirSync(path.join(repo, 'src'));
     const link = path.join(path.dirname(repo), 'link');
-    symlinkSync(repo, link);
+    // A junction needs no privilege on Windows; the type argument is ignored elsewhere.
+    symlinkSync(repo, link, 'junction');
     const first = await reg.add(path.join(repo, 'src'));
     expect(first.path).toBe(repo);
     await expect(reg.add(repo)).rejects.toThrow(/already/);

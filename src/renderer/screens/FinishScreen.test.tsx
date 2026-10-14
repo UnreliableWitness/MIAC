@@ -216,6 +216,20 @@ describe('FinishScreen', () => {
     expect(el.textContent).toContain('src/c.ts');
   });
 
+  it('says that removing the folder closes the terminals anyway', async () => {
+    installFakeApi({ 'tasks:finishChecks': () => clean });
+    render(<FinishScreen taskId="a" />);
+    const close = await screen.findByLabelText(
+      'Close 2 terminals (Claude Code, zsh)',
+    );
+    const hint = /Removing the worktree folder closes its terminals too/;
+    expect(screen.queryByText(hint)).not.toBeInTheDocument();
+    await userEvent.click(close);
+    expect(screen.getByText(hint)).toBeInTheDocument();
+    await userEvent.click(screen.getByLabelText('Remove worktree folder'));
+    expect(screen.queryByText(hint)).not.toBeInTheDocument();
+  });
+
   it('disables the terminal checkbox when there are no terminals', async () => {
     useStore.setState({ tasks: [{ ...task, terminals: [] }] });
     installFakeApi({ 'tasks:finishChecks': () => clean });

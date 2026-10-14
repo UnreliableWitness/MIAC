@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { ForgeConfig } from '@electron-forge/shared-types';
 import { MakerSquirrel } from '@electron-forge/maker-squirrel';
 import { MakerZIP } from '@electron-forge/maker-zip';
@@ -6,14 +7,52 @@ import { MakerRpm } from '@electron-forge/maker-rpm';
 import { VitePlugin } from '@electron-forge/plugin-vite';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
+import { keepInPackage } from './tools/forge/packageFilter.mjs';
+import { trimLocales } from './tools/forge/trimLocales.mjs';
+
+// Signing is switched on by CI only (Azure Artifact Signing), see tools/windows-sign.
+const signing = process.env.ARTIFACT_SIGNING_ENDPOINT
+  ? {
+      hookModulePath: path.resolve(
+        process.cwd(),
+        'tools/windows-sign/sign.cjs',
+      ),
+    }
+  : undefined;
 
 const config: ForgeConfig = {
   packagerConfig: {
-    asar: true,
+    // node-pty is loaded at runtime (external to the Vite bundle), so it must be in the package, and
+    // unpacked: its .node binaries, spawn-helper (macOS), the conpty worker script, conpty.dll,
+    // OpenConsole.exe and winpty-agent.exe (Windows) have to exist on disk.
+    // Packaging targets the host platform and arch (see keepInPackage).
+    asar: { unpack: '**/node_modules/node-pty/**' },
+    ignore: (file: string) => !keepInPackage(file),
+    executableName: 'MIAC',
+    ...(signing ? { windowsSign: signing } : {}),
   },
   rebuildConfig: {},
+  hooks: {
+    // Runs on the freshly extracted Electron folder, before the app is copied in, before signing and
+    // before any maker reads the output. Locale packs sit outside app.asar, so asar integrity is unaffected.
+    // Windows/Linux only: keeps en-US and nl, drops the other Chromium locale packs (about 50 MB).
+    packageAfterExtract: async (
+      _config,
+      buildPath,
+      _electronVersion,
+      platform,
+    ) => {
+      const { removed } = trimLocales(buildPath, platform);
+      if (removed.length > 0)
+        console.log(`Removed ${removed.length} unused Chromium locale packs`);
+    },
+  },
   makers: [
-    new MakerSquirrel({}),
+    new MakerSquirrel({
+      name: 'miac',
+      setupExe: 'MIAC-Setup.exe',
+      ...(signing ? { windowsSign: signing } : {}),
+    }),
     new MakerZIP({}, ['darwin']),
     new MakerRpm({}),
     new MakerDeb({}),

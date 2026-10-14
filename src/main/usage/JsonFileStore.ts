@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { z } from 'zod';
+import { renameWithRetry } from '../fsRetry';
 
 /** One JSON document on disk, zod-validated, written atomically and serially; a corrupt file is backed up. */
 export class JsonFileStore<T> {
@@ -33,7 +34,7 @@ export class JsonFileStore<T> {
       return { recovered: false };
     } catch {
       const backup = `${this.file}.corrupt-${Date.now()}`;
-      await fs.rename(this.file, backup);
+      await renameWithRetry(this.file, backup);
       this.current = this.empty();
       return { recovered: true, backup };
     }
@@ -46,7 +47,7 @@ export class JsonFileStore<T> {
       await fs.mkdir(path.dirname(this.file), { recursive: true });
       const tmp = `${this.file}.tmp`;
       await fs.writeFile(tmp, JSON.stringify(next, null, 2), 'utf8');
-      await fs.rename(tmp, this.file);
+      await renameWithRetry(tmp, this.file);
       this.current = next;
       return next;
     };

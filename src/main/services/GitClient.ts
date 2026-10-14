@@ -2,6 +2,8 @@ import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import type { GitSummary } from '../../shared/types';
+import { realWait, withRetry, type Wait } from '../fsRetry';
+import { nativePath } from '../paths';
 
 const execFileAsync = promisify(execFile);
 
@@ -20,14 +22,27 @@ export class GitError extends Error {
   }
 }
 
+/** How Windows reports a folder that a process (a shell, a dev server, an indexer) still holds open. */
+const FOLDER_IN_USE =
+  /Permission denied|Directory not empty|being used by another process|EBUSY/i;
+
+/**
+ * Backoff for removing a worktree, about 5 s in total: with conpty.dll a killed terminal's pipe closes
+ * before a child that handles CTRL_CLOSE (a dev server) has let go of the folder.
+ */
+const REMOVE_WAITS = [50, 100, 200, 400, 800, 1600, 1850];
+
 /** Thin wrapper over the git CLI. Every method takes the directory to run in. */
 export class GitClient {
+  constructor(private readonly wait: Wait = realWait) {}
+
   async run(cwd: string, args: string[]): Promise<string> {
     try {
       const { stdout } = await execFileAsync('git', args, {
         cwd,
         env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
         maxBuffer: 16 * 1024 * 1024,
+        windowsHide: true,
       });
       return stdout;
     } catch (e) {
@@ -44,7 +59,10 @@ export class GitClient {
 
   async toplevel(dir: string): Promise<string | null> {
     try {
-      return (await this.run(dir, ['rev-parse', '--show-toplevel'])).trim();
+      const out = (
+        await this.run(dir, ['rev-parse', '--show-toplevel'])
+      ).trim();
+      return out ? nativePath(out) : null;
     } catch {
       return null;
     }
@@ -53,7 +71,7 @@ export class GitClient {
   /** The shared .git directory, also from inside a linked worktree. */
   async commonDir(cwd: string): Promise<string> {
     const out = (await this.run(cwd, ['rev-parse', '--git-common-dir'])).trim();
-    return path.resolve(cwd, out);
+    return nativePath(path.resolve(cwd, out));
   }
 
   async branchExists(cwd: string, branch: string): Promise<boolean> {
@@ -102,7 +120,16 @@ export class GitClient {
     cwd: string,
     o: { branch: string; path: string; baseRef: string },
   ): Promise<void> {
-    await this.run(cwd, ['worktree', 'add', '-b', o.branch, o.path, o.baseRef]);
+    await this.run(cwd, [
+      '-c',
+      'core.longpaths=true',
+      'worktree',
+      'add',
+      '-b',
+      o.branch,
+      o.path,
+      o.baseRef,
+    ]);
   }
 
   async worktreeRemove(
@@ -110,16 +137,25 @@ export class GitClient {
     worktreePath: string,
     force: boolean,
   ): Promise<void> {
-    await this.run(cwd, [
-      'worktree',
-      'remove',
-      ...(force ? ['--force'] : []),
-      worktreePath,
-    ]);
+    // Just-killed terminals can hold the folder for a moment on Windows; retry those failures only.
+    await withRetry(
+      () =>
+        this.run(cwd, [
+          '-c',
+          'core.longpaths=true',
+          'worktree',
+          'remove',
+          ...(force ? ['--force'] : []),
+          worktreePath,
+        ]),
+      (e) => e instanceof GitError && FOLDER_IN_USE.test(e.stderr),
+      this.wait,
+      REMOVE_WAITS,
+    );
   }
 
   async worktreePrune(cwd: string): Promise<void> {
-    await this.run(cwd, ['worktree', 'prune']);
+    await this.run(cwd, ['-c', 'core.longpaths=true', 'worktree', 'prune']);
   }
 
   async deleteBranch(cwd: string, branch: string): Promise<void> {

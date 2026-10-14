@@ -1,6 +1,6 @@
 import { existsSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import {
   addOrigin,
   cleanupTempRepos,
@@ -15,6 +15,79 @@ const client = new GitClient();
 afterAll(cleanupTempRepos);
 
 describe('GitClient', () => {
+  it('returns toplevel and commonDir in native path form', async () => {
+    const c = new GitClient();
+    const spy = vi.spyOn(c, 'run').mockResolvedValue('C:/x/y\n');
+    expect(await c.toplevel('/anywhere')).toBe(path.resolve('C:/x/y'));
+    expect(await c.commonDir('/anywhere')).toBe(
+      path.resolve('/anywhere', 'C:/x/y'),
+    );
+    spy.mockRestore();
+  });
+
+  it('worktreeRemove retries while Windows still holds the folder', async () => {
+    const waits: number[] = [];
+    const c = new GitClient(async (ms) => {
+      waits.push(ms);
+    });
+    let calls = 0;
+    const spy = vi.spyOn(c, 'run').mockImplementation(async (_cwd, args) => {
+      calls++;
+      if (calls === 1)
+        throw new GitError(
+          args,
+          "error: failed to delete 'C:/w': Permission denied",
+          128,
+        );
+      if (calls === 2)
+        throw new GitError(
+          args,
+          "error: failed to delete 'C:/w': Directory not empty",
+          128,
+        );
+      return '';
+    });
+    await c.worktreeRemove('/repo', '/w', true);
+    expect(calls).toBe(3);
+    expect(waits).toEqual([50, 100]);
+    spy.mockRestore();
+  });
+
+  it('worktreeRemove keeps retrying for about 5 s before giving up', async () => {
+    const waits: number[] = [];
+    const c = new GitClient(async (ms) => {
+      waits.push(ms);
+    });
+    const spy = vi.spyOn(c, 'run').mockImplementation(async (_cwd, args) => {
+      throw new GitError(
+        args,
+        "error: failed to delete 'C:/w': Permission denied",
+        128,
+      );
+    });
+    await expect(c.worktreeRemove('/repo', '/w', true)).rejects.toThrow(
+      /Permission denied/,
+    );
+    expect(waits).toEqual([50, 100, 200, 400, 800, 1600, 1850]);
+    expect(waits.reduce((a, b) => a + b, 0)).toBe(5000);
+    spy.mockRestore();
+  });
+
+  it('worktreeRemove does not retry other failures', async () => {
+    const waits: number[] = [];
+    const c = new GitClient(async (ms) => {
+      waits.push(ms);
+    });
+    const spy = vi.spyOn(c, 'run').mockImplementation(async (_cwd, args) => {
+      throw new GitError(args, "fatal: '/w' is not a working tree", 128);
+    });
+    await expect(c.worktreeRemove('/repo', '/w', true)).rejects.toThrow(
+      /not a working tree/,
+    );
+    expect(waits).toEqual([]);
+    spy.mockRestore();
+  });
+
   it('finds the toplevel and returns null outside a repo', async () => {
     const repo = makeRepo();
     expect(await client.toplevel(repo)).toBe(repo);
@@ -159,5 +232,34 @@ describe('GitClient', () => {
       baseRef: 'main',
     });
     expect(await client.commonDir(wt)).toBe(path.join(repo, '.git'));
+  });
+
+  it('runs worktree add, remove and prune with core.longpaths on every OS', async () => {
+    const repo = makeRepo();
+    const wt = path.join(path.dirname(repo), 'longpaths');
+    const spy = vi.spyOn(client, 'run');
+    await client.worktreeAdd(repo, {
+      branch: 'feature/lp',
+      path: wt,
+      baseRef: 'main',
+    });
+    await client.worktreeRemove(repo, wt, true);
+    await client.worktreePrune(repo);
+    const argsPerCall = spy.mock.calls.map(([, args]) => args);
+    spy.mockRestore();
+    expect(argsPerCall).toEqual([
+      [
+        '-c',
+        'core.longpaths=true',
+        'worktree',
+        'add',
+        '-b',
+        'feature/lp',
+        wt,
+        'main',
+      ],
+      ['-c', 'core.longpaths=true', 'worktree', 'remove', '--force', wt],
+      ['-c', 'core.longpaths=true', 'worktree', 'prune'],
+    ]);
   });
 });

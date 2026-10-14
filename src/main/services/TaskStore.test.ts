@@ -85,7 +85,7 @@ describe('TaskStore', () => {
     mkdirSync(path.dirname(file), { recursive: true });
     writeFileSync(file, '{ not json');
     vi.spyOn(fs, 'rename').mockRejectedValueOnce(
-      Object.assign(new Error('EPERM'), { code: 'EPERM' }),
+      Object.assign(new Error('EXDEV'), { code: 'EXDEV' }),
     );
     const store = new TaskStore(file);
     const result = await store.load();
@@ -100,7 +100,7 @@ describe('TaskStore', () => {
     mkdirSync(path.dirname(file), { recursive: true });
     writeFileSync(file, '{ not json');
     vi.spyOn(fs, 'rename').mockRejectedValueOnce(
-      Object.assign(new Error('EPERM'), { code: 'EPERM' }),
+      Object.assign(new Error('EXDEV'), { code: 'EXDEV' }),
     );
     vi.spyOn(fs, 'copyFile').mockRejectedValueOnce(
       Object.assign(new Error('EACCES'), { code: 'EACCES' }),

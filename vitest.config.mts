@@ -13,6 +13,7 @@ export default defineConfig({
             'src/main/**/*.test.ts',
             'src/shared/**/*.test.ts',
             'tools/art/*.test.ts',
+            'tools/forge/*.test.ts',
           ],
           testTimeout: 20000,
         },

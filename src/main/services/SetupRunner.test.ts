@@ -2,8 +2,14 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import type { SetupEvent } from '../../shared/types';
-import { darwinPlatform } from '../platform/darwin';
 import { addOrigin, cleanupTempRepos, makeRepo } from '../test-helpers/gitRepo';
+import {
+  echoCmd,
+  failCmd,
+  normaliseEol,
+  testPlatform,
+  writeLineCmd,
+} from '../test-helpers/shell';
 import { GitClient } from './GitClient';
 import {
   ensureExcluded,
@@ -15,7 +21,7 @@ import {
 afterAll(cleanupTempRepos);
 
 const git = new GitClient();
-const runner = new SetupRunner(git, darwinPlatform({ SHELL: '/bin/sh' }));
+const runner = new SetupRunner(git, testPlatform());
 
 function plan(repo: string, over: Partial<SetupPlan> = {}): SetupPlan {
   return {
@@ -77,7 +83,7 @@ describe('SetupRunner', () => {
     const p = plan(repo, {
       baseRef: 'origin/main',
       copy: ['.env', '.env.local'],
-      commands: ['echo building > built.txt'],
+      commands: [writeLineCmd('building', 'built.txt')],
       startTerminalsLabel: 'zsh',
     });
     const { events, onEvent } = collect();
@@ -128,7 +134,9 @@ describe('SetupRunner', () => {
 
   it('stops at a failing command, keeps the worktree and reports the step', async () => {
     const repo = makeRepo();
-    const p = plan(repo, { commands: ['echo before', 'exit 3', 'echo never'] });
+    const p = plan(repo, {
+      commands: [echoCmd('before'), failCmd(3), echoCmd('never')],
+    });
     const { events, onEvent } = collect();
     const result = await runner.run(p, {
       onEvent,
@@ -153,11 +161,16 @@ describe('SetupRunner', () => {
 
   it('retries from a step, marking earlier steps done without re-running them', async () => {
     const repo = makeRepo();
-    const p = plan(repo, { commands: ['echo one >> log.txt', 'exit 1'] });
+    const p = plan(repo, {
+      commands: [writeLineCmd('one', 'log.txt', true), failCmd(1)],
+    });
     await runner.run(p, { onEvent: () => {}, startTerminals: async () => {} });
     const fixed = {
       ...p,
-      commands: ['echo one >> log.txt', 'echo two >> log.txt'],
+      commands: [
+        writeLineCmd('one', 'log.txt', true),
+        writeLineCmd('two', 'log.txt', true),
+      ],
     };
     const { events, onEvent } = collect();
     const result = await runner.run(fixed, {
@@ -166,9 +179,9 @@ describe('SetupRunner', () => {
       fromStep: 4,
     });
     expect(result).toEqual({ ok: true });
-    expect(readFileSync(path.join(p.worktreePath, 'log.txt'), 'utf8')).toBe(
-      'one\ntwo\n',
-    );
+    expect(
+      normaliseEol(readFileSync(path.join(p.worktreePath, 'log.txt'), 'utf8')),
+    ).toBe('one\ntwo\n');
     expect(
       events
         .filter((e) => e.type === 'step' && e.index < 4)

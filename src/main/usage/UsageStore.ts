@@ -12,6 +12,7 @@ import type {
 } from '../../shared/usage';
 import { OFFICIAL_USD_TO_EUR } from '../pricing/officialRates';
 import { priceEvent, round6 } from '../pricing/RateTable';
+import { renameWithRetry } from '../fsRetry';
 
 const TOOLS: UsageTool[] = ['claude-code', 'copilot-cli'];
 const BillableSchema = z.record(z.string(), z.array(z.string()));
@@ -86,7 +87,7 @@ export class UsageStore extends EventEmitter<{ changed: [taskId: string] }> {
         );
       } else {
         billableBackup = `${billableFile}.corrupt-${Date.now()}`;
-        await fs.rename(billableFile, billableBackup);
+        await renameWithRetry(billableFile, billableBackup);
       }
     }
     return { damagedLines: damaged, billableBackup };
@@ -140,7 +141,7 @@ export class UsageStore extends EventEmitter<{ changed: [taskId: string] }> {
       await fs.mkdir(this.dir, { recursive: true });
       const file = path.join(this.dir, 'billable.json');
       await fs.writeFile(`${file}.tmp`, JSON.stringify(obj), 'utf8');
-      await fs.rename(`${file}.tmp`, file);
+      await renameWithRetry(`${file}.tmp`, file);
       this.notBillable = next;
       this.lastChange.set(taskId, new Date().toISOString());
       this.emit('changed', taskId);

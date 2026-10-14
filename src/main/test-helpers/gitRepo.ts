@@ -24,10 +24,13 @@ export function git(cwd: string, ...args: string[]): string {
 
 /** A fresh repo with one commit on `main`, inside its own temp folder. Returns the real path (no /var symlink). */
 export function makeRepo(name = 'repo'): string {
-  const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'miac-git-')));
+  const root = realpathSync.native(
+    mkdtempSync(path.join(os.tmpdir(), 'miac-git-')),
+  );
   tempRoots.push(root);
   const repo = path.join(root, name);
   git(root, 'init', '-q', '-b', 'main', name);
+  git(repo, 'config', 'core.autocrlf', 'false');
   git(repo, 'config', 'user.email', 'tests@miac.local');
   git(repo, 'config', 'user.name', 'MIAC tests');
   commitFile(repo, 'README.md', '# test\n');

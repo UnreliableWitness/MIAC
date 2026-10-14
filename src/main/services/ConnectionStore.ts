@@ -8,6 +8,7 @@ import {
   type ConnectionStatus,
   type ConnectionsFile,
 } from '../../shared/types';
+import { renameWithRetry } from '../fsRetry';
 
 /** Encrypts tokens at rest. main.ts adapts Electron safeStorage; tests pass a fake. */
 export interface TokenCrypto {
@@ -123,7 +124,7 @@ export class ConnectionStore {
       this.current = ConnectionsFileSchema.parse(JSON.parse(raw));
     } catch {
       const backup = `${this.filePath}.corrupt-${Date.now()}`;
-      await fs.rename(this.filePath, backup);
+      await renameWithRetry(this.filePath, backup);
       this.current = empty();
       return { recovered: true, backup };
     }
@@ -232,7 +233,7 @@ export class ConnectionStore {
       await fs.mkdir(path.dirname(this.filePath), { recursive: true });
       const tmp = `${this.filePath}.tmp`;
       await fs.writeFile(tmp, JSON.stringify(valid, null, 2), 'utf8');
-      await fs.rename(tmp, this.filePath);
+      await renameWithRetry(tmp, this.filePath);
       this.current = valid;
     };
     const result = this.queue.then(run, run);
