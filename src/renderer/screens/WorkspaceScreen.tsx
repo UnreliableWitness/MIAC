@@ -1,9 +1,17 @@
+import { TaskHeader } from '../components/TaskHeader';
+import { TaskNav } from '../components/TaskNav';
+import { TerminalTabs } from '../components/TerminalTabs';
 import { TopBar } from '../components/TopBar';
 import { useStore } from '../store';
 
+const PLUS = String.fromCharCode(0xff0b);
+const GEAR = String.fromCharCode(0x2699);
+
 export function WorkspaceScreen() {
   const go = useStore((s) => s.go);
-  const tasks = useStore((s) => s.tasks);
+  const task = useStore(
+    (s) => s.tasks.find((t) => t.id === s.selectedTaskId) ?? null,
+  );
   return (
     <>
       <TopBar>
@@ -13,7 +21,7 @@ export function WorkspaceScreen() {
           className="btn btn-primary"
           onClick={() => go({ kind: 'new-task' })}
         >
-          New task
+          {PLUS} New task
         </button>
         <button
           type="button"
@@ -21,13 +29,28 @@ export function WorkspaceScreen() {
           aria-label="Settings"
           onClick={() => go({ kind: 'settings' })}
         >
-          &#9881;
+          {GEAR}
         </button>
       </TopBar>
       <div className="workspace">
-        <div className="empty">
-          {tasks.length === 0 ? 'No tasks yet.' : `${tasks.length} task(s).`}
-        </div>
+        <TaskNav />
+        <main className="taskmain">
+          {task && task.status !== 'done' ? (
+            <>
+              <TaskHeader task={task} />
+              <TerminalTabs task={task} />
+            </>
+          ) : task ? (
+            <div className="empty">
+              This task is done. Its worktree and branch were cleaned up on{' '}
+              {task.finishedAt}.
+            </div>
+          ) : (
+            <div className="empty">
+              No task selected. Create one with New task.
+            </div>
+          )}
+        </main>
       </div>
     </>
   );
