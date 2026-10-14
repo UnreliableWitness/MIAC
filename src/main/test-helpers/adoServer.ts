@@ -5,6 +5,8 @@ export type Reply = {
   body?: unknown;
   headers?: Record<string, string>;
   raw?: string;
+  /** Never answer, to simulate a server that hangs. */
+  hang?: boolean;
 };
 export type Recorded = {
   method: string;
@@ -50,6 +52,7 @@ export async function startAdoServer(): Promise<AdoServer> {
             status: 404,
             body: { message: `no route for ${rec.method} ${rec.path}` },
           };
+      if (reply.hang) return;
       res.writeHead(reply.status ?? 200, {
         'content-type': 'application/json',
         ...reply.headers,
@@ -67,8 +70,9 @@ export async function startAdoServer(): Promise<AdoServer> {
       routes.push({ method, prefix, reply });
     },
     close: () =>
-      new Promise<void>((resolve, reject) =>
-        server.close((e) => (e ? reject(e) : resolve())),
-      ),
+      new Promise<void>((resolve, reject) => {
+        server.close((e) => (e ? reject(e) : resolve()));
+        server.closeAllConnections();
+      }),
   };
 }

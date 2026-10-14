@@ -121,6 +121,21 @@ describe('AdoClient.verify', () => {
     expect(err).toBeInstanceOf(AdoError);
     expect(err.kind).toBe('unreachable');
   });
+  it('maps a server that never answers to unreachable after the timeout', async () => {
+    server.route('GET', '/unreliablewitness/_apis/connectionData', {
+      hang: true,
+    });
+    const slow = new AdoClient(
+      `${server.url}/unreliablewitness`,
+      async () => 'x',
+      fetch,
+      { timeoutMs: 200 },
+    );
+    const err = await slow.verify('P').catch((e) => e);
+    expect(err).toBeInstanceOf(AdoError);
+    expect(err.kind).toBe('unreachable');
+    expect(err.message).toBe('Azure DevOps did not answer within 0.2 s');
+  });
   it('retries once on 429 after Retry-After', async () => {
     let calls = 0;
     server.route('GET', '/unreliablewitness/_apis/connectionData', () =>

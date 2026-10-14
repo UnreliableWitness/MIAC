@@ -68,7 +68,25 @@ export class AdoClient {
     private readonly organizationUrl: string,
     private readonly token: () => Promise<string>,
     private readonly fetchImpl: typeof fetch = fetch,
+    private readonly options: { timeoutMs?: number } = {},
   ) {}
+
+  private get timeoutMs(): number {
+    return this.options.timeoutMs ?? 15000;
+  }
+
+  private unreachable(path: string, e: unknown): AdoError {
+    const timedOut =
+      e instanceof Error &&
+      (e.name === 'TimeoutError' || e.name === 'AbortError');
+    return new AdoError(
+      'unreachable',
+      path,
+      timedOut
+        ? `Azure DevOps did not answer within ${this.timeoutMs / 1000} s`
+        : `Could not reach ${this.organizationUrl}: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
 
   async verify(project: string): Promise<{ user: string }> {
     const data = await this.request<Json>(
@@ -213,6 +231,7 @@ export class AdoClient {
     try {
       res = await this.fetchImpl(url, {
         ...init,
+        signal: AbortSignal.timeout(this.timeoutMs),
         redirect: 'manual',
         headers: {
           accept: 'application/json',
@@ -221,11 +240,7 @@ export class AdoClient {
         },
       });
     } catch (e) {
-      throw new AdoError(
-        'unreachable',
-        path,
-        `Could not reach ${this.organizationUrl}: ${e instanceof Error ? e.message : String(e)}`,
-      );
+      throw this.unreachable(path, e);
     }
     if (res.status === 429 && !opts.retried) {
       const header = Number(res.headers.get('retry-after') ?? '1');
@@ -260,7 +275,12 @@ export class AdoClient {
         `Not found: ${path.split('?')[0]}`,
         404,
       );
-    const raw = await res.text();
+    let raw: string;
+    try {
+      raw = await res.text();
+    } catch (e) {
+      throw this.unreachable(path, e);
+    }
     const text = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
     if (!res.ok)
       throw new AdoError(
