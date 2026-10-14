@@ -35,14 +35,15 @@ function Home() {
 function TaskDetails({
   task,
   git,
+  usage,
   onClose,
 }: {
   task: TaskView;
   git: GitSummary | null;
+  usage: ReturnType<typeof useTaskUsage>;
   onClose: () => void;
 }) {
   const notify = useStore((s) => s.notify);
-  const usage = useTaskUsage(task.id);
   const repo = useStore((s) => s.repos.find((r) => r.id === task.repoId));
   const linked = task.workItem !== null && Boolean(repo?.connectionId);
   const syncLine = !linked
@@ -132,7 +133,13 @@ export function TaskStrip({ task }: { task: TaskView }) {
       <div
         className="strip-task"
         onMouseEnter={() => setCard(true)}
-        onMouseLeave={() => setCard(false)}
+        onMouseLeave={(e) => {
+          if (!e.currentTarget.contains(document.activeElement)) setCard(false);
+        }}
+        onBlur={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null))
+            setCard(false);
+        }}
       >
         <button
           type="button"
@@ -140,14 +147,6 @@ export function TaskStrip({ task }: { task: TaskView }) {
           aria-expanded={card}
           aria-controls="task-details"
           onFocus={() => setCard(true)}
-          onBlur={(e) => {
-            if (
-              !e.currentTarget.parentElement!.contains(
-                e.relatedTarget as Node | null,
-              )
-            )
-              setCard(false);
-          }}
           onKeyDown={(e) => {
             if (e.key === 'Escape') setCard(false);
           }}
@@ -160,7 +159,12 @@ export function TaskStrip({ task }: { task: TaskView }) {
           </span>
         </button>
         {card && (
-          <TaskDetails task={task} git={git} onClose={() => setCard(false)} />
+          <TaskDetails
+            task={task}
+            git={git}
+            usage={usage}
+            onClose={() => setCard(false)}
+          />
         )}
       </div>
       <span className="mono strip-git">
@@ -172,28 +176,35 @@ export function TaskStrip({ task }: { task: TaskView }) {
       <button
         type="button"
         className="strip-cost"
-        aria-label={`AI cost ${eur(cost)}, open usage`}
+        aria-label={`AI cost ${usage ? eur(cost) : 'unknown'}, open usage`}
         onClick={() => openUsage(task.id)}
       >
         <RingGauge value={cost} />{' '}
         <span className="mono">{usage ? eur(cost) : DASH}</span>
       </button>
-      <IconButton
-        label="Open in VS Code"
-        disabled={task.worktreeMissing}
-        onClick={() =>
-          tryInvoke(() => api().invoke('tasks:openInEditor', task.id), notify)
-        }
-      >
-        {'{ }'}
-      </IconButton>
-      <IconButton
-        label="Finish task"
-        tone="green"
-        onClick={() => go({ kind: 'finish', taskId: task.id })}
-      >
-        {CHECK}
-      </IconButton>
+      {task.status === 'ready' && (
+        <>
+          <IconButton
+            label="Open in VS Code"
+            disabled={task.worktreeMissing}
+            onClick={() =>
+              tryInvoke(
+                () => api().invoke('tasks:openInEditor', task.id),
+                notify,
+              )
+            }
+          >
+            {'{ }'}
+          </IconButton>
+          <IconButton
+            label="Finish task"
+            tone="green"
+            onClick={() => go({ kind: 'finish', taskId: task.id })}
+          >
+            {CHECK}
+          </IconButton>
+        </>
+      )}
       <IconButton
         label="New task"
         tone="accent"

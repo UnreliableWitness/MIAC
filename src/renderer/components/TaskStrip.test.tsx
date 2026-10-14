@@ -139,6 +139,31 @@ describe('TaskStrip', () => {
       taskId: task.id,
     });
   });
+  it('closes the card when focus tabs past its last control', async () => {
+    installFakeApi({ 'tasks:gitSummary': () => git });
+    render(
+      <TaskStrip
+        task={{
+          ...task,
+          workItem: { ...task.workItem!, url: 'https://example.test/48213' },
+        }}
+      />,
+    );
+    await openCard();
+    await userEvent.tab(); // ADO link inside the card
+    expect(screen.getByRole('dialog', { name: 'Task details' })).toBeTruthy();
+    await userEvent.tab(); // out of the card
+    expect(screen.queryByRole('dialog', { name: 'Task details' })).toBeNull();
+  });
+  it('hides Finish task and Open in VS Code unless the task is ready', () => {
+    installFakeApi({ 'tasks:gitSummary': () => git });
+    render(<TaskStrip task={{ ...task, status: 'done' }} />);
+    expect(screen.queryByRole('button', { name: 'Finish task' })).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'Open in VS Code' }),
+    ).toBeNull();
+    expect(screen.getByRole('button', { name: 'New task' })).toBeTruthy();
+  });
   it('goes home from the MIAC button', async () => {
     installFakeApi({ 'tasks:gitSummary': () => git });
     useStore.setState({ screen: { kind: 'settings' } });
