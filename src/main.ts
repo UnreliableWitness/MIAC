@@ -10,7 +10,11 @@ import {
 } from 'electron';
 import started from 'electron-squirrel-startup';
 import { EVENT_PREFIX, type Events } from './shared/ipc';
-import { createHandlers, recoverInterruptedTasks } from './main/ipc/handlers';
+import {
+  createHandlers,
+  pruneDanglingConnectionLinks,
+  recoverInterruptedTasks,
+} from './main/ipc/handlers';
 import { registerIpc } from './main/ipc/register';
 import { createPlatform } from './main/platform';
 import { AdoRegistry } from './main/services/AdoRegistry';
@@ -81,6 +85,8 @@ async function boot(): Promise<void> {
     },
   );
   const connectionsLoaded = await connections.load();
+  const repos = new RepoRegistry(store, git);
+  await pruneDanglingConnectionLinks(repos, connections);
   const handlers = createHandlers({
     connections,
     ado: new AdoRegistry(connections),
@@ -89,7 +95,7 @@ async function boot(): Promise<void> {
     git,
     platform,
     terminals,
-    repos: new RepoRegistry(store, git),
+    repos,
     runner: new SetupRunner(git, platform),
     loadConfig: loadMiacConfig,
     pickFolder: async () => {

@@ -41,8 +41,7 @@ export function TaskHeader({ task }: { task: TaskView }) {
           {task.workItem?.url ? (
             <button
               type="button"
-              className="pill pill-accent"
-              style={{ border: 'none', cursor: 'pointer' }}
+              className="pill pill-accent pill-link"
               aria-label={`Open ${task.workItem.type} ${task.workItem.id} in Azure DevOps`}
               onClick={() =>
                 tryInvoke(

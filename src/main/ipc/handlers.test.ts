@@ -18,6 +18,7 @@ import { TerminalManager } from '../services/TerminalManager';
 import { cleanupTempRepos, makeRepo } from '../test-helpers/gitRepo';
 import {
   createHandlers,
+  pruneDanglingConnectionLinks,
   recoverInterruptedTasks,
   type Services,
 } from './handlers';
@@ -707,6 +708,59 @@ describe('handlers: work items', () => {
     expect(broadcasts.some((b) => b.event === 'connections:changed')).toBe(
       true,
     );
+  });
+});
+
+describe('handlers: work item robustness', () => {
+  it('a successful call heals a stale unreachable status and broadcasts', async () => {
+    const { h, server, broadcasts, connections } = await harness();
+    routeHealthyOrg(server);
+    const c = await h['connections:save']({
+      organizationUrl: `${server.url}/unreliablewitness`,
+      project: 'MIAC',
+      pat: 'p',
+    });
+    await connections.setStatus(c.id, 'unreachable');
+    broadcasts.length = 0;
+    await h['workItems:search'](c.id, { scope: 'mine', text: '' });
+    expect(connections.get(c.id)).toMatchObject({
+      status: 'ok',
+      user: 'Dries Hoebeke',
+    });
+    expect(broadcasts.some((b) => b.event === 'connections:changed')).toBe(
+      true,
+    );
+  });
+  it('sprint scope without a current iteration returns nothing and skips wiql', async () => {
+    const { h, server } = await harness();
+    routeHealthyOrg(server);
+    const c = await h['connections:save']({
+      organizationUrl: `${server.url}/unreliablewitness`,
+      project: 'MIAC',
+      pat: 'p',
+    });
+    server.route(
+      'GET',
+      '/unreliablewitness/MIAC/_apis/work/teamsettings/iterations',
+      { body: { value: [] } },
+    );
+    server.requests.length = 0;
+    expect(
+      await h['workItems:search'](c.id, { scope: 'sprint', text: '' }),
+    ).toEqual([]);
+    expect(server.requests.some((r) => r.path.includes('/wiql'))).toBe(false);
+  });
+  it('prunes repo links to connections that no longer exist', async () => {
+    const { h, services, added, connections } = await harness();
+    await services.repos.setConnection(added.id, 'gone');
+    expect(
+      await pruneDanglingConnectionLinks(services.repos, connections),
+    ).toBe(1);
+    expect(services.repos.get(added.id).connectionId).toBeNull();
+    expect(
+      await pruneDanglingConnectionLinks(services.repos, connections),
+    ).toBe(0);
+    expect(await h['repos:list']()).toHaveLength(1);
   });
 });
 

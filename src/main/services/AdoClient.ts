@@ -81,13 +81,6 @@ export class AdoClient {
     return { user };
   }
 
-  async workItemTypes(project: string): Promise<string[]> {
-    const data = await this.request<{ value?: { name: string }[] }>(
-      `/${encodeURIComponent(project)}/_apis/wit/workitemtypes?${API}`,
-    );
-    return (data.value ?? []).map((t) => t.name);
-  }
-
   async currentIteration(project: string): Promise<Iteration | null> {
     const data = await this.request<{
       value?: { name: string; path: string }[];

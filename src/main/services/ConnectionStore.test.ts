@@ -112,7 +112,7 @@ describe('ConnectionStore', () => {
     expect(await b.token(c.id)).toBe('tok');
   });
 
-  it('updates an existing connection by id and keeps its status when the pat is unchanged', async () => {
+  it('updates an existing connection by id and resets its status', async () => {
     const store = new ConnectionStore(file(), fakeCrypto());
     await store.load();
     const c = await store.save({
@@ -202,6 +202,28 @@ describe('ConnectionStore', () => {
     });
     await broken.load();
     await expect(broken.token(c.id)).rejects.toThrow(/could not be decrypted/);
+  });
+
+  it('keeps a stored record with an invalid organization URL but never serves its token', async () => {
+    const f = file();
+    const lax = new ConnectionStore(f, fakeCrypto(), {
+      allowLoopbackHttp: true,
+    });
+    await lax.load();
+    const c = await lax.save({
+      organizationUrl: 'http://localhost:1/org',
+      project: 'P',
+      pat: 'tok',
+    });
+    await lax.setStatus(c.id, 'ok', 'Someone');
+    const strict = new ConnectionStore(f, fakeCrypto());
+    await strict.load();
+    expect(strict.list().map((x) => [x.id, x.status])).toEqual([
+      [c.id, 'unauthorized'],
+    ]);
+    await expect(strict.token(c.id)).rejects.toThrow(
+      'This connection has an invalid organization URL; remove it and add it again',
+    );
   });
 
   it('backs up a corrupt file and starts empty', async () => {

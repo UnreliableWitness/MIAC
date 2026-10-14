@@ -82,6 +82,8 @@ const empty = (): ConnectionsFile => ({ version: 1, connections: [] });
 export class ConnectionStore {
   private current: ConnectionsFile = empty();
   private queue: Promise<unknown> = Promise.resolve();
+  /** Ids whose stored organization URL no longer passes validation; never used for requests. */
+  private readonly invalidUrls = new Set<string>();
 
   constructor(
     private readonly filePath: string,
@@ -119,13 +121,22 @@ export class ConnectionStore {
     }
     try {
       this.current = ConnectionsFileSchema.parse(JSON.parse(raw));
-      return { recovered: false };
     } catch {
       const backup = `${this.filePath}.corrupt-${Date.now()}`;
       await fs.rename(this.filePath, backup);
       this.current = empty();
       return { recovered: true, backup };
     }
+    this.invalidUrls.clear();
+    for (const c of this.current.connections) {
+      try {
+        c.organizationUrl = this.normalizeUrl(c.organizationUrl);
+      } catch {
+        this.invalidUrls.add(c.id);
+        c.status = 'unauthorized';
+      }
+    }
+    return { recovered: false };
   }
 
   list(): Connection[] {
@@ -165,6 +176,7 @@ export class ConnectionStore {
       if (i >= 0) f.connections[i] = record;
       else f.connections.push(record);
     });
+    this.invalidUrls.delete(record.id);
     return strip(record);
   }
 
@@ -173,6 +185,7 @@ export class ConnectionStore {
     await this.update((f) => {
       f.connections = f.connections.filter((c) => c.id !== id);
     });
+    this.invalidUrls.delete(id);
   }
 
   async setStatus(
@@ -192,6 +205,10 @@ export class ConnectionStore {
 
   async token(id: string): Promise<string> {
     const c = this.stored(id);
+    if (this.invalidUrls.has(id))
+      throw new TokenUnavailableError(
+        'This connection has an invalid organization URL; remove it and add it again',
+      );
     try {
       return this.crypto.decrypt(Buffer.from(c.tokenCiphertext, 'base64'));
     } catch {

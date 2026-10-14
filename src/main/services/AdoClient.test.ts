@@ -173,16 +173,6 @@ describe('AdoClient.verify', () => {
 });
 
 describe('AdoClient reads', () => {
-  it('lists work item type names', async () => {
-    server.route('GET', '/unreliablewitness/MIAC/_apis/wit/workitemtypes', {
-      body: { value: [{ name: 'Issue' }, { name: 'Epic' }, { name: 'Task' }] },
-    });
-    expect(await client.workItemTypes('MIAC')).toEqual([
-      'Issue',
-      'Epic',
-      'Task',
-    ]);
-  });
   it('returns the current iteration or null', async () => {
     server.route(
       'GET',
@@ -212,10 +202,12 @@ describe('AdoClient reads', () => {
     expect(await client.currentIteration('MIAC')).toBeNull();
   });
   it('encodes special characters in a project name', async () => {
-    server.route('GET', '/unreliablewitness/A%23B/_apis/wit/workitemtypes', {
-      body: { value: [] },
-    });
-    expect(await client.workItemTypes('A#B')).toEqual([]);
+    server.route(
+      'GET',
+      '/unreliablewitness/A%23B/_apis/work/teamsettings/iterations',
+      { body: { value: [] } },
+    );
+    expect(await client.currentIteration('A#B')).toBeNull();
   });
   it('searches: wiql then batch get, mapping fields and url', async () => {
     server.route('POST', '/unreliablewitness/MIAC/_apis/wit/wiql', {
@@ -347,10 +339,12 @@ describe('AdoClient reads', () => {
     expect(batch!.path.match(/ids=([^&]+)/)![1].split(',')).toHaveLength(50);
   });
   it('surfaces a malformed body as an http error, not a crash', async () => {
-    server.route('GET', '/unreliablewitness/MIAC/_apis/wit/workitemtypes', {
-      raw: 'not json',
-    });
-    const err = await client.workItemTypes('MIAC').catch((e) => e);
+    server.route(
+      'GET',
+      '/unreliablewitness/MIAC/_apis/work/teamsettings/iterations',
+      { raw: 'not json' },
+    );
+    const err = await client.currentIteration('MIAC').catch((e) => e);
     expect(err).toBeInstanceOf(AdoError);
     expect(err.kind).toBe('http');
   });

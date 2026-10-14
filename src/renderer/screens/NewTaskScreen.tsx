@@ -25,6 +25,7 @@ export function NewTaskScreen() {
   );
   const modeChosen = useRef(false);
   const lastRepo = useRef(repoId);
+  const lastConnection = useRef<string | null>(null);
   const [picked, setPicked] = useState<WorkItemRef | null>(null);
   const [config, setConfig] = useState<{
     config: MiacConfig;
@@ -51,10 +52,11 @@ export function NewTaskScreen() {
   useEffect(() => {
     const repoChanged = lastRepo.current !== repoId;
     lastRepo.current = repoId;
-    if (repoChanged) {
-      modeChosen.current = false;
-      setPicked(null);
-    }
+    const connectionChanged = lastConnection.current !== connectionId;
+    lastConnection.current = connectionId;
+    if (repoChanged) modeChosen.current = false;
+    // A pick belongs to one connection; drop it when the repo or its connection changes.
+    if (repoChanged || connectionChanged) setPicked(null);
     setMode((m) =>
       connectionId
         ? repoChanged || !modeChosen.current
@@ -211,6 +213,7 @@ export function NewTaskScreen() {
           >
             {mode === 'pick' && connection ? (
               <WorkItemPicker
+                key={connection.id}
                 connectionId={connection.id}
                 selectedId={picked?.id ?? null}
                 onPick={setPicked}

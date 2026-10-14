@@ -1,20 +1,8 @@
 import { useState } from 'react';
 import type { Connection } from '../../shared/types';
 import { api, tryInvoke } from '../api';
+import { statusText } from '../connectionStatus';
 import { useStore } from '../store';
-
-export function statusText(c: Connection): { text: string; ok: boolean } {
-  switch (c.status) {
-    case 'ok':
-      return { text: `Connected as ${c.user ?? 'unknown user'}`, ok: true };
-    case 'unauthorized':
-      return { text: 'Token rejected, enter it again', ok: false };
-    case 'unreachable':
-      return { text: 'Organization unreachable', ok: false };
-    default:
-      return { text: 'Not verified yet', ok: false };
-  }
-}
 
 function ConnectionRow({ connection }: { connection: Connection }) {
   const notify = useStore((s) => s.notify);

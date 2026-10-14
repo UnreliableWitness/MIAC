@@ -68,11 +68,11 @@ function RepoRow({ repo }: { repo: Repo }) {
           value={repo.connectionId ?? ''}
           onChange={async (e) => {
             const value = e.target.value || null;
-            const ok = await tryInvoke(
+            // repos:changed is broadcast by the handler and updates the store.
+            await tryInvoke(
               () => api().invoke('repos:setConnection', repo.id, value),
               notify,
             );
-            if (ok) setRepos(await api().invoke('repos:list'));
           }}
         >
           <option value="">No connection</option>

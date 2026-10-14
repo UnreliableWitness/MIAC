@@ -69,11 +69,11 @@ type WorkItemSummary = {
 - `ConnectionStore(filePath, crypto)`: `list(): Connection[]`, `get(id)`, `save(input: { id?, name?, organizationUrl, project, pat }): Promise<Connection>`, `remove(id)`, `setStatus(id, status, user?)`, `token(id): Promise<string>`. `crypto` is an interface `{ available(): boolean; encrypt(s): Buffer; decrypt(b): string }`; `src/main.ts` passes an adapter over Electron `safeStorage`, tests pass a fake.
 - `AdoClient(organizationUrl, token: () => Promise<string>, fetchImpl = fetch)`:
   - `verify(project): Promise<{ user: string }>`: `GET _apis/connectionData` then `GET _apis/projects/<project>`.
-  - `workItemTypes(project): Promise<string[]>`.
   - `currentIteration(project): Promise<{ path: string; name: string } | null>`: `GET <project>/_apis/work/teamsettings/iterations?$timeframe=current`.
   - `searchWorkItems(opts: { project; scope: 'sprint' | 'mine'; text: string; iterationPath: string | null }): Promise<WorkItemSummary[]>`: WIQL `POST <project>/_apis/wit/wiql` then batch `GET _apis/wit/workitems?ids=...&fields=System.Id,System.WorkItemType,System.Title,System.State,System.AreaPath,System.IterationPath,System.AssignedTo`. WIQL: `[System.TeamProject] = @project AND [System.State] NOT IN ('Closed','Removed','Done','Resolved')` plus `[System.IterationPath] = '<path>'` for `sprint` or `[System.AssignedTo] = @Me` for `mine`; a `text` that is all digits adds `OR [System.Id] = <n>`, otherwise `AND [System.Title] CONTAINS '<text>'`. Single quotes in `text` are doubled.
+  - There is no work item types call: types come from search results and the typed form uses a fixed list, so no types call or cache is made.
   - Errors: `AdoError { kind: 'unauthorized' | 'not-found' | 'unreachable' | 'http'; status?: number; path: string }`. 401 and 203 (the sign-in page) map to `unauthorized`; 404 to `not-found`; network errors to `unreachable`; 429 retries once after `Retry-After` seconds (max 10).
-- `AdoRegistry`: holds one `AdoClient` per connection id, invalidated on save/remove; caches work item types per connection for the session.
+- `AdoRegistry`: holds one `AdoClient` per connection id, invalidated on save/remove.
 
 ## IPC
 

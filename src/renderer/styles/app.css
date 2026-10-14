@@ -153,6 +153,14 @@ fieldset.group legend {
   font-size: 12px;
   font-weight: 600;
 }
+.pill:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.pill-link {
+  border: none;
+  cursor: pointer;
+}
 .pill-accent {
   background: var(--accent-bg);
   color: var(--accent);

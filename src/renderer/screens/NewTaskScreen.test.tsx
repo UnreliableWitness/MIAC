@@ -273,4 +273,40 @@ describe('NewTaskScreen', () => {
       screen.queryByRole('tab', { name: 'Work item' }),
     ).not.toBeInTheDocument();
   });
+
+  it('clears the picked item when the repo switches to another connection', async () => {
+    installFakeApi({
+      ...pickerApi,
+      'workItems:search': () => [
+        {
+          id: '12',
+          type: 'Issue',
+          title: 'Save delivery address',
+          state: 'To Do',
+          areaPath: 'MIAC',
+          iterationPath: 'p',
+          assignedTo: null,
+          url: 'https://dev.azure.com/o/p/_workitems/edit/12',
+        },
+      ],
+    });
+    useStore.setState({
+      repos: [{ ...webshop, connectionId: 'c1' }],
+      connections: [conn, { ...conn, id: 'c2', name: 'other' }],
+    });
+    render(<NewTaskScreen />);
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Save delivery address/ }),
+    );
+    const create = screen.getByRole('button', { name: 'Create task' });
+    await waitFor(() => expect(create).toBeEnabled());
+    act(() =>
+      useStore.setState({ repos: [{ ...webshop, connectionId: 'c2' }] }),
+    );
+    await waitFor(() => expect(create).toBeDisabled());
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Save delivery address/ }),
+    );
+    await waitFor(() => expect(create).toBeEnabled());
+  });
 });

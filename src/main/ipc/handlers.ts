@@ -78,6 +78,22 @@ export async function recoverInterruptedTasks(
 /** Keys (repo:branch, repo:worktree) of tasks being created right now, across handler bundles. */
 const creating = new Set<string>();
 
+/** Clears connection links that point at connections which no longer exist. Returns how many were cleared. */
+export async function pruneDanglingConnectionLinks(
+  repos: RepoRegistry,
+  connections: ConnectionStore,
+): Promise<number> {
+  const valid = new Set(connections.list().map((c) => c.id));
+  let cleared = 0;
+  for (const r of repos.list()) {
+    if (r.connectionId !== null && !valid.has(r.connectionId)) {
+      await repos.setConnection(r.id, null);
+      cleared++;
+    }
+  }
+  return cleared;
+}
+
 export function createHandlers(s: Services): Handlers {
   const connectionsChanged = () =>
     s.broadcast('connections:changed', s.connections.list());
@@ -87,8 +103,9 @@ export function createHandlers(s: Services): Handlers {
     connectionId: string,
     run: () => Promise<T>,
   ): Promise<T> => {
+    let result: T;
     try {
-      return await run();
+      result = await run();
     } catch (e) {
       const status =
         (e instanceof AdoError && e.kind === 'unauthorized') ||
@@ -107,6 +124,17 @@ export function createHandlers(s: Services): Handlers {
       }
       throw e;
     }
+    // A working call proves the token is fine again; heal a stale red status.
+    try {
+      const current = s.connections.get(connectionId);
+      if (current.status !== 'ok') {
+        await s.connections.setStatus(connectionId, 'ok');
+        connectionsChanged();
+      }
+    } catch {
+      // Status bookkeeping must never fail a successful call.
+    }
+    return result;
   };
 
   const verifyConnection = async (
@@ -575,6 +603,7 @@ export function createHandlers(s: Services): Handlers {
           search.scope === 'sprint'
             ? await client.currentIteration(c.project)
             : null;
+        if (search.scope === 'sprint' && !iteration) return [];
         return client.searchWorkItems({
           project: c.project,
           scope: search.scope,

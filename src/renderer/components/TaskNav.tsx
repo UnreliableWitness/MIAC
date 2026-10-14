@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Repo, TaskStatus, TaskView } from '../../shared/types';
+import { statusText } from '../connectionStatus';
 import { useStore } from '../store';
 
 const DOWN = String.fromCharCode(0x25be);
@@ -88,7 +89,7 @@ export function TaskNav() {
         }
       : {
           color: 'var(--red)',
-          text: `${connection.name}: ${connection.status === 'unauthorized' ? 'token rejected' : connection.status === 'unreachable' ? 'unreachable' : 'not verified'}`,
+          text: `${connection.name}: ${statusText(connection, true).text}`,
         };
   return (
     <nav aria-label="Tasks" className="tasknav">
