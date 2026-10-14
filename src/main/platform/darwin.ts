@@ -14,6 +14,7 @@ export function darwinPlatform(env: NodeJS.ProcessEnv): Platform {
     shellCommand: (cmd) => login(['-c', cmd]),
     claudeCommand: (prompt) =>
       login(['-c', `exec claude ${shellQuote(prompt)}`]),
+    copilotCommand: () => login(['-c', 'exec copilot']),
     editorCommand: (p) => ({ command: 'code', args: [p] }),
   };
 }
