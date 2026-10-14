@@ -37,7 +37,9 @@ Named after a Culture ship. A desktop app for running development tasks as isola
 
 ## Status
 
-- Sub-project 1 (app shell and task lifecycle) merged 2026-10-14 (PR #1). Runs from `npm start`; `npm test`, `npm run typecheck`, `npm run lint` are the checks.
-- Build order: (1) app shell and task lifecycle, done; (2) Azure DevOps integration; (3) usage capture and pricing; (4) invoicing and reconciliation.
-- Known gaps carried forward: a running setup cannot be cancelled; nav rows show only the branch; no app icon yet (Gemini key needed, see `tools/art/README.md`); Windows `Platform` not implemented.
+- Sub-project 1 (app shell and task lifecycle) merged 2026-10-14 (PR #1). Sub-project 2 (Azure DevOps connections and work item picker) merged 2026-10-14 (PR #2).
+- Run with `npm start`; checks are `npm test`, `npm run typecheck`, `npm run lint`. Run `npm install` after pulling: a `postinstall` step fixes node-pty's spawn-helper permissions.
+- Build order: (1) app shell and task lifecycle, done; (2) Azure DevOps integration, done (read-only: connections, picker, header link); (3) usage capture and pricing; (4) invoicing and reconciliation.
+- Azure DevOps test project `unreliablewitness/MIAC` (Basic process, Sprint 1) has seeded items 1-4 from `tools/ado/seed-test-items.mjs`. PAT for dev scripts lives in the macOS Keychain (account `miac`, service `miac-ado-unreliablewitness`); the app itself stores connections in `connections.json`, encrypted with safeStorage.
+- Known gaps carried forward: a running setup cannot be cancelled; nav rows show only the branch; New task defaults the base to `origin/<base>` even without an `origin` remote; no app icon yet (Gemini key needed, see `tools/art/README.md`); Windows `Platform` not implemented; the app does not yet write work item state.
 - Specs live in `docs/superpowers/specs/`, plans in `docs/superpowers/plans/`.
