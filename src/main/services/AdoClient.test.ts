@@ -121,6 +121,21 @@ describe('AdoClient.verify', () => {
     expect(err).toBeInstanceOf(AdoError);
     expect(err.kind).toBe('unreachable');
   });
+  it('maps a server that never answers to unreachable after the timeout', async () => {
+    server.route('GET', '/unreliablewitness/_apis/connectionData', {
+      hang: true,
+    });
+    const slow = new AdoClient(
+      `${server.url}/unreliablewitness`,
+      async () => 'x',
+      fetch,
+      { timeoutMs: 200 },
+    );
+    const err = await slow.verify('P').catch((e) => e);
+    expect(err).toBeInstanceOf(AdoError);
+    expect(err.kind).toBe('unreachable');
+    expect(err.message).toBe('Azure DevOps did not answer within 0.2 s');
+  });
   it('retries once on 429 after Retry-After', async () => {
     let calls = 0;
     server.route('GET', '/unreliablewitness/_apis/connectionData', () =>
@@ -347,5 +362,81 @@ describe('AdoClient reads', () => {
     const err = await client.currentIteration('MIAC').catch((e) => e);
     expect(err).toBeInstanceOf(AdoError);
     expect(err.kind).toBe('http');
+  });
+});
+
+describe('AdoClient writes', () => {
+  it('lists enabled work item types with their field reference names', async () => {
+    server.route('GET', '/unreliablewitness/MIAC/_apis/wit/workitemtypes', {
+      body: {
+        value: [
+          {
+            name: 'Issue',
+            fields: [
+              { referenceName: 'System.Title' },
+              { referenceName: 'Custom.AICost' },
+            ],
+          },
+          { name: 'Old', isDisabled: true, fields: [] },
+        ],
+      },
+    });
+    expect(await client.workItemTypeFields('MIAC')).toEqual([
+      { type: 'Issue', fields: ['System.Title', 'Custom.AICost'] },
+    ]);
+  });
+  it('patches fields with a JSON Patch document', async () => {
+    server.route('PATCH', '/unreliablewitness/_apis/wit/workitems/7', {
+      body: { id: 7 },
+    });
+    await client.updateWorkItemFields(7, {
+      'Custom.AICost': 23.85,
+      'Custom.AITokens': 1200,
+    });
+    const req = server.requests.at(-1)!;
+    expect(req.path).toBe(
+      '/unreliablewitness/_apis/wit/workitems/7?api-version=7.1',
+    );
+    expect(JSON.parse(req.body)).toEqual([
+      { op: 'add', path: '/fields/Custom.AICost', value: 23.85 },
+      { op: 'add', path: '/fields/Custom.AITokens', value: 1200 },
+    ]);
+    expect(req.auth).toBe(authFor('secret-pat'));
+  });
+  it('adds a markdown comment and returns its id', async () => {
+    server.route(
+      'POST',
+      '/unreliablewitness/MIAC/_apis/wit/workItems/7/comments',
+      { body: { id: 991, text: 'x' } },
+    );
+    expect(await client.addComment('MIAC', 7, 'hello')).toEqual({ id: 991 });
+    const req = server.requests.at(-1)!;
+    expect(req.path).toBe(
+      '/unreliablewitness/MIAC/_apis/wit/workItems/7/comments?format=markdown&api-version=7.1-preview.4',
+    );
+    expect(JSON.parse(req.body)).toEqual({ text: 'hello' });
+  });
+  it('explains a token without write scope', async () => {
+    server.route('PATCH', '/unreliablewitness/_apis/wit/workitems/7', {
+      status: 403,
+      body: {},
+    });
+    await expect(
+      client.updateWorkItemFields(7, { 'Custom.AICost': 1 }),
+    ).rejects.toMatchObject({
+      kind: 'unauthorized',
+      message:
+        'The token cannot write work items (needs Work Items: Read & write)',
+    });
+    server.route(
+      'POST',
+      '/unreliablewitness/MIAC/_apis/wit/workItems/7/comments',
+      { status: 401, body: {} },
+    );
+    await expect(client.addComment('MIAC', 7, 'x')).rejects.toMatchObject({
+      kind: 'unauthorized',
+      message:
+        'The token cannot write work items (needs Work Items: Read & write)',
+    });
   });
 });

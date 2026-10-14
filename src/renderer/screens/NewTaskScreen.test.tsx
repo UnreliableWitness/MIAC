@@ -122,7 +122,27 @@ describe('NewTaskScreen', () => {
       commands: ['npm ci'],
       startClaude: true,
       openShell: false,
+      openCopilot: false,
     });
+  });
+
+  it('starts Copilot CLI with the task when ticked', async () => {
+    const { calls } = installFakeApi({
+      'repos:config': () => config,
+      'tasks:create': () => ({ id: 't1' }) as never,
+    });
+    render(<NewTaskScreen />);
+    await userEvent.type(screen.getByLabelText('Work item id'), '48231');
+    await userEvent.type(screen.getByLabelText('Title'), 'Delivery date');
+    const box = screen.getByLabelText('Start Copilot CLI with the task');
+    expect(box).not.toBeChecked();
+    await userEvent.click(box);
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    await waitFor(() =>
+      expect(
+        calls.find((c) => c.channel === 'tasks:create')?.args[0],
+      ).toMatchObject({ openCopilot: true }),
+    );
   });
 
   it('shows the error and stays open when create fails', async () => {

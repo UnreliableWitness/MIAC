@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { GitSummary, TaskView } from '../../shared/types';
 import { api, tryInvoke } from '../api';
+import { ago, eur } from '../format';
+import { useTaskUsage } from '../hooks/useTaskUsage';
 import { useStore } from '../store';
 
 const POLL_MS = 5000;
@@ -10,6 +12,16 @@ const DOWN = String.fromCharCode(0x2193);
 export function TaskHeader({ task }: { task: TaskView }) {
   const go = useStore((s) => s.go);
   const notify = useStore((s) => s.notify);
+  const usage = useTaskUsage(task.id);
+  const repo = useStore((s) => s.repos.find((r) => r.id === task.repoId));
+  const linked = task.workItem !== null && Boolean(repo?.connectionId);
+  const syncLine = !linked
+    ? 'Not linked to an Azure DevOps work item'
+    : task.usageSyncError
+      ? `Sync failed: ${task.usageSyncError}`
+      : task.usageSyncedAt
+        ? `Logged on work item ${ago(task.usageSyncedAt)}`
+        : 'Not logged on the work item yet';
   const [git, setGit] = useState<GitSummary | null>(null);
 
   useEffect(() => {
@@ -74,13 +86,28 @@ export function TaskHeader({ task }: { task: TaskView }) {
           <span>{task.worktreePath}</span>
         </div>
       </div>
-      <div className="costtile" aria-label="AI cost for this task">
+      <button
+        type="button"
+        className="costtile"
+        aria-label="AI cost for this task"
+        onClick={() => go({ kind: 'usage', taskId: task.id })}
+      >
         <span className="small muted">AI cost</span>
-        <span className="amount">&mdash;</span>
-        <span className="small muted">
-          Usage tracking arrives in a later release
+        <span className="amount">
+          {usage ? eur(usage.billable.costEur) : <>&mdash;</>}
         </span>
-      </div>
+        {usage && (
+          <span className="small muted">
+            Claude {eur(usage.byTool['claude-code'].costEur)} &middot; Copilot{' '}
+            {eur(usage.byTool['copilot-cli'].costEur)}
+          </span>
+        )}
+        <span
+          className={task.usageSyncError ? 'small text-red' : 'small muted'}
+        >
+          {syncLine}
+        </span>
+      </button>
       <div className="taskhead-actions">
         <button
           type="button"

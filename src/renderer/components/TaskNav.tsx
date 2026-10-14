@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import type { Repo, TaskStatus, TaskView } from '../../shared/types';
 import { statusText } from '../connectionStatus';
+import { eur } from '../format';
+import { useTaskUsage } from '../hooks/useTaskUsage';
 import { useStore } from '../store';
 
 const DOWN = String.fromCharCode(0x25be);
@@ -29,6 +31,7 @@ function Row({ task }: { task: TaskView }) {
   const selected = useStore((s) => s.selectedTaskId === task.id);
   const select = useStore((s) => s.select);
   const go = useStore((s) => s.go);
+  const usage = useTaskUsage(task.id);
   const state = STATE[task.status];
   const pick = () => {
     select(task.id);
@@ -62,7 +65,13 @@ function Row({ task }: { task: TaskView }) {
       </span>
       <span className="taskrow-sub">
         <span>{task.worktreeMissing ? 'folder missing' : task.branch}</span>
-        <span className="cost">&mdash;</span>
+        <span className="cost">
+          {usage && usage.billable.costEur > 0 ? (
+            eur(usage.billable.costEur)
+          ) : (
+            <>&mdash;</>
+          )}
+        </span>
       </span>
     </button>
   );

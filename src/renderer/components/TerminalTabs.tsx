@@ -20,7 +20,7 @@ export function TerminalTabs({ task }: { task: TaskView }) {
   }, [task.terminals, active]);
 
   const open = async (def: {
-    kind: 'shell' | 'run';
+    kind: 'shell' | 'run' | 'copilot';
     label: string;
     command?: string;
   }) => {
@@ -53,7 +53,9 @@ export function TerminalTabs({ task }: { task: TaskView }) {
                     ? 'var(--blue)'
                     : t.kind === 'run'
                       ? 'var(--green)'
-                      : 'var(--idle)',
+                      : t.kind === 'copilot'
+                        ? 'var(--accent)'
+                        : 'var(--idle)',
               }}
             />
             {t.label}
@@ -67,6 +69,14 @@ export function TerminalTabs({ task }: { task: TaskView }) {
           disabled={task.worktreeMissing}
         >
           {PLUS}
+        </button>
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          onClick={() => open({ kind: 'copilot', label: 'Copilot CLI' })}
+          disabled={task.worktreeMissing}
+        >
+          Copilot CLI
         </button>
         {runCommands.length > 0 && (
           <div className="run">

@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { Events } from '../../shared/ipc';
 import type { CreateTaskInput, SetupEvent, Task } from '../../shared/types';
 import { AdoRegistry } from '../services/AdoRegistry';
@@ -9,6 +9,9 @@ import { ConnectionStore, type TokenCrypto } from '../services/ConnectionStore';
 import { fakeCrypto } from '../test-helpers/fakeCrypto';
 import { startAdoServer, type AdoServer } from '../test-helpers/adoServer';
 import { darwinPlatform } from '../platform/darwin';
+import { RateStore } from '../usage/RateStore';
+import { SettingsStore } from '../usage/SettingsStore';
+import { UsageStore } from '../usage/UsageStore';
 import { GitClient } from '../services/GitClient';
 import { loadMiacConfig } from '../services/MiacConfig';
 import { RepoRegistry } from '../services/RepoRegistry';
@@ -36,7 +39,10 @@ afterAll(async () => {
   cleanupTempRepos();
 });
 
-async function harness(crypto: TokenCrypto = fakeCrypto()) {
+async function harness(
+  crypto: TokenCrypto = fakeCrypto(),
+  over: Partial<Services> = {},
+) {
   const store = new TaskStore(
     path.join(mkdtempSync(path.join(os.tmpdir(), 'miac-ipc-')), 'state.json'),
   );
@@ -56,6 +62,38 @@ async function harness(crypto: TokenCrypto = fakeCrypto()) {
   const platform = darwinPlatform({ SHELL: '/bin/sh' });
   const terminals = new TerminalManager();
   allTerminals.push(terminals);
+  const usageDir = mkdtempSync(path.join(os.tmpdir(), 'miac-usage-'));
+  connDirs.push(usageDir);
+  const rates = new RateStore(path.join(usageDir, 'rates.json'));
+  await rates.load();
+  const settings = new SettingsStore(path.join(usageDir, 'settings.json'));
+  await settings.load();
+  const usage = new UsageStore(usageDir, () => rates.list());
+  await usage.load();
+  const receiverStarts: number[] = [];
+  let receiverStatus = {
+    listening: true,
+    port: 4319,
+    error: null as string | null,
+  };
+  const receiver = {
+    get status() {
+      return receiverStatus;
+    },
+    start: async (port: number) => {
+      receiverStarts.push(port);
+      receiverStatus =
+        port === 1999
+          ? {
+              listening: false,
+              port,
+              error: `Port ${port} is in use by another program`,
+            }
+          : { listening: true, port, error: null };
+      return receiverStatus;
+    },
+  };
+  const hourly: (() => void)[] = [];
   const broadcasts: Broadcast[] = [];
   const waiters: ((e: Events['setup']) => void)[] = [];
   const services: Services = {
@@ -73,6 +111,17 @@ async function harness(crypto: TokenCrypto = fakeCrypto()) {
     loadConfig: loadMiacConfig,
     pickFolder: async () => '/picked',
     launch: async () => {},
+    usage,
+    rates,
+    settings,
+    receiver,
+    copilot: { stats: { records: 0, unreadable: 0 }, poll: async () => {} },
+    usageDir,
+    onHourly: (fn) => {
+      hourly.push(fn);
+    },
+    finishFlushMs: 0,
+    ...over,
     broadcast: (event, payload) => {
       broadcasts.push({ event, payload });
       if (event === 'setup')
@@ -120,6 +169,12 @@ async function harness(crypto: TokenCrypto = fakeCrypto()) {
     server,
     connections,
     opened,
+    usage,
+    settings,
+    rates,
+    receiverStarts,
+    hourly,
+    usageDir,
   };
 }
 
@@ -259,6 +314,7 @@ describe('handlers: missing worktree folder', () => {
       closeTerminals: true,
       removeWorktree: true,
       deleteBranch: true,
+      syncUsage: false,
     });
     const [view] = await h['tasks:list']();
     expect(view.status).toBe('done');
@@ -278,6 +334,7 @@ describe('handlers: finish', () => {
         closeTerminals: true,
         removeWorktree: false,
         deleteBranch: true,
+        syncUsage: false,
       }),
     ).rejects.toThrow();
     expect(existsSync(t.worktreePath)).toBe(true);
@@ -302,6 +359,7 @@ describe('handlers: finish', () => {
       closeTerminals: true,
       removeWorktree: true,
       deleteBranch: true,
+      syncUsage: false,
     });
     const [view] = await h['tasks:list']();
     expect(view.status).toBe('done');
@@ -325,6 +383,7 @@ describe('handlers: finish', () => {
         closeTerminals: true,
         removeWorktree: false,
         deleteBranch: true,
+        syncUsage: false,
       }),
     ).rejects.toThrow(/boom/);
     expect(store.state.tasks[0].status).toBe('ready');
@@ -372,6 +431,7 @@ describe('handlers: concurrency guards', () => {
         closeTerminals: true,
         removeWorktree: true,
         deleteBranch: true,
+        syncUsage: false,
       }),
     ).rejects.toThrow(/setting-up/);
     await done;
@@ -481,10 +541,14 @@ describe('recoverInterruptedTasks', () => {
         commands: [],
         startClaude: false,
         openShell: false,
+        openCopilot: false,
       },
       terminals: [],
       createdAt: 'now',
       finishedAt: null,
+      usageSyncedAt: null,
+      usageSyncError: null,
+      usageCommentId: null,
     };
     await store.update((s) => {
       s.tasks.push(
@@ -539,6 +603,56 @@ function routeHealthyOrg(server: AdoServer, org = 'unreliablewitness') {
       ],
     },
   });
+}
+
+async function linkedTask(hx: Awaited<ReturnType<typeof harness>>) {
+  routeHealthyOrg(hx.server);
+  const c = await hx.h['connections:save']({
+    organizationUrl: `${hx.server.url}/unreliablewitness`,
+    project: 'MIAC',
+    pat: 'secret-pat',
+  });
+  await hx.h['repos:setConnection'](hx.added.id, c.id);
+  const done = hx.setupDone();
+  const t = await hx.h['tasks:create'](hx.input({ openShell: false }));
+  await done;
+  await hx.usage.add({
+    id: 'req-1',
+    taskId: t.id,
+    tool: 'claude-code',
+    sessionId: 's1',
+    model: 'claude-opus-5-5',
+    at: '2026-10-14T10:00:00.000Z',
+    inputTokens: 1_000_000,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    fast: false,
+  });
+  hx.server.route('GET', '/unreliablewitness/MIAC/_apis/wit/workitemtypes', {
+    body: {
+      value: [
+        {
+          name: 'User Story',
+          fields: [
+            { referenceName: 'Custom.AICost' },
+            { referenceName: 'Custom.AICostClaude' },
+            { referenceName: 'Custom.AICostCopilot' },
+            { referenceName: 'Custom.AITokens' },
+          ],
+        },
+      ],
+    },
+  });
+  hx.server.route('PATCH', '/unreliablewitness/_apis/wit/workitems/48231', {
+    body: { id: 48231 },
+  });
+  hx.server.route(
+    'POST',
+    '/unreliablewitness/MIAC/_apis/wit/workItems/48231/comments',
+    { body: { id: 501 } },
+  );
+  return { t, c };
 }
 
 describe('handlers: connections', () => {
@@ -787,5 +901,274 @@ describe('handlers: shell', () => {
     ])
       await expect(h['shell:openExternal'](bad)).rejects.toThrow(/not allowed/);
     expect(opened).toHaveLength(2);
+  });
+});
+
+describe('handlers: usage', () => {
+  it('starts every task terminal with the telemetry env', async () => {
+    const hx = await harness();
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](hx.input({ openShell: false }));
+    await done;
+    const def = await hx.h['terminals:open'](t.id, {
+      kind: 'run',
+      label: 'env',
+      command:
+        'echo "T=$OTEL_RESOURCE_ATTRIBUTES E=$OTEL_EXPORTER_OTLP_LOGS_ENDPOINT C=$CLAUDE_CODE_ENABLE_TELEMETRY"; sleep 5',
+    });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(await hx.h['terminals:buffer'](def.id)).toContain(
+      `T=miac.task.id=${t.id} E=http://127.0.0.1:4319/v1/logs C=1`,
+    );
+    hx.terminals.killAllForTask(t.id);
+  });
+
+  it('opens a Copilot CLI terminal with the platform command', async () => {
+    const platform = {
+      ...darwinPlatform({ SHELL: '/bin/sh' }),
+      copilotCommand: () => ({
+        command: '/bin/sh',
+        args: ['-c', 'echo copilot-started; sleep 5'],
+      }),
+    };
+    const hx = await harness(fakeCrypto(), { platform });
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](
+      hx.input({ openShell: false, openCopilot: true }),
+    );
+    await done;
+    const def = hx.store.state.tasks[0].terminals.find(
+      (x) => x.kind === 'copilot',
+    );
+    expect(def?.label).toBe('Copilot CLI');
+    await new Promise((r) => setTimeout(r, 300));
+    expect(await hx.h['terminals:buffer'](def!.id)).toContain(
+      'copilot-started',
+    );
+    hx.terminals.killAllForTask(t.id);
+  });
+
+  it('summarises, toggles billable, exports CSV and broadcasts changes', async () => {
+    const hx = await harness();
+    await hx.usage.add({
+      id: 'a',
+      taskId: 'tx',
+      tool: 'claude-code',
+      sessionId: 's1',
+      model: 'claude-opus-5-5',
+      at: '2026-10-14T10:00:00.000Z',
+      inputTokens: 1_000_000,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      fast: false,
+    });
+    expect(hx.broadcasts).toContainEqual({
+      event: 'usage:changed',
+      payload: { taskId: 'tx' },
+    });
+    expect((await hx.h['usage:task']('tx')).billable.costUsd).toBe(4);
+    const after = await hx.h['usage:setBillable']('tx', 's1', false);
+    expect(after.billable.costUsd).toBe(0);
+    expect(await hx.h['usage:exportCsv']('tx')).toContain(
+      ',s1,claude-opus-5-5,1000000,0,0,0,false,4,3.68,false,',
+    );
+  });
+
+  it('saves settings, moves the receiver and reports a busy port', async () => {
+    const hx = await harness();
+    const s = await hx.h['settings:get']();
+    await hx.h['settings:save']({ ...s, usdToEur: 0.9 });
+    expect(hx.receiverStarts).toEqual([]);
+    await hx.h['settings:save']({ ...s, receiverPort: 1999 });
+    expect(hx.receiverStarts).toEqual([1999]);
+    expect(await hx.h['usage:receiverStatus']()).toEqual({
+      listening: false,
+      port: 1999,
+      error: 'Port 1999 is in use by another program',
+      copilot: { records: 0, unreadable: 0 },
+    });
+    expect(
+      hx.broadcasts.some(
+        (b) =>
+          b.event === 'notice' &&
+          String((b.payload as { message: string }).message).includes('in use'),
+      ),
+    ).toBe(true);
+    expect(hx.broadcasts).toContainEqual({
+      event: 'usage:changed',
+      payload: { taskId: '*' },
+    });
+    await expect(
+      hx.h['settings:save']({ ...s, receiverPort: 80 }),
+    ).rejects.toThrow();
+  });
+
+  it('lists, saves and resets rates', async () => {
+    const hx = await harness();
+    const { rates, officialAsOf } = await hx.h['rates:list']();
+    expect(officialAsOf).toBe('2026-10-14');
+    const saved = await hx.h['rates:save'](rates.slice(0, 2));
+    expect(saved).toHaveLength(2);
+    expect((await hx.h['rates:reset']()).length).toBe(rates.length);
+  });
+
+  it('finish writes the fields and the comment, then the task is done', async () => {
+    const hx = await harness();
+    const { t } = await linkedTask(hx);
+    await hx.h['tasks:finish'](t.id, {
+      closeTerminals: true,
+      removeWorktree: true,
+      deleteBranch: true,
+      syncUsage: true,
+    });
+    const task = hx.store.state.tasks[0];
+    expect(task).toMatchObject({
+      status: 'done',
+      usageCommentId: 501,
+      usageSyncError: null,
+    });
+    const patch = hx.server.requests.find((r) => r.method === 'PATCH');
+    expect(JSON.parse(patch!.body)).toContainEqual({
+      op: 'add',
+      path: '/fields/Custom.AICost',
+      value: 3.68,
+    });
+    const comment = hx.server.requests.find(
+      (r) => r.method === 'POST' && r.path.includes('/comments'),
+    );
+    expect(JSON.parse(comment!.body).text).toContain(
+      'Branch feature/48231-show-estimated-delivery-date',
+    );
+  });
+
+  it('finish still completes when Azure DevOps rejects the write', async () => {
+    const hx = await harness();
+    const { t } = await linkedTask(hx);
+    hx.server.route('PATCH', '/unreliablewitness/_apis/wit/workitems/48231', {
+      status: 403,
+      body: {},
+    });
+    await hx.h['tasks:finish'](t.id, {
+      closeTerminals: true,
+      removeWorktree: true,
+      deleteBranch: true,
+      syncUsage: true,
+    });
+    expect(hx.store.state.tasks[0]).toMatchObject({
+      status: 'done',
+      usageSyncError:
+        'The token cannot write work items (needs Work Items: Read & write)',
+    });
+    expect(
+      hx.broadcasts.some(
+        (b) =>
+          b.event === 'notice' &&
+          String((b.payload as { message: string }).message).includes(
+            'could not be written',
+          ),
+      ),
+    ).toBe(true);
+  });
+
+  it('sync now on a done task retries a failed finish write and posts the comment once', async () => {
+    const hx = await harness();
+    const { t } = await linkedTask(hx);
+    hx.server.route('PATCH', '/unreliablewitness/_apis/wit/workitems/48231', {
+      status: 403,
+      body: {},
+    });
+    await hx.h['tasks:finish'](t.id, {
+      closeTerminals: true,
+      removeWorktree: true,
+      deleteBranch: true,
+      syncUsage: true,
+    });
+    expect(hx.store.state.tasks[0]).toMatchObject({
+      status: 'done',
+      usageCommentId: null,
+    });
+    expect(hx.store.state.tasks[0].usageSyncError).toBeTruthy();
+    hx.server.route('PATCH', '/unreliablewitness/_apis/wit/workitems/48231', {
+      body: { id: 48231 },
+    });
+    expect(await hx.h['usage:sync'](t.id)).toMatchObject({
+      ok: true,
+      commentPosted: true,
+      fieldsWritten: [
+        'Custom.AICost',
+        'Custom.AICostClaude',
+        'Custom.AICostCopilot',
+        'Custom.AITokens',
+      ],
+    });
+    expect(hx.store.state.tasks[0]).toMatchObject({
+      usageCommentId: 501,
+      usageSyncError: null,
+    });
+    expect(await hx.h['usage:sync'](t.id)).toMatchObject({
+      commentPosted: false,
+    });
+    expect(
+      hx.server.requests.filter((r) => r.path.includes('/comments')),
+    ).toHaveLength(1);
+  });
+
+  it('logs a failing hourly sync instead of leaving an unhandled rejection', async () => {
+    const hx = await harness();
+    await linkedTask(hx);
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(hx.usage, 'changedSince').mockImplementation(() => {
+      throw new Error('index broken');
+    });
+    hx.hourly[0]();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(errors).toHaveBeenCalledWith(
+      '[usage] hourly sync failed',
+      expect.any(Error),
+    );
+    errors.mockRestore();
+  });
+
+  it('sync now and the hourly sync write fields without a comment', async () => {
+    const hx = await harness();
+    const { t, c } = await linkedTask(hx);
+    expect(await hx.h['usage:sync'](t.id)).toMatchObject({
+      ok: true,
+      commentPosted: false,
+      fieldsWritten: [
+        'Custom.AICost',
+        'Custom.AICostClaude',
+        'Custom.AICostCopilot',
+        'Custom.AITokens',
+      ],
+    });
+    expect(hx.hourly).toHaveLength(1);
+    await new Promise((r) => setTimeout(r, 5)); // changedSince compares ISO times; keep them apart
+    await hx.usage.add({
+      id: 'req-2',
+      taskId: t.id,
+      tool: 'claude-code',
+      sessionId: 's1',
+      model: 'claude-opus-5-5',
+      at: '2026-10-14T11:00:00.000Z',
+      inputTokens: 10,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      fast: false,
+    });
+    hx.hourly[0]();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(hx.server.requests.filter((r) => r.method === 'PATCH')).toHaveLength(
+      2,
+    );
+    expect(hx.server.requests.some((r) => r.path.includes('/comments'))).toBe(
+      false,
+    );
+    expect((await hx.h['usage:fieldsStatus'](c.id)).types[0]).toMatchObject({
+      type: 'User Story',
+      missing: [],
+    });
   });
 });

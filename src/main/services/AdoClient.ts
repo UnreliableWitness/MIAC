@@ -57,15 +57,36 @@ export function buildWiql(opts: {
   return `SELECT [System.Id] FROM WorkItems WHERE ${where.join(' AND ')} ORDER BY [System.ChangedDate] DESC`;
 }
 
+export const WRITE_DENIED =
+  'The token cannot write work items (needs Work Items: Read & write)';
+
 type Json = Record<string, unknown>;
 
-/** Four read-only calls against one Azure DevOps organization. The token provider is called per request so a re-entered PAT takes effect immediately. */
+/** Four read calls and three write calls (work item fields, comment, type field listing) against one Azure DevOps organization. The token provider is called per request so a re-entered PAT takes effect immediately. */
 export class AdoClient {
   constructor(
     private readonly organizationUrl: string,
     private readonly token: () => Promise<string>,
     private readonly fetchImpl: typeof fetch = fetch,
+    private readonly options: { timeoutMs?: number } = {},
   ) {}
+
+  private get timeoutMs(): number {
+    return this.options.timeoutMs ?? 15000;
+  }
+
+  private unreachable(path: string, e: unknown): AdoError {
+    const timedOut =
+      e instanceof Error &&
+      (e.name === 'TimeoutError' || e.name === 'AbortError');
+    return new AdoError(
+      'unreachable',
+      path,
+      timedOut
+        ? `Azure DevOps did not answer within ${this.timeoutMs / 1000} s`
+        : `Could not reach ${this.organizationUrl}: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
 
   async verify(project: string): Promise<{ user: string }> {
     const data = await this.request<Json>(
@@ -143,10 +164,66 @@ export class AdoClient {
     });
   }
 
+  async workItemTypeFields(
+    project: string,
+  ): Promise<{ type: string; fields: string[] }[]> {
+    const data = await this.request<{
+      value?: {
+        name: string;
+        isDisabled?: boolean;
+        fields?: { referenceName: string }[];
+      }[];
+    }>(`/${encodeURIComponent(project)}/_apis/wit/workitemtypes?${API}`);
+    return (data.value ?? [])
+      .filter((t) => !t.isDisabled)
+      .map((t) => ({
+        type: t.name,
+        fields: (t.fields ?? []).map((f) => f.referenceName),
+      }));
+  }
+
+  async updateWorkItemFields(
+    id: number,
+    fields: Record<string, number>,
+  ): Promise<void> {
+    await this.request<Json>(
+      `/_apis/wit/workitems/${id}?${API}`,
+      {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json-patch+json' },
+        body: JSON.stringify(
+          Object.entries(fields).map(([name, value]) => ({
+            op: 'add',
+            path: `/fields/${name}`,
+            value,
+          })),
+        ),
+      },
+      { write: true },
+    );
+  }
+
+  async addComment(
+    project: string,
+    id: number,
+    markdown: string,
+  ): Promise<{ id: number }> {
+    const data = await this.request<{ id: number }>(
+      `/${encodeURIComponent(project)}/_apis/wit/workItems/${id}/comments?format=markdown&api-version=7.1-preview.4`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: markdown }),
+      },
+      { write: true },
+    );
+    return { id: data.id };
+  }
+
   private async request<T>(
     path: string,
     init: RequestInit = {},
-    retried = false,
+    opts: { write?: boolean; retried?: boolean } = {},
   ): Promise<T> {
     const url = `${this.organizationUrl}${path}`;
     const pat = await this.token();
@@ -154,6 +231,7 @@ export class AdoClient {
     try {
       res = await this.fetchImpl(url, {
         ...init,
+        signal: AbortSignal.timeout(this.timeoutMs),
         redirect: 'manual',
         headers: {
           accept: 'application/json',
@@ -162,17 +240,13 @@ export class AdoClient {
         },
       });
     } catch (e) {
-      throw new AdoError(
-        'unreachable',
-        path,
-        `Could not reach ${this.organizationUrl}: ${e instanceof Error ? e.message : String(e)}`,
-      );
+      throw this.unreachable(path, e);
     }
-    if (res.status === 429 && !retried) {
+    if (res.status === 429 && !opts.retried) {
       const header = Number(res.headers.get('retry-after') ?? '1');
       const wait = Math.min(10, Math.max(0, Number.isNaN(header) ? 1 : header));
       await new Promise((r) => setTimeout(r, wait * 1000));
-      return this.request<T>(path, init, true);
+      return this.request<T>(path, init, { ...opts, retried: true });
     }
     const redirected =
       (res.status >= 300 && res.status < 400) || res.type === 'opaqueredirect';
@@ -188,7 +262,9 @@ export class AdoClient {
       throw new AdoError(
         'unauthorized',
         path,
-        'Azure DevOps rejected the token (check that it is valid and has Work Items read scope)',
+        opts.write && (res.status === 401 || res.status === 403)
+          ? WRITE_DENIED
+          : 'Azure DevOps rejected the token (check that it is valid and has Work Items read scope)',
         res.status,
       );
     }
@@ -199,7 +275,12 @@ export class AdoClient {
         `Not found: ${path.split('?')[0]}`,
         404,
       );
-    const raw = await res.text();
+    let raw: string;
+    try {
+      raw = await res.text();
+    } catch (e) {
+      throw this.unreachable(path, e);
+    }
     const text = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
     if (!res.ok)
       throw new AdoError(

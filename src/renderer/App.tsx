@@ -5,6 +5,7 @@ import { Notices } from './components/Notices';
 import { FinishScreen } from './screens/FinishScreen';
 import { NewTaskScreen } from './screens/NewTaskScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
+import { UsageScreen } from './screens/UsageScreen';
 import { SetupScreen } from './screens/SetupScreen';
 import { WorkspaceScreen } from './screens/WorkspaceScreen';
 import { useStore } from './store';
@@ -35,6 +36,8 @@ export function App() {
     <div className="app">
       {screen.kind === 'settings' ? (
         <SettingsScreen />
+      ) : screen.kind === 'usage' ? (
+        <UsageScreen taskId={screen.taskId} />
       ) : screen.kind === 'setup' ? (
         <SetupScreen taskId={screen.taskId} />
       ) : (

@@ -17,6 +17,14 @@ import type {
   WorkItemSearch,
   WorkItemSummary,
 } from './types';
+import type {
+  AppSettings,
+  FieldsStatus,
+  Rate,
+  ReceiverStatus,
+  SyncResult,
+  TaskUsage,
+} from './usage';
 
 /** Request/response channels. `args` is the tuple the renderer passes; `result` is what main resolves. */
 export type Channels = {
@@ -71,6 +79,20 @@ export type Channels = {
   'terminals:restart': { args: [id: string]; result: void };
   'terminals:buffer': { args: [id: string]; result: string };
   'terminals:isRunning': { args: [id: string]; result: boolean };
+  'usage:task': { args: [taskId: string]; result: TaskUsage };
+  'usage:setBillable': {
+    args: [taskId: string, sessionId: string, billable: boolean];
+    result: TaskUsage;
+  };
+  'usage:sync': { args: [taskId: string]; result: SyncResult };
+  'usage:exportCsv': { args: [taskId: string]; result: string };
+  'usage:fieldsStatus': { args: [connectionId: string]; result: FieldsStatus };
+  'usage:receiverStatus': { args: []; result: ReceiverStatus };
+  'rates:list': { args: []; result: { rates: Rate[]; officialAsOf: string } };
+  'rates:save': { args: [rates: Rate[]]; result: Rate[] };
+  'rates:reset': { args: []; result: Rate[] };
+  'settings:get': { args: []; result: AppSettings };
+  'settings:save': { args: [settings: AppSettings]; result: AppSettings };
 };
 
 /** Push events from main to the renderer. */
@@ -81,6 +103,8 @@ export type Events = {
   'tasks:changed': TaskView[];
   'repos:changed': Repo[];
   'connections:changed': Connection[];
+  'usage:changed': { taskId: string };
+  'usage:receiverStatus': ReceiverStatus;
   notice: { level: 'info' | 'warn' | 'error'; message: string };
 };
 

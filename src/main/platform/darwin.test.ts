@@ -19,6 +19,12 @@ describe('darwinPlatform', () => {
       args: ['-l', '-c', "exec claude 'Work item 1: it'\\''s done'"],
     });
   });
+  it('starts Copilot CLI through a login shell', () => {
+    expect(p.copilotCommand()).toEqual({
+      command: '/bin/zsh',
+      args: ['-l', '-c', 'exec copilot'],
+    });
+  });
   it('opens VS Code', () => {
     expect(p.editorCommand('/src/x')).toEqual({
       command: 'code',

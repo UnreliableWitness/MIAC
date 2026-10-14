@@ -33,13 +33,22 @@ const task: TaskView = {
   worktreePath: '/src/webshop.worktrees/48213-save-delivery-address',
   baseRef: 'origin/main',
   status: 'ready',
-  setup: { copy: true, commands: [], startClaude: true, openShell: true },
+  setup: {
+    copy: true,
+    commands: [],
+    startClaude: true,
+    openShell: true,
+    openCopilot: false,
+  },
   terminals: [
     { id: 'c1', kind: 'claude', label: 'Claude Code' },
     { id: 's1', kind: 'shell', label: 'zsh' },
   ],
   createdAt: 'now',
   finishedAt: null,
+  usageSyncedAt: null,
+  usageSyncError: null,
+  usageCommentId: null,
   worktreeMissing: false,
 };
 const config = {
@@ -198,6 +207,34 @@ describe('WorkspaceScreen', () => {
     );
   });
 
+  it('opens a Copilot CLI terminal from the tab bar', async () => {
+    const { calls } = installFakeApi({
+      'repos:config': () => config,
+      'tasks:gitSummary': () => ({
+        branch: 'x',
+        ahead: 0,
+        behind: 0,
+        hasUpstream: false,
+        files: [],
+      }),
+      'terminals:open': () => ({
+        id: 'n2',
+        kind: 'copilot',
+        label: 'Copilot CLI',
+      }),
+    });
+    render(<WorkspaceScreen />);
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Copilot CLI' }),
+    );
+    await waitFor(() =>
+      expect(calls.find((c) => c.channel === 'terminals:open')?.args).toEqual([
+        'a',
+        { kind: 'copilot', label: 'Copilot CLI' },
+      ]),
+    );
+  });
+
   it('opens the editor and the finish dialog from the header', async () => {
     const { calls } = installFakeApi({
       'repos:config': () => config,
@@ -219,6 +256,26 @@ describe('WorkspaceScreen', () => {
     );
     await userEvent.click(screen.getByRole('button', { name: 'Finish task' }));
     expect(useStore.getState().screen).toEqual({ kind: 'finish', taskId: 'a' });
+  });
+
+  it('opens the Usage screen from a done task', async () => {
+    installFakeApi();
+    useStore.setState({
+      tasks: [
+        {
+          ...task,
+          status: 'done',
+          terminals: [],
+          finishedAt: '2026-10-14T12:00:00.000Z',
+        },
+      ],
+    });
+    render(<WorkspaceScreen />);
+    expect(screen.getByText(/This task is done/)).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole('button', { name: 'View AI usage' }),
+    );
+    expect(useStore.getState().screen).toEqual({ kind: 'usage', taskId: 'a' });
   });
 
   it('shows an empty state without a selected task', () => {

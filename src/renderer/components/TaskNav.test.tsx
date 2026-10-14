@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Repo, TaskView } from '../../shared/types';
 import { useStore } from '../store';
-import { installFakeApi } from '../test-helpers/fakeApi';
+import { emptyUsage, installFakeApi } from '../test-helpers/fakeApi';
 import { groupTasks, TaskNav } from './TaskNav';
 
 const repos: Repo[] = [
@@ -25,10 +25,19 @@ const repos: Repo[] = [
   },
 ];
 const base = {
-  setup: { copy: true, commands: [], startClaude: true, openShell: true },
+  setup: {
+    copy: true,
+    commands: [],
+    startClaude: true,
+    openShell: true,
+    openCopilot: false,
+  },
   terminals: [],
   createdAt: 'now',
   finishedAt: null,
+  usageSyncedAt: null,
+  usageSyncError: null,
+  usageCommentId: null,
   worktreeMissing: false,
   baseRef: 'origin/main',
 };
@@ -71,6 +80,9 @@ const tasks: TaskView[] = [
     worktreePath: '/w/c',
     status: 'done',
     finishedAt: 'then',
+    usageSyncedAt: null,
+    usageSyncError: null,
+    usageCommentId: null,
   },
   {
     ...base,
@@ -149,5 +161,21 @@ describe('TaskNav', () => {
     expect(screen.queryByText('47988')).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /Done \(1\)/ }));
     expect(screen.getByText('47988')).toBeInTheDocument();
+  });
+
+  it('shows the billable EUR total per task', async () => {
+    installFakeApi({
+      'repos:list': () => repos,
+      'tasks:list': () => tasks,
+      'usage:task': (id) => ({
+        ...emptyUsage(id),
+        billable: { costUsd: 1, costEur: id === 'a' ? 12.5 : 0, tokens: 1 },
+      }),
+    });
+    useStore.setState({ repos, tasks, selectedTaskId: 'a' });
+    render(<TaskNav />);
+    expect(
+      await screen.findByText(`${String.fromCharCode(0x20ac)}12.50`),
+    ).toBeInTheDocument();
   });
 });

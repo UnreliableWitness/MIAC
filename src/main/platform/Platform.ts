@@ -9,6 +9,8 @@ export interface Platform {
   shellCommand(cmd: string): Command;
   /** Start Claude Code with a first prompt. */
   claudeCommand(prompt: string): Command;
+  /** Start GitHub Copilot CLI. */
+  copilotCommand(): Command;
   /** Open a folder in the editor. */
   editorCommand(path: string): Command;
 }

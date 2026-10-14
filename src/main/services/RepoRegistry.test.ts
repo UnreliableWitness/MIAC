@@ -122,10 +122,14 @@ describe('RepoRegistry', () => {
           commands: [],
           startClaude: false,
           openShell: false,
+          openCopilot: false,
         },
         terminals: [],
         createdAt: 'now',
         finishedAt: null,
+        usageSyncedAt: null,
+        usageSyncError: null,
+        usageCommentId: null,
       });
     });
     await expect(reg.remove(again.id)).rejects.toThrow(/open task/);

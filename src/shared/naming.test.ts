@@ -107,10 +107,14 @@ const task: Task = {
     commands: ['npm ci'],
     startClaude: true,
     openShell: true,
+    openCopilot: false,
   },
   terminals: [],
   createdAt: '2026-10-14T09:00:00.000Z',
   finishedAt: null,
+  usageSyncedAt: null,
+  usageSyncError: null,
+  usageCommentId: null,
 };
 
 describe('renderTaskMd', () => {

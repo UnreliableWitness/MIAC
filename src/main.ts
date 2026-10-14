@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
   app,
@@ -10,6 +11,7 @@ import {
 } from 'electron';
 import started from 'electron-squirrel-startup';
 import { EVENT_PREFIX, type Events } from './shared/ipc';
+import type { UsageEvent } from './shared/usage';
 import {
   createHandlers,
   pruneDanglingConnectionLinks,
@@ -25,11 +27,17 @@ import { RepoRegistry } from './main/services/RepoRegistry';
 import { SetupRunner } from './main/services/SetupRunner';
 import { TaskStore } from './main/services/TaskStore';
 import { TerminalManager } from './main/services/TerminalManager';
+import { CopilotFileTailer } from './main/usage/CopilotFileTailer';
+import { RateStore } from './main/usage/RateStore';
+import { SettingsStore } from './main/usage/SettingsStore';
+import { UsageReceiver } from './main/usage/UsageReceiver';
+import { UsageStore } from './main/usage/UsageStore';
 
 if (started) app.quit();
 
 let mainWindow: BrowserWindow | null = null;
 const terminals = new TerminalManager();
+let stopUsage: () => void = () => {};
 
 function broadcast<K extends keyof Events>(event: K, payload: Events[K]): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -87,7 +95,34 @@ async function boot(): Promise<void> {
   const connectionsLoaded = await connections.load();
   const repos = new RepoRegistry(store, git);
   await pruneDanglingConnectionLinks(repos, connections);
+  const userData = app.getPath('userData');
+  const usageDir = path.join(userData, 'usage');
+  await fs.mkdir(path.join(usageDir, 'copilot'), { recursive: true });
+  const settings = new SettingsStore(path.join(userData, 'settings.json'));
+  const settingsLoaded = await settings.load();
+  const rates = new RateStore(path.join(userData, 'rates.json'));
+  const ratesLoaded = await rates.load();
+  const usage = new UsageStore(usageDir, () => rates.list());
+  const usageLoaded = await usage.load();
+  const ingest = (events: UsageEvent[]) => {
+    for (const e of events)
+      usage
+        .add(e)
+        .catch((err) => console.error('[usage] could not store a record', err));
+  };
+  const receiver = new UsageReceiver(ingest);
+  const copilot = new CopilotFileTailer(path.join(usageDir, 'copilot'), ingest);
   const handlers = createHandlers({
+    usage,
+    rates,
+    settings,
+    receiver,
+    copilot,
+    usageDir,
+    onHourly: (fn) => {
+      setInterval(fn, 60 * 60 * 1000);
+    },
+    finishFlushMs: 2500,
     connections,
     ado: new AdoRegistry(connections),
     openExternal: (url) => shell.openExternal(url),
@@ -119,10 +154,17 @@ async function boot(): Promise<void> {
     broadcast,
   });
   registerIpc(ipcMain, handlers);
+  const receiverStarted = await receiver.start(settings.get().receiverPort);
+  copilot.start();
+  stopUsage = () => {
+    copilot.stop();
+    void receiver.stop();
+  };
   terminals.on('data', (id, data) => broadcast('terminal:data', { id, data }));
   terminals.on('exit', (id, exitCode) =>
     broadcast('terminal:exit', { id, exitCode }),
   );
+  terminals.on('exit', () => void copilot.poll());
 
   mainWindow = createWindow();
   mainWindow.webContents.once('did-finish-load', () => {
@@ -136,6 +178,30 @@ async function boot(): Promise<void> {
         level: 'warn',
         message: `connections.json was unreadable and was moved to ${path.basename(connectionsLoaded.backup ?? '')}; add your connections again.`,
       });
+    if (!receiverStarted.listening)
+      broadcast('notice', {
+        level: 'warn',
+        message: `AI usage capture is off: ${receiverStarted.error}. Pick another port in Settings > AI cost and invoicing.`,
+      });
+    if (usageLoaded.damagedLines > 0)
+      broadcast('notice', {
+        level: 'warn',
+        message: `${usageLoaded.damagedLines} damaged line(s) in the usage files were skipped.`,
+      });
+    if (usageLoaded.billableBackup)
+      broadcast('notice', {
+        level: 'warn',
+        message: `billable.json was unreadable and was moved to ${path.basename(usageLoaded.billableBackup)}; all sessions are billable again. Review them on the Usage screen.`,
+      });
+    for (const [name, r] of [
+      ['settings.json', settingsLoaded],
+      ['rates.json', ratesLoaded],
+    ] as const)
+      if (r.recovered)
+        broadcast('notice', {
+          level: 'warn',
+          message: `${name} was unreadable and was moved to ${path.basename(r.backup ?? '')}; defaults are used.`,
+        });
     if (recovered > 0)
       broadcast('notice', {
         level: 'warn',
@@ -162,4 +228,5 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   for (const id of terminals.ids()) terminals.kill(id);
+  stopUsage();
 });

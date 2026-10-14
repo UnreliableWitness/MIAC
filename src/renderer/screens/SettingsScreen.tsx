@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { MiacConfig, Repo } from '../../shared/types';
 import { api, tryInvoke } from '../api';
 import { ConnectionsSection } from '../components/ConnectionsSection';
+import { CostSection } from '../components/CostSection';
 import { TopBar } from '../components/TopBar';
 import { useStore } from '../store';
 
@@ -140,9 +141,7 @@ export function SettingsScreen() {
             Repositories
           </a>
           <a href="#ado">Azure DevOps</a>
-          <a href="#cost" className="disabled" aria-disabled="true">
-            AI cost and invoicing
-          </a>
+          <a href="#cost">AI cost and invoicing</a>
           <a href="#terminals" className="disabled" aria-disabled="true">
             Terminals and Claude
           </a>
@@ -171,15 +170,7 @@ export function SettingsScreen() {
             )}
           </section>
           <ConnectionsSection />
-          <section id="cost" className="section">
-            <div className="section-head">
-              <h2>AI cost and invoicing</h2>
-            </div>
-            <p className="placeholder">
-              Rate table, currency and customer mapping arrive with usage
-              tracking.
-            </p>
-          </section>
+          <CostSection />
           <section id="terminals" className="section">
             <div className="section-head">
               <h2>Terminals and Claude</h2>

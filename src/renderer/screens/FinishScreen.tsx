@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { FinishChecks } from '../../shared/types';
 import { api, tryInvoke } from '../api';
+import { eur } from '../format';
+import { useTaskUsage } from '../hooks/useTaskUsage';
 import { useStore } from '../store';
 
 const ELLIPSIS = String.fromCharCode(0x2026);
@@ -22,6 +24,12 @@ export function FinishScreen({ taskId }: { taskId: string }) {
   const [busy, setBusy] = useState(false);
   const [checksFailed, setChecksFailed] = useState<string | null>(null);
   const ready = task?.status === 'ready';
+  const usage = useTaskUsage(ready ? taskId : null);
+  const repo = useStore((s) => s.repos.find((r) => r.id === task?.repoId));
+  const canSync = Boolean(task?.workItem) && Boolean(repo?.connectionId);
+  // Untouched (null) defaults to on, except when no usage was captured.
+  const [syncChoice, setSyncUsage] = useState<boolean | null>(null);
+  const syncUsage = syncChoice ?? !(usage && usage.sessions.length === 0);
 
   useEffect(() => {
     if (!ready) return;
@@ -80,6 +88,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
         closeTerminals: closeTerminals && nTerm > 0,
         removeWorktree,
         deleteBranch,
+        syncUsage: canSync && syncUsage,
       });
       return true;
     }, notify);
@@ -184,6 +193,35 @@ export function FinishScreen({ taskId }: { taskId: string }) {
                 </div>
               </div>
             ))}
+        </div>
+
+        <div className="finish-section">
+          <div className="label">AI usage</div>
+          {usage && usage.sessions.length > 0 ? (
+            <div>
+              <div className="amount-line">{`${eur(usage.billable.costEur)} billable`}</div>
+              {(['claude-code', 'copilot-cli'] as const)
+                .filter((t) => usage.byTool[t].sessions > 0)
+                .map((t) => (
+                  <div
+                    key={t}
+                    className="small muted"
+                  >{`${t === 'claude-code' ? 'Claude Code' : 'Copilot CLI'} ${eur(usage.byTool[t].costEur)} over ${usage.byTool[t].sessions} session${usage.byTool[t].sessions === 1 ? '' : 's'}`}</div>
+                ))}
+            </div>
+          ) : (
+            <div className="muted">No AI usage captured for this task.</div>
+          )}
+          {canSync && (
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={syncUsage}
+                onChange={(e) => setSyncUsage(e.target.checked)}
+              />
+              Write final totals to the work item and add a usage comment
+            </label>
+          )}
         </div>
 
         <div className="finish-section">

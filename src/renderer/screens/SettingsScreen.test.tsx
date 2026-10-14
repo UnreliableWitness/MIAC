@@ -70,12 +70,16 @@ describe('SettingsScreen', () => {
     render(<SettingsScreen />);
     await userEvent.click(screen.getByRole('button', { name: ADD_FOLDER }));
     await waitFor(() =>
-      expect(calls.map((c) => c.channel).slice(0, 2)).toEqual([
-        'repos:pickFolder',
-        'repos:add',
-      ]),
+      expect(
+        calls
+          .map((c) => c.channel)
+          .filter((c) => c.startsWith('repos:'))
+          .slice(0, 2),
+      ).toEqual(['repos:pickFolder', 'repos:add']),
     );
-    expect(calls[1].args).toEqual(['/src/picked']);
+    expect(calls.find((c) => c.channel === 'repos:add')?.args).toEqual([
+      '/src/picked',
+    ]);
     expect(useStore.getState().repos.map((r) => r.name)).toEqual(['picked']);
   });
 
