@@ -516,7 +516,8 @@ export function createHandlers(s: Services): Handlers {
       try {
         const task = taskById(taskId);
         const repo = s.repos.get(task.repoId);
-        s.terminals.killAllForTask(taskId);
+        // Windows will not remove a folder that a running process has as its cwd.
+        await s.terminals.killAllForTask(taskId);
         if (await exists(task.worktreePath))
           await s.git.worktreeRemove(repo.path, task.worktreePath, true);
         await s.git.worktreePrune(repo.path);
@@ -552,7 +553,7 @@ export function createHandlers(s: Services): Handlers {
         await patchTask(taskId, { status: 'finishing' });
         try {
           if (options.closeTerminals) {
-            s.terminals.killAllForTask(taskId);
+            await s.terminals.killAllForTask(taskId);
             await patchTask(taskId, { terminals: [] });
           }
           if (options.removeWorktree && (await exists(task.worktreePath)))

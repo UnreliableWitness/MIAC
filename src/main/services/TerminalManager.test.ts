@@ -13,8 +13,8 @@ import { TerminalManager } from './TerminalManager';
 const sh = (cmd: string) => testPlatform().shellCommand(cmd);
 
 const managers: TerminalManager[] = [];
-const create = () => {
-  const m = new TerminalManager();
+const create = (o?: { killWaitMs?: number }) => {
+  const m = new TerminalManager(o);
   managers.push(m);
   return m;
 };
@@ -218,5 +218,55 @@ describe('TerminalManager', () => {
     expect(() => m.restart('f')).toThrow();
     expect(m.isRunning('f')).toBe(false);
     expect(m.buffer('f')).toContain('before');
+  });
+
+  it('kill resolves once the process has exited', async () => {
+    // A long fallback, so resolving in time proves the exit was seen.
+    const m = create({ killWaitMs: 60_000 });
+    m.spawn({ id: 'k', taskId: 't', cwd: os.tmpdir(), ...sh(sleepCmd(30)) });
+    await sleep(200);
+    const pid = (
+      m as unknown as { entries: Map<string, { proc: { pid: number } }> }
+    ).entries.get('k')?.proc.pid;
+    const started = Date.now();
+    await m.kill('k');
+    expect(Date.now() - started).toBeLessThan(10_000);
+    expect(m.has('k')).toBe(false);
+    if (!isWindows && pid) expect(() => process.kill(pid, 0)).toThrow();
+  });
+
+  it('killAllForTask resolves once every terminal of the task has exited', async () => {
+    const m = create({ killWaitMs: 60_000 });
+    for (const id of ['p', 'q'])
+      m.spawn({ id, taskId: 'x', cwd: os.tmpdir(), ...sh(sleepCmd(30)) });
+    await sleep(200);
+    await m.killAllForTask('x');
+    expect(m.ids()).toEqual([]);
+  });
+
+  it('kill gives up waiting after the fallback when the process does not exit', async () => {
+    const m = create({ killWaitMs: 300 });
+    m.spawn({ id: 'z', taskId: 't', cwd: os.tmpdir(), ...sh(sleepCmd(30)) });
+    await sleep(200);
+    const entry = (
+      m as unknown as { entries: Map<string, { proc: { kill(): void } }> }
+    ).entries.get('z');
+    if (!entry) throw new Error('missing entry');
+    const realKill = entry.proc.kill.bind(entry.proc);
+    entry.proc.kill = () => {};
+    const started = Date.now();
+    await m.kill('z');
+    expect(Date.now() - started).toBeGreaterThanOrEqual(250);
+    realKill();
+  });
+
+  it('kill of an unknown or exited terminal resolves at once', async () => {
+    const m = create({ killWaitMs: 60_000 });
+    await m.kill('nope');
+    const exited = waitFor(m, 'gone');
+    m.spawn({ id: 'gone', taskId: 't', cwd: os.tmpdir(), ...sh(failCmd(0)) });
+    await exited;
+    await m.kill('gone');
+    expect(m.ids()).toEqual([]);
   });
 });

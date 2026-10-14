@@ -17,9 +17,13 @@ type Entry = {
   proc: pty.IPty;
   exited: boolean;
   buffer: string;
+  /** Resolves when the process exits, also after the entry was replaced or forgotten. */
+  exit: Promise<void>;
 };
 
 const BUFFER_LIMIT = 200_000;
+/** How long kill waits for the exit before giving up (a process that ignores the kill must not block Finish). */
+const KILL_WAIT_MS = 3000;
 
 /** One pty per terminal id. Exited terminals stay known (for restart and buffer) until killed. */
 export class TerminalManager extends EventEmitter<{
@@ -27,6 +31,12 @@ export class TerminalManager extends EventEmitter<{
   exit: [id: string, exitCode: number];
 }> {
   private readonly entries = new Map<string, Entry>();
+  private readonly killWaitMs: number;
+
+  constructor(o: { killWaitMs?: number } = {}) {
+    super();
+    this.killWaitMs = o.killWaitMs ?? KILL_WAIT_MS;
+  }
 
   spawn(options: SpawnOptions): void {
     if (this.entries.has(options.id))
@@ -43,8 +53,15 @@ export class TerminalManager extends EventEmitter<{
       rows: options.rows ?? 30,
       cwd: options.cwd,
       env,
+      // Windows: the bundled conpty.dll. The default (system ConPTY) kill path forks a helper with
+      // child_process.fork, which the RunAsNode fuse turns into a second MIAC.exe launch.
+      ...(process.platform === 'win32' ? { useConptyDll: true } : {}),
     });
-    const entry: Entry = { options, proc, exited: false, buffer: '' };
+    let exitResolve = () => {};
+    const exit = new Promise<void>((r) => {
+      exitResolve = r;
+    });
+    const entry: Entry = { options, proc, exited: false, buffer: '', exit };
     this.entries.set(options.id, entry);
     proc.onData((data) => {
       if (this.entries.get(options.id) !== entry) return;
@@ -52,6 +69,7 @@ export class TerminalManager extends EventEmitter<{
       this.emit('data', options.id, data);
     });
     proc.onExit(({ exitCode }) => {
+      exitResolve();
       if (this.entries.get(options.id) !== entry) return;
       entry.exited = true;
       this.emit('exit', options.id, exitCode);
@@ -72,16 +90,31 @@ export class TerminalManager extends EventEmitter<{
       );
   }
 
-  kill(id: string): void {
+  /**
+   * Kills and forgets a terminal. Resolves when the process has exited, or after the fallback wait,
+   * so a caller can then remove the folder it ran in (Windows refuses while a process has it as cwd).
+   * Callers that do not need to wait can ignore the promise.
+   */
+  kill(id: string): Promise<void> {
     const e = this.entries.get(id);
-    if (!e) return;
-    if (!e.exited) e.proc.kill();
+    if (!e) return Promise.resolve();
     this.entries.delete(id);
+    if (e.exited) return Promise.resolve();
+    let timer: NodeJS.Timeout | undefined;
+    const fallback = new Promise<void>((r) => {
+      timer = setTimeout(r, this.killWaitMs);
+    });
+    try {
+      e.proc.kill();
+    } catch {
+      // Already gone; the exit (or the fallback) settles the wait.
+    }
+    return Promise.race([e.exit, fallback]).finally(() => clearTimeout(timer));
   }
 
   restart(id: string): void {
     const old = this.get(id);
-    this.kill(id);
+    void this.kill(id);
     try {
       this.spawn(old.options);
     } catch (error) {
@@ -92,9 +125,12 @@ export class TerminalManager extends EventEmitter<{
     }
   }
 
-  killAllForTask(taskId: string): void {
-    for (const [id, e] of this.entries)
-      if (e.options.taskId === taskId) this.kill(id);
+  /** Kills every terminal of a task. Resolves when they have all exited (see kill). */
+  async killAllForTask(taskId: string): Promise<void> {
+    const ids = [...this.entries]
+      .filter(([, e]) => e.options.taskId === taskId)
+      .map(([id]) => id);
+    await Promise.all(ids.map((id) => this.kill(id)));
   }
 
   runningCount(taskId: string): number {

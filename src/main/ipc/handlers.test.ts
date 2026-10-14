@@ -327,6 +327,55 @@ describe('handlers: missing worktree folder', () => {
 });
 
 describe('handlers: finish', () => {
+  it('finish waits for the terminals to exit before removing the worktree', async () => {
+    const { h, input, setupDone, terminals, services } = await harness();
+    const done = setupDone();
+    const t = await h['tasks:create'](input());
+    await done;
+    const order: string[] = [];
+    const realKill = terminals.killAllForTask.bind(terminals);
+    vi.spyOn(terminals, 'killAllForTask').mockImplementation(async (id) => {
+      await realKill(id);
+      await new Promise((r) => setTimeout(r, 50));
+      order.push('terminals exited');
+    });
+    const realRemove = services.git.worktreeRemove.bind(services.git);
+    vi.spyOn(services.git, 'worktreeRemove').mockImplementation(
+      async (...a) => {
+        order.push('remove');
+        return realRemove(...a);
+      },
+    );
+    await h['tasks:finish'](t.id, {
+      closeTerminals: true,
+      removeWorktree: true,
+      deleteBranch: true,
+      syncUsage: false,
+    });
+    expect(order).toEqual(['terminals exited', 'remove']);
+  });
+
+  it('cancelSetup waits for the terminals to exit before removing the worktree', async () => {
+    const { h, input, setupDone, terminals, services } = await harness();
+    const done = setupDone();
+    const t = await h['tasks:create'](input({ commands: ['exit 1'] }));
+    await done;
+    const order: string[] = [];
+    vi.spyOn(terminals, 'killAllForTask').mockImplementation(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+      order.push('terminals exited');
+    });
+    const realRemove = services.git.worktreeRemove.bind(services.git);
+    vi.spyOn(services.git, 'worktreeRemove').mockImplementation(
+      async (...a) => {
+        order.push('remove');
+        return realRemove(...a);
+      },
+    );
+    await h['tasks:cancelSetup'](t.id);
+    expect(order).toEqual(['terminals exited', 'remove']);
+  });
+
   it('finish does not delete an unticked worktree folder', async () => {
     const { h, input, setupDone, store, terminals, repo } = await harness();
     const done = setupDone();

@@ -25,6 +25,49 @@ describe('GitClient', () => {
     spy.mockRestore();
   });
 
+  it('worktreeRemove retries while Windows still holds the folder', async () => {
+    const waits: number[] = [];
+    const c = new GitClient(async (ms) => {
+      waits.push(ms);
+    });
+    let calls = 0;
+    const spy = vi.spyOn(c, 'run').mockImplementation(async (_cwd, args) => {
+      calls++;
+      if (calls === 1)
+        throw new GitError(
+          args,
+          "error: failed to delete 'C:/w': Permission denied",
+          128,
+        );
+      if (calls === 2)
+        throw new GitError(
+          args,
+          "error: failed to delete 'C:/w': Directory not empty",
+          128,
+        );
+      return '';
+    });
+    await c.worktreeRemove('/repo', '/w', true);
+    expect(calls).toBe(3);
+    expect(waits).toEqual([50, 100]);
+    spy.mockRestore();
+  });
+
+  it('worktreeRemove does not retry other failures', async () => {
+    const waits: number[] = [];
+    const c = new GitClient(async (ms) => {
+      waits.push(ms);
+    });
+    const spy = vi.spyOn(c, 'run').mockImplementation(async (_cwd, args) => {
+      throw new GitError(args, "fatal: '/w' is not a working tree", 128);
+    });
+    await expect(c.worktreeRemove('/repo', '/w', true)).rejects.toThrow(
+      /not a working tree/,
+    );
+    expect(waits).toEqual([]);
+    spy.mockRestore();
+  });
+
   it('finds the toplevel and returns null outside a repo', async () => {
     const repo = makeRepo();
     expect(await client.toplevel(repo)).toBe(repo);

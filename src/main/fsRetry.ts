@@ -3,22 +3,35 @@ import { promises as fs } from 'node:fs';
 const RETRYABLE = new Set(['EPERM', 'EBUSY', 'EACCES']);
 const WAITS = [50, 100, 200, 400, 800];
 
+export type Wait = (ms: number) => Promise<void>;
+export const realWait: Wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Runs `fn`, retrying with a 50/100/200/400/800 ms backoff while `retryable(error)` holds. */
+export async function withRetry<T>(
+  fn: () => Promise<T>,
+  retryable: (e: unknown) => boolean,
+  wait: Wait = realWait,
+): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (!retryable(e) || attempt >= WAITS.length) throw e;
+      await wait(WAITS[attempt]);
+    }
+  }
+}
+
 /** fs.rename that rides out short locks held by antivirus or indexers (common on Windows). */
 export async function renameWithRetry(
   from: string,
   to: string,
   rename: (a: string, b: string) => Promise<void> = fs.rename,
-  wait: (ms: number) => Promise<void> = (ms) =>
-    new Promise((r) => setTimeout(r, ms)),
+  wait: Wait = realWait,
 ): Promise<void> {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      await rename(from, to);
-      return;
-    } catch (e) {
-      const code = (e as NodeJS.ErrnoException).code ?? '';
-      if (!RETRYABLE.has(code) || attempt >= WAITS.length) throw e;
-      await wait(WAITS[attempt]);
-    }
-  }
+  await withRetry(
+    () => rename(from, to),
+    (e) => RETRYABLE.has((e as NodeJS.ErrnoException).code ?? ''),
+    wait,
+  );
 }
