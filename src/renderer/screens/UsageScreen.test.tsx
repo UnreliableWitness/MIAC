@@ -50,7 +50,7 @@ const usage: TaskUsage = {
       inputTokens: 412_000,
       outputTokens: 96_000,
       cacheReadTokens: 3_100_000,
-      cacheWriteTokens: 0,
+      cacheWriteTokens: 250_000,
       costUsd: 10,
       unpricedRequests: 0,
       billable: true,
@@ -134,6 +134,12 @@ describe('UsageScreen', () => {
     const rows = screen.getAllByRole('row');
     expect(rows).toHaveLength(3);
     expect(within(rows[1]).getByText('claude-opus-5-5')).toBeTruthy();
+    const heads = within(rows[0])
+      .getAllByRole('columnheader')
+      .map((h) => h.textContent);
+    expect(heads.indexOf('Cache write')).toBe(heads.indexOf('Cache read') + 1);
+    expect(within(rows[1]).getByText('250k')).toBeTruthy();
+    expect(screen.getByText(/^1 session \S+ 3\.6M tokens$/)).toBeTruthy();
     expect(within(rows[2]).getByText('unpriced')).toBeTruthy();
     expect(
       screen.getByText(/1 request uses a model that is not in the rate table/),

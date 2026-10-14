@@ -28,6 +28,12 @@ describe('normalizeModel', () => {
     expect(normalizeModel('openai/gpt-5.5')).toBe('gpt-5-5');
     expect(normalizeModel('  gpt-5.4-mini ')).toBe('gpt-5-4-mini');
   });
+  it('strips a bracketed context suffix', () => {
+    expect(normalizeModel('claude-opus-5-5[1m]')).toBe('claude-opus-5-5');
+    expect(normalizeModel('claude-sonnet-4-5-20250929[1m]')).toBe(
+      'claude-sonnet-4-5',
+    );
+  });
 });
 
 describe('selectRate', () => {

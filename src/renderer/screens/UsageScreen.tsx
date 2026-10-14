@@ -19,6 +19,7 @@ const FIELD_LABEL: Record<(typeof AI_FIELDS)[number], string> = {
   'Custom.AITokens': 'AI Tokens',
 };
 const DOT = String.fromCharCode(0xb7);
+const sessions = (n: number) => `${n} session${n === 1 ? '' : 's'}`;
 const when = (iso: string) =>
   new Date(iso).toLocaleString(undefined, {
     weekday: 'short',
@@ -141,12 +142,12 @@ export function UsageScreen({ taskId }: { taskId: string }) {
               {tile(
                 'Claude Code',
                 usage.byTool['claude-code'].costEur,
-                `${usage.byTool['claude-code'].sessions} sessions ${DOT} ${compact(usage.byTool['claude-code'].tokens)} tokens`,
+                `${sessions(usage.byTool['claude-code'].sessions)} ${DOT} ${compact(usage.byTool['claude-code'].tokens)} tokens`,
               )}
               {tile(
                 'Copilot CLI',
                 usage.byTool['copilot-cli'].costEur,
-                `${usage.byTool['copilot-cli'].sessions} sessions ${DOT} ${compact(usage.byTool['copilot-cli'].tokens)} tokens`,
+                `${sessions(usage.byTool['copilot-cli'].sessions)} ${DOT} ${compact(usage.byTool['copilot-cli'].tokens)} tokens`,
               )}
             </div>
           )}
@@ -170,6 +171,7 @@ export function UsageScreen({ taskId }: { taskId: string }) {
                     <th>Input</th>
                     <th>Output</th>
                     <th>Cache read</th>
+                    <th>Cache write</th>
                     <th>Cost</th>
                     <th>Billable</th>
                   </tr>
@@ -183,6 +185,7 @@ export function UsageScreen({ taskId }: { taskId: string }) {
                       <td className="mono">{compact(s.inputTokens)}</td>
                       <td className="mono">{compact(s.outputTokens)}</td>
                       <td className="mono">{compact(s.cacheReadTokens)}</td>
+                      <td className="mono">{compact(s.cacheWriteTokens)}</td>
                       <td className="mono">
                         {s.unpricedRequests === s.requests
                           ? 'unpriced'
