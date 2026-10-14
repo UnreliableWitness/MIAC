@@ -6,20 +6,24 @@ section. Each image is the line starting with its file name in bold. A subject e
 
 ## Style block
 
-> Calm, precise illustration for a developer desktop app, dark and warm: a near-black charcoal ground, soft amber
-> glow as the single accent, thin luminous lines, clean geometric shapes, lots of empty dark space. No text, no
-> letters, no numbers, no logos, no watermark, no frame. Square image.
+> Quiet, cinematic science fiction illustration in the spirit of Iain M. Banks' Culture novels, for the
+> background of a developer tool. Deep space black with a faint blue cast, very soft amber and dim indigo light,
+> fine luminous lines, vast calm emptiness, painterly but restrained, low contrast, nothing busy in the middle.
+> No text, no letters, no numbers, no logos, no watermark, no frame, no people.
 
-## App icon (the owner picks one)
+## Backgrounds
 
-> A macOS and Windows app icon, square, full-bleed artwork filling the whole square, no rounded corners, no text, no
-> letters, no numbers, no border. One simple bold shape that still reads at 32 pixels. Near-black charcoal ground,
-> warm amber glow as the only accent colour, a touch of pale cream for highlights.
+**splash-nebula.png** - A wide field of deep space with a faint amber and indigo nebula drifting across the upper right, and far away, very small, an elongated smooth Culture General Systems Vehicle silhouette catching a sliver of amber light, off-centre to the lower left. The centre of the image is dark and empty. Landscape.
 
-**appicon-tally.png** - Four thin vertical amber strokes with a fifth diagonal stroke crossing them, a classic tally mark, glowing softly, centred on the dark ground.
+**empty-no-tasks.png** - The inside of a vast quiet hangar bay seen from deep inside, its great open mouth framing a field of stars, a thin line of amber light along the deck, no ships present, peaceful and waiting. Landscape.
 
-**appicon-abacus.png** - A single horizontal rod with five small glowing amber beads, three pushed to the left and two to the right, centred on the dark ground.
+**empty-no-selection.png** - The thin bright arc of a distant Orbital habitat ring curving across the dark, lit amber along one edge, with tiny stars beyond, almost all of the image dark. Landscape.
 
-**appicon-ship.png** - A sleek elongated starship seen from the side, drawn as a few thin amber lines with one bright engine glow at the back, centred on the dark ground.
+**empty-done.png** - A small sleek ship drifting away into a soft amber dawn rising over the curve of a planet, a gentle sense of a job finished, mostly dark sky above. Landscape.
 
-**appicon-counter.png** - A rounded rectangular mechanical counter wheel showing three blank amber-lit drums, slightly tilted, on the dark ground.
+## Registry
+
+> A precise, quiet engraving-like science fiction illustration on near-black, fine luminous amber and cream lines,
+> like a ship's registry plate, symmetrical and calm. No text, no letters, no numbers, no logos, no watermark.
+
+**about-registry.png** - A glowing ship Mind core, a small cream sphere with an amber halo, held in a cradle of fine concentric rings and tick marks like an instrument dial, floating in the dark. Portrait.

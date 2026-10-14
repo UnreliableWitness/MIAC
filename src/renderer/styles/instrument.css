@@ -525,3 +525,68 @@ rect.is-live {
   width: 20px;
   font-size: 10px;
 }
+
+/* Art slots: decorative, always under text; CSS placeholder until the picks exist */
+.art {
+  position: relative;
+  overflow: hidden;
+  pointer-events: none;
+}
+.art img,
+.art-placeholder {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  opacity: 0.5;
+  mask-image: radial-gradient(ellipse at center, #000 40%, transparent 75%);
+  -webkit-mask-image: radial-gradient(
+    ellipse at center,
+    #000 40%,
+    transparent 75%
+  );
+}
+.art-placeholder {
+  background:
+    radial-gradient(1px 1px at 20% 30%, #fff8, transparent),
+    radial-gradient(1px 1px at 70% 60%, #fff6, transparent),
+    radial-gradient(1.4px 1.4px at 45% 80%, #fff7, transparent),
+    radial-gradient(
+      60% 50% at 70% 30%,
+      rgba(240, 164, 67, 0.1),
+      transparent 70%
+    ),
+    radial-gradient(
+      50% 60% at 25% 75%,
+      rgba(90, 110, 180, 0.1),
+      transparent 70%
+    );
+}
+.empty-art {
+  display: grid;
+  place-items: center;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+}
+.empty-art .art {
+  width: min(560px, 80%);
+  aspect-ratio: 16 / 9;
+}
+.done-banner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 16px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--line);
+}
+.done-banner .art {
+  width: 160px;
+  aspect-ratio: 16 / 9;
+  flex: none;
+}
+.about .art {
+  width: 180px;
+  aspect-ratio: 9 / 16;
+}

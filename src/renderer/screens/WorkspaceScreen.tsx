@@ -1,3 +1,4 @@
+import { ArtSlot } from '../components/ArtSlot';
 import { TaskNav } from '../components/TaskNav';
 import { UsagePanel } from '../components/UsagePanel';
 import { TerminalTabs } from '../components/TerminalTabs';
@@ -14,6 +15,7 @@ export function WorkspaceScreen() {
   const task = useStore(
     (s) => s.tasks.find((t) => t.id === s.selectedTaskId) ?? null,
   );
+  const hasTasks = useStore((s) => s.tasks.length > 0);
   const focus = useStore((s) => s.focus);
   const navCollapsed = useStore((s) => s.navCollapsed);
   useShortcuts();
@@ -63,6 +65,7 @@ export function WorkspaceScreen() {
           ) : task ? (
             <>
               <div className="done-banner">
+                <ArtSlot name="empty-done" />
                 <p>
                   This task is done. Its worktree and branch were cleaned up on{' '}
                   {task.finishedAt}.
@@ -71,8 +74,11 @@ export function WorkspaceScreen() {
               <UsagePanel taskId={task.id} />
             </>
           ) : (
-            <div className="empty">
-              No task selected. Create one with New task.
+            <div className="empty empty-art">
+              <ArtSlot
+                name={hasTasks ? 'empty-no-selection' : 'empty-no-tasks'}
+              />
+              <p>No task selected. Create one with New task.</p>
             </div>
           )}
         </main>

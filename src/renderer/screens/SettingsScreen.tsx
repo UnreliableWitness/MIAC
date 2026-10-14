@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { AppSettings } from '../../shared/usage';
 import type { MiacConfig, Repo } from '../../shared/types';
 import { api, tryInvoke } from '../api';
+import { ArtSlot } from '../components/ArtSlot';
 import { ConnectionsSection } from '../components/ConnectionsSection';
 import { CostSection } from '../components/CostSection';
 import { Label, MindMark } from '../components/instrument';
@@ -170,6 +171,7 @@ function AboutSection() {
 
   return (
     <section id="about" aria-label="About" className="about bracketed">
+      <ArtSlot name="about-registry" />
       <MindMark size={40} />
       <h2 className="mono">MIAC</h2>
       <p>Me, I&apos;m Counting</p>

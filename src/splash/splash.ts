@@ -1,4 +1,5 @@
 import './splash.css';
+import { nebulaUrl } from './art';
 
 type SplashApi = {
   onStep(fn: (l: string) => void): void;
@@ -10,6 +11,7 @@ type SplashApi = {
 const api = (window as unknown as { splash: SplashApi }).splash;
 const $ = (id: string) => document.getElementById(id)!;
 const sp = $('sp');
+if (nebulaUrl) $('neb').style.backgroundImage = `url("${nebulaUrl}")`;
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 $('ver').textContent =
