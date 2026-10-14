@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Task setup</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#15171a}
+a{color:#8fb4ff}a:hover{color:#b8cfff}
+button{font:inherit;cursor:pointer}
+</style>
+</helmet>
+<div style="min-height: 900px; background: #15171a; color: #e7e6e2; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; display: flex; flex-direction: column">
+
+<header style="height: 48px; display: flex; align-items: center; gap: 16px; padding: 0 16px; border-bottom: 1px solid #2a2e35; background: #1b1e23">
+<div style="font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: 16px; color: {{accent}}">MIAC</div>
+<div style="color: #a3a9b2">webshop / 48231</div>
+</header>
+
+<div style="flex: 1; display: flex; flex-wrap: wrap">
+<section style="flex: 1 1 380px; max-width: 520px; padding: 32px; display: flex; flex-direction: column; gap: 20px; border-right: 1px solid #2a2e35">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="align-self: flex-start; padding: 2px 8px; border-radius: 999px; background: #1f2a3d; color: #8fb4ff; font-size: 12px; font-weight: 600">User Story 48231</span>
+<h1 style="margin: 0; font-size: 22px; font-weight: 600">Show estimated delivery date on product page</h1>
+<div style="color: #a3a9b2">Setting up your task. You can close this; it keeps going in the background.</div>
+</div>
+
+<ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px">
+<sc-for list="{{steps}}" as="s" hint-placeholder-count="6">
+<li style="{{s.rowStyle}}">
+<span style="{{s.iconStyle}}" aria-hidden="true">{{s.icon}}</span>
+<span style="display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0">
+<span style="{{s.labelStyle}}">{{s.label}}</span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #a3a9b2; overflow-wrap: anywhere">{{s.detail}}</span>
+</span>
+<span style="font-size: 12px; color: #a3a9b2">{{s.time}}</span>
+</li>
+</sc-for>
+</ol>
+
+<div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: auto">
+<a href="Main.dc.html" style="display: inline-flex; align-items: center; height: 40px; padding: 0 16px; border-radius: 8px; border: 1px solid #2a2e35; color: #e7e6e2; text-decoration: none">Back to tasks</a>
+<button style="height: 40px; padding: 0 16px; border-radius: 8px; border: 1px solid #4a2e30; background: transparent; color: #f0a0a0">Cancel and remove</button>
+</div>
+</section>
+
+<section aria-label="Setup log" style="flex: 999 1 520px; min-width: 0; display: flex; flex-direction: column">
+<div style="display: flex; align-items: center; gap: 10px; padding: 12px 20px; border-bottom: 1px solid #2a2e35">
+<span style="font-weight: 600">npm ci</span>
+<span style="font-size: 12px; color: #a3a9b2">live output</span>
+<label style="margin-left: auto; display: flex; gap: 8px; align-items: center; font-size: 13px; color: #c9ccd1"><input type="checkbox" checked style="accent-color: {{accent}}">Follow</label>
+</div>
+<div style="flex: 1; background: #0f1113; padding: 16px 20px; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.6; overflow: auto; min-height: 600px; color: #c9ccd1">
+<div style="color: #a3a9b2">$ git fetch origin main</div>
+<div style="color: #a3a9b2">$ git worktree add -b feature/48231-estimated-delivery-date C:\src\webshop.worktrees\48231-estimated-delivery-date origin/main</div>
+<div>Preparing worktree (new branch 'feature/48231-estimated-delivery-date')</div>
+<div>HEAD is now at 9c1e2f4 Merge PR 1182: catalog filters</div>
+<div style="color: #a3a9b2">copied .env, .env.local</div>
+<div style="color: #a3a9b2; margin-top: 8px">$ npm ci</div>
+<div>npm warn deprecated inflight@1.0.6: This module is not supported</div>
+<div>added 1214 packages in 38s</div>
+<div style="color: #a3a9b2; margin-top: 8px">$ npm run build</div>
+<div>&gt; webshop@3.8.0 build</div>
+<div>&gt; tsc -b &amp;&amp; vite build</div>
+<div>vite v7.1.4 building for production...</div>
+<div>transforming (812) src/catalog/ProductPage.tsx<span style="background: #c9ccd1; color: #0f1113">&#160;</span></div>
+</div>
+</section>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#f0a443","options":["#f0a443","#7fb2ff","#6cc287","#e48f8f"]},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const accent = this.props.accent ?? '#f0a443';
+    const raw = [
+      { label: 'Fetch work item', detail: 'contoso / Webshop #48231', time: '0.4s', st: 'done' },
+      { label: 'Create branch and worktree', detail: 'feature/48231-estimated-delivery-date', time: '2.1s', st: 'done' },
+      { label: 'Copy local files', detail: '.env, .env.local', time: '0.1s', st: 'done' },
+      { label: 'npm ci', detail: '1214 packages', time: '38s', st: 'done' },
+      { label: 'npm run build', detail: 'vite build', time: '12s', st: 'run' },
+      { label: 'Start Claude Code and PowerShell', detail: 'with the work item as first prompt', time: '', st: 'todo' }
+    ];
+    const steps = raw.map((s) => {
+      const done = s.st === 'done', run = s.st === 'run';
+      return { ...s,
+        icon: done ? '✓' : run ? '●' : '○',
+        iconStyle: 'flex: none; width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; ' + (done ? 'background: #1b2620; color: #8fd6a4' : run ? 'background: #2a2416; color: ' + accent : 'border: 1px solid #3a3f48; color: #a3a9b2'),
+        labelStyle: run ? 'font-weight: 600' : done ? 'color: #e7e6e2' : 'color: #a3a9b2',
+        rowStyle: 'display: flex; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 10px; ' + (run ? 'background: #1f2228; border: 1px solid #3a3f48' : 'border: 1px solid transparent') };
+    });
+    return { accent, steps };
+  }
+}
+</script>
+</body>
+</html>

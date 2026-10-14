@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MIAC workspace</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#15171a}
+a{color:#8fb4ff}a:hover{color:#b8cfff}
+button{font:inherit;cursor:pointer}
+</style>
+</helmet>
+<div style="min-height: 900px; background: #15171a; color: #e7e6e2; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; display: flex; flex-direction: column">
+
+<header style="height: 48px; display: flex; align-items: center; gap: 16px; padding: 0 16px; border-bottom: 1px solid #2a2e35; background: #1b1e23; flex-wrap: wrap">
+<div style="font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: 16px; color: {{accent}}">MIAC</div>
+<div style="flex: 1 1 200px; display: flex; align-items: center; gap: 8px; background: #15171a; border: 1px solid #2a2e35; border-radius: 8px; height: 32px; padding: 0 10px; color: #a3a9b2; max-width: 420px">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>
+<span>Search tasks, work items, branches</span>
+<span style="margin-left: auto; font-family: 'JetBrains Mono', monospace; font-size: 12px">Ctrl K</span>
+</div>
+<div style="margin-left: auto; display: flex; gap: 8px">
+<a href="NewTask.dc.html" style="display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px; border-radius: 8px; background: {{accent}}; color: #1a1408; font-weight: 600; text-decoration: none">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>New task</a>
+<a href="Settings.dc.html" aria-label="Settings" style="display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 8px; border: 1px solid #2a2e35; color: #c9ccd1">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"></path></svg></a>
+</div>
+</header>
+
+<div style="flex: 1; display: flex; flex-wrap: wrap">
+
+<nav aria-label="Tasks" style="flex: 1 1 260px; max-width: 300px; min-width: 240px; background: #1b1e23; border-right: 1px solid #2a2e35; padding: 12px 8px; display: flex; flex-direction: column; gap: 16px">
+<sc-for list="{{repos}}" as="repo" hint-placeholder-count="2">
+<div style="display: flex; flex-direction: column; gap: 2px">
+<div style="display: flex; align-items: center; gap: 6px; padding: 4px 8px; color: #a3a9b2; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600">
+<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 7h6l2 2h10v10H3z"></path></svg>{{repo.name}}<span style="margin-left: auto; font-weight: 400">{{repo.count}}</span>
+</div>
+<sc-for list="{{repo.tasks}}" as="t" hint-placeholder-count="3">
+<button style="{{t.rowStyle}}">
+<span style="display: flex; align-items: center; gap: 8px; width: 100%">
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #a3a9b2">{{t.id}}</span>
+<span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left">{{t.title}}</span>
+<span aria-label="{{t.stateLabel}}" style="{{t.dotStyle}}"></span>
+</span>
+<span style="display: flex; gap: 10px; font-size: 12px; color: #a3a9b2; padding-left: 0">
+<span>{{t.git}}</span><span style="margin-left: auto; font-family: 'JetBrains Mono', monospace; color: #c9ccd1">{{t.cost}}</span>
+</span>
+</button>
+</sc-for>
+</div>
+</sc-for>
+<div style="margin-top: auto; padding: 10px 8px; border-top: 1px solid #2a2e35; font-size: 12px; color: #a3a9b2; display: flex; align-items: center; gap: 8px">
+<span style="width: 8px; height: 8px; border-radius: 50%; background: #6cc287"></span>Azure DevOps: contoso / Webshop
+</div>
+</nav>
+
+<main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column">
+
+<section style="padding: 16px 20px; border-bottom: 1px solid #2a2e35; display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center">
+<div style="display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1 1 360px">
+<div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #a3a9b2">
+<span style="padding: 2px 8px; border-radius: 999px; background: #2a2416; color: {{accent}}; font-weight: 600">User Story 48213</span>
+<span>Active</span><span>·</span><span>Sprint 42</span>
+<a href="#" style="margin-left: 4px">Open in Azure DevOps</a>
+</div>
+<h1 style="margin: 0; font-size: 20px; font-weight: 600">Checkout: allow saving a delivery address</h1>
+<div style="display: flex; gap: 16px; flex-wrap: wrap; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #a3a9b2">
+<span>feature/48213-save-delivery-address</span>
+<span>↑2 ↓0</span>
+<span style="color: #e9b75c">3 changed</span>
+<span>..\webshop.worktrees\48213-save-delivery-address</span>
+</div>
+</div>
+<a href="Usage.dc.html" aria-label="AI cost for this task, open breakdown" style="display: flex; flex-direction: column; gap: 2px; padding: 8px 14px; border-radius: 10px; border: 1px solid #2a2e35; background: #1b1e23; color: #e7e6e2; text-decoration: none; min-width: 200px">
+<span style="font-size: 12px; color: #a3a9b2">AI cost, billable to Contoso Retail</span>
+<span style="display: flex; align-items: baseline; gap: 10px"><span style="font-family: 'JetBrains Mono', monospace; font-size: 20px; font-weight: 600">€23.85</span><span style="font-size: 12px; color: #a3a9b2">Claude €21.10 · Copilot €2.75</span></span>
+<span style="font-size: 12px; color: #8fd6a4">Logged on work item 12 min ago</span>
+</a>
+<div style="display: flex; gap: 8px; flex-wrap: wrap">
+<button style="height: 34px; padding: 0 12px; border-radius: 8px; border: 1px solid #2a2e35; background: #1b1e23; color: #e7e6e2">Open in VS Code</button>
+<button style="height: 34px; padding: 0 12px; border-radius: 8px; border: 1px solid #2a2e35; background: #1b1e23; color: #e7e6e2; display: inline-flex; align-items: center; gap: 8px">PR 1190<span style="font-size: 12px; color: #8fd6a4">build passed · 1 of 2 approvals</span></button>
+<a href="Done.dc.html" style="display: inline-flex; align-items: center; height: 34px; padding: 0 12px; border-radius: 8px; border: 1px solid #3a4a3e; background: #1b2620; color: #8fd6a4; text-decoration: none">Finish task</a>
+</div>
+</section>
+
+<div role="tablist" aria-label="Terminals" style="display: flex; align-items: center; gap: 4px; padding: 8px 12px 0; border-bottom: 1px solid #2a2e35; flex-wrap: wrap">
+<sc-for list="{{tabs}}" as="tab" hint-placeholder-count="3">
+<button role="tab" aria-selected="{{tab.selected}}" onClick="{{tab.pick}}" style="{{tab.style}}">
+<span style="{{tab.dotStyle}}"></span>{{tab.label}}<span style="font-size: 12px; color: #a3a9b2">{{tab.hint}}</span>
+</button>
+</sc-for>
+<div style="position: relative">
+<button aria-label="New terminal" style="height: 34px; padding: 0 10px; border: none; background: transparent; color: #c9ccd1; display: inline-flex; align-items: center; gap: 6px">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+</button>
+</div>
+<div style="margin-left: auto; display: flex; gap: 6px; padding-bottom: 6px; flex-wrap: wrap">
+<span style="font-size: 12px; color: #a3a9b2; align-self: center">Run:</span>
+<button style="height: 28px; padding: 0 10px; border-radius: 6px; border: 1px solid #2a2e35; background: transparent; color: #e7e6e2; font-family: 'JetBrains Mono', monospace; font-size: 12px">dev</button>
+<button style="height: 28px; padding: 0 10px; border-radius: 6px; border: 1px solid #2a2e35; background: transparent; color: #e7e6e2; font-family: 'JetBrains Mono', monospace; font-size: 12px">test</button>
+<button style="height: 28px; padding: 0 10px; border-radius: 6px; border: 1px solid #2a2e35; background: transparent; color: #e7e6e2; font-family: 'JetBrains Mono', monospace; font-size: 12px">lint</button>
+</div>
+</div>
+
+<div style="flex: 1; background: #0f1113; padding: 16px 20px; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.6; overflow: auto; min-height: 520px">
+<sc-if value="{{showClaude}}" hint-placeholder-val="{{ true }}">
+<div style="border: 1px solid #3b3427; border-radius: 8px; padding: 10px 14px; color: #d8c9a8; margin-bottom: 14px; max-width: 760px">
+<div style="color: {{accent}}">✻ Welcome to Claude Code</div>
+<div style="color: #a3a9b2">cwd: C:\src\webshop.worktrees\48213-save-delivery-address</div>
+</div>
+<div style="color: #a3a9b2">&gt; Work item 48213: Checkout: allow saving a delivery address. Details are in .miac/task.md.</div>
+<div style="margin-top: 10px">● I'll start by reading the task and the checkout module.</div>
+<div style="color: #a3a9b2; padding-left: 16px">Read(.miac/task.md) · Read(src/checkout/AddressForm.tsx) · Grep("saveAddress")</div>
+<div style="margin-top: 10px">● Plan:</div>
+<div style="padding-left: 16px">1. Add a "Save this address" checkbox to AddressForm</div>
+<div style="padding-left: 16px">2. Persist via the existing /api/customer/addresses endpoint</div>
+<div style="padding-left: 16px">3. Prefill the saved address on the next checkout</div>
+<div style="padding-left: 16px">4. Add tests in AddressForm.test.tsx</div>
+<div style="margin-top: 10px">● Update(src/checkout/AddressForm.tsx)</div>
+<div style="padding-left: 16px; color: #8fd6a4">+ const [saveAddress, setSaveAddress] = useState(true);</div>
+<div style="padding-left: 16px; color: #8fd6a4">+ &lt;Checkbox label="Save this address" checked={saveAddress} … /&gt;</div>
+<div style="margin-top: 14px; border: 1px solid #2a2e35; border-radius: 8px; padding: 8px 12px; display: flex; gap: 8px; max-width: 760px"><span style="color: {{accent}}">&gt;</span><span style="color: #a3a9b2">Run the tests and fix anything that fails</span></div>
+</sc-if>
+<sc-if value="{{showShell}}" hint-placeholder-val="{{ false }}">
+<div>PS C:\src\webshop.worktrees\48213-save-delivery-address&gt; git status -s</div>
+<div style="color: #e9b75c"> M src/checkout/AddressForm.tsx</div>
+<div style="color: #e9b75c"> M src/checkout/api.ts</div>
+<div style="color: #8fd6a4">?? src/checkout/AddressForm.test.tsx</div>
+<div>PS C:\src\webshop.worktrees\48213-save-delivery-address&gt; <span style="background: #e7e6e2; color: #0f1113">&#160;</span></div>
+</sc-if>
+<sc-if value="{{showDev}}" hint-placeholder-val="{{ false }}">
+<div style="color: #a3a9b2">&gt; webshop@3.8.0 dev</div>
+<div style="color: #a3a9b2">&gt; vite</div>
+<div style="margin-top: 8px">  <span style="color: #8fd6a4">VITE v7.1.4</span>  ready in 612 ms</div>
+<div>  ➜  Local:   <a href="#">http://localhost:5174/</a></div>
+<div style="color: #a3a9b2">  Port 5173 was in use by task 48190, picked 5174</div>
+</sc-if>
+</div>
+</main>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#f0a443","options":["#f0a443","#7fb2ff","#6cc287","#e48f8f"]},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { tab: 'claude' }; }
+  renderVals() {
+    const accent = this.props.accent ?? '#f0a443';
+    const dot = (c) => 'width: 8px; height: 8px; border-radius: 50%; flex: none; background: ' + c;
+    const row = (sel) => 'display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid ' + (sel ? '#3a3f48' : 'transparent') + '; background: ' + (sel ? '#262a31' : 'transparent') + '; color: #e7e6e2; text-align: left';
+    const mk = (id, title, cost, git, state, sel) => ({ id, title, cost, git, rowStyle: row(sel),
+      dotStyle: dot(state === 'waiting' ? accent : state === 'working' ? '#7fb2ff' : '#555b64'),
+      stateLabel: state === 'waiting' ? 'Claude needs input' : state === 'working' ? 'Claude working' : 'Idle' });
+    const repos = [
+      { name: 'webshop', count: 3, tasks: [
+        mk('48213', 'Checkout: allow saving a delivery address', '€23.85', 'PR 1190 · ↑2 · 3 changed', 'working', true),
+        mk('48190', 'Fix VAT rounding on invoices', '€6.10', '↑5 · clean', 'waiting', false),
+        mk('—', 'spike-new-search', '€1.20', 'internal · clean', 'idle', false) ] },
+      { name: 'backoffice-api', count: 1, tasks: [
+        mk('47988', 'Export orders as CSV', '€11.40', '↑1 · 1 changed', 'idle', false) ] }
+    ];
+    const defs = [
+      { key: 'claude', label: 'Claude Code', hint: 'working', color: '#7fb2ff' },
+      { key: 'shell', label: 'PowerShell', hint: '', color: '#555b64' },
+      { key: 'dev', label: 'dev', hint: ':5174', color: '#6cc287' } ];
+    const tabs = defs.map((d) => {
+      const sel = this.state.tab === d.key;
+      return { label: d.label, hint: d.hint, selected: sel ? 'true' : 'false', dotStyle: dot(d.color),
+        pick: () => this.setState({ tab: d.key }),
+        style: 'display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px; border-radius: 8px 8px 0 0; border: 1px solid ' + (sel ? '#2a2e35' : 'transparent') + '; border-bottom: none; background: ' + (sel ? '#0f1113' : 'transparent') + '; color: ' + (sel ? '#e7e6e2' : '#a3a9b2') + '; margin-bottom: -1px' };
+    });
+    return { accent, repos, tabs, showClaude: this.state.tab === 'claude', showShell: this.state.tab === 'shell', showDev: this.state.tab === 'dev' };
+  }
+}
+</script>
+</body>
+</html>

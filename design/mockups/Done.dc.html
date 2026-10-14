@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Finish task</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0c0d0f}
+a{color:#8fb4ff}a:hover{color:#b8cfff}
+button{font:inherit;cursor:pointer}
+</style>
+</helmet>
+<div style="min-height: 900px; background: #0c0d0f; color: #e7e6e2; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; display: flex; align-items: flex-start; justify-content: center; padding: 72px 16px; box-sizing: border-box">
+<div role="dialog" aria-labelledby="dn-title" style="width: 100%; max-width: 620px; background: #1b1e23; border: 1px solid #2a2e35; border-radius: 14px; display: flex; flex-direction: column; gap: 20px; padding: 24px">
+
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h2 id="dn-title" style="margin: 0; font-size: 18px; font-weight: 600">Finish task 48213</h2>
+<div style="color: #a3a9b2">Checkout: allow saving a delivery address</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="font-size: 12px; color: #a3a9b2; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600">Safety checks</div>
+<div style="display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border-radius: 10px; background: #2a2416; border: 1px solid #4a3d22">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f0c27a" stroke-width="2" aria-hidden="true" style="flex: none; margin-top: 1px"><path d="M12 3l10 18H2z"></path><path d="M12 10v5M12 18v.5"></path></svg>
+<div style="display: flex; flex-direction: column; gap: 4px; flex: 1">
+<div style="font-weight: 600; color: #f6dcae">3 uncommitted changes</div>
+<div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #d8c9a8">M src/checkout/AddressForm.tsx<br>M src/checkout/api.ts<br>? src/checkout/AddressForm.test.tsx</div>
+</div>
+<button style="height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid #4a3d22; background: transparent; color: #f6dcae">Commit…</button>
+</div>
+<div style="display: flex; gap: 12px; align-items: center; padding: 12px 14px; border-radius: 10px; background: #2a2416; border: 1px solid #4a3d22">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f0c27a" stroke-width="2" aria-hidden="true" style="flex: none"><path d="M12 19V5M5 12l7-7 7 7"></path></svg>
+<div style="flex: 1; font-weight: 600; color: #f6dcae">2 commits not pushed</div>
+<button style="height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid #4a3d22; background: transparent; color: #f6dcae">Push</button>
+</div>
+<div style="display: flex; gap: 12px; align-items: center; padding: 12px 14px; border-radius: 10px; background: #1b2620; border: 1px solid #2e4234">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8fd6a4" stroke-width="2.5" aria-hidden="true" style="flex: none"><path d="M5 12l5 5 9-10"></path></svg>
+<div style="flex: 1; color: #c9e9d2">No running processes besides this task's terminals</div>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 10px">
+<div style="font-size: 12px; color: #a3a9b2; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600">AI usage</div>
+<div style="display: flex; gap: 14px; align-items: center; padding: 12px 14px; border-radius: 10px; border: 1px solid #2a2e35; background: #15171a; flex-wrap: wrap">
+<div style="display: flex; flex-direction: column; gap: 2px; flex: 1 1 240px">
+<span style="display: flex; align-items: baseline; gap: 10px"><span style="font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 600">€23.85</span><span style="font-size: 12px; color: #a3a9b2">billable to Contoso Retail</span></span>
+<span style="font-size: 12px; color: #a3a9b2">Claude Code €21.10 (4 sessions, measured) · Copilot €2.75 (2 sessions, measured)</span>
+</div>
+<a href="Usage.dc.html" style="font-size: 13px">Review</a>
+</div>
+<label style="display: flex; gap: 10px; align-items: center"><input type="checkbox" checked style="accent-color: {{accent}}">Write final totals to the work item and add a usage comment</label>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 10px">
+<div style="font-size: 12px; color: #a3a9b2; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600">Clean up</div>
+<label style="display: flex; gap: 10px; align-items: center"><input type="checkbox" checked style="accent-color: {{accent}}">Close 3 terminals (Claude Code, PowerShell, dev)</label>
+<label style="display: flex; gap: 10px; align-items: center"><input type="checkbox" checked style="accent-color: {{accent}}">Remove worktree folder</label>
+<label style="display: flex; gap: 10px; align-items: center"><input type="checkbox" checked style="accent-color: {{accent}}">Delete local branch <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #c9ccd1">feature/48213-save-delivery-address</span></label>
+<label style="display: flex; gap: 10px; align-items: center"><input type="checkbox" style="accent-color: {{accent}}">Set work item to Resolved</label>
+</div>
+
+<div style="display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; padding-top: 8px; border-top: 1px solid #2a2e35">
+<a href="Main.dc.html" style="display: inline-flex; align-items: center; height: 40px; padding: 0 16px; border-radius: 8px; border: 1px solid #2a2e35; color: #e7e6e2; text-decoration: none">Keep task</a>
+<button style="height: 40px; padding: 0 16px; border-radius: 8px; border: 1px solid #6a3236; background: #3a2224; color: #f6c4c4; font-weight: 600">Discard changes and clean up</button>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#f0a443","options":["#f0a443","#7fb2ff","#6cc287","#e48f8f"]},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { accent: this.props.accent ?? '#f0a443' };
+  }
+}
+</script>
+</body>
+</html>
