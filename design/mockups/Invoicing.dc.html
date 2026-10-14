@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AI cost per customer</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#15171a}
+a{color:#8fb4ff}a:hover{color:#b8cfff}
+button,select{font:inherit}
+button{cursor:pointer}
+th{font-weight:500}
+</style>
+</helmet>
+<div style="min-height: 900px; background: #15171a; color: #e7e6e2; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; display: flex; flex-direction: column">
+
+<header style="height: 48px; display: flex; align-items: center; gap: 16px; padding: 0 16px; border-bottom: 1px solid #2a2e35; background: #1b1e23">
+<div style="font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: 16px; color: {{accent}}">MIAC</div>
+<div style="color: #a3a9b2">AI cost for invoicing</div>
+<a href="Main.dc.html" style="margin-left: auto">Back to tasks</a>
+</header>
+
+<main style="flex: 1; padding: 24px 28px; display: flex; flex-direction: column; gap: 20px; max-width: 1280px; width: 100%; box-sizing: border-box">
+<div style="display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap">
+<h1 style="margin: 0; font-size: 20px; font-weight: 600; margin-right: auto">AI cost per customer</h1>
+<label style="display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #a3a9b2">Period
+<select style="height: 36px; background: #1b1e23; color: #e7e6e2; border: 1px solid #3a3f48; border-radius: 8px; padding: 0 8px"><option>September 2026</option><option>October 2026</option></select></label>
+<label style="display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #a3a9b2">Scope
+<select style="height: 36px; background: #1b1e23; color: #e7e6e2; border: 1px solid #3a3f48; border-radius: 8px; padding: 0 8px"><option>Whole team (from Azure DevOps)</option><option>Only me</option></select></label>
+<button style="height: 36px; padding: 0 16px; border-radius: 8px; border: 1px solid #2a2e35; background: #1b1e23; color: #e7e6e2">Export CSV</button>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px">
+<sc-for list="{{tiles}}" as="t" hint-placeholder-count="4">
+<div style="padding: 14px 16px; border: 1px solid #2a2e35; border-radius: 10px; background: #1b1e23; display: flex; flex-direction: column; gap: 4px">
+<span style="font-size: 12px; color: #a3a9b2">{{t.label}}</span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 22px; font-weight: 600">{{t.value}}</span>
+<span style="font-size: 12px; color: #a3a9b2">{{t.note}}</span>
+</div>
+</sc-for>
+</div>
+
+<div style="border: 1px solid #2a2e35; border-radius: 10px; overflow-x: auto">
+<table style="width: 100%; border-collapse: collapse; font-size: 13px; min-width: 820px">
+<thead>
+<tr style="color: #a3a9b2; text-align: left; border-bottom: 1px solid #2a2e35">
+<th style="padding: 10px 14px">Customer / work item</th>
+<th style="padding: 10px 14px; text-align: right">Tasks</th>
+<th style="padding: 10px 14px; text-align: right">Claude Code</th>
+<th style="padding: 10px 14px; text-align: right">Copilot</th>
+<th style="padding: 10px 14px; text-align: right">Total</th>
+<th style="padding: 10px 14px">On work items</th>
+</tr>
+</thead>
+<tbody>
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="7">
+<tr style="{{r.rowStyle}}">
+<td style="{{r.nameStyle}}">{{r.name}}</td>
+<td style="padding: 10px 14px; text-align: right; color: #c9ccd1">{{r.tasks}}</td>
+<td style="padding: 10px 14px; text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 12px">{{r.claude}}</td>
+<td style="padding: 10px 14px; text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 12px">{{r.copilot}}</td>
+<td style="padding: 10px 14px; text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 600">{{r.total}}</td>
+<td style="padding: 10px 14px"><span style="{{r.syncStyle}}">{{r.sync}}</span></td>
+</tr>
+</sc-for>
+</tbody>
+</table>
+</div>
+<div style="font-size: 13px; color: #a3a9b2; max-width: 860px">Totals for the whole team are read back from the AI cost fields on the work items, so everyone who uses MIAC is included. Customer comes from the work item's area path, which you map in Settings. Usage outside a work item shows as internal. Usage that GitHub or Anthropic billed but no task recorded (for example Copilot code review on github.com) is listed separately so you can assign it.</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#f0a443","options":["#f0a443","#7fb2ff","#6cc287","#e48f8f"]},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const accent = this.props.accent ?? '#f0a443';
+    const tiles = [
+      { label: 'Billable AI cost', value: '€1,284.60', note: '3 customers · 41 work items' },
+      { label: 'Claude Code', value: '€1,102.35', note: 'measured' },
+      { label: 'GitHub Copilot', value: '€182.25', note: 'measured · matches GitHub billing' },
+      { label: 'Internal, not billable', value: '€96.40', note: 'tasks without a customer' }
+    ];
+    const ok = 'font-size: 12px; padding: 2px 8px; border-radius: 6px; background: #1b2620; color: #8fd6a4';
+    const warn = 'font-size: 12px; padding: 2px 8px; border-radius: 6px; background: #2a2416; color: #f0c27a';
+    const cust = 'border-bottom: 1px solid #2a2e35; background: #1b1e23';
+    const item = 'border-bottom: 1px solid #23262c';
+    const cn = 'padding: 12px 14px; font-weight: 600';
+    const inn = 'padding: 10px 14px 10px 34px; color: #c9ccd1';
+    const rows = [
+      { name: 'Contoso Retail', tasks: '22', claude: '€612.40', copilot: '€98.50', total: '€710.90', sync: 'All synced', syncStyle: ok, rowStyle: cust, nameStyle: cn },
+      { name: '48213 Checkout: allow saving a delivery address', tasks: '1', claude: '€21.10', copilot: '€2.75', total: '€23.85', sync: 'Synced', syncStyle: ok, rowStyle: item, nameStyle: inn },
+      { name: '48190 Fix VAT rounding on invoices', tasks: '1', claude: '€5.20', copilot: '€0.90', total: '€6.10', sync: 'Synced', syncStyle: ok, rowStyle: item, nameStyle: inn },
+      { name: 'Fabrikam Logistics', tasks: '14', claude: '€398.75', copilot: '€61.25', total: '€460.00', sync: '2 pending', syncStyle: warn, rowStyle: cust, nameStyle: cn },
+      { name: 'Northwind Health', tasks: '5', claude: '€91.20', copilot: '€22.50', total: '€113.70', sync: 'All synced', syncStyle: ok, rowStyle: cust, nameStyle: cn },
+      { name: 'Internal', tasks: '6', claude: '€84.10', copilot: '€12.30', total: '€96.40', sync: 'Not logged', syncStyle: warn, rowStyle: cust, nameStyle: cn }
+    ];
+    return { accent, tiles, rows };
+  }
+}
+</script>
+</body>
+</html>

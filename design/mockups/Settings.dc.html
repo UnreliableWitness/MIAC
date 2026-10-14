@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Settings</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#15171a}
+a{color:#8fb4ff}a:hover{color:#b8cfff}
+button,input,select,textarea{font:inherit}
+button{cursor:pointer}
+</style>
+</helmet>
+<div style="min-height: 900px; background: #15171a; color: #e7e6e2; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; display: flex; flex-direction: column">
+
+<header style="height: 48px; display: flex; align-items: center; gap: 16px; padding: 0 16px; border-bottom: 1px solid #2a2e35; background: #1b1e23">
+<div style="font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: 16px; color: {{accent}}">MIAC</div>
+<div style="color: #a3a9b2">Settings</div>
+<a href="Main.dc.html" style="margin-left: auto">Back to tasks</a>
+</header>
+
+<div style="flex: 1; display: flex; flex-wrap: wrap">
+<nav aria-label="Settings sections" style="flex: 1 1 200px; max-width: 240px; padding: 16px 8px; border-right: 1px solid #2a2e35; background: #1b1e23; display: flex; flex-direction: column; gap: 2px">
+<a href="#repos" style="padding: 10px 12px; border-radius: 8px; background: #262a31; color: #e7e6e2; text-decoration: none">Repositories</a>
+<a href="#ado" style="padding: 10px 12px; border-radius: 8px; color: #c9ccd1; text-decoration: none">Azure DevOps</a>
+<a href="#cost" style="padding: 10px 12px; border-radius: 8px; color: #c9ccd1; text-decoration: none">AI cost and invoicing</a>
+<a href="#terminals" style="padding: 10px 12px; border-radius: 8px; color: #c9ccd1; text-decoration: none">Terminals and Claude</a>
+</nav>
+
+<main style="flex: 999 1 560px; min-width: 0; padding: 28px 32px; display: flex; flex-direction: column; gap: 36px; max-width: 900px">
+
+<section id="repos" style="display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap">
+<h2 style="margin: 0; font-size: 18px; font-weight: 600">Repositories</h2>
+<button style="margin-left: auto; height: 34px; padding: 0 14px; border-radius: 8px; border: 1px solid #2a2e35; background: #1b1e23; color: #e7e6e2">Add folder…</button>
+</div>
+<div style="border: 1px solid #2a2e35; border-radius: 10px; overflow: hidden">
+<div style="display: flex; align-items: center; gap: 14px; padding: 14px 16px; flex-wrap: wrap; border-bottom: 1px solid #2a2e35">
+<div style="display: flex; flex-direction: column; gap: 2px; flex: 1 1 240px; min-width: 0">
+<span style="font-weight: 600">webshop</span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #a3a9b2">C:\src\webshop · base origin/main</span>
+</div>
+<span style="font-size: 12px; padding: 3px 8px; border-radius: 6px; background: #1b2620; color: #8fd6a4">.miac.yml found</span>
+<button style="height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid #2a2e35; background: transparent; color: #e7e6e2">Edit setup</button>
+</div>
+<div style="display: flex; align-items: center; gap: 14px; padding: 14px 16px; flex-wrap: wrap">
+<div style="display: flex; flex-direction: column; gap: 2px; flex: 1 1 240px; min-width: 0">
+<span style="font-weight: 600">backoffice-api</span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #a3a9b2">C:\src\backoffice-api · base origin/develop</span>
+</div>
+<span style="font-size: 12px; padding: 3px 8px; border-radius: 6px; background: #2a2416; color: #f0c27a">No .miac.yml, using npm ci</span>
+<button style="height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid #2a2e35; background: transparent; color: #e7e6e2">Edit setup</button>
+</div>
+</div>
+<div style="background: #0f1113; border: 1px solid #2a2e35; border-radius: 10px; padding: 14px 16px; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.6; color: #c9ccd1; white-space: pre">webshop/.miac.yml
+base: main
+branch: "{type}/{id}-{slug}"
+copy: [.env, .env.local]
+setup:
+  - npm ci
+  - npm run build
+run:
+  dev: npm run dev
+  test: npm test
+  lint: npm run lint</div>
+</section>
+
+<section id="ado" style="display: flex; flex-direction: column; gap: 14px">
+<h2 style="margin: 0; font-size: 18px; font-weight: 600">Azure DevOps</h2>
+<div style="display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 12px 16px; align-items: center">
+<label for="ado-org" style="color: #a3a9b2">Organization URL</label>
+<input id="ado-org" value="https://dev.azure.com/contoso" style="height: 36px; background: #1b1e23; color: #e7e6e2; border: 1px solid #3a3f48; border-radius: 8px; padding: 0 10px; min-width: 0">
+<label for="ado-proj" style="color: #a3a9b2">Project</label>
+<input id="ado-proj" value="Webshop" style="height: 36px; background: #1b1e23; color: #e7e6e2; border: 1px solid #3a3f48; border-radius: 8px; padding: 0 10px; min-width: 0">
+<span style="color: #a3a9b2">Sign in with</span>
+<div role="radiogroup" aria-label="Sign in method" style="display: flex; gap: 16px; flex-wrap: wrap">
+<label style="display: flex; gap: 8px; align-items: center"><input type="radio" name="auth" checked style="accent-color: {{accent}}">Personal access token</label>
+<label style="display: flex; gap: 8px; align-items: center"><input type="radio" name="auth" style="accent-color: {{accent}}">Azure CLI (az login)</label>
+</div>
+<label for="ado-pat" style="color: #a3a9b2">Token</label>
+<div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap">
+<input id="ado-pat" type="password" value="xxxxxxxxxxxxxxxx" style="flex: 1 1 220px; height: 36px; background: #1b1e23; color: #e7e6e2; border: 1px solid #3a3f48; border-radius: 8px; padding: 0 10px; min-width: 0">
+<span style="font-size: 12px; color: #8fd6a4">Connected as Dries · stored in Windows Credential Manager</span>
+</div>
+</div>
+<div style="font-size: 13px; color: #a3a9b2">The token needs Work Items (read and write) and Code (read).</div>
+</section>
+
+<section id="cost" style="display: flex; flex-direction: column; gap: 14px">
+<h2 style="margin: 0; font-size: 18px; font-weight: 600">AI cost and invoicing</h2>
+<div style="display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 12px 16px; align-items: center">
+<label for="c-cur" style="color: #a3a9b2">Invoice currency</label>
+<div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap">
+<select id="c-cur" style="height: 36px; background: #1b1e23; color: #e7e6e2; border: 1px solid #3a3f48; border-radius: 8px; padding: 0 8px"><option>EUR</option><option>USD</option></select>
+<label for="c-fx" style="color: #a3a9b2">USD to EUR</label>
+<input id="c-fx" value="0.92" style="width: 90px; height: 36px; background: #1b1e23; color: #e7e6e2; border: 1px solid #3a3f48; border-radius: 8px; padding: 0 10px; min-width: 0; font-family: 'JetBrains Mono', monospace; font-size: 13px">
+<label for="c-markup" style="color: #a3a9b2">Markup</label>
+<input id="c-markup" value="0 %" style="width: 90px; height: 36px; background: #1b1e23; color: #e7e6e2; border: 1px solid #3a3f48; border-radius: 8px; padding: 0 10px; min-width: 0; font-family: 'JetBrains Mono', monospace; font-size: 13px">
+</div>
+<span style="color: #a3a9b2">Claude Code billed via</span>
+<select aria-label="Claude Code billed via" style="height: 36px; background: #1b1e23; color: #e7e6e2; border: 1px solid #3a3f48; border-radius: 8px; padding: 0 8px"><option>Anthropic API (Console)</option><option>Microsoft Foundry</option><option>Amazon Bedrock</option><option>Claude Team or Max seats</option></select>
+<span style="color: #a3a9b2">Copilot billed via</span>
+<select aria-label="Copilot billed via" style="height: 36px; background: #1b1e23; color: #e7e6e2; border: 1px solid #3a3f48; border-radius: 8px; padding: 0 8px"><option>Copilot Business, AI credits at list price</option><option>Copilot Enterprise, AI credits at list price</option></select>
+</div>
+<div style="border: 1px solid #2a2e35; border-radius: 10px; overflow-x: auto">
+<table style="width: 100%; border-collapse: collapse; font-size: 13px; min-width: 560px">
+<thead><tr style="color: #a3a9b2; text-align: left; border-bottom: 1px solid #2a2e35">
+<th style="padding: 10px 14px; font-weight: 500">Model, USD per 1M tokens</th><th style="padding: 10px 14px; font-weight: 500; text-align: right">Input</th><th style="padding: 10px 14px; font-weight: 500; text-align: right">Cache read</th><th style="padding: 10px 14px; font-weight: 500; text-align: right">Output</th></tr></thead>
+<tbody style="font-family: 'JetBrains Mono', monospace; font-size: 13px">
+<tr style="border-bottom: 1px solid #23262c"><td style="padding: 10px 14px">claude-opus-5-5</td><td style="padding: 10px 14px; text-align: right">4.00</td><td style="padding: 10px 14px; text-align: right">0.20</td><td style="padding: 10px 14px; text-align: right">20.00</td></tr>
+<tr style="border-bottom: 1px solid #23262c"><td style="padding: 10px 14px">claude-sonnet-5-5</td><td style="padding: 10px 14px; text-align: right">2.00</td><td style="padding: 10px 14px; text-align: right">0.20</td><td style="padding: 10px 14px; text-align: right">10.00</td></tr>
+<tr style="border-bottom: 1px solid #23262c"><td style="padding: 10px 14px">Copilot · gpt-5.5</td><td style="padding: 10px 14px; text-align: right">5.00</td><td style="padding: 10px 14px; text-align: right">0.50</td><td style="padding: 10px 14px; text-align: right">30.00</td></tr>
+<tr><td style="padding: 10px 14px">Copilot · claude-sonnet-4-6</td><td style="padding: 10px 14px; text-align: right">3.00</td><td style="padding: 10px 14px; text-align: right">0.30</td><td style="padding: 10px 14px; text-align: right">15.00</td></tr>
+</tbody></table></div>
+<div style="font-size: 13px; color: #a3a9b2">Rates are copied from the published price lists and can be changed to your contract rates. Each task keeps the rates that applied when the usage happened.</div>
+<div style="display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 12px 16px; align-items: center">
+<span style="color: #a3a9b2">Customer from</span>
+<div style="display: flex; flex-direction: column; gap: 6px; font-family: 'JetBrains Mono', monospace; font-size: 13px">
+<span>Webshop\Checkout, Webshop\Catalog → Contoso Retail</span>
+<span>Logistics\* → Fabrikam Logistics</span>
+<span>Health\* → Northwind Health</span>
+</div>
+<span style="color: #a3a9b2">Work item fields</span>
+<div style="display: flex; flex-direction: column; gap: 6px; font-family: 'JetBrains Mono', monospace; font-size: 13px">
+<span>Custom.AICost · Custom.AICostClaude · Custom.AICostCopilot · Custom.AITokens</span>
+<span style="font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 12px; color: #8fd6a4">Found on User Story, Bug and Task in your process</span>
+</div>
+<span style="color: #a3a9b2">Sync</span>
+<label style="display: flex; gap: 8px; align-items: center"><input type="checkbox" checked style="accent-color: {{accent}}">Update the fields every hour and add a comment when a task is finished</label>
+</div>
+</section>
+
+<section id="terminals" style="display: flex; flex-direction: column; gap: 14px">
+<h2 style="margin: 0; font-size: 18px; font-weight: 600">Terminals and Claude</h2>
+<div style="display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 12px 16px; align-items: center">
+<label for="t-shell" style="color: #a3a9b2">Default shell</label>
+<select id="t-shell" style="height: 36px; background: #1b1e23; color: #e7e6e2; border: 1px solid #3a3f48; border-radius: 8px; padding: 0 8px"><option>PowerShell 7 (pwsh)</option><option>Windows PowerShell</option><option>Git Bash</option><option>WSL: Ubuntu</option></select>
+<label for="t-claude" style="color: #a3a9b2">Claude flags</label>
+<input id="t-claude" value="--permission-mode acceptEdits" style="height: 36px; background: #1b1e23; color: #e7e6e2; border: 1px solid #3a3f48; border-radius: 8px; padding: 0 10px; font-family: 'JetBrains Mono', monospace; font-size: 13px; min-width: 0">
+<span style="color: #a3a9b2">Notify me</span>
+<label style="display: flex; gap: 8px; align-items: center"><input type="checkbox" checked style="accent-color: {{accent}}">When a Claude session finishes or needs input</label>
+</div>
+</section>
+</main>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#f0a443","options":["#f0a443","#7fb2ff","#6cc287","#e48f8f"]},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { accent: this.props.accent ?? '#f0a443' };
+  }
+}
+</script>
+</body>
+</html>

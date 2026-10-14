@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Task AI usage</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#15171a}
+a{color:#8fb4ff}a:hover{color:#b8cfff}
+button{font:inherit;cursor:pointer}
+th{font-weight:500}
+</style>
+</helmet>
+<div style="min-height: 900px; background: #15171a; color: #e7e6e2; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; display: flex; flex-direction: column">
+
+<header style="height: 48px; display: flex; align-items: center; gap: 16px; padding: 0 16px; border-bottom: 1px solid #2a2e35; background: #1b1e23">
+<div style="font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: 16px; color: {{accent}}">MIAC</div>
+<div style="color: #a3a9b2">webshop / 48213 / AI usage</div>
+<a href="Main.dc.html" style="margin-left: auto">Back to task</a>
+</header>
+
+<div style="flex: 1; display: flex; flex-wrap: wrap">
+<main style="flex: 999 1 640px; min-width: 0; padding: 24px 28px; display: flex; flex-direction: column; gap: 20px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h1 style="margin: 0; font-size: 20px; font-weight: 600">Checkout: allow saving a delivery address</h1>
+<div style="color: #a3a9b2">User Story 48213 · Customer: Contoso Retail (from area path Webshop\Checkout)</div>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px">
+<div style="padding: 14px 16px; border: 1px solid #2a2e35; border-radius: 10px; background: #1b1e23; display: flex; flex-direction: column; gap: 4px">
+<span style="font-size: 12px; color: #a3a9b2">Billable AI cost</span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 24px; font-weight: 600">€23.85</span>
+<span style="font-size: 12px; color: #a3a9b2">your rates · USD to EUR 0.92 · no markup</span>
+</div>
+<div style="padding: 14px 16px; border: 1px solid #2a2e35; border-radius: 10px; background: #1b1e23; display: flex; flex-direction: column; gap: 4px">
+<span style="font-size: 12px; color: #a3a9b2">Claude Code</span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 24px; font-weight: 600">€21.10</span>
+<span style="font-size: 12px; color: #8fd6a4">measured · 4 sessions · 6.8M tokens</span>
+</div>
+<div style="padding: 14px 16px; border: 1px solid #2a2e35; border-radius: 10px; background: #1b1e23; display: flex; flex-direction: column; gap: 4px">
+<span style="font-size: 12px; color: #a3a9b2">GitHub Copilot</span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 24px; font-weight: 600">€2.75</span>
+<span style="font-size: 12px; color: #8fd6a4">measured · VS Code agent mode · 0.6M tokens</span>
+</div>
+</div>
+
+<div style="border: 1px solid #2a2e35; border-radius: 10px; overflow-x: auto">
+<table style="width: 100%; border-collapse: collapse; font-size: 13px; min-width: 760px">
+<thead>
+<tr style="color: #a3a9b2; text-align: left; border-bottom: 1px solid #2a2e35">
+<th style="padding: 10px 12px">Started</th>
+<th style="padding: 10px 12px">Tool</th>
+<th style="padding: 10px 12px">Model</th>
+<th style="padding: 10px 12px; text-align: right">Input</th>
+<th style="padding: 10px 12px; text-align: right">Output</th>
+<th style="padding: 10px 12px; text-align: right">Cache read</th>
+<th style="padding: 10px 12px; text-align: right">Cost</th>
+<th style="padding: 10px 12px">Source</th>
+<th style="padding: 10px 12px">Billable</th>
+</tr>
+</thead>
+<tbody>
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="6">
+<tr style="border-bottom: 1px solid #23262c">
+<td style="padding: 10px 12px; white-space: nowrap; color: #c9ccd1">{{r.when}}</td>
+<td style="padding: 10px 12px; white-space: nowrap">{{r.tool}}</td>
+<td style="padding: 10px 12px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #c9ccd1">{{r.model}}</td>
+<td style="padding: 10px 12px; text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 12px">{{r.inp}}</td>
+<td style="padding: 10px 12px; text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 12px">{{r.out}}</td>
+<td style="padding: 10px 12px; text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 12px">{{r.cache}}</td>
+<td style="padding: 10px 12px; text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 600">{{r.cost}}</td>
+<td style="padding: 10px 12px"><span style="{{r.srcStyle}}">{{r.src}}</span></td>
+<td style="padding: 10px 12px"><label style="display: inline-flex; gap: 6px; align-items: center"><input type="checkbox" checked="{{r.billable}}" style="accent-color: {{accent}}"><span style="position: absolute; left: -9999px">Billable</span></label></td>
+</tr>
+</sc-for>
+</tbody>
+</table>
+</div>
+<div style="font-size: 13px; color: #a3a9b2; max-width: 820px">Claude Code, Copilot CLI and Copilot in VS Code all report tokens through their built-in telemetry. MIAC tags every session it starts with this task, then prices the tokens with your rates. Each night the totals are checked against GitHub and Anthropic billing, and anything they billed that MIAC did not see is flagged.</div>
+</main>
+
+<aside aria-label="Azure DevOps" style="flex: 1 1 340px; max-width: 440px; padding: 24px; border-left: 1px solid #2a2e35; background: #181a1f; display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; align-items: center; gap: 10px">
+<h2 style="margin: 0; font-size: 16px; font-weight: 600">On the work item</h2>
+<span style="margin-left: auto; font-size: 12px; color: #8fd6a4">synced 12 min ago</span>
+</div>
+<div style="display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; padding: 14px; border: 1px solid #2a2e35; border-radius: 10px; background: #15171a">
+<span style="color: #a3a9b2">AI Cost (EUR)</span><span style="font-family: 'JetBrains Mono', monospace">23.85</span>
+<span style="color: #a3a9b2">AI Cost Claude</span><span style="font-family: 'JetBrains Mono', monospace">21.10</span>
+<span style="color: #a3a9b2">AI Cost Copilot</span><span style="font-family: 'JetBrains Mono', monospace">2.75</span>
+<span style="color: #a3a9b2">AI Tokens</span><span style="font-family: 'JetBrains Mono', monospace">6,812,400</span>
+</div>
+<div style="font-size: 12px; color: #a3a9b2">Custom fields on the work item, so you can query and roll them up per customer in Azure DevOps.</div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-size: 12px; color: #a3a9b2">Comment added when the task is finished</span>
+<div style="padding: 12px 14px; border: 1px solid #2a2e35; border-radius: 10px; background: #15171a; font-size: 13px; line-height: 1.55; color: #c9ccd1; white-space: pre-line">AI usage for this work item (MIAC): €23.85
+Claude Code: €21.10 over 4 sessions (claude-opus-5-5, claude-sonnet-5-5)
+GitHub Copilot: €2.75 over 2 sessions (gpt-5.5, claude-sonnet-4-6)
+Branch feature/48213-save-delivery-address · PR 1190</div>
+</div>
+<div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: auto">
+<button style="height: 38px; padding: 0 16px; border-radius: 8px; border: none; background: {{accent}}; color: #1a1408; font-weight: 600">Sync now</button>
+<button style="height: 38px; padding: 0 16px; border-radius: 8px; border: 1px solid #2a2e35; background: transparent; color: #e7e6e2">Export CSV</button>
+</div>
+</aside>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#f0a443","options":["#f0a443","#7fb2ff","#6cc287","#e48f8f"]},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const accent = this.props.accent ?? '#f0a443';
+    const measured = 'font-size: 12px; padding: 2px 8px; border-radius: 6px; background: #1b2620; color: #8fd6a4';
+    const est = 'font-size: 12px; padding: 2px 8px; border-radius: 6px; background: #2a2416; color: #f0c27a';
+    const rows = [
+      { when: 'Tue 09:12', tool: 'Claude Code', model: 'claude-opus-5-5', inp: '412k', out: '96k', cache: '3.1M', cost: '€9.40', src: 'Measured', srcStyle: measured, billable: true },
+      { when: 'Tue 11:40', tool: 'Claude Code', model: 'claude-opus-5-5', inp: '288k', out: '71k', cache: '1.9M', cost: '€6.35', src: 'Measured', srcStyle: measured, billable: true },
+      { when: 'Tue 14:05', tool: 'Claude Code', model: 'claude-sonnet-5-5', inp: '190k', out: '44k', cache: '640k', cost: '€1.85', src: 'Measured', srcStyle: measured, billable: true },
+      { when: 'Wed 08:50', tool: 'Claude Code', model: 'claude-opus-5-5', inp: '201k', out: '52k', cache: '1.2M', cost: '€3.50', src: 'Measured', srcStyle: measured, billable: true },
+      { when: 'Tue 15:30', tool: 'Copilot (VS Code)', model: 'gpt-5.5', inp: '148k', out: '38k', cache: '420k', cost: '€2.15', src: 'Measured', srcStyle: measured, billable: true },
+      { when: 'Wed 09:40', tool: 'Copilot CLI', model: 'claude-sonnet-4-6', inp: '61k', out: '12k', cache: '—', cost: '€0.60', src: 'Measured', srcStyle: measured, billable: true },
+      { when: 'Wed 10:15', tool: 'Claude Code', model: 'claude-haiku-5-5', inp: '30k', out: '6k', cache: '—', cost: '€0.00', src: 'Measured', srcStyle: measured, billable: false }
+    ];
+    return { accent, rows };
+  }
+}
+</script>
+</body>
+</html>

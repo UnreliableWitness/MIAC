@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>New task</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0c0d0f}
+a{color:#8fb4ff}a:hover{color:#b8cfff}
+button,input,select{font:inherit}
+button{cursor:pointer}
+</style>
+</helmet>
+<div style="min-height: 900px; background: #0c0d0f; color: #e7e6e2; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; display: flex; align-items: flex-start; justify-content: center; padding: 56px 16px; box-sizing: border-box">
+<div role="dialog" aria-labelledby="nt-title" style="width: 100%; max-width: 1080px; background: #1b1e23; border: 1px solid #2a2e35; border-radius: 14px; display: flex; flex-direction: column; overflow: hidden">
+
+<div style="display: flex; align-items: center; gap: 16px; padding: 18px 24px; border-bottom: 1px solid #2a2e35; flex-wrap: wrap">
+<h2 id="nt-title" style="margin: 0; font-size: 18px; font-weight: 600">New task</h2>
+<div role="tablist" aria-label="Start from" style="display: flex; background: #15171a; border: 1px solid #2a2e35; border-radius: 8px; padding: 3px">
+<button role="tab" aria-selected="true" style="height: 30px; padding: 0 14px; border: none; border-radius: 6px; background: #2c3038; color: #e7e6e2">Work item</button>
+<button role="tab" aria-selected="false" style="height: 30px; padding: 0 14px; border: none; border-radius: 6px; background: transparent; color: #a3a9b2">Blank task</button>
+</div>
+<a href="Main.dc.html" aria-label="Close" style="margin-left: auto; display: inline-flex; width: 34px; height: 34px; align-items: center; justify-content: center; border-radius: 8px; color: #c9ccd1">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></a>
+</div>
+
+<div style="display: flex; flex-wrap: wrap">
+
+<section aria-label="Work items" style="flex: 999 1 520px; min-width: 0; padding: 20px 24px; border-right: 1px solid #2a2e35; display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; gap: 10px; flex-wrap: wrap">
+<label style="flex: 1 1 260px; display: flex; align-items: center; gap: 8px; background: #15171a; border: 1px solid #3a3f48; border-radius: 8px; height: 38px; padding: 0 10px; color: #a3a9b2">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>
+<span style="position: absolute; left: -9999px">Search work items</span>
+<input type="text" placeholder="Search by title or paste an ID" style="flex: 1; background: transparent; border: none; color: #e7e6e2; outline: none; min-width: 0">
+</label>
+<div style="display: flex; background: #15171a; border: 1px solid #2a2e35; border-radius: 8px; padding: 3px">
+<button style="height: 30px; padding: 0 12px; border: none; border-radius: 6px; background: #2c3038; color: #e7e6e2">Assigned to me</button>
+<button style="height: 30px; padding: 0 12px; border: none; border-radius: 6px; background: transparent; color: #a3a9b2">Current sprint</button>
+</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<sc-for list="{{items}}" as="wi" hint-placeholder-count="5">
+<button onClick="{{wi.pick}}" aria-pressed="{{wi.pressed}}" style="{{wi.style}}">
+<span style="{{wi.typeStyle}}">{{wi.type}}</span>
+<span style="display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; text-align: left">
+<span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{wi.title}}</span>
+<span style="font-size: 12px; color: #a3a9b2">{{wi.id}} · {{wi.state}} · {{wi.area}}</span>
+</span>
+<span style="font-size: 12px; color: #a3a9b2; white-space: nowrap">{{wi.tag}}</span>
+</button>
+</sc-for>
+</div>
+</section>
+
+<section aria-label="Task preview" style="flex: 1 1 340px; padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; background: #181a1f">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<div style="font-size: 12px; color: #a3a9b2">{{sel.type}} {{sel.id}}</div>
+<div style="font-size: 16px; font-weight: 600">{{sel.title}}</div>
+</div>
+<div style="display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 10px 12px; align-items: center">
+<label for="nt-repo" style="color: #a3a9b2">Repo</label>
+<select id="nt-repo" style="height: 34px; background: #15171a; color: #e7e6e2; border: 1px solid #3a3f48; border-radius: 8px; padding: 0 8px"><option>webshop</option><option>backoffice-api</option></select>
+<label for="nt-base" style="color: #a3a9b2">From</label>
+<select id="nt-base" style="height: 34px; background: #15171a; color: #e7e6e2; border: 1px solid #3a3f48; border-radius: 8px; padding: 0 8px; font-family: 'JetBrains Mono', monospace; font-size: 13px"><option>origin/main</option><option>origin/develop</option></select>
+<label for="nt-branch" style="color: #a3a9b2">Branch</label>
+<input id="nt-branch" value="{{sel.branch}}" style="height: 34px; background: #15171a; color: #e7e6e2; border: 1px solid #3a3f48; border-radius: 8px; padding: 0 10px; font-family: 'JetBrains Mono', monospace; font-size: 13px; min-width: 0">
+<span style="color: #a3a9b2">Folder</span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #c9ccd1; overflow-wrap: anywhere">C:\src\webshop.worktrees\{{sel.slug}}</span>
+</div>
+
+<fieldset style="border: 1px solid #2a2e35; border-radius: 10px; padding: 12px 14px; margin: 0; display: flex; flex-direction: column; gap: 8px">
+<legend style="padding: 0 6px; color: #a3a9b2; font-size: 12px">Setup from .miac.yml</legend>
+<label style="display: flex; gap: 10px; align-items: center"><input type="checkbox" checked style="accent-color: {{accent}}">Copy <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px">.env, .env.local</span></label>
+<label style="display: flex; gap: 10px; align-items: center"><input type="checkbox" checked style="accent-color: {{accent}}"><span style="font-family: 'JetBrains Mono', monospace; font-size: 13px">npm ci</span></label>
+<label style="display: flex; gap: 10px; align-items: center"><input type="checkbox" checked style="accent-color: {{accent}}"><span style="font-family: 'JetBrains Mono', monospace; font-size: 13px">npm run build</span></label>
+</fieldset>
+
+<fieldset style="border: 1px solid #2a2e35; border-radius: 10px; padding: 12px 14px; margin: 0; display: flex; flex-direction: column; gap: 8px">
+<legend style="padding: 0 6px; color: #a3a9b2; font-size: 12px">When ready</legend>
+<label style="display: flex; gap: 10px; align-items: center"><input type="checkbox" checked style="accent-color: {{accent}}">Start Claude Code with the work item</label>
+<label style="display: flex; gap: 10px; align-items: center"><input type="checkbox" checked style="accent-color: {{accent}}">Open a PowerShell tab</label>
+<label style="display: flex; gap: 10px; align-items: center"><input type="checkbox" style="accent-color: {{accent}}">Set work item to Active</label>
+</fieldset>
+
+<div style="display: flex; gap: 10px; margin-top: auto; justify-content: flex-end; flex-wrap: wrap">
+<a href="Main.dc.html" style="display: inline-flex; align-items: center; height: 40px; padding: 0 16px; border-radius: 8px; border: 1px solid #2a2e35; color: #e7e6e2; text-decoration: none">Cancel</a>
+<a href="Setup.dc.html" style="display: inline-flex; align-items: center; height: 40px; padding: 0 18px; border-radius: 8px; background: {{accent}}; color: #1a1408; font-weight: 600; text-decoration: none">Create task</a>
+</div>
+</section>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#f0a443","options":["#f0a443","#7fb2ff","#6cc287","#e48f8f"]},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { picked: '48231' }; }
+  renderVals() {
+    const accent = this.props.accent ?? '#f0a443';
+    const raw = [
+      { id: '48231', type: 'User Story', title: 'Show estimated delivery date on product page', state: 'New', area: 'Webshop\\Catalog', tag: 'Sprint 42', slug: '48231-estimated-delivery-date' },
+      { id: '48227', type: 'Bug', title: 'Coupon code field ignores trailing spaces', state: 'Approved', area: 'Webshop\\Checkout', tag: 'Sprint 42', slug: '48227-coupon-trailing-spaces' },
+      { id: '48202', type: 'Task', title: 'Upgrade payment SDK to v5', state: 'New', area: 'Webshop\\Payments', tag: 'Sprint 42', slug: '48202-payment-sdk-v5' },
+      { id: '48190', type: 'Bug', title: 'Fix VAT rounding on invoices', state: 'Active', area: 'Backoffice', tag: 'has task', slug: '48190-vat-rounding' },
+      { id: '47970', type: 'User Story', title: 'Customers can download past invoices as PDF', state: 'New', area: 'Webshop\\Account', tag: 'Backlog', slug: '47970-download-invoices-pdf' }
+    ];
+    const colors = { 'User Story': ['#1f2a3d', '#8fb4ff'], 'Bug': ['#3a2224', '#f0a0a0'], 'Task': ['#2a2416', '#f0c27a'] };
+    const items = raw.map((w) => {
+      const on = this.state.picked === w.id;
+      const c = colors[w.type];
+      return { ...w, pressed: on ? 'true' : 'false', pick: () => this.setState({ picked: w.id }),
+        typeStyle: 'flex: none; width: 82px; text-align: center; font-size: 12px; padding: 3px 0; border-radius: 6px; background: ' + c[0] + '; color: ' + c[1],
+        style: 'display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 12px; border-radius: 10px; color: #e7e6e2; border: 1px solid ' + (on ? accent : '#2a2e35') + '; background: ' + (on ? '#232017' : '#15171a') };
+    });
+    const s = raw.find((w) => w.id === this.state.picked) || raw[0];
+    const prefix = s.type === 'Bug' ? 'bugfix/' : 'feature/';
+    return { accent, items, sel: { ...s, branch: prefix + s.slug } };
+  }
+}
+</script>
+</body>
+</html>

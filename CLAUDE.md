@@ -18,7 +18,8 @@ Named after a Culture ship. A desktop app for running development tasks as isola
 ## Tech
 
 - Electron + xterm.js + node-pty.
-- **Must run on Windows** (primary target). Keep paths, shells (PowerShell) and node-pty builds Windows-first.
+- Electron Forge (Vite + React + TypeScript), Vitest.
+- **Windows is the release target**, but development happens on macOS first (decided 2026-10-14). All shell, path and spawn logic goes behind the `Platform` interface so the Windows implementation is a module swap, not a rewrite.
 
 ## Conventions
 
@@ -28,9 +29,14 @@ Named after a Culture ship. A desktop app for running development tasks as isola
 ## External resources
 
 - Design doc and mocks (design canvas): https://claude.ai/artifact/4kbfLSRgmPYqtrJWZ6yoMJ
+  - Local snapshot of the 7 mockup screens: `design/mockups/`, see `design/README.md` for what each screen shows. Use them as the UI reference.
 - Azure DevOps project: https://dev.azure.com/unreliablewitness/MIAC
   - Access needs a PAT. Never paste a PAT in chat or commit it; read it from the environment or a credential store.
+  - MIAC must support multiple Azure DevOps organizations (connections), each repo linked to one.
+- GitHub repo: https://github.com/UnreliableWitness/MIAC
 
 ## Status
 
-- No code repo exists yet (as of 2026-10-14).
+- Repo created 2026-10-14. No application code yet.
+- Build order: (1) app shell and task lifecycle, (2) Azure DevOps integration, (3) usage capture and pricing, (4) invoicing and reconciliation.
+- Specs live in `docs/superpowers/specs/`.
