@@ -635,3 +635,93 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.costtile {
+  text-align: left;
+  cursor: pointer;
+  color: var(--text);
+  font: inherit;
+  align-items: flex-start;
+}
+.costtile:hover {
+  border-color: var(--accent);
+}
+.text-red {
+  color: var(--red);
+}
+.usage {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 24px;
+  padding: 24px;
+  overflow: auto;
+}
+.usage-main {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+.usage-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.usage-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+}
+.usage-tile .amount {
+  font: 600 22px var(--font-mono);
+}
+.usage-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.usage-table th,
+.usage-table td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.usage-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  align-self: start;
+}
+.usage-fields {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+.usage-fields div {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.usage-fields dt {
+  flex: 1;
+  color: var(--muted);
+}
+.usage-fields dd {
+  margin: 0;
+}
+.usage-comment {
+  white-space: pre-wrap;
+  font: 12px var(--font-mono);
+  background: var(--ground);
+  padding: 10px;
+  border-radius: var(--radius);
+  margin: 0;
+}

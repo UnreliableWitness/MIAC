@@ -1,3 +1,4 @@
+import type { TaskUsage } from '../../shared/usage';
 import type { Channels, Events, MiacApi } from '../../shared/ipc';
 
 type AnyFn = (...args: never[]) => unknown;
@@ -7,7 +8,21 @@ export type FakeHandlers = Partial<{
   ) => Channels[K]['result'] | Promise<Channels[K]['result']>;
 }>;
 
+export const emptyUsage = (taskId: string): TaskUsage => ({
+  taskId,
+  sessions: [],
+  unpricedRequests: 0,
+  usdToEur: 0.92,
+  markupPct: 0,
+  billable: { costUsd: 0, costEur: 0, tokens: 0 },
+  byTool: {
+    'claude-code': { costUsd: 0, costEur: 0, sessions: 0, tokens: 0 },
+    'copilot-cli': { costUsd: 0, costEur: 0, sessions: 0, tokens: 0 },
+  },
+});
+
 const defaults: FakeHandlers = {
+  'usage:task': (taskId) => emptyUsage(taskId),
   'repos:list': () => [],
   'connections:list': () => [],
   'tasks:list': () => [],

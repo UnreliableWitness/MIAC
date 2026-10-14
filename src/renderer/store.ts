@@ -7,7 +7,8 @@ export type Screen =
   | { kind: 'new-task' }
   | { kind: 'setup'; taskId: string }
   | { kind: 'finish'; taskId: string }
-  | { kind: 'settings' };
+  | { kind: 'settings' }
+  | { kind: 'usage'; taskId: string };
 
 type Store = {
   screen: Screen;
