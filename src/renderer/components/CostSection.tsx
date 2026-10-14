@@ -37,20 +37,12 @@ const toDraft = (r: Rate): Draft => ({
   cacheWritePerM: String(r.cacheWritePerM),
   outputPerM: String(r.outputPerM),
 });
-const fromDraft = (d: Draft): Rate => ({
-  id: d.id,
-  label: d.label,
-  match: d.match
-    .split(',')
-    .map((m) => m.trim())
-    .filter(Boolean),
-  minInputTokens: Number(d.minInputTokens),
-  fast: d.fast,
-  inputPerM: Number(d.inputPerM),
-  cachedInputPerM: Number(d.cachedInputPerM),
-  cacheWritePerM: Number(d.cacheWritePerM),
-  outputPerM: Number(d.outputPerM),
-});
+/** A number typed in a field, or null when it is blank or not a number (Number('') would be 0). */
+const parseNumber = (v: string): number | null => {
+  if (v.trim() === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
 
 const PRICE_FIELDS = [
   ['inputPerM', 'input per 1M'],
@@ -59,10 +51,38 @@ const PRICE_FIELDS = [
   ['outputPerM', 'output per 1M'],
 ] as const;
 
+/** The rate, or the first error naming the row and the field. */
+const fromDraft = (d: Draft): Rate | string => {
+  const numbers: Record<string, number> = {};
+  for (const [key, name] of [
+    ['minInputTokens', 'min input tokens'],
+    ...PRICE_FIELDS,
+  ] as const) {
+    const n = parseNumber(d[key]);
+    if (n === null) return `${d.label}: ${name} must be a number`;
+    numbers[key] = n;
+  }
+  return {
+    id: d.id,
+    label: d.label,
+    match: d.match
+      .split(',')
+      .map((m) => m.trim())
+      .filter(Boolean),
+    minInputTokens: numbers.minInputTokens,
+    fast: d.fast,
+    inputPerM: numbers.inputPerM,
+    cachedInputPerM: numbers.cachedInputPerM,
+    cacheWritePerM: numbers.cacheWritePerM,
+    outputPerM: numbers.outputPerM,
+  };
+};
+
 function InvoicingPart() {
   const notify = useStore((s) => s.notify);
   const [draft, setDraft] = useState<SettingsDraft | null>(null);
   const [status, setStatus] = useState<ReceiverStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -92,11 +112,25 @@ function InvoicingPart() {
 
   const save = async () => {
     if (!draft) return;
+    const usdToEur = parseNumber(draft.usdToEur);
+    const markupPct = parseNumber(draft.markupPct);
+    const receiverPort = parseNumber(draft.receiverPort);
+    if (usdToEur === null || markupPct === null || receiverPort === null) {
+      const field =
+        usdToEur === null
+          ? 'USD to EUR'
+          : markupPct === null
+            ? 'Markup %'
+            : 'Usage receiver port';
+      setError(`${field} must be a number`);
+      return;
+    }
+    setError(null);
     const settings: AppSettings = {
       version: 1,
-      usdToEur: Number(draft.usdToEur),
-      markupPct: Number(draft.markupPct),
-      receiverPort: Number(draft.receiverPort),
+      usdToEur,
+      markupPct,
+      receiverPort,
       hourlySync: draft.hourlySync,
     };
     const saved = await tryInvoke(
@@ -155,6 +189,15 @@ function InvoicingPart() {
               Save settings
             </button>
           </div>
+          {error && (
+            <div
+              role="alert"
+              className="conn-status-bad"
+              style={{ gridColumn: '1 / -1' }}
+            >
+              {error}
+            </div>
+          )}
         </div>
       )}
       {status && (
@@ -181,6 +224,7 @@ function RatesPart() {
   const [rows, setRows] = useState<Draft[]>([]);
   const [officialAsOf, setOfficialAsOf] = useState('');
   const [confirming, setConfirming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -199,8 +243,16 @@ function RatesPart() {
     setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...change } : r)));
 
   const save = async () => {
+    const parsed = rows.map(fromDraft);
+    const bad = parsed.find((r) => typeof r === 'string');
+    if (bad !== undefined) {
+      setError(bad);
+      return;
+    }
+    setError(null);
+    const valid = parsed.filter((r): r is Rate => typeof r !== 'string');
     const saved = await tryInvoke(
-      () => api().invoke('rates:save', rows.map(fromDraft)),
+      () => api().invoke('rates:save', valid),
       notify,
     );
     if (saved) {
@@ -333,6 +385,15 @@ function RatesPart() {
           Reset to official prices
         </button>
       </div>
+      {error && (
+        <div
+          role="alert"
+          className="conn-status-bad"
+          style={{ padding: '10px 16px' }}
+        >
+          {error}
+        </div>
+      )}
       {confirming && (
         <div className="conn-confirm" role="status">
           <span>{`Replace your rates with the official prices of ${officialAsOf}?`}</span>

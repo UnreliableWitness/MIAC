@@ -118,6 +118,38 @@ describe('CostSection', () => {
       expect(calls.some((c) => c.channel === 'rates:reset')).toBe(true),
     );
   });
+  it('refuses to save a blank price and names the row and field', async () => {
+    const { calls } = installFakeApi({
+      'settings:get': () => settings,
+      'rates:list': () => ({ rates, officialAsOf: '2026-10-14' }),
+      'rates:save': (r) => r,
+    });
+    render(<CostSection />);
+    await userEvent.clear(
+      await screen.findByLabelText('Claude Opus 5.5 input per 1M'),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Save rates' }));
+    expect(
+      await screen.findByText('Claude Opus 5.5: input per 1M must be a number'),
+    ).toBeTruthy();
+    expect(calls.some((c) => c.channel === 'rates:save')).toBe(false);
+  });
+  it('refuses to save blank settings numbers', async () => {
+    const { calls } = installFakeApi({
+      'settings:get': () => settings,
+      'settings:save': (s) => s,
+      'rates:list': () => ({ rates, officialAsOf: '2026-10-14' }),
+    });
+    render(<CostSection />);
+    await userEvent.clear(await screen.findByLabelText('Usage receiver port'));
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Save settings' }),
+    );
+    expect(
+      await screen.findByText('Usage receiver port must be a number'),
+    ).toBeTruthy();
+    expect(calls.some((c) => c.channel === 'settings:save')).toBe(false);
+  });
   it('checks the work item fields of a connection', async () => {
     installFakeApi({
       'settings:get': () => settings,
