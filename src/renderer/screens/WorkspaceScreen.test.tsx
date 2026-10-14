@@ -338,12 +338,14 @@ describe('tabs and focus', () => {
     setup();
     render(<WorkspaceScreen />);
     const term = await screen.findByTestId('term-c1');
-    fireEvent.keyDown(term, {
+    const ev = createEvent.keyDown(term, {
       key: '0',
       code: 'Digit0',
       ctrlKey: true,
       metaKey: true,
     });
+    fireEvent(term, ev);
+    expect(ev.defaultPrevented).toBe(true);
     expect(screen.getByRole('region', { name: 'AI usage' })).toBeVisible();
     fireEvent.keyDown(term, {
       key: '2',
@@ -419,5 +421,38 @@ describe('tabs and focus', () => {
     expect(
       await screen.findByRole('region', { name: 'AI usage' }),
     ).toBeVisible();
+  });
+
+  it('shows the crumb strip and nav with Focus on and no task selected', () => {
+    setup();
+    useStore.setState({ tasks: [], selectedTaskId: null, focus: true });
+    render(<WorkspaceScreen />);
+    expect(document.querySelector('header.strip')).not.toBeNull();
+    expect(
+      screen.getByRole('navigation', { name: 'Tasks' }),
+    ).toBeInTheDocument();
+  });
+
+  it.each(['done', 'setup-failed'] as const)(
+    'shows the strip with Focus on and a %s task',
+    (status) => {
+      setup({ status, terminals: [] });
+      useStore.setState({ focus: true });
+      render(<WorkspaceScreen />);
+      expect(document.querySelector('header.strip')).not.toBeNull();
+      expect(
+        screen.getByRole('navigation', { name: 'Tasks' }),
+      ).toBeInTheDocument();
+    },
+  );
+
+  it('toggles Focus with the shortcut when no task is selected', () => {
+    setup();
+    useStore.setState({ tasks: [], selectedTaskId: null });
+    render(<WorkspaceScreen />);
+    fireEvent.keyDown(window, FOCUS_KEYS);
+    expect(useStore.getState().focus).toBe(true);
+    fireEvent.keyDown(window, FOCUS_KEYS);
+    expect(useStore.getState().focus).toBe(false);
   });
 });

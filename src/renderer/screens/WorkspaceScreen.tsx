@@ -16,10 +16,11 @@ export function WorkspaceScreen() {
   );
   const focus = useStore((s) => s.focus);
   const navCollapsed = useStore((s) => s.navCollapsed);
-  useShortcuts(task);
+  useShortcuts();
+  const inFocus = focus && task?.status === 'ready';
   return (
     <>
-      {focus ? null : task ? (
+      {inFocus ? null : task ? (
         <TaskStrip key={`strip-${task.id}`} task={task} />
       ) : (
         <CrumbStrip crumb="Tasks">
@@ -36,7 +37,7 @@ export function WorkspaceScreen() {
         </CrumbStrip>
       )}
       <div className="workspace">
-        {(!focus || navCollapsed) && <TaskNav />}
+        {(!inFocus || navCollapsed) && <TaskNav />}
         <main className="taskmain">
           {task &&
           (task.status === 'setting-up' || task.status === 'setup-failed') ? (
