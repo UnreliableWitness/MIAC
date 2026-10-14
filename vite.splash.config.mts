@@ -19,6 +19,8 @@ function cspForBuild(): Plugin {
 }
 
 export default defineConfig({
+  // Own dep cache: sharing node_modules/.vite with the main renderer makes each dev server invalidate the other's optimized deps (504).
+  cacheDir: 'node_modules/.vite-splash',
   plugins: [cspForBuild()],
   build: { rollupOptions: { input: 'splash.html' } },
 });

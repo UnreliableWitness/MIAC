@@ -150,6 +150,9 @@ body {
   color: #f0a0a0;
   font-size: 11px;
 }
+.fail[hidden] {
+  display: none;
+}
 .fail button {
   font: inherit;
   color: #f0a0a0;

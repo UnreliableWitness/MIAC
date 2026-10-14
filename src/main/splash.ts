@@ -3,6 +3,8 @@ import { app, BrowserWindow, type NativeImage } from 'electron';
 
 export const SPLASH_MIN_MS = 2200;
 export const SPLASH_FADE_MS = 200;
+/** Each step stays on screen at least this long: boot is faster than the animation, so steps are queued and paced. */
+export const SPLASH_STEP_MS = 350;
 /** Longest the handoff waits for the splash to show at all, so a splash that never paints cannot block boot. */
 export const SPLASH_CAP_MS = 8000;
 
@@ -20,19 +22,27 @@ export type SplashWindowLike = {
 export class SplashReporter {
   private failed = false;
   private pageReady = false;
-  private lastStep: string | null = null;
+  private queue: string[] = [];
+  private pacing: ReturnType<typeof setTimeout> | null = null;
   private failMessage: string | null = null;
   private release: (() => void) | null = null;
   private readonly minMs: number;
   private readonly fadeMs: number;
+  private readonly stepMs: number;
   private readonly gate: Promise<void>;
 
   constructor(
     private readonly win: SplashWindowLike | null,
-    opts: { minMs?: number; fadeMs?: number; capMs?: number } = {},
+    opts: {
+      minMs?: number;
+      fadeMs?: number;
+      capMs?: number;
+      stepMs?: number;
+    } = {},
   ) {
     this.minMs = opts.minMs ?? SPLASH_MIN_MS;
     this.fadeMs = opts.fadeMs ?? SPLASH_FADE_MS;
+    this.stepMs = opts.stepMs ?? SPLASH_STEP_MS;
     this.gate = new Promise((resolve) => {
       this.release = resolve;
     });
@@ -52,7 +62,7 @@ export class SplashReporter {
     // ipcRenderer.on does not buffer: replay what was reported before the page listened.
     win!.webContents.once('did-finish-load', () => {
       this.pageReady = true;
-      if (this.lastStep !== null) this.send('splash:step', this.lastStep);
+      this.pump();
       if (this.failMessage !== null) this.send('splash:fail', this.failMessage);
     });
   }
@@ -69,15 +79,26 @@ export class SplashReporter {
     if (this.active) this.win!.webContents.send(channel, ...args);
   }
 
+  /** Sends queued steps one at a time, each held for stepMs. */
+  private pump(): void {
+    if (this.pacing !== null || this.queue.length === 0) return;
+    this.send('splash:step', this.queue.shift()!);
+    this.pacing = setTimeout(() => {
+      this.pacing = null;
+      this.pump();
+    }, this.stepMs);
+  }
+
   step(label: string): void {
-    this.lastStep = label;
-    if (this.pageReady) this.send('splash:step', label);
+    this.queue.push(label);
+    if (this.pageReady) this.pump();
   }
 
   /** Shows the failure; done() never resolves afterwards, so the splash stays until Quit. */
   fail(message: string): void {
     this.failed = true;
     this.failMessage = message;
+    this.queue = [];
     if (this.pageReady) this.send('splash:fail', message);
   }
 

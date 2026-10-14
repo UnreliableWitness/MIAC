@@ -99,18 +99,35 @@ describe('SplashReporter', () => {
       ['splash:fail', ['state.json: EACCES']],
     ]);
   });
-  it('replays the last step and a failure reported before the page loaded', () => {
+  it('replays every step reported before the page loaded, paced, then a failure', async () => {
+    const s = stub();
+    const r = new SplashReporter(s.win);
+    r.step('Loading tasks');
+    r.step('Starting usage receiver 127.0.0.1:4319');
+    r.step('Ready');
+    expect(s.sent).toEqual([]);
+    s.loaded();
+    expect(s.sent).toEqual([['splash:step', ['Loading tasks']]]);
+    await vi.advanceTimersByTimeAsync(350);
+    expect(s.sent.map((m) => m[1][0])).toEqual([
+      'Loading tasks',
+      'Starting usage receiver 127.0.0.1:4319',
+    ]);
+    await vi.advanceTimersByTimeAsync(350);
+    expect(s.sent.map((m) => m[1][0])).toEqual([
+      'Loading tasks',
+      'Starting usage receiver 127.0.0.1:4319',
+      'Ready',
+    ]);
+  });
+  it('a failure drops queued steps and is shown at once', () => {
     const s = stub();
     const r = new SplashReporter(s.win);
     r.step('Loading tasks');
     r.step('Starting usage receiver 127.0.0.1:4319');
     r.fail('state.json: EACCES');
-    expect(s.sent).toEqual([]);
     s.loaded();
-    expect(s.sent).toEqual([
-      ['splash:step', ['Starting usage receiver 127.0.0.1:4319']],
-      ['splash:fail', ['state.json: EACCES']],
-    ]);
+    expect(s.sent).toEqual([['splash:fail', ['state.json: EACCES']]]);
   });
   it('done settles when the splash closes before it shows', async () => {
     const s = stub();
