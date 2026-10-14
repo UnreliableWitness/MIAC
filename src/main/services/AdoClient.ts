@@ -49,7 +49,7 @@ export function buildWiql(opts: {
   if (text.length > 0) {
     const title = `[System.Title] CONTAINS ${wiqlString(text)}`;
     where.push(
-      /^\d+$/.test(text)
+      /^\d+$/.test(text) && Number(text) >= 1 && Number(text) <= 2147483647
         ? `([System.Id] = ${Number(text)} OR ${title})`
         : title,
     );
@@ -116,11 +116,13 @@ export class AdoClient {
     const ids = (result.workItems ?? []).slice(0, MAX_RESULTS).map((w) => w.id);
     if (ids.length === 0) return [];
     const batch = await this.request<{
-      value?: { id: number; fields: Json; _links?: Json }[];
+      value?: ({ id: number; fields: Json; _links?: Json } | null)[];
     }>(
-      `/_apis/wit/workitems?ids=${ids.join(',')}&fields=${FIELDS.join(',')}&${API}`,
+      `/_apis/wit/workitems?ids=${ids.join(',')}&fields=${FIELDS.join(',')}&errorPolicy=omit&${API}`,
     );
-    const byId = new Map((batch.value ?? []).map((w) => [w.id, w]));
+    const byId = new Map(
+      (batch.value ?? []).flatMap((w) => (w ? [[w.id, w] as const] : [])),
+    );
     return ids.flatMap((id) => {
       const w = byId.get(id);
       if (!w) return [];
@@ -159,6 +161,7 @@ export class AdoClient {
     try {
       res = await this.fetchImpl(url, {
         ...init,
+        redirect: 'manual',
         headers: {
           accept: 'application/json',
           ...init.headers,
@@ -178,7 +181,17 @@ export class AdoClient {
       await new Promise((r) => setTimeout(r, wait * 1000));
       return this.request<T>(path, init, true);
     }
-    if (res.status === 401 || res.status === 203 || res.status === 403) {
+    const redirected =
+      (res.status >= 300 && res.status < 400) || res.type === 'opaqueredirect';
+    const html =
+      res.ok && (res.headers.get('content-type') ?? '').startsWith('text/html');
+    if (
+      res.status === 401 ||
+      res.status === 203 ||
+      res.status === 403 ||
+      redirected ||
+      html
+    ) {
       throw new AdoError(
         'unauthorized',
         path,

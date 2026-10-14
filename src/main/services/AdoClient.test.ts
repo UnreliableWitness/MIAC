@@ -49,6 +49,18 @@ describe('buildWiql', () => {
   });
 });
 
+describe('buildWiql id guard', () => {
+  it('searches title only for digits beyond int32', () => {
+    const q = buildWiql({
+      scope: 'mine',
+      text: '123456789012345678901',
+      iterationPath: null,
+    });
+    expect(q).toContain("[System.Title] CONTAINS '123456789012345678901'");
+    expect(q).not.toContain('[System.Id] =');
+  });
+});
+
 describe('AdoClient.verify', () => {
   it('returns the user and sends basic auth with the pat', async () => {
     server.route('GET', '/unreliablewitness/_apis/connectionData', {
@@ -123,11 +135,40 @@ describe('AdoClient.verify', () => {
     expect(calls).toBe(2);
   });
   it('strips a BOM before parsing JSON', async () => {
+    const json = (text: string) =>
+      ({
+        status: 200,
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: async () => text,
+        type: 'basic',
+      }) as unknown as Response;
+    const fake = (async (url: string | URL | Request) =>
+      String(url).includes('connectionData')
+        ? json(BOM + '{"authenticatedUser":{"providerDisplayName":"D"}}')
+        : json('{}')) as typeof fetch;
+    const c = new AdoClient(
+      'http://example.invalid/org',
+      async () => 'x',
+      fake,
+    );
+    expect(await c.verify('MIAC')).toEqual({ user: 'D' });
+  });
+  it('maps a 302 redirect to unauthorized', async () => {
     server.route('GET', '/unreliablewitness/_apis/connectionData', {
-      raw: `${BOM}{"authenticatedUser":{"providerDisplayName":"D"}}`,
+      status: 302,
+      headers: { location: '/signin' },
     });
-    server.route('GET', '/unreliablewitness/_apis/projects/MIAC', { body: {} });
-    expect(await client.verify('MIAC')).toEqual({ user: 'D' });
+    const err = await client.verify('MIAC').catch((e) => e);
+    expect(err.kind).toBe('unauthorized');
+  });
+  it('maps a 200 text/html page to unauthorized', async () => {
+    server.route('GET', '/unreliablewitness/_apis/connectionData', {
+      headers: { 'content-type': 'text/html' },
+      raw: '<html>Sign in</html>',
+    });
+    const err = await client.verify('MIAC').catch((e) => e);
+    expect(err.kind).toBe('unauthorized');
   });
 });
 
@@ -170,13 +211,11 @@ describe('AdoClient reads', () => {
     );
     expect(await client.currentIteration('MIAC')).toBeNull();
   });
-  it('encodes a project name with spaces', async () => {
-    server.route(
-      'GET',
-      '/unreliablewitness/My%20Project/_apis/wit/workitemtypes',
-      { body: { value: [] } },
-    );
-    expect(await client.workItemTypes('My Project')).toEqual([]);
+  it('encodes special characters in a project name', async () => {
+    server.route('GET', '/unreliablewitness/A%23B/_apis/wit/workitemtypes', {
+      body: { value: [] },
+    });
+    expect(await client.workItemTypes('A#B')).toEqual([]);
   });
   it('searches: wiql then batch get, mapping fields and url', async () => {
     server.route('POST', '/unreliablewitness/MIAC/_apis/wit/wiql', {
@@ -251,6 +290,25 @@ describe('AdoClient reads', () => {
     );
     expect(batch!.path).toContain('ids=12,7');
     expect(batch!.path).toContain('System.AssignedTo');
+  });
+  it('omits unreadable ids from the batch instead of failing', async () => {
+    server.route('POST', '/unreliablewitness/MIAC/_apis/wit/wiql', {
+      body: { workItems: [{ id: 1 }, { id: 2 }] },
+    });
+    server.route('GET', '/unreliablewitness/_apis/wit/workitems', {
+      body: { value: [null, { id: 2, fields: { 'System.Title': 'Ok' } }] },
+    });
+    const items = await client.searchWorkItems({
+      project: 'MIAC',
+      scope: 'mine',
+      text: '',
+      iterationPath: null,
+    });
+    expect(items.map((i) => i.id)).toEqual(['2']);
+    const batch = server.requests.find((r) =>
+      r.path.includes('/_apis/wit/workitems?'),
+    );
+    expect(batch!.path).toContain('errorPolicy=omit');
   });
   it('returns [] without a batch call when wiql finds nothing', async () => {
     server.route('POST', '/unreliablewitness/MIAC/_apis/wit/wiql', {
