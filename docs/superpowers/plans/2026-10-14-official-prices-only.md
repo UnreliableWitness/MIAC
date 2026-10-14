@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- `OFFICIAL_USD_TO_EUR = 0.92`, exported from `src/main/pricing/officialRates.ts` next to `OFFICIAL_RATES_AS_OF = '2026-10-14'`.
+- `OFFICIAL_USD_TO_EUR = 0.92` is defined in `src/shared/usage.ts` (so main and renderer share one value) and re-exported from `src/main/pricing/officialRates.ts` next to `OFFICIAL_RATES_AS_OF = '2026-10-14'`.
 - All EUR amounts are `costUsd * OFFICIAL_USD_TO_EUR`. There is no markup anywhere. Work item amounts are rounded to 2 decimals (unchanged `round2`).
 - `AppSettings` is `{ version: 1, receiverPort, hourlySync }`. An old `settings.json` with `usdToEur`/`markupPct` must still load, and the extra keys disappear on the next save.
 - Records keep their rate snapshot, and nothing is repriced. Unknown models stay `costUsd: null`, never 0.
@@ -101,11 +101,12 @@ Expected: FAIL (settings keys, summarize signature, missing `OFFICIAL_USD_TO_EUR
 
 - [ ] **Step 3: Implement**
 
-`src/main/pricing/officialRates.ts`, below `OFFICIAL_RATES_AS_OF`:
+`src/shared/usage.ts`:
 ```ts
 /** Built-in exchange rate used for every EUR amount, so all teammates on the same MIAC version write identical numbers. Changes only with an app update. */
 export const OFFICIAL_USD_TO_EUR = 0.92;
 ```
+`src/main/pricing/officialRates.ts`, below `OFFICIAL_RATES_AS_OF`: `export { OFFICIAL_USD_TO_EUR } from '../../shared/usage';`
 
 `src/shared/usage.ts`:
 - `AppSettingsSchema` becomes `z.object({ version: z.literal(1), receiverPort: z.number().int().min(1024).max(65535), hourlySync: z.boolean() })`. zod `object` strips unknown keys, which is what makes old files load. Keep it that way: no `.strict()`.
@@ -194,7 +195,7 @@ it('shows the official rates read-only', async () => {
 - Expect the note `/official list prices .* USD to EUR 0.92/`.
 - Expect the unpriced text `/1 request uses a model that is not in MIAC's official price list yet/`.
 - Drop any `markupPct` from literals.
-- Add a check that the session row cost equals `eur(costUsd * 0.92)`. For example, a session with `costUsd: 10` shows `€9.20` in its row (write the euro sign with `String.fromCharCode(0x20ac)` in the test).
+- Add a check that the session row cost equals `eur(costUsd * 0.92)`. For example, a session with `costUsd: 10` shows the euro sign followed by `9.20` in its row (build the euro sign with `String.fromCharCode(0x20ac)` in the test).
 
 - [ ] **Step 2: Run them to verify they fail**
 
@@ -205,7 +206,7 @@ Expected: FAIL.
 
 `CostSection.tsx`:
 - Remove the `usdToEur` and `markupPct` draft fields, inputs and validation. Keep port validation and the hourly sync checkbox.
-- Add the static line `EUR at {OFFICIAL_RATE} per USD (built in)`, where the rate is `0.92`. Import nothing from main: define `const BUILT_IN_USD_TO_EUR = 0.92` locally, or better, read `usdToEur` from a `usage:task`-free source. The simplest correct option is a shared constant: move `OFFICIAL_USD_TO_EUR` into `src/shared/usage.ts` and re-export it from `officialRates.ts`, so main and renderer use one value. Do that, and update Task 1's import sites if needed.
+- Add the static line `` `EUR at ${OFFICIAL_USD_TO_EUR} per USD (built in)` ``, importing `OFFICIAL_USD_TO_EUR` from `../../shared/usage` (Task 1 put it there).
 - Replace the editable rate table with a read-only table:
   - columns: Model (label), Matches (match ids joined with `, `), Tier (`from N input tokens` when `minInputTokens > 0`, `fast` when `fast`), Input, Cached input, Cache write, Output;
   - prices formatted with up to 3 decimals;
@@ -225,7 +226,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add -A src/renderer src/shared src/main/pricing
+git add -A src/renderer
 git commit -m "feat: read-only official price table and built-in exchange rate in the UI"
 ```
 
