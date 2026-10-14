@@ -3,18 +3,25 @@ import { app, BrowserWindow } from 'electron';
 
 export const SPLASH_MIN_MS = 2200;
 export const SPLASH_FADE_MS = 200;
+/** Longest the handoff waits for the splash to show at all, so a splash that never paints cannot block boot. */
+export const SPLASH_CAP_MS = 8000;
 
 export type SplashWindowLike = {
   isDestroyed(): boolean;
-  webContents: { send(channel: string, ...args: unknown[]): void };
+  webContents: {
+    send(channel: string, ...args: unknown[]): void;
+    once(event: 'did-finish-load', fn: () => void): void;
+  };
   close(): void;
-  once(event: 'ready-to-show', fn: () => void): void;
+  once(event: 'ready-to-show' | 'closed', fn: () => void): void;
 };
 
 /** Reports boot steps to the splash window and gates the handoff on the minimum animation time. */
 export class SplashReporter {
-  private shownAt: number | null = null;
   private failed = false;
+  private pageReady = false;
+  private lastStep: string | null = null;
+  private failMessage: string | null = null;
   private release: (() => void) | null = null;
   private readonly minMs: number;
   private readonly fadeMs: number;
@@ -22,7 +29,7 @@ export class SplashReporter {
 
   constructor(
     private readonly win: SplashWindowLike | null,
-    opts: { minMs?: number; fadeMs?: number } = {},
+    opts: { minMs?: number; fadeMs?: number; capMs?: number } = {},
   ) {
     this.minMs = opts.minMs ?? SPLASH_MIN_MS;
     this.fadeMs = opts.fadeMs ?? SPLASH_FADE_MS;
@@ -33,9 +40,20 @@ export class SplashReporter {
       this.open();
       return;
     }
+    const cap = setTimeout(() => this.open(), opts.capMs ?? SPLASH_CAP_MS);
     win!.once('ready-to-show', () => {
-      this.shownAt = Date.now();
+      clearTimeout(cap);
       setTimeout(() => this.open(), this.minMs);
+    });
+    win!.once('closed', () => {
+      clearTimeout(cap);
+      this.open();
+    });
+    // ipcRenderer.on does not buffer: replay what was reported before the page listened.
+    win!.webContents.once('did-finish-load', () => {
+      this.pageReady = true;
+      if (this.lastStep !== null) this.send('splash:step', this.lastStep);
+      if (this.failMessage !== null) this.send('splash:fail', this.failMessage);
     });
   }
 
@@ -52,13 +70,15 @@ export class SplashReporter {
   }
 
   step(label: string): void {
-    this.send('splash:step', label);
+    this.lastStep = label;
+    if (this.pageReady) this.send('splash:step', label);
   }
 
   /** Shows the failure; done() never resolves afterwards, so the splash stays until Quit. */
   fail(message: string): void {
     this.failed = true;
-    this.send('splash:fail', message);
+    this.failMessage = message;
+    if (this.pageReady) this.send('splash:fail', message);
   }
 
   skip(): void {
@@ -80,6 +100,9 @@ export class SplashReporter {
   }
 }
 
+/** Chromium's net::ERR_ABORTED: a navigation that was replaced, not a failure. */
+const ERR_ABORTED = -3;
+
 export function createSplashWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 640,
@@ -99,18 +122,24 @@ export function createSplashWindow(): BrowserWindow {
     },
   });
   win.once('ready-to-show', () => win.show());
+  // A splash that cannot load or whose renderer dies is destroyed; its 'closed' releases the handoff.
+  const drop = () => {
+    if (!win.isDestroyed()) win.destroy();
+  };
+  win.webContents.on('did-fail-load', (_e, code, _desc, _url, isMainFrame) => {
+    if (isMainFrame && code !== ERR_ABORTED) drop();
+  });
+  win.webContents.on('render-process-gone', drop);
   const hash = `v=${encodeURIComponent(app.getVersion())}`;
-  if (SPLASH_WINDOW_VITE_DEV_SERVER_URL)
-    void win.loadURL(
-      `${SPLASH_WINDOW_VITE_DEV_SERVER_URL}/splash.html#${hash}`,
-    );
-  else
-    void win.loadFile(
-      path.join(
-        __dirname,
-        `../renderer/${SPLASH_WINDOW_VITE_NAME}/splash.html`,
-      ),
-      { hash },
-    );
+  const loading = SPLASH_WINDOW_VITE_DEV_SERVER_URL
+    ? win.loadURL(`${SPLASH_WINDOW_VITE_DEV_SERVER_URL}/splash.html#${hash}`)
+    : win.loadFile(
+        path.join(
+          __dirname,
+          `../renderer/${SPLASH_WINDOW_VITE_NAME}/splash.html`,
+        ),
+        { hash },
+      );
+  loading.catch(drop);
   return win;
 }

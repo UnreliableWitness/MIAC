@@ -39,6 +39,8 @@ if (started) app.quit();
 
 let mainWindow: BrowserWindow | null = null;
 let splashWin: BrowserWindow | null = null;
+/** True until the main window is revealed (stays true after a boot failure). */
+let booting = true;
 const terminals = new TerminalManager();
 const DOT = String.fromCharCode(0xb7);
 let stopUsage: () => void = () => {};
@@ -259,13 +261,17 @@ async function boot(): Promise<void> {
     reporter.step('Ready');
     await reporter.fadeOut();
     revealMain(win);
+    booting = false;
     reporter.close();
     splashWin = null;
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     console.error(e);
-    if (reporter.active) reporter.fail(message);
-    else {
+    if (reporter.active) {
+      reporter.fail(message);
+      // Closing the failed splash (Cmd+W) must not leave a windowless, half-booted app on macOS.
+      splashWin?.once('closed', () => app.quit());
+    } else {
       dialog.showErrorBox('MIAC could not start', message);
       app.quit();
     }
@@ -296,13 +302,9 @@ if (process.env.MIAC_SMOKE === '1') {
   app.quit();
 } else if (!started) {
   app.on('second-instance', () => {
-    // The main window once it is shown, the splash while booting.
-    const target =
-      mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()
-        ? mainWindow
-        : splashWin && !splashWin.isDestroyed()
-          ? splashWin
-          : null;
+    // The splash while booting (nothing when it is off: the main window is still hidden), else the main window.
+    const win = booting ? splashWin : mainWindow;
+    const target = win && !win.isDestroyed() ? win : null;
     if (!target) return;
     if (target.isMinimized()) target.restore();
     target.focus();
@@ -318,13 +320,16 @@ if (process.env.MIAC_SMOKE === '1') {
 }
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length > 0) return;
+  // During boot the main window is created (with its handlers) by boot itself.
+  if (booting || BrowserWindow.getAllWindows().length > 0) return;
   const w = createWindow();
   w.once('ready-to-show', () => w.show());
   mainWindow = w;
 });
 
 app.on('window-all-closed', () => {
+  // A splash that closes or dies before the main window exists must not end the boot.
+  if (booting) return;
   if (process.platform !== 'darwin') app.quit();
 });
 

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SplashReporter, type SplashWindowLike } from './splash';
+import { SPLASH_CAP_MS, SplashReporter, type SplashWindowLike } from './splash';
 
 vi.mock('electron', () => ({
   BrowserWindow: class {},
@@ -7,7 +7,12 @@ vi.mock('electron', () => ({
 }));
 
 function stub() {
-  let ready: () => void = () => {};
+  const handlers = new Map<string, () => void>();
+  const emit = (e: string) => {
+    const fn = handlers.get(e);
+    handlers.delete(e);
+    fn?.();
+  };
   let destroyed = false;
   const sent: [string, unknown[]][] = [];
   const win: SplashWindowLike = {
@@ -16,18 +21,26 @@ function stub() {
       send: (c, ...a) => {
         sent.push([c, a]);
       },
+      once: (_e, fn) => {
+        handlers.set('did-finish-load', fn);
+      },
     },
     close: vi.fn(() => {
       destroyed = true;
     }),
-    once: (_e, fn) => {
-      ready = fn;
+    once: (e, fn) => {
+      handlers.set(e, fn);
     },
   };
   return {
     win,
     sent,
-    show: () => ready(),
+    show: () => emit('ready-to-show'),
+    loaded: () => emit('did-finish-load'),
+    closed: () => {
+      destroyed = true;
+      emit('closed');
+    },
     destroy: () => {
       destroyed = true;
     },
@@ -75,15 +88,45 @@ describe('SplashReporter', () => {
     r.skip();
     expect(await settled(d)).toBe(true);
   });
-  it('sends steps and failures', () => {
+  it('sends steps and failures once the page has loaded', () => {
     const s = stub();
     const r = new SplashReporter(s.win);
+    s.loaded();
     r.step('Loading tasks');
     r.fail('state.json: EACCES');
     expect(s.sent).toEqual([
       ['splash:step', ['Loading tasks']],
       ['splash:fail', ['state.json: EACCES']],
     ]);
+  });
+  it('replays the last step and a failure reported before the page loaded', () => {
+    const s = stub();
+    const r = new SplashReporter(s.win);
+    r.step('Loading tasks');
+    r.step('Starting usage receiver 127.0.0.1:4319');
+    r.fail('state.json: EACCES');
+    expect(s.sent).toEqual([]);
+    s.loaded();
+    expect(s.sent).toEqual([
+      ['splash:step', ['Starting usage receiver 127.0.0.1:4319']],
+      ['splash:fail', ['state.json: EACCES']],
+    ]);
+  });
+  it('done settles when the splash closes before it shows', async () => {
+    const s = stub();
+    const r = new SplashReporter(s.win);
+    const d = r.done();
+    s.closed();
+    expect(await settled(d)).toBe(true);
+  });
+  it('done settles at the cap when the splash never shows', async () => {
+    const s = stub();
+    const r = new SplashReporter(s.win);
+    const d = r.done();
+    await vi.advanceTimersByTimeAsync(SPLASH_CAP_MS - 1);
+    expect(await settled(d)).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await settled(d)).toBe(true);
   });
   it('never resolves done after a failure, and keeps the window', async () => {
     const s = stub();
