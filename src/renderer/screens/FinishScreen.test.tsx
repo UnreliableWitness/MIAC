@@ -145,4 +145,67 @@ describe('FinishScreen', () => {
     );
     expect(useStore.getState().screen).toEqual({ kind: 'finish', taskId: 'a' });
   });
+
+  it('lets you clean up without checks when inspecting fails', async () => {
+    const { calls } = installFakeApi({
+      'tasks:finishChecks': () => {
+        throw new Error('worktree gone');
+      },
+      'tasks:finish': () => undefined,
+    });
+    render(<FinishScreen taskId="a" />);
+    expect(
+      await screen.findByText(
+        /Could not inspect the worktree: .*worktree gone/,
+      ),
+    ).toBeInTheDocument();
+    const btn = screen.getByRole('button', { name: 'Clean up without checks' });
+    expect(btn).toBeEnabled();
+    await userEvent.click(btn);
+    await waitFor(() =>
+      expect(calls.some((c) => c.channel === 'tasks:finish')).toBe(true),
+    );
+  });
+
+  it('does not fetch checks for a task that is not ready', async () => {
+    useStore.setState({ tasks: [{ ...task, status: 'setup-failed' }] });
+    const { calls } = installFakeApi({ 'tasks:finishChecks': () => clean });
+    render(<FinishScreen taskId="a" />);
+    expect(
+      screen.getByText(
+        /This task is setup-failed\. Finish it once setup has succeeded/,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Keep task' }),
+    ).toBeInTheDocument();
+    expect(calls.some((c) => c.channel === 'tasks:finishChecks')).toBe(false);
+  });
+
+  it('lists uncommitted files in a scrollable block', async () => {
+    installFakeApi({
+      'tasks:finishChecks': () => ({
+        ...dirty,
+        uncommitted: [
+          { status: 'M', path: 'src/a.ts' },
+          { status: 'M', path: 'src/b.ts' },
+          { status: 'M', path: 'src/c.ts' },
+        ],
+      }),
+    });
+    render(<FinishScreen taskId="a" />);
+    const el = await screen.findByText(/M src\/a\.ts/);
+    expect(el).toHaveClass('files');
+    expect(el.textContent).toContain('src/b.ts');
+    expect(el.textContent).toContain('src/c.ts');
+  });
+
+  it('disables the terminal checkbox when there are no terminals', async () => {
+    useStore.setState({ tasks: [{ ...task, terminals: [] }] });
+    installFakeApi({ 'tasks:finishChecks': () => clean });
+    render(<FinishScreen taskId="a" />);
+    const box = await screen.findByLabelText('Close 0 terminals');
+    expect(box).toBeDisabled();
+    expect(box).not.toBeChecked();
+  });
 });

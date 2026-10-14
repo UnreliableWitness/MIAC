@@ -17,24 +17,52 @@ export function FinishScreen({ taskId }: { taskId: string }) {
   const notify = useStore((s) => s.notify);
   const [checks, setChecks] = useState<FinishChecks | null>(null);
   const [closeTerminals, setCloseTerminals] = useState(true);
-  const [removeWorktree, setRemoveWorktree] = useState(true);
+  const [removeWorktree, setRemoveWorktree] = useState(!task?.worktreeMissing);
   const [deleteBranch, setDeleteBranch] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [checksFailed, setChecksFailed] = useState<string | null>(null);
+  const ready = task?.status === 'ready';
 
   useEffect(() => {
+    if (!ready) return;
     let live = true;
-    void tryInvoke(
-      () => api().invoke('tasks:finishChecks', taskId),
-      notify,
-    ).then((c) => {
+    void tryInvoke(async () => {
+      try {
+        return await api().invoke('tasks:finishChecks', taskId);
+      } catch (e) {
+        if (live)
+          setChecksFailed(e instanceof Error ? e.message : 'unknown error');
+        throw e;
+      }
+    }, notify).then((c) => {
       if (live && c) setChecks(c);
     });
     return () => {
       live = false;
     };
-  }, [taskId, notify]);
+  }, [taskId, notify, ready]);
 
   if (!task) return null;
+
+  if (!ready) {
+    return (
+      <div className="overlay" style={{ paddingTop: 72 }}>
+        <div role="dialog" aria-labelledby="fn-title" className="dialog finish">
+          <h2 id="fn-title">Finish task {task.workItem?.id ?? task.name}</h2>
+          <div className="muted">{`This task is ${task.status}. Finish it once setup has succeeded; use the Setup screen to retry or remove it.`}</div>
+          <div className="finish-foot">
+            <button
+              type="button"
+              className="btn"
+              onClick={() => go({ kind: 'workspace' })}
+            >
+              Keep task
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const openGit = async (label: string, command: string) => {
     const opened = await tryInvoke(
@@ -49,7 +77,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
     setBusy(true);
     const ok = await tryInvoke(async () => {
       await api().invoke('tasks:finish', taskId, {
-        closeTerminals,
+        closeTerminals: closeTerminals && nTerm > 0,
         removeWorktree,
         deleteBranch,
       });
@@ -59,9 +87,12 @@ export function FinishScreen({ taskId }: { taskId: string }) {
     if (ok) go({ kind: 'workspace' });
   };
 
-  const dirty = checks
-    ? checks.uncommitted.length > 0 || checks.unpushed > 0
-    : false;
+  const dirty = checksFailed
+    ? true
+    : checks
+      ? checks.uncommitted.length > 0 || checks.unpushed > 0
+      : false;
+  const nTerm = task.terminals.length;
   const terminalLabels = task.terminals.map((t) => t.label).join(', ');
 
   return (
@@ -74,14 +105,22 @@ export function FinishScreen({ taskId }: { taskId: string }) {
 
         <div className="finish-section">
           <div className="label">Safety checks</div>
-          {!checks && <div className="muted">Checking{ELLIPSIS}</div>}
+          {!checks && !checksFailed && (
+            <div className="muted">Checking{ELLIPSIS}</div>
+          )}
+          {checksFailed && (
+            <div className="check check-warn">
+              <span aria-hidden="true">{G.WARN}</span>
+              <div className="body">{`Could not inspect the worktree: ${checksFailed}. You can still clean up.`}</div>
+            </div>
+          )}
           {checks &&
             (checks.uncommitted.length > 0 ? (
               <div className="check check-warn">
                 <span aria-hidden="true">{G.WARN}</span>
                 <div className="body">
                   <div className="title">{`${checks.uncommitted.length} uncommitted change${checks.uncommitted.length === 1 ? '' : 's'}`}</div>
-                  <div className="mono small">
+                  <div className="mono small files">
                     {checks.uncommitted
                       .map((f) => `${f.status} ${f.path}`)
                       .join('\n')}
@@ -152,10 +191,11 @@ export function FinishScreen({ taskId }: { taskId: string }) {
           <label className="checkbox">
             <input
               type="checkbox"
-              checked={closeTerminals}
+              checked={closeTerminals && nTerm > 0}
+              disabled={nTerm === 0}
               onChange={(e) => setCloseTerminals(e.target.checked)}
             />
-            {`Close ${task.terminals.length} terminals (${terminalLabels})`}
+            {`Close ${nTerm} terminal${nTerm === 1 ? '' : 's'}${nTerm > 0 ? ` (${terminalLabels})` : ''}`}
           </label>
           <label className="checkbox">
             <input
@@ -187,10 +227,14 @@ export function FinishScreen({ taskId }: { taskId: string }) {
           <button
             type="button"
             className={dirty ? 'btn btn-danger' : 'btn btn-green'}
-            disabled={busy || !checks}
+            disabled={busy || (!checks && !checksFailed)}
             onClick={finish}
           >
-            {dirty ? 'Discard changes and clean up' : 'Finish and clean up'}
+            {checksFailed
+              ? 'Clean up without checks'
+              : dirty
+                ? 'Discard changes and clean up'
+                : 'Finish and clean up'}
           </button>
         </div>
       </div>

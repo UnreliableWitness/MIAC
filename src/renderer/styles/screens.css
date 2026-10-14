@@ -529,3 +529,8 @@
   padding-top: 8px;
   border-top: 1px solid var(--border);
 }
+.check .files {
+  white-space: pre-wrap;
+  max-height: 160px;
+  overflow: auto;
+}
