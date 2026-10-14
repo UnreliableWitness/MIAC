@@ -33,7 +33,19 @@ export class TaskStore {
       return { recovered: false };
     } catch {
       const backup = `${this.filePath}.corrupt-${Date.now()}`;
-      await fs.rename(this.filePath, backup);
+      try {
+        await fs.rename(this.filePath, backup);
+      } catch {
+        // Rename can fail on Windows when the file is locked; keep a copy instead.
+        try {
+          await fs.copyFile(this.filePath, backup);
+        } catch (e) {
+          const message = e instanceof Error ? e.message : String(e);
+          throw new Error(
+            `state.json is corrupt and could not be backed up to ${backup}: ${message}`,
+          );
+        }
+      }
       this.current = emptyState();
       return { recovered: true, backup };
     }
