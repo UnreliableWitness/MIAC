@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { api } from './api';
 import { Notices } from './components/Notices';
+import { NewTaskScreen } from './screens/NewTaskScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { WorkspaceScreen } from './screens/WorkspaceScreen';
 import { useStore } from './store';
@@ -25,6 +26,7 @@ export function App() {
   return (
     <div className="app">
       {screen.kind === 'settings' ? <SettingsScreen /> : <WorkspaceScreen />}
+      {screen.kind === 'new-task' && <NewTaskScreen />}
       <Notices />
     </div>
   );

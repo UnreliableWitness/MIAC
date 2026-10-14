@@ -102,3 +102,60 @@
   display: flex;
   min-height: 0;
 }
+
+.newtask {
+  max-width: 1080px;
+}
+.newtask-body {
+  display: flex;
+  flex-wrap: wrap;
+}
+.newtask-left {
+  flex: 999 1 460px;
+  min-width: 0;
+  padding: 20px 24px;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.newtask-right {
+  flex: 1 1 340px;
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background: var(--panel-2);
+}
+.form-grid {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 10px 12px;
+  align-items: center;
+}
+.form-grid label,
+.form-grid .label {
+  color: var(--muted);
+}
+.form-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.form-stack label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.form-stack .field {
+  font-size: 14px;
+}
+.actions {
+  display: flex;
+  gap: 10px;
+  margin-top: auto;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
