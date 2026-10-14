@@ -3,6 +3,8 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { which } from '../platform/which';
+import { windowsPlatform } from '../platform/windows';
 import {
   echoCmd,
   envRef,
@@ -65,5 +67,55 @@ describe('shell test helpers', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+// The setup-command wrapper on both Windows shells. Windows PowerShell 5.1 wraps native stderr in
+// error records when its output is redirected; that must not fail a command that exits 0.
+describe.runIf(isWindows).each([
+  ['Windows PowerShell 5.1', (n: string) => (n === 'pwsh' ? null : which(n))],
+  ['PowerShell 7', (n: string) => which(n)],
+])('setup commands under %s', (_name, find) => {
+  const runIn = (cmd: string) => {
+    const { command, args } = windowsPlatform(process.env, {
+      which: find,
+    }).shellCommand(cmd);
+    return spawnSync(command, args, { encoding: 'utf8' });
+  };
+
+  it('uses the intended shell', () => {
+    const r = runIn('$PSVersionTable.PSVersion.Major');
+    expect(r.status).toBe(0);
+    const major = Number(r.stdout.trim());
+    if (find('pwsh') === null) expect(major).toBe(5);
+    else expect(major).toBeGreaterThanOrEqual(7);
+  });
+
+  it('native stderr with exit 0 succeeds', () => {
+    const r = runIn('cmd /c "echo warn 1>&2"');
+    expect(r.stderr).toContain('warn');
+    expect(r.status).toBe(0);
+  });
+
+  it('a native exit code is passed on', () => {
+    expect(runIn('cmd /c exit 3').status).toBe(3);
+  });
+
+  it('a missing command fails', () => {
+    expect(runIn('miac-no-such-command-xyz').status).not.toBe(0);
+  });
+
+  it('a cmdlet error fails', () => {
+    expect(runIn('Write-Error x').status).not.toBe(0);
+  });
+
+  it('a silenced cmdlet error does not fail', () => {
+    expect(
+      runIn('Get-Item C:\\miac-no-such -ErrorAction SilentlyContinue').status,
+    ).toBe(0);
+  });
+
+  it('a trailing comment does not swallow the wrapper', () => {
+    expect(runIn('cmd /c exit 4 # comment').status).toBe(4);
   });
 });

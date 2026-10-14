@@ -2,7 +2,19 @@ import { describe, expect, it } from 'vitest';
 import { shimSafePrompt, windowsPlatform } from './windows';
 
 const WRAP = (cmd: string) =>
-  `$ErrorActionPreference = 'Stop'; & { ${cmd} }; if ($LASTEXITCODE) { exit $LASTEXITCODE }`;
+  [
+    '$miacFailed = $false',
+    '& {',
+    cmd,
+    '} 2>&1 | ForEach-Object {',
+    '  if ($_ -is [System.Management.Automation.ErrorRecord]) {',
+    `    if ("$($_.FullyQualifiedErrorId)" -notlike 'NativeCommandError*') { $miacFailed = $true }`,
+    '    [Console]::Error.WriteLine("$_")',
+    '  } else { $_ }',
+    '}',
+    'if ($LASTEXITCODE) { exit $LASTEXITCODE }',
+    'if ($miacFailed) { exit 1 }',
+  ].join('\n');
 const make = (found: Record<string, string>) =>
   windowsPlatform({}, { which: (n) => found[n] ?? null });
 
@@ -32,6 +44,12 @@ describe('windowsPlatform', () => {
         WRAP('npm ci'),
       ],
     });
+  });
+
+  it('keeps a trailing comment in a setup command from swallowing the wrapper', () => {
+    const args = make({}).shellCommand('npm ci # install').args;
+    expect(args.at(-1)).toBe(WRAP('npm ci # install'));
+    expect(args.at(-1)).toContain('npm ci # install\n}');
   });
 
   it('starts a native claude.exe directly with the prompt as one argument', () => {
@@ -97,7 +115,11 @@ describe('windowsPlatform', () => {
   });
 
   it('opens VS Code with a quoted path', () => {
-    expect(make({}).editorCommand("C:\\src\\o'brien.worktrees\\3-x")).toEqual({
+    expect(
+      make({ code: 'C:\\VS\\bin\\code.cmd' }).editorCommand(
+        "C:\\src\\o'brien.worktrees\\3-x",
+      ),
+    ).toEqual({
       command: 'powershell.exe',
       args: [
         '-NoLogo',
@@ -108,6 +130,24 @@ describe('windowsPlatform', () => {
         "& code 'C:\\src\\o''brien.worktrees\\3-x'",
       ],
     });
+  });
+
+  it('quotes typographic single quotes in paths, which PowerShell also treats as quotes', () => {
+    const [l, r, low, rev] = [0x2018, 0x2019, 0x201a, 0x201b].map((c) =>
+      String.fromCharCode(c),
+    );
+    const p = `C:\\src\\o${r}brien ${l}x${low}${rev}`;
+    expect(
+      make({ code: 'C:\\VS\\bin\\code.cmd' }).editorCommand(p).args.at(-1),
+    ).toBe(
+      `& code 'C:\\src\\o${r}${r}brien ${l}${l}x${low}${low}${rev}${rev}'`,
+    );
+  });
+
+  it('reports a missing VS Code clearly', () => {
+    expect(() => make({}).editorCommand('C:\\x')).toThrow(
+      'VS Code (code) is not on PATH',
+    );
   });
 
   it('shimSafePrompt strips quotes and cmd metacharacters', () => {
