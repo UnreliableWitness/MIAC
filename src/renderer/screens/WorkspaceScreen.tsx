@@ -1,7 +1,7 @@
-import { TaskHeader } from '../components/TaskHeader';
 import { TaskNav } from '../components/TaskNav';
 import { TerminalTabs } from '../components/TerminalTabs';
-import { TopBar } from '../components/TopBar';
+import { IconButton } from '../components/instrument';
+import { CrumbStrip, TaskStrip } from '../components/TaskStrip';
 import { useStore } from '../store';
 
 const PLUS = String.fromCharCode(0xff0b);
@@ -14,24 +14,22 @@ export function WorkspaceScreen() {
   );
   return (
     <>
-      <TopBar>
-        <div className="spacer" />
-        <button
-          type="button"
-          className="btn btn-primary"
-          onClick={() => go({ kind: 'new-task' })}
-        >
-          {PLUS} New task
-        </button>
-        <button
-          type="button"
-          className="btn"
-          aria-label="Settings"
-          onClick={() => go({ kind: 'settings' })}
-        >
-          {GEAR}
-        </button>
-      </TopBar>
+      {task ? (
+        <TaskStrip key={`strip-${task.id}`} task={task} />
+      ) : (
+        <CrumbStrip crumb="Tasks">
+          <IconButton
+            label="New task"
+            tone="accent"
+            onClick={() => go({ kind: 'new-task' })}
+          >
+            {PLUS}
+          </IconButton>
+          <IconButton label="Settings" onClick={() => go({ kind: 'settings' })}>
+            {GEAR}
+          </IconButton>
+        </CrumbStrip>
+      )}
       <div className="workspace">
         <TaskNav />
         <main className="taskmain">
@@ -54,7 +52,6 @@ export function WorkspaceScreen() {
             </div>
           ) : task && task.status !== 'done' ? (
             <>
-              <TaskHeader key={`head-${task.id}`} task={task} />
               <TerminalTabs key={`tabs-${task.id}`} task={task} />
             </>
           ) : task ? (

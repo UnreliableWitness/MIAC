@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { SetupEvent, SetupState } from '../../shared/types';
 import { api, tryInvoke } from '../api';
 import { StepList } from '../components/StepList';
-import { TopBar } from '../components/TopBar';
+import { CrumbStrip } from '../components/TaskStrip';
 import { useStore } from '../store';
 
 export function applySetupEvent(state: SetupState, e: SetupEvent): SetupState {
@@ -142,8 +142,12 @@ export function SetupScreen({ taskId }: { taskId: string }) {
 
   return (
     <>
-      <TopBar
-        crumb={`${repo?.name ?? ''} / ${task.workItem?.id ?? task.name}`}
+      <CrumbStrip
+        crumb={`${repo?.name ?? ''} / ${task.workItem?.id ?? task.name} / setup`}
+        back={{
+          label: 'Back to tasks',
+          onClick: () => go({ kind: 'workspace' }),
+        }}
       />
       <div className="setup">
         <section className="setup-left">

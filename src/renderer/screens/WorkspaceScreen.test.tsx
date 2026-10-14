@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TaskView } from '../../shared/types';
@@ -16,7 +16,9 @@ vi.mock('../components/TerminalView', () => ({
   }) => <div data-testid={`term-${terminalId}`} data-active={active} />,
 }));
 
-const AHEAD_BEHIND = `${String.fromCharCode(0x2191)}2 ${String.fromCharCode(0x2193)}0`;
+const AHEAD_CHANGED = new RegExp(
+  `${String.fromCharCode(0x2191)}2 ${String.fromCharCode(0xb7)} 3${String.fromCharCode(0x394)}`,
+);
 
 const task: TaskView = {
   id: 'a',
@@ -84,61 +86,7 @@ beforeEach(() =>
 );
 
 describe('WorkspaceScreen', () => {
-  it('opens the work item in Azure DevOps from the header badge', async () => {
-    const { calls } = installFakeApi({
-      'repos:config': () => config,
-      'tasks:gitSummary': () => ({
-        branch: 'x',
-        ahead: 0,
-        behind: 0,
-        hasUpstream: false,
-        files: [],
-      }),
-      'shell:openExternal': () => undefined,
-    });
-    useStore.setState({
-      tasks: [
-        {
-          ...task,
-          workItem: {
-            ...task.workItem!,
-            url: 'https://dev.azure.com/unreliablewitness/MIAC/_workitems/edit/48213',
-          },
-        },
-      ],
-    });
-    render(<WorkspaceScreen />);
-    await userEvent.click(
-      screen.getByRole('button', {
-        name: /Open User Story 48213 in Azure DevOps/,
-      }),
-    );
-    await waitFor(() =>
-      expect(
-        calls.find((c) => c.channel === 'shell:openExternal')?.args,
-      ).toEqual([
-        'https://dev.azure.com/unreliablewitness/MIAC/_workitems/edit/48213',
-      ]),
-    );
-  });
-  it('shows a plain badge for typed work items without a url', () => {
-    installFakeApi({
-      'repos:config': () => config,
-      'tasks:gitSummary': () => ({
-        branch: 'x',
-        ahead: 0,
-        behind: 0,
-        hasUpstream: false,
-        files: [],
-      }),
-    });
-    render(<WorkspaceScreen />);
-    expect(
-      screen.queryByRole('button', { name: /in Azure DevOps/ }),
-    ).not.toBeInTheDocument();
-    expect(screen.getByText('User Story 48213')).toBeInTheDocument();
-  });
-  it('shows the task header with git summary and the terminal tabs', async () => {
+  it('shows the task strip with git state and the terminal tabs', async () => {
     installFakeApi({
       'repos:config': () => config,
       'tasks:gitSummary': () => ({
@@ -155,12 +103,11 @@ describe('WorkspaceScreen', () => {
     });
     render(<WorkspaceScreen />);
     expect(
-      screen.getByRole('heading', {
-        name: 'Checkout: allow saving a delivery address',
-      }),
+      within(screen.getByRole('banner')).getByText(
+        'Checkout: allow saving a delivery address',
+      ),
     ).toBeInTheDocument();
-    expect(await screen.findByText(AHEAD_BEHIND)).toBeInTheDocument();
-    expect(screen.getByText('3 changed')).toBeInTheDocument();
+    expect(await screen.findByText(AHEAD_CHANGED)).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /Claude Code/ })).toHaveAttribute(
       'aria-selected',
       'true',
@@ -307,7 +254,7 @@ describe('WorkspaceScreen', () => {
     expect(screen.getByTestId('term-c1')).toBeInTheDocument();
     act(() => useStore.setState({ selectedTaskId: 'b' }));
     expect(
-      screen.getByRole('heading', { name: 'Second task' }),
+      within(screen.getByRole('banner')).getByText('Second task'),
     ).toBeInTheDocument();
     expect(screen.getByTestId('term-c2')).toHaveAttribute(
       'data-active',
@@ -322,14 +269,12 @@ describe('WorkspaceScreen', () => {
     );
   });
 
-  it('shows an Open setup panel instead of the header for a setup-failed task', async () => {
+  it('shows an Open setup panel instead of the terminals for a setup-failed task', async () => {
     installFakeApi();
     useStore.setState({ tasks: [{ ...task, status: 'setup-failed' }] });
     render(<WorkspaceScreen />);
     expect(screen.getByText('Setup failed for this task.')).toBeInTheDocument();
-    expect(
-      screen.queryByRole('button', { name: 'Finish task' }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Open setup' }));
     expect(useStore.getState().screen).toEqual({
       kind: 'setup',

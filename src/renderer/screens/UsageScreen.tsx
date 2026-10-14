@@ -3,7 +3,7 @@ import type { FieldsStatus, UsageTool } from '../../shared/usage';
 import { AI_FIELDS } from '../../shared/usage';
 import { aiFieldValues, renderUsageComment } from '../../shared/workItemUsage';
 import { api, tryInvoke } from '../api';
-import { TopBar } from '../components/TopBar';
+import { CrumbStrip } from '../components/TaskStrip';
 import { ago, compact, eur } from '../format';
 import { useTaskUsage } from '../hooks/useTaskUsage';
 import { useStore } from '../store';
@@ -53,22 +53,11 @@ export function UsageScreen({ taskId }: { taskId: string }) {
   }, [linked, connectionId]);
 
   const back = () => go({ kind: 'workspace' });
-  const backLink = (
-    <a
-      href="#"
-      className="spacer"
-      onClick={(e) => {
-        e.preventDefault();
-        back();
-      }}
-    >
-      Back to task
-    </a>
-  );
+  const backTo = { label: 'Back to task', onClick: back };
   if (!task)
     return (
       <>
-        <TopBar crumb="AI usage">{backLink}</TopBar>
+        <CrumbStrip crumb="AI usage" back={backTo} />
         <div className="empty">Task not found</div>
       </>
     );
@@ -119,11 +108,10 @@ export function UsageScreen({ taskId }: { taskId: string }) {
 
   return (
     <>
-      <TopBar
+      <CrumbStrip
         crumb={`${repo?.name ?? ''} / ${task.workItem?.id ?? task.name} / AI usage`}
-      >
-        {backLink}
-      </TopBar>
+        back={backTo}
+      />
       <div className="usage">
         <main className="usage-main">
           <h1>{task.workItem?.title ?? task.name}</h1>

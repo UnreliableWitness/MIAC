@@ -3,7 +3,7 @@ import type { MiacConfig, Repo } from '../../shared/types';
 import { api, tryInvoke } from '../api';
 import { ConnectionsSection } from '../components/ConnectionsSection';
 import { CostSection } from '../components/CostSection';
-import { TopBar } from '../components/TopBar';
+import { CrumbStrip } from '../components/TaskStrip';
 import { useStore } from '../store';
 
 function renderConfig(
@@ -123,18 +123,13 @@ export function SettingsScreen() {
 
   return (
     <>
-      <TopBar crumb="Settings">
-        <a
-          href="#"
-          className="spacer"
-          onClick={(e) => {
-            e.preventDefault();
-            go({ kind: 'workspace' });
-          }}
-        >
-          Back to tasks
-        </a>
-      </TopBar>
+      <CrumbStrip
+        crumb="Settings"
+        back={{
+          label: 'Back to tasks',
+          onClick: () => go({ kind: 'workspace' }),
+        }}
+      />
       <div className="settings">
         <nav className="settings-nav" aria-label="Settings sections">
           <a href="#repos" className="active">
