@@ -5,38 +5,15 @@ import type {
   Rate,
   ReceiverStatus,
 } from '../../shared/usage';
+import { OFFICIAL_USD_TO_EUR } from '../../shared/usage';
 import { api, tryInvoke } from '../api';
 import { useStore } from '../store';
 
-type Draft = {
-  id: string;
-  label: string;
-  match: string;
-  minInputTokens: string;
-  fast: boolean;
-  inputPerM: string;
-  cachedInputPerM: string;
-  cacheWritePerM: string;
-  outputPerM: string;
-};
 type SettingsDraft = {
-  usdToEur: string;
-  markupPct: string;
   receiverPort: string;
   hourlySync: boolean;
 };
 
-const toDraft = (r: Rate): Draft => ({
-  id: r.id,
-  label: r.label,
-  match: r.match.join(', '),
-  minInputTokens: String(r.minInputTokens),
-  fast: r.fast,
-  inputPerM: String(r.inputPerM),
-  cachedInputPerM: String(r.cachedInputPerM),
-  cacheWritePerM: String(r.cacheWritePerM),
-  outputPerM: String(r.outputPerM),
-});
 /** A number typed in a field, or null when it is blank or not a number (Number('') would be 0). */
 const parseNumber = (v: string): number | null => {
   if (v.trim() === '') return null;
@@ -44,39 +21,16 @@ const parseNumber = (v: string): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
-const PRICE_FIELDS = [
-  ['inputPerM', 'input per 1M'],
-  ['cachedInputPerM', 'cached input per 1M'],
-  ['cacheWritePerM', 'cache write per 1M'],
-  ['outputPerM', 'output per 1M'],
-] as const;
+/** A price with up to 3 decimals and no trailing zeros. */
+const price = (n: number): string => String(Math.round(n * 1000) / 1000);
 
-/** The rate, or the first error naming the row and the field. */
-const fromDraft = (d: Draft): Rate | string => {
-  const numbers: Record<string, number> = {};
-  for (const [key, name] of [
-    ['minInputTokens', 'min input tokens'],
-    ...PRICE_FIELDS,
-  ] as const) {
-    const n = parseNumber(d[key]);
-    if (n === null) return `${d.label}: ${name} must be a number`;
-    numbers[key] = n;
-  }
-  return {
-    id: d.id,
-    label: d.label,
-    match: d.match
-      .split(',')
-      .map((m) => m.trim())
-      .filter(Boolean),
-    minInputTokens: numbers.minInputTokens,
-    fast: d.fast,
-    inputPerM: numbers.inputPerM,
-    cachedInputPerM: numbers.cachedInputPerM,
-    cacheWritePerM: numbers.cacheWritePerM,
-    outputPerM: numbers.outputPerM,
-  };
-};
+const tier = (r: Rate): string =>
+  [
+    r.minInputTokens > 0 ? `from ${r.minInputTokens} input tokens` : '',
+    r.fast ? 'fast' : '',
+  ]
+    .filter(Boolean)
+    .join(', ');
 
 function InvoicingPart() {
   const notify = useStore((s) => s.notify);
@@ -89,8 +43,6 @@ function InvoicingPart() {
     void tryInvoke(() => api().invoke('settings:get'), notify).then((s) => {
       if (live && s)
         setDraft({
-          usdToEur: String(s.usdToEur),
-          markupPct: String(s.markupPct),
           receiverPort: String(s.receiverPort),
           hourlySync: s.hourlySync,
         });
@@ -112,24 +64,14 @@ function InvoicingPart() {
 
   const save = async () => {
     if (!draft) return;
-    const usdToEur = parseNumber(draft.usdToEur);
-    const markupPct = parseNumber(draft.markupPct);
     const receiverPort = parseNumber(draft.receiverPort);
-    if (usdToEur === null || markupPct === null || receiverPort === null) {
-      const field =
-        usdToEur === null
-          ? 'USD to EUR'
-          : markupPct === null
-            ? 'Markup %'
-            : 'Usage receiver port';
-      setError(`${field} must be a number`);
+    if (receiverPort === null) {
+      setError('Usage receiver port must be a number');
       return;
     }
     setError(null);
     const settings: AppSettings = {
       version: 1,
-      usdToEur,
-      markupPct,
       receiverPort,
       hourlySync: draft.hourlySync,
     };
@@ -145,24 +87,7 @@ function InvoicingPart() {
       {draft && (
         <div className="conn-form">
           <span>Invoice currency</span>
-          <span>EUR</span>
-          <label htmlFor="cost-fx">USD to EUR</label>
-          <input
-            id="cost-fx"
-            className="field mono"
-            type="number"
-            step="0.0001"
-            value={draft.usdToEur}
-            onChange={(e) => setDraft({ ...draft, usdToEur: e.target.value })}
-          />
-          <label htmlFor="cost-markup">Markup %</label>
-          <input
-            id="cost-markup"
-            className="field mono"
-            type="number"
-            value={draft.markupPct}
-            onChange={(e) => setDraft({ ...draft, markupPct: e.target.value })}
-          />
+          <span>{`EUR at ${OFFICIAL_USD_TO_EUR} per USD (built in)`}</span>
           <label htmlFor="cost-port">Usage receiver port</label>
           <input
             id="cost-port"
@@ -221,16 +146,14 @@ function InvoicingPart() {
 
 function RatesPart() {
   const notify = useStore((s) => s.notify);
-  const [rows, setRows] = useState<Draft[]>([]);
+  const [rows, setRows] = useState<Rate[]>([]);
   const [officialAsOf, setOfficialAsOf] = useState('');
-  const [confirming, setConfirming] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let live = true;
     void tryInvoke(() => api().invoke('rates:list'), notify).then((r) => {
       if (live && r) {
-        setRows(r.rates.map(toDraft));
+        setRows(r.rates);
         setOfficialAsOf(r.officialAsOf);
       }
     });
@@ -239,179 +162,38 @@ function RatesPart() {
     };
   }, [notify]);
 
-  const patch = (id: string, change: Partial<Draft>) =>
-    setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...change } : r)));
-
-  const save = async () => {
-    const parsed = rows.map(fromDraft);
-    const bad = parsed.find((r) => typeof r === 'string');
-    if (bad !== undefined) {
-      setError(bad);
-      return;
-    }
-    setError(null);
-    const valid = parsed.filter((r): r is Rate => typeof r !== 'string');
-    const saved = await tryInvoke(
-      () => api().invoke('rates:save', valid),
-      notify,
-    );
-    if (saved) {
-      setRows(saved.map(toDraft));
-      notify('info', 'Rates saved');
-    }
-  };
-  const reset = async () => {
-    const fresh = await tryInvoke(() => api().invoke('rates:reset'), notify);
-    setConfirming(false);
-    if (fresh) setRows(fresh.map(toDraft));
-  };
-
   return (
     <div className="list">
+      <div className="small muted" style={{ padding: '10px 16px' }}>
+        {`Official list prices as of ${officialAsOf} (USD per 1M tokens)`}
+      </div>
       <div style={{ overflowX: 'auto' }}>
         <table className="rates">
           <thead>
             <tr>
-              <th>Label</th>
-              <th>Models</th>
-              <th>Min input tokens</th>
-              <th>Fast</th>
+              <th>Model</th>
+              <th>Matches</th>
+              <th>Tier</th>
               <th>Input</th>
               <th>Cached input</th>
               <th>Cache write</th>
               <th>Output</th>
-              <th />
             </tr>
           </thead>
           <tbody>
             {rows.map((r) => (
               <tr key={r.id}>
-                <td>
-                  <input
-                    className="field"
-                    aria-label={`${r.label} label`}
-                    value={r.label}
-                    onChange={(e) => patch(r.id, { label: e.target.value })}
-                  />
-                </td>
-                <td>
-                  <input
-                    className="field mono"
-                    aria-label={`${r.label} models`}
-                    value={r.match}
-                    onChange={(e) => patch(r.id, { match: e.target.value })}
-                  />
-                </td>
-                <td>
-                  <input
-                    className="field mono"
-                    type="number"
-                    aria-label={`${r.label} min input tokens`}
-                    value={r.minInputTokens}
-                    onChange={(e) =>
-                      patch(r.id, { minInputTokens: e.target.value })
-                    }
-                  />
-                </td>
-                <td>
-                  <input
-                    type="checkbox"
-                    aria-label={`${r.label} fast`}
-                    checked={r.fast}
-                    onChange={(e) => patch(r.id, { fast: e.target.checked })}
-                  />
-                </td>
-                {PRICE_FIELDS.map(([key, name]) => (
-                  <td key={key}>
-                    <input
-                      className="field mono"
-                      type="number"
-                      step="any"
-                      aria-label={`${r.label} ${name}`}
-                      value={r[key]}
-                      onChange={(e) => patch(r.id, { [key]: e.target.value })}
-                    />
-                  </td>
-                ))}
-                <td>
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    aria-label={`Delete ${r.label}`}
-                    onClick={() =>
-                      setRows((rs) => rs.filter((x) => x.id !== r.id))
-                    }
-                  >
-                    Delete
-                  </button>
-                </td>
+                <td>{r.label}</td>
+                <td className="mono">{r.match.join(', ')}</td>
+                <td>{tier(r)}</td>
+                <td className="mono">{price(r.inputPerM)}</td>
+                <td className="mono">{price(r.cachedInputPerM)}</td>
+                <td className="mono">{price(r.cacheWritePerM)}</td>
+                <td className="mono">{price(r.outputPerM)}</td>
               </tr>
             ))}
           </tbody>
         </table>
-      </div>
-      <div className="list-row">
-        <button
-          type="button"
-          className="btn btn-sm"
-          onClick={() =>
-            setRows((rs) => [
-              ...rs,
-              toDraft({
-                id: `custom-${Date.now()}`,
-                label: 'New rate',
-                match: ['model-id'],
-                minInputTokens: 0,
-                fast: false,
-                inputPerM: 0,
-                cachedInputPerM: 0,
-                cacheWritePerM: 0,
-                outputPerM: 0,
-              }),
-            ])
-          }
-        >
-          Add rate
-        </button>
-        <button type="button" className="btn btn-primary btn-sm" onClick={save}>
-          Save rates
-        </button>
-        <button
-          type="button"
-          className="btn btn-ghost btn-sm"
-          onClick={() => setConfirming(true)}
-          disabled={confirming}
-        >
-          Reset to official prices
-        </button>
-      </div>
-      {error && (
-        <div
-          role="alert"
-          className="conn-status-bad"
-          style={{ padding: '10px 16px' }}
-        >
-          {error}
-        </div>
-      )}
-      {confirming && (
-        <div className="conn-confirm" role="status">
-          <span>{`Replace your rates with the official prices of ${officialAsOf}?`}</span>
-          <button type="button" className="btn btn-warn btn-sm" onClick={reset}>
-            Yes, reset
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            onClick={() => setConfirming(false)}
-          >
-            Cancel
-          </button>
-        </div>
-      )}
-      <div className="small muted" style={{ padding: '10px 16px' }}>
-        Prices are USD per million tokens. Changes apply to new usage only;
-        recorded usage keeps the price it was recorded with.
       </div>
     </div>
   );

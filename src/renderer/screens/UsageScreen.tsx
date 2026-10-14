@@ -137,7 +137,7 @@ export function UsageScreen({ taskId }: { taskId: string }) {
               {tile(
                 'Billable AI cost',
                 usage.billable.costEur,
-                `your rates ${DOT} USD to EUR ${usage.usdToEur} ${DOT} ${usage.markupPct > 0 ? `${usage.markupPct}% markup` : 'no markup'}`,
+                `official list prices ${DOT} USD to EUR ${usage.usdToEur}`,
               )}
               {tile(
                 'Claude Code',
@@ -152,7 +152,7 @@ export function UsageScreen({ taskId }: { taskId: string }) {
             </div>
           )}
           {usage && usage.unpricedRequests > 0 && (
-            <div className="check check-warn">{`${usage.unpricedRequests} ${usage.unpricedRequests === 1 ? 'request uses a model that is' : 'requests use models that are'} not in the rate table, so ${usage.unpricedRequests === 1 ? 'it is' : 'they are'} not in the totals. Add a rate in Settings, AI cost and invoicing.`}</div>
+            <div className="check check-warn">{`${usage.unpricedRequests} ${usage.unpricedRequests === 1 ? 'request uses a model' : 'requests use models'} that ${usage.unpricedRequests === 1 ? 'is' : 'are'} not in MIAC's official price list yet, so ${usage.unpricedRequests === 1 ? 'it is' : 'they are'} not in the totals. A MIAC update will add ${usage.unpricedRequests === 1 ? 'it' : 'them'}.`}</div>
           )}
           {usage && usage.sessions.length === 0 ? (
             <div className="empty">
@@ -189,7 +189,7 @@ export function UsageScreen({ taskId }: { taskId: string }) {
                       <td className="mono">
                         {s.unpricedRequests === s.requests
                           ? 'unpriced'
-                          : `${eur(s.costUsd * usage.usdToEur * (1 + usage.markupPct / 100))}${s.unpricedRequests > 0 ? ' + unpriced' : ''}`}
+                          : `${eur(s.costUsd * usage.usdToEur)}${s.unpricedRequests > 0 ? ' + unpriced' : ''}`}
                       </td>
                       <td>
                         <label className="checkbox">
