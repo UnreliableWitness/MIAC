@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { Events } from '../../shared/ipc';
 import type { CreateTaskInput, SetupEvent, Task } from '../../shared/types';
 import { AdoRegistry } from '../services/AdoRegistry';
@@ -1069,6 +1069,65 @@ describe('handlers: usage', () => {
           ),
       ),
     ).toBe(true);
+  });
+
+  it('sync now on a done task retries a failed finish write and posts the comment once', async () => {
+    const hx = await harness();
+    const { t } = await linkedTask(hx);
+    hx.server.route('PATCH', '/unreliablewitness/_apis/wit/workitems/48231', {
+      status: 403,
+      body: {},
+    });
+    await hx.h['tasks:finish'](t.id, {
+      closeTerminals: true,
+      removeWorktree: true,
+      deleteBranch: true,
+      syncUsage: true,
+    });
+    expect(hx.store.state.tasks[0]).toMatchObject({
+      status: 'done',
+      usageCommentId: null,
+    });
+    expect(hx.store.state.tasks[0].usageSyncError).toBeTruthy();
+    hx.server.route('PATCH', '/unreliablewitness/_apis/wit/workitems/48231', {
+      body: { id: 48231 },
+    });
+    expect(await hx.h['usage:sync'](t.id)).toMatchObject({
+      ok: true,
+      commentPosted: true,
+      fieldsWritten: [
+        'Custom.AICost',
+        'Custom.AICostClaude',
+        'Custom.AICostCopilot',
+        'Custom.AITokens',
+      ],
+    });
+    expect(hx.store.state.tasks[0]).toMatchObject({
+      usageCommentId: 501,
+      usageSyncError: null,
+    });
+    expect(await hx.h['usage:sync'](t.id)).toMatchObject({
+      commentPosted: false,
+    });
+    expect(
+      hx.server.requests.filter((r) => r.path.includes('/comments')),
+    ).toHaveLength(1);
+  });
+
+  it('logs a failing hourly sync instead of leaving an unhandled rejection', async () => {
+    const hx = await harness();
+    await linkedTask(hx);
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(hx.usage, 'changedSince').mockImplementation(() => {
+      throw new Error('index broken');
+    });
+    hx.hourly[0]();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(errors).toHaveBeenCalledWith(
+      '[usage] hourly sync failed',
+      expect.any(Error),
+    );
+    errors.mockRestore();
   });
 
   it('sync now and the hourly sync write fields without a comment', async () => {

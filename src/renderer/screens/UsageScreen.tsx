@@ -51,8 +51,26 @@ export function UsageScreen({ taskId }: { taskId: string }) {
     };
   }, [linked, connectionId]);
 
-  if (!task) return null;
   const back = () => go({ kind: 'workspace' });
+  const backLink = (
+    <a
+      href="#"
+      className="spacer"
+      onClick={(e) => {
+        e.preventDefault();
+        back();
+      }}
+    >
+      Back to task
+    </a>
+  );
+  if (!task)
+    return (
+      <>
+        <TopBar crumb="AI usage">{backLink}</TopBar>
+        <div className="empty">Task not found</div>
+      </>
+    );
   const typeFields = fields?.types.find(
     (t) => t.type.toLowerCase() === task.workItem?.type.toLowerCase(),
   );
@@ -103,16 +121,7 @@ export function UsageScreen({ taskId }: { taskId: string }) {
       <TopBar
         crumb={`${repo?.name ?? ''} / ${task.workItem?.id ?? task.name} / AI usage`}
       >
-        <a
-          href="#"
-          className="spacer"
-          onClick={(e) => {
-            e.preventDefault();
-            back();
-          }}
-        >
-          Back to task
-        </a>
+        {backLink}
       </TopBar>
       <div className="usage">
         <main className="usage-main">
@@ -235,7 +244,9 @@ export function UsageScreen({ taskId }: { taskId: string }) {
           <div className="label">
             {task.usageCommentId
               ? `Comment posted (id ${task.usageCommentId})`
-              : 'Comment added when the task is finished'}
+              : task.status === 'done'
+                ? 'Comment added on the next Sync now'
+                : 'Comment added when the task is finished'}
           </div>
           {usage && (
             <pre className="usage-comment">

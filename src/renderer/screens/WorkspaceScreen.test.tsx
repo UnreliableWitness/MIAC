@@ -258,6 +258,26 @@ describe('WorkspaceScreen', () => {
     expect(useStore.getState().screen).toEqual({ kind: 'finish', taskId: 'a' });
   });
 
+  it('opens the Usage screen from a done task', async () => {
+    installFakeApi();
+    useStore.setState({
+      tasks: [
+        {
+          ...task,
+          status: 'done',
+          terminals: [],
+          finishedAt: '2026-10-14T12:00:00.000Z',
+        },
+      ],
+    });
+    render(<WorkspaceScreen />);
+    expect(screen.getByText(/This task is done/)).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole('button', { name: 'View AI usage' }),
+    );
+    expect(useStore.getState().screen).toEqual({ kind: 'usage', taskId: 'a' });
+  });
+
   it('shows an empty state without a selected task', () => {
     installFakeApi();
     useStore.setState({ tasks: [], selectedTaskId: null });

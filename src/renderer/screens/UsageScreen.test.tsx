@@ -211,4 +211,22 @@ describe('UsageScreen', () => {
       screen.getByText(/Link the repository to an Azure DevOps connection/),
     ).toBeTruthy();
   });
+  it('goes back to the workspace from a done task', async () => {
+    useStore.setState({
+      tasks: [{ ...task, status: 'done', finishedAt: '2026-10-14T12:00:00Z' }],
+    });
+    installFakeApi({ 'usage:task': () => usage });
+    render(<UsageScreen taskId="t1" />);
+    await screen.findByText('Billable AI cost');
+    await userEvent.click(screen.getByText('Back to task'));
+    expect(useStore.getState().screen).toEqual({ kind: 'workspace' });
+  });
+  it('says the task was not found and still offers Back', async () => {
+    useStore.setState({ tasks: [] });
+    installFakeApi();
+    render(<UsageScreen taskId="gone" />);
+    expect(screen.getByText('Task not found')).toBeTruthy();
+    await userEvent.click(screen.getByText('Back to task'));
+    expect(useStore.getState().screen).toEqual({ kind: 'workspace' });
+  });
 });

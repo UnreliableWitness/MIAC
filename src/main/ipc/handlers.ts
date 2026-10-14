@@ -251,7 +251,10 @@ export function createHandlers(s: Services): Handlers {
   });
   s.usage.on('changed', (taskId) => s.broadcast('usage:changed', { taskId }));
   s.onHourly(() => {
-    if (s.settings.get().hourlySync) void usageSync.syncChanged();
+    if (s.settings.get().hourlySync)
+      usageSync
+        .syncChanged()
+        .catch((e) => console.error('[usage] hourly sync failed', e));
   });
   const receiverStatus = () => ({
     ...s.receiver.status,
@@ -704,7 +707,11 @@ export function createHandlers(s: Services): Handlers {
       return s.usage.summarize(taskId, s.settings.get());
     },
     'usage:sync': async (taskId) =>
-      usageSync.syncTask(taskId, { refreshFields: true }),
+      usageSync.syncTask(taskId, {
+        refreshFields: true,
+        // A done task still owes its one usage comment if the write on finish failed.
+        comment: taskById(taskId).status === 'done',
+      }),
     'usage:exportCsv': async (taskId) => {
       const st = s.settings.get();
       return usageCsv(

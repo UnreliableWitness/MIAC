@@ -59,8 +59,17 @@ export function WorkspaceScreen() {
             </>
           ) : task ? (
             <div className="empty">
-              This task is done. Its worktree and branch were cleaned up on{' '}
-              {task.finishedAt}.
+              <p>
+                This task is done. Its worktree and branch were cleaned up on{' '}
+                {task.finishedAt}.
+              </p>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => go({ kind: 'usage', taskId: task.id })}
+              >
+                View AI usage
+              </button>
             </div>
           ) : (
             <div className="empty">
