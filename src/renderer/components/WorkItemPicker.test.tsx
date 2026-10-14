@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorkItemSummary } from '../../shared/types';
 import { useStore } from '../store';
 import { installFakeApi } from '../test-helpers/fakeApi';
@@ -19,6 +19,7 @@ const item = (id: string, title: string, type = 'Issue'): WorkItemSummary => ({
 });
 
 beforeEach(() => useStore.setState({ notices: [] }));
+afterEach(() => vi.useRealTimers());
 
 describe('WorkItemPicker', () => {
   it('searches the current sprint on open and lists results', async () => {
@@ -96,20 +97,40 @@ describe('WorkItemPicker', () => {
       <WorkItemPicker connectionId="c1" selectedId={null} onPick={() => {}} />,
     );
     await userEvent.type(screen.getByLabelText('Search work items'), 'addr');
-    await vi.advanceTimersByTimeAsync(350);
-    await waitFor(() =>
-      expect(
-        calls.filter((c) => c.channel === 'workItems:search').at(-1)?.args,
-      ).toEqual(['c1', { scope: 'sprint', text: 'addr' }]),
+    const texts = () =>
+      calls
+        .filter((c) => c.channel === 'workItems:search')
+        .map((c) => (c.args[1] as { text: string }).text);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(texts()).not.toContain('addr');
+    await vi.advanceTimersByTimeAsync(200);
+    await waitFor(() => expect(texts().at(-1)).toBe('addr'));
+    for (const partial of ['a', 'ad', 'add'])
+      expect(texts()).not.toContain(partial);
+  });
+
+  it('ignores a stale search response', async () => {
+    let releaseFirst: (v: WorkItemSummary[]) => void = () => {};
+    const first = new Promise<WorkItemSummary[]>((res) => {
+      releaseFirst = res;
+    });
+    let n = 0;
+    installFakeApi({
+      'workItems:currentIteration': () => ({ path: 'p', name: 'S' }),
+      'workItems:search': () => (++n === 1 ? first : [item('2', 'Item B')]),
+    });
+    render(
+      <WorkItemPicker connectionId="c1" selectedId={null} onPick={() => {}} />,
     );
-    expect(
-      calls.filter(
-        (c) =>
-          c.channel === 'workItems:search' &&
-          (c.args[1] as { text: string }).text === 'a',
-      ),
-    ).toHaveLength(0);
-    vi.useRealTimers();
+    await waitFor(() => expect(n).toBe(1));
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Assigned to me' }),
+    );
+    expect(await screen.findByText('Item B')).toBeInTheDocument();
+    releaseFirst([item('1', 'Item A')]);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByText('Item A')).not.toBeInTheDocument();
+    expect(screen.getByText('Item B')).toBeInTheDocument();
   });
 
   it('picks an item', async () => {

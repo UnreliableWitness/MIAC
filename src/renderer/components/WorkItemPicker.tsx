@@ -33,23 +33,29 @@ export function WorkItemPicker({
   const [items, setItems] = useState<WorkItemSummary[]>([]);
   const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [noSprintHint, setNoSprintHint] = useState(false);
   const seq = useRef(0);
 
   useEffect(() => {
     let live = true;
     setSprint(undefined);
+    setNoSprintHint(false);
     api()
       .invoke('workItems:currentIteration', connectionId)
       .then((it) => {
         if (!live) return;
         setSprint(it ? it.name : null);
-        if (!it) setScope('mine');
+        if (!it) {
+          setScope('mine');
+          setNoSprintHint(true);
+        }
       })
       .catch((e: Error) => {
         if (!live) return;
         notify('error', e.message);
         setSprint(null);
         setScope('mine');
+        setNoSprintHint(false);
       });
     return () => {
       live = false;
@@ -111,7 +117,7 @@ export function WorkItemPicker({
           </button>
         </div>
       </div>
-      {sprint === null && (
+      {noSprintHint && (
         <div className="small muted">
           No current sprint in this project; showing work assigned to you.
         </div>
@@ -125,7 +131,8 @@ export function WorkItemPicker({
             Could not load work items. Check the connection in Settings.
           </div>
         )}
-        {!failed && !loading && items.length === 0 && (
+        {sprint === undefined && <div className="small muted">Loading...</div>}
+        {sprint !== undefined && !failed && !loading && items.length === 0 && (
           <div className="empty">No open work items match.</div>
         )}
         {items.map((w) => (

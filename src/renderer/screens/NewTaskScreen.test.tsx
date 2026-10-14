@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Repo } from '../../shared/types';
@@ -214,5 +214,63 @@ describe('NewTaskScreen', () => {
         },
       }),
     );
+  });
+
+  const conn = {
+    id: 'c1',
+    name: 'uw',
+    organizationUrl: 'https://dev.azure.com/unreliablewitness',
+    project: 'MIAC',
+    user: 'D',
+    status: 'ok' as const,
+    checkedAt: null,
+  };
+  const pickerApi = {
+    'repos:config': () => config,
+    'workItems:currentIteration': () => ({ path: 'p', name: 'S' }),
+    'workItems:search': () => [],
+  };
+
+  it('follows the selected repo between picker and typed form', async () => {
+    installFakeApi(pickerApi);
+    useStore.setState({
+      repos: [
+        { ...webshop, connectionId: 'c1' },
+        { ...webshop, id: 'r2', name: 'plain' },
+      ],
+      connections: [conn],
+    });
+    render(<NewTaskScreen />);
+    expect(
+      await screen.findByLabelText('Search work items'),
+    ).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText('Repo'), 'plain');
+    expect(await screen.findByLabelText('Work item id')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('tab', { name: 'Work item' }),
+    ).not.toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText('Repo'), 'webshop');
+    expect(
+      await screen.findByLabelText('Search work items'),
+    ).toBeInTheDocument();
+  });
+
+  it('falls back to the typed form when the repo loses its connection', async () => {
+    installFakeApi(pickerApi);
+    useStore.setState({
+      repos: [{ ...webshop, connectionId: 'c1' }],
+      connections: [conn],
+    });
+    render(<NewTaskScreen />);
+    expect(
+      await screen.findByLabelText('Search work items'),
+    ).toBeInTheDocument();
+    act(() =>
+      useStore.setState({ repos: [{ ...webshop, connectionId: null }] }),
+    );
+    expect(await screen.findByLabelText('Work item id')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('tab', { name: 'Work item' }),
+    ).not.toBeInTheDocument();
   });
 });

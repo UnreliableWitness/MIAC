@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { renderBranch, taskSlug } from '../../shared/naming';
 import type { MiacConfig, WorkItemRef, WorkItemType } from '../../shared/types';
 import { api, tryInvoke } from '../api';
@@ -20,9 +20,11 @@ export function NewTaskScreen() {
     const cid = repos.find((x) => x.id === rid)?.connectionId;
     return cid ? (connections.find((c) => c.id === cid) ?? null) : null;
   };
-  const [mode, setMode] = useState<Mode>(() =>
+  const [rawMode, setMode] = useState<Mode>(() =>
     connectionOf(repoId) ? 'pick' : 'typed',
   );
+  const modeChosen = useRef(false);
+  const lastRepo = useRef(repoId);
   const [picked, setPicked] = useState<WorkItemRef | null>(null);
   const [config, setConfig] = useState<{
     config: MiacConfig;
@@ -44,10 +46,24 @@ export function NewTaskScreen() {
   const repo = repos.find((r) => r.id === repoId) ?? null;
   const connection = connectionOf(repoId);
   const connectionId = connection?.id ?? null;
+  const mode: Mode = rawMode === 'pick' && !connection ? 'typed' : rawMode;
 
   useEffect(() => {
-    setPicked(null);
-    setMode((m) => (connectionId ? 'pick' : m === 'pick' ? 'typed' : m));
+    const repoChanged = lastRepo.current !== repoId;
+    lastRepo.current = repoId;
+    if (repoChanged) {
+      modeChosen.current = false;
+      setPicked(null);
+    }
+    setMode((m) =>
+      connectionId
+        ? repoChanged || !modeChosen.current
+          ? 'pick'
+          : m
+        : m === 'pick'
+          ? 'typed'
+          : m,
+    );
   }, [repoId, connectionId]);
 
   useEffect(() => {
@@ -74,6 +90,7 @@ export function NewTaskScreen() {
   }, [repoId, notify]);
 
   const changeMode = (next: Mode) => {
+    modeChosen.current = true;
     setMode(next);
     setBranchEdited(false);
   };
@@ -245,7 +262,9 @@ export function NewTaskScreen() {
           <section className="newtask-right" aria-label="Task preview">
             <div>
               <div className="muted small">
-                {workItem ? `${workItem.type} ${workItem.id}` : 'Blank task'}
+                {workItem?.id
+                  ? `${workItem.type} ${workItem.id}`
+                  : 'Blank task'}
               </div>
               <div style={{ fontSize: 16, fontWeight: 600 }}>
                 {label || 'New task'}
