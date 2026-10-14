@@ -4,13 +4,7 @@ import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { api, tryInvoke } from '../api';
 import { useStore } from '../store';
-
-const THEME = {
-  background: '#0f1113',
-  foreground: '#e7e6e2',
-  cursor: '#f0a443',
-  selectionBackground: '#2a2e35',
-};
+import { TERMINAL_THEME } from '../terminalTheme';
 
 export function TerminalView({
   terminalId,
@@ -31,7 +25,7 @@ export function TerminalView({
     const t = new Terminal({
       fontFamily: "'JetBrains Mono', ui-monospace, monospace",
       fontSize: 13,
-      theme: THEME,
+      theme: TERMINAL_THEME,
       cursorBlink: true,
       scrollback: 5000,
       allowProposedApi: true,

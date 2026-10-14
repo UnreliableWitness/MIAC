@@ -79,7 +79,7 @@ export function TaskHeader({ task }: { task: TaskView }) {
           {git && <span>{`${UP}${git.ahead} ${DOWN}${git.behind}`}</span>}
           {git && git.files.length > 0 && (
             <span
-              style={{ color: '#e9b75c' }}
+              style={{ color: 'var(--warn)' }}
             >{`${git.files.length} changed`}</span>
           )}
           {git && git.files.length === 0 && <span>clean</span>}
