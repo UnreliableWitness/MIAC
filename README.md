@@ -26,7 +26,7 @@ Named after a Culture ship. A desktop app for running development tasks as isola
 
 ## Status
 
-Early design stage. No application code yet.
+Working app (Electron, macOS for development, Windows as the release target): task workspaces, Azure DevOps work items and per-task AI cost tracking are in place. Run with `npm start`; checks are `npm test`, `npm run typecheck` and `npm run lint`.
 
 ## Windows
 

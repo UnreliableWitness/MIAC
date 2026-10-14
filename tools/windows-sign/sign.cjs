@@ -1,6 +1,7 @@
 // Called by @electron/windows-sign for every file (hookModulePath). Signs with Azure Artifact Signing.
-// Credentials come from the Azure CLI login done by the CI workflow (azure/login with OIDC); the dlib
-// resolves them per call, so long builds do not hit an expired token.
+// Credentials come from the Azure CLI login done by the CI workflow (azure/login with OIDC). The dlib asks
+// the CLI for a token on each call, but the CLI cannot refresh a token obtained through OIDC: it expires
+// about 60-90 minutes after the login, so the build must finish signing inside that window.
 const { execFileSync } = require('node:child_process');
 
 module.exports = function sign(file) {

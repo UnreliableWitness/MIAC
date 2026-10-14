@@ -52,23 +52,50 @@ Out:
 `windowsPlatform(env, deps)`, where `deps` contains `which(name): string | null`, a PATH and PATHEXT lookup that can be injected so tests run on any OS.
 
 - **Shell:** `pwsh` if `which('pwsh')` finds it, otherwise `powershell.exe`. `shellLabel` is `PowerShell`.
-- **`interactiveShell()`:** `{ command: shell, args: ['-NoLogo'] }`.
+- **`interactiveShell()`:** `{ command: shell, args: ['-NoLogo', '-ExecutionPolicy', 'Bypass'] }`.
+- Every PowerShell arg list carries `-ExecutionPolicy Bypass`, so npm `.ps1` shims run on machines with the default Restricted policy. A Group Policy execution policy still overrides it.
 - **`shellCommand(cmd)`:**
-  - Runs `{ command: shell, args: ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', wrapped] }`, where `wrapped` is `$ErrorActionPreference = 'Stop'; & { <cmd> }; if ($LASTEXITCODE) { exit $LASTEXITCODE }`.
-  - A failing native command, or a PowerShell error, gives a non-zero exit, so the setup step fails as on macOS.
+  - Runs `{ command: shell, args: ['-NoLogo', '-ExecutionPolicy', 'Bypass', '-NoProfile', '-NonInteractive', '-Command', wrapped] }`, where `wrapped` is (`psSetupWrapper`):
+    ```
+    $miacFailed = $false
+    & {
+    <cmd>
+    } 2>&1 | ForEach-Object {
+      if ($_ -is [System.Management.Automation.ErrorRecord]) {
+        if ("$($_.FullyQualifiedErrorId)" -notlike 'NativeCommandError*') { $miacFailed = $true }
+        [Console]::Error.WriteLine("$_")
+      } else { $_ }
+    }
+    if ($LASTEXITCODE) { exit $LASTEXITCODE }
+    if ($miacFailed) { exit 1 }
+    ```
+  - A failing native command passes on its exit code; a cmdlet error or a missing command gives exit 1, so the setup step fails as on macOS.
+  - Native stderr never fails the step. Windows PowerShell 5.1 wraps native stderr in `NativeCommandError` records when output is redirected, and `$ErrorActionPreference = 'Stop'` made those terminating (`npm ci` printing `npm warn` failed). Those records are passed through as text. `$?` is not used: it stays true after `& { ... }` even when an error was written inside.
+  - The command sits on its own lines, so a trailing `# comment` does not swallow the rest of the wrapper.
+  - `&&` and `||` need PowerShell 7; 5.1 rejects them.
   - The user's PATH comes from the environment. No profile is needed.
 - **`claudeCommand(prompt)`:** resolve `which('claude')`.
   - `.exe` (native installer): `{ command: <full path>, args: [prompt] }`. node-pty quotes the argument for ConPTY, so quotes in work item titles survive.
-  - `.cmd`/`.bat`/`.ps1` shim (npm install): `{ command: shell, args: ['-NoLogo', '-NoProfile', '-Command', '& claude $env:MIAC_CLAUDE_PROMPT'] }`. The prompt goes in the env var `MIAC_CLAUDE_PROMPT`, so it is never parsed as PowerShell.
+  - `.cmd`/`.bat`/`.ps1` shim (npm install): `{ command: shell, args: ['-NoLogo', '-ExecutionPolicy', 'Bypass', '-NoProfile', '-Command', '& claude $env:MIAC_CLAUDE_PROMPT'] }`. The prompt goes in the env var `MIAC_CLAUDE_PROMPT`, so it is never parsed as PowerShell.
+  - The `.cmd` shim re-parses its arguments through cmd.exe, so `shimSafePrompt` sanitises the prompt first: `"` becomes `'`, and `& | < > ^ %` are dropped. Title quotes survive intact only with a native `claude.exe`.
   - Not found: run the shell with `claude` anyway, so the tab shows PowerShell's "not recognized" message.
   - This needs a small `Command` extension, `env?: Record<string, string>`, merged by `TerminalManager.spawn` and the setup runner.
 - **`copilotCommand()`:** the same resolution for `copilot`, with no prompt.
-- **`editorCommand(path)`:** `{ command: shell, args: ['-NoLogo', '-NoProfile', '-Command', "& code '<path with '' doubled>'"] }`. `main.ts` `launch` passes `windowsHide: true`.
+- **`editorCommand(path)`:** `{ command: shell, args: ['-NoLogo', '-ExecutionPolicy', 'Bypass', '-NoProfile', '-Command', "& code '<quoted path>'"] }`. `psQuote` doubles `'` and the typographic single quotes U+2018 to U+201B, which PowerShell also treats as quotes. When `which('code')` finds nothing it throws "VS Code (code) is not on PATH", which the Open in VS Code action shows. `main.ts` `launch` passes `windowsHide: true`.
 - **`createPlatform`** returns `windowsPlatform(process.env, { which: realWhich })` on `win32`. `realWhich` walks `PATH` with `PATHEXT` (`.COM;.EXE;.BAT;.CMD` by default).
 
 ### Git
 
 `GitClient` adds `-c core.longpaths=true` to `worktree add`, `worktree remove` and `worktree prune` on every OS. It is harmless on macOS.
+
+- Every `child_process` call in the app passes `windowsHide: true` (git, setup commands, launch), so no console window flashes. A source-scan test (`src/main/windowsHide.test.ts`) enforces it.
+- `worktreeRemove` retries with the same 50 to 800 ms backoff when git reports the folder in use (`Permission denied`, `Directory not empty`, `being used by another process`, `EBUSY`).
+
+### Terminals and processes
+
+- `TerminalManager.spawn` passes `useConptyDll: true` on Windows: node-pty uses its bundled `conpty.dll` and `OpenConsole.exe`. The default system-ConPTY kill path calls `child_process.fork` for a console process list; with the RunAsNode fuse off, that fork relaunches `MIAC.exe`. The conpty.dll kill path does not fork.
+- `kill` and `killAllForTask` return promises that resolve when the pty exits, or after 3 s. Finish and Cancel setup await them before `git worktree remove`, because Windows will not remove a folder that is a running process's cwd.
+- `main.ts` takes `app.requestSingleInstanceLock()`. A second instance quits before `boot()`, and the first one focuses its window.
 
 ### File stores
 
@@ -91,25 +118,30 @@ A shared helper `renameWithRetry(from, to)` retries `fs.rename` on `EPERM`, `EBU
   - No test is deleted.
 - Git tests set `core.autocrlf=false` in their temp repos so output comparisons match on Windows.
 - `scripts/fix-node-pty-perms.mjs` stays as it is. It already does nothing on Windows, because there is no `spawn-helper`.
+- A Windows-only block in `shell.test.ts` runs the setup wrapper under both `powershell.exe` (5.1) and `pwsh`: native stderr with exit 0 succeeds, `cmd /c exit 3` exits 3, a missing command and `Write-Error` fail, a silenced error does not, and a trailing comment is harmless.
 
 ### CI: `.github/workflows/ci.yml`
 
 - **Triggers:** `push` (all branches), `pull_request`, tags `v*`.
-- **Matrix:** `macos-latest`, `windows-latest`, Node 24. Each job runs `npm ci`, `npm run lint`, `npm run typecheck` and `npm test`.
+- **Matrix:** `macos-latest`, `windows-latest`, Node 24. Each job runs `npm ci`, `npm run lint`, `npm run typecheck` and `npm test`. The macOS job then runs `npx electron-forge package` and the smoke check.
+- **Smoke check:** `node tools/forge/smoke.mjs` starts the packaged executable with `MIAC_SMOKE=1`. In that mode `main.ts` skips the single-instance lock and `boot()` (no window, no stores), spawns one pty through `TerminalManager` with the platform's `shellCommand`, prints `MIAC_SMOKE_OK` and exits 0 when the output and a clean exit arrive, else exits 1 (20 s limit inside the app). The script fails on a missing marker, a non-zero exit, or no exit within 60 s: a main bundle that cannot load shows a modal error dialog and never exits on its own. Both Windows jobs run it after `make`.
 - **Two Windows jobs, both after the tests:**
   - `windows-installer`: runs on pull requests and on pushes to branches other than `main` and `v*` tags. It has `contents: read` only and never signs. It runs `npm run make`, uploads `out/make/squirrel.windows/**/MIAC-Setup.exe` as the artifact `MIAC-Setup-<sha>`, and the summary says it is unsigned because this is not main or a tag.
-  - `windows-release`: runs on pushes to `main` and `v*` tags, in the GitHub environment `release`, with `contents: write` and `id-token: write`. It builds and uploads the same artifact, and on `v*` tags it creates a GitHub Release with the installer attached.
+  - `windows-release`: runs on pushes to `main` and `v*` tags, in the GitHub environment `release`, with `contents: write` and `id-token: write`. It builds and uploads the same artifact, and on `v*` tags it creates a GitHub Release with the installer attached. When signing is off, that release is a prerelease titled `MIAC <tag> (unsigned)`.
 - **Signing** (only in `windows-release`):
   - It runs only when all six variables below are set. If not, the job builds unsigned and the summary names the missing variables.
-  - Before `make`, CI logs in with `azure/login` (OIDC). The federated credential trusts the environment `release`, so a pull request can never obtain a token.
+  - Before `make`, CI logs in with `azure/login` (OIDC, `allow-no-subscriptions: true`). The federated credential trusts the environment `release`, so a pull request can never obtain a token.
+  - The Azure CLI token from OIDC cannot be refreshed; it lasts about 60 to 90 minutes, so a signing build must finish inside that window.
   - CI then exports the variables that the Forge signing hook reads.
-  - After `make`, `signtool verify /pa /v` runs on every `*.exe` under `out/` (the packaged `MIAC.exe` and `MIAC-Setup.exe`), and any failure fails the job. This is needed because the nested signer in `electron-winstaller` swallows hook errors.
+  - After `make`, `signtool verify /pa /v` runs on every `*.exe` under `out/` (the packaged `MIAC.exe`, node-pty's `OpenConsole.exe` and `winpty-agent.exe` under `app.asar.unpacked`, and `MIAC-Setup.exe`), and any failure fails the job. The packager's signer walks the whole app folder (`.exe`, `.dll`, `.node`), so the node-pty binaries are signed with the rest. This is needed because the nested signer in `electron-winstaller` swallows hook errors.
   - In the signing job, every action is pinned to a full commit SHA.
 
 ### Packaging and signing: `forge.config.mts`
 
-- `packagerConfig`: `name: 'MIAC'`, `executableName: 'MIAC'`, and `windowsSign` when signing is enabled.
-- `MakerSquirrel`: `{ name: 'MIAC', setupExe: 'MIAC-Setup.exe', windowsSign }` when signing is enabled.
+- `packagerConfig`: `executableName: 'MIAC'`, and `windowsSign` when signing is enabled.
+  - `ignore` is `keepInPackage` (`tools/forge/packageFilter.mjs`): `/.vite`, plus node-pty's `package.json`, `lib` and the prebuilds for the host platform and arch (no `.pdb`, no sources, no `binding.gyp`, so Forge's rebuild leaves the N-API prebuilds alone). The Vite plugin's default keeps only `/.vite`, but `node-pty` is external to the main bundle and is required at runtime. Its only dependency, `node-addon-api`, is build-only.
+  - `asar: { unpack: '**/node_modules/node-pty/**' }`: the `.node` files, `spawn-helper` (macOS), the conpty worker script, `conpty.dll`, `OpenConsole.exe` and `winpty-agent.exe` must be real files on disk.
+- `MakerSquirrel`: `{ name: 'miac', setupExe: 'MIAC-Setup.exe', windowsSign }` when signing is enabled. The Squirrel id stays lowercase `miac`, matching `package.json` `name`, so installs and future updates share one id.
 - `windowsSign` uses a hook module, `tools/windows-sign/sign.cjs`, called for each file. For each file it runs:
   ```
   signtool sign /v /fd SHA256 /tr http://timestamp.acs.microsoft.com /td SHA256 /dlib <Azure.CodeSigning.Dlib.dll> /dmdf <metadata.json> <file>
@@ -121,8 +153,8 @@ A shared helper `renameWithRetry(from, to)` retries `fs.rename` on `EPERM`, `EBU
 
 ### Owner setup for signing (Azure portal, about 30 minutes plus validation)
 
-1. **Create an Artifact Signing account.** In an Azure subscription, create an Artifact Signing account in West Europe.
-2. **Request identity validation.** In the account, open Identity validation, choose **Organization**, and submit the company's legal details. Approval takes 1-20 business days.
+1. **Create an Artifact Signing account.** In the Azure subscription, first register the `Microsoft.CodeSigning` resource provider (Subscription > Resource providers). Then create an Artifact Signing account in West Europe.
+2. **Request identity validation.** On the account, assign yourself the **Artifact Signing Identity Verifier** role (Access control (IAM)); without it the validation page is read-only. Then open Identity validation, choose **Organization**, and submit the company's legal details. Approval takes 1-20 business days.
 3. **Create a certificate profile.** After approval, create a **Public Trust** certificate profile. Note the account endpoint (for example `https://weu.codesigning.azure.net`), the account name and the profile name.
 4. **Create the CI identity.**
    - In Microsoft Entra ID, create an app registration `miac-ci-signing`.
@@ -150,14 +182,19 @@ The validated company name becomes the publisher Windows shows. Choose it once.
    - check that the receiver shows "Listening on 127.0.0.1:4319".
 3. **Create a task** from a work item, with a setup command (for example `npm ci`). Check:
    - the setup log streams;
-   - the worktree appears next to the repo as `<repo>.worktrees\<slug>`.
-4. **Terminals.** The PowerShell tab opens. Claude Code starts with the task prompt, and the title quotes are intact. Copilot CLI starts, if it is installed.
+   - the worktree appears next to the repo as `<repo>.worktrees\<slug>`;
+   - `npm ci` warnings (stderr) do not fail the step, on PowerShell 7 and on Windows PowerShell 5.1;
+   - a setup command that uses `&&` needs PowerShell 7 (`pwsh`); Windows PowerShell 5.1 rejects it, so use `;` or install PowerShell 7.
+4. **Terminals.** The PowerShell tab opens. Claude Code starts with the task prompt. Copilot CLI starts, if it is installed.
+   - Title quotes are intact only for a native `claude.exe`. For an npm-installed claude (a `.cmd` shim), `"` becomes `'` and `& | < > ^ %` are dropped from the prompt; that is expected.
 5. **Usage.** Ask Claude something. Within about 10 s the cost tile and the Usage screen show the usage.
 6. **Open in VS Code.** It opens the worktree, with no stray console window.
 7. **Finish** with all boxes ticked. Check that:
    - the worktree folder and branch are removed;
    - the work item has the fields and the comment.
-8. **Restart the app.** State, connections and usage are kept.
+8. **Restart the app.** State, connections and usage are kept. Starting MIAC a second time while it runs focuses the open window instead of opening another.
+
+If a setup command or a shim fails with "running scripts is disabled on this system": MIAC passes `-ExecutionPolicy Bypass`, but an execution policy set by Group Policy overrides it. Ask IT, or install claude and copilot as native `.exe` builds.
 
 ## Error handling
 
