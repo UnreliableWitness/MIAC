@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Rate } from '../../shared/usage';
@@ -22,8 +22,6 @@ const rates: Rate[] = [
 const settings = {
   version: 1 as const,
   receiverPort: 4319,
-  usdToEur: 0.92,
-  markupPct: 0,
   hourlySync: true,
 };
 
@@ -45,28 +43,25 @@ beforeEach(() => {
 });
 
 describe('CostSection', () => {
-  it('saves exchange rate, markup, port and hourly sync', async () => {
+  it('saves the port and hourly sync, and has no exchange rate or markup inputs', async () => {
     const { calls } = installFakeApi({
       'settings:get': () => settings,
       'settings:save': (s) => s,
       'rates:list': () => ({ rates, officialAsOf: '2026-10-14' }),
     });
     render(<CostSection />);
-    const fx = await screen.findByLabelText('USD to EUR');
-    await userEvent.clear(fx);
-    await userEvent.type(fx, '0.9');
-    await userEvent.clear(screen.getByLabelText('Markup %'));
-    await userEvent.type(screen.getByLabelText('Markup %'), '10');
+    await screen.findByLabelText('Usage receiver port');
+    expect(screen.queryByLabelText('USD to EUR')).toBeNull();
+    expect(screen.queryByLabelText('Markup %')).toBeNull();
+    expect(screen.getByText('EUR at 0.92 per USD (built in)')).toBeTruthy();
+    await userEvent.click(screen.getByRole('checkbox', { name: /every hour/ }));
     await userEvent.click(
       screen.getByRole('button', { name: 'Save settings' }),
     );
-    expect(
-      calls.find((c) => c.channel === 'settings:save')?.args[0],
-    ).toMatchObject({
-      usdToEur: 0.9,
-      markupPct: 10,
+    expect(calls.find((c) => c.channel === 'settings:save')?.args[0]).toEqual({
+      version: 1,
       receiverPort: 4319,
-      hourlySync: true,
+      hourlySync: false,
     });
   });
   it('shows the receiver status and Copilot counters', async () => {
@@ -88,51 +83,38 @@ describe('CostSection', () => {
       ),
     ).toBeTruthy();
   });
-  it('edits a rate, adds and deletes rows, and resets after confirming', async () => {
-    const { calls } = installFakeApi({
+  it('shows the official rates read-only', async () => {
+    installFakeApi({
       'settings:get': () => settings,
       'rates:list': () => ({ rates, officialAsOf: '2026-10-14' }),
-      'rates:save': (r) => r,
-      'rates:reset': () => rates,
     });
     render(<CostSection />);
-    const input = await screen.findByLabelText('Claude Opus 5.5 input per 1M');
-    await userEvent.clear(input);
-    await userEvent.type(input, '3.5');
-    await userEvent.click(screen.getByRole('button', { name: 'Add rate' }));
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Delete New rate' }),
-    );
-    await userEvent.click(screen.getByRole('button', { name: 'Save rates' }));
-    const saved = calls.find((c) => c.channel === 'rates:save')
-      ?.args[0] as Rate[];
-    expect(saved.map((r) => [r.id, r.inputPerM])).toEqual([
-      ['anthropic-opus-5-5', 3.5],
-    ]);
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Reset to official prices' }),
-    );
-    expect(calls.some((c) => c.channel === 'rates:reset')).toBe(false);
-    await userEvent.click(screen.getByRole('button', { name: 'Yes, reset' }));
-    await waitFor(() =>
-      expect(calls.some((c) => c.channel === 'rates:reset')).toBe(true),
-    );
-  });
-  it('refuses to save a blank price and names the row and field', async () => {
-    const { calls } = installFakeApi({
-      'settings:get': () => settings,
-      'rates:list': () => ({ rates, officialAsOf: '2026-10-14' }),
-      'rates:save': (r) => r,
-    });
-    render(<CostSection />);
-    await userEvent.clear(
-      await screen.findByLabelText('Claude Opus 5.5 input per 1M'),
-    );
-    await userEvent.click(screen.getByRole('button', { name: 'Save rates' }));
     expect(
-      await screen.findByText('Claude Opus 5.5: input per 1M must be a number'),
+      await screen.findByText(
+        'Official list prices as of 2026-10-14 (USD per 1M tokens)',
+      ),
     ).toBeTruthy();
-    expect(calls.some((c) => c.channel === 'rates:save')).toBe(false);
+    expect(screen.getByText('Claude Opus 5.5')).toBeTruthy();
+    expect(screen.getByText('claude-opus-5-5')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Add rate' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Save rates' })).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'Reset to official prices' }),
+    ).toBeNull();
+    expect(
+      screen
+        .queryAllByRole('spinbutton')
+        .filter((i) => (i.getAttribute('aria-label') ?? '').includes('per 1M')),
+    ).toHaveLength(0);
+  });
+  it('shows nothing of the rate table until the official prices load', async () => {
+    installFakeApi({
+      'settings:get': () => settings,
+      'rates:list': () => new Promise(() => {}),
+    });
+    render(<CostSection />);
+    expect(await screen.findByLabelText('Usage receiver port')).toBeTruthy();
+    expect(screen.queryByText(/Official list prices as of\s+\(/)).toBeNull();
   });
   it('refuses to save blank settings numbers', async () => {
     const { calls } = installFakeApi({

@@ -130,10 +130,13 @@ describe('UsageScreen', () => {
     render(<UsageScreen taskId="t1" />);
     expect(await screen.findByText('Billable AI cost')).toBeTruthy();
     expect(screen.getAllByText(`${EURO}9.20`).length).toBeGreaterThan(0);
-    expect(screen.getByText(/USD to EUR 0.92 .* no markup/)).toBeTruthy();
+    expect(
+      screen.getByText(/official list prices .* USD to EUR 0.92/),
+    ).toBeTruthy();
     const rows = screen.getAllByRole('row');
     expect(rows).toHaveLength(3);
     expect(within(rows[1]).getByText('claude-opus-5-5')).toBeTruthy();
+    expect(within(rows[1]).getByText(`${EURO}9.20`)).toBeTruthy();
     const heads = within(rows[0])
       .getAllByRole('columnheader')
       .map((h) => h.textContent);
@@ -142,7 +145,9 @@ describe('UsageScreen', () => {
     expect(screen.getByText(/^1 session \S+ 3\.6M tokens$/)).toBeTruthy();
     expect(within(rows[2]).getByText('unpriced')).toBeTruthy();
     expect(
-      screen.getByText(/1 request uses a model that is not in the rate table/),
+      screen.getByText(
+        /1 request uses a model that is not in MIAC's official price list yet/,
+      ),
     ).toBeTruthy();
     expect(screen.getByText('3,609,010')).toBeTruthy();
     expect(await screen.findAllByText('not on Issue')).toHaveLength(2);

@@ -9,7 +9,7 @@ import { ConnectionStore, type TokenCrypto } from '../services/ConnectionStore';
 import { fakeCrypto } from '../test-helpers/fakeCrypto';
 import { startAdoServer, type AdoServer } from '../test-helpers/adoServer';
 import { darwinPlatform } from '../platform/darwin';
-import { RateStore } from '../usage/RateStore';
+import { OFFICIAL_RATES } from '../pricing/officialRates';
 import { SettingsStore } from '../usage/SettingsStore';
 import { UsageStore } from '../usage/UsageStore';
 import { GitClient } from '../services/GitClient';
@@ -64,11 +64,9 @@ async function harness(
   allTerminals.push(terminals);
   const usageDir = mkdtempSync(path.join(os.tmpdir(), 'miac-usage-'));
   connDirs.push(usageDir);
-  const rates = new RateStore(path.join(usageDir, 'rates.json'));
-  await rates.load();
   const settings = new SettingsStore(path.join(usageDir, 'settings.json'));
   await settings.load();
-  const usage = new UsageStore(usageDir, () => rates.list());
+  const usage = new UsageStore(usageDir, () => OFFICIAL_RATES);
   await usage.load();
   const receiverStarts: number[] = [];
   let receiverStatus = {
@@ -112,7 +110,6 @@ async function harness(
     pickFolder: async () => '/picked',
     launch: async () => {},
     usage,
-    rates,
     settings,
     receiver,
     copilot: { stats: { records: 0, unreadable: 0 }, poll: async () => {} },
@@ -171,7 +168,6 @@ async function harness(
     opened,
     usage,
     settings,
-    rates,
     receiverStarts,
     hourly,
     usageDir,
@@ -978,7 +974,7 @@ describe('handlers: usage', () => {
   it('saves settings, moves the receiver and reports a busy port', async () => {
     const hx = await harness();
     const s = await hx.h['settings:get']();
-    await hx.h['settings:save']({ ...s, usdToEur: 0.9 });
+    await hx.h['settings:save']({ ...s, hourlySync: false });
     expect(hx.receiverStarts).toEqual([]);
     await hx.h['settings:save']({ ...s, receiverPort: 1999 });
     expect(hx.receiverStarts).toEqual([1999]);
@@ -1004,13 +1000,11 @@ describe('handlers: usage', () => {
     ).rejects.toThrow();
   });
 
-  it('lists, saves and resets rates', async () => {
+  it('lists the official rates read-only', async () => {
     const hx = await harness();
     const { rates, officialAsOf } = await hx.h['rates:list']();
     expect(officialAsOf).toBe('2026-10-14');
-    const saved = await hx.h['rates:save'](rates.slice(0, 2));
-    expect(saved).toHaveLength(2);
-    expect((await hx.h['rates:reset']()).length).toBe(rates.length);
+    expect(rates).toEqual(OFFICIAL_RATES);
   });
 
   it('finish writes the fields and the comment, then the task is done', async () => {

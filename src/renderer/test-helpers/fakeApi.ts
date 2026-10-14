@@ -13,7 +13,6 @@ export const emptyUsage = (taskId: string): TaskUsage => ({
   sessions: [],
   unpricedRequests: 0,
   usdToEur: 0.92,
-  markupPct: 0,
   billable: { costUsd: 0, costEur: 0, tokens: 0 },
   byTool: {
     'claude-code': { costUsd: 0, costEur: 0, sessions: 0, tokens: 0 },
@@ -25,8 +24,6 @@ const defaults: FakeHandlers = {
   'settings:get': () => ({
     version: 1,
     receiverPort: 4319,
-    usdToEur: 0.92,
-    markupPct: 0,
     hourlySync: true,
   }),
   'rates:list': () => ({ rates: [], officialAsOf: '2026-10-14' }),

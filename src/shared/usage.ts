@@ -42,24 +42,19 @@ export const RateSchema = z.object({
   outputPerM: z.number().min(0),
 });
 export type Rate = z.infer<typeof RateSchema>;
-export const RatesFileSchema = z.object({
-  version: z.literal(1),
-  rates: z.array(RateSchema),
-});
+
+/** Built-in exchange rate used for every EUR amount, so all teammates on the same MIAC version write identical numbers. Changes only with an app update. */
+export const OFFICIAL_USD_TO_EUR = 0.92;
 
 export const AppSettingsSchema = z.object({
   version: z.literal(1),
   receiverPort: z.number().int().min(1024).max(65535),
-  usdToEur: z.number().positive(),
-  markupPct: z.number().min(0).max(1000),
   hourlySync: z.boolean(),
 });
 export type AppSettings = z.infer<typeof AppSettingsSchema>;
 export const defaultSettings = (): AppSettings => ({
   version: 1,
   receiverPort: 4319,
-  usdToEur: 0.92,
-  markupPct: 0,
   hourlySync: true,
 });
 
@@ -87,7 +82,6 @@ export type TaskUsage = {
   byTool: Record<UsageTool, ToolTotals & { costEur: number }>;
   unpricedRequests: number;
   usdToEur: number;
-  markupPct: number;
 };
 
 export type ReceiverStatus = {
