@@ -107,6 +107,15 @@ describe('CostSection', () => {
         .filter((i) => (i.getAttribute('aria-label') ?? '').includes('per 1M')),
     ).toHaveLength(0);
   });
+  it('shows nothing of the rate table until the official prices load', async () => {
+    installFakeApi({
+      'settings:get': () => settings,
+      'rates:list': () => new Promise(() => {}),
+    });
+    render(<CostSection />);
+    expect(await screen.findByLabelText('Usage receiver port')).toBeTruthy();
+    expect(screen.queryByText(/Official list prices as of\s+\(/)).toBeNull();
+  });
   it('refuses to save blank settings numbers', async () => {
     const { calls } = installFakeApi({
       'settings:get': () => settings,

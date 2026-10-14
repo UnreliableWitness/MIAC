@@ -162,6 +162,8 @@ function RatesPart() {
     };
   }, [notify]);
 
+  if (!officialAsOf) return null;
+
   return (
     <div className="list">
       <div className="small muted" style={{ padding: '10px 16px' }}>
