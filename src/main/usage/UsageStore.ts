@@ -16,6 +16,12 @@ import { priceEvent, round6 } from '../pricing/RateTable';
 const TOOLS: UsageTool[] = ['claude-code', 'copilot-cli'];
 const BillableSchema = z.record(z.string(), z.array(z.string()));
 
+/** `YYYY-MM` of an ISO timestamp, or of now when the timestamp has no usable month. */
+const monthOf = (iso: string): string => {
+  const m = iso.slice(0, 7);
+  return /^\d{4}-\d{2}$/.test(m) ? m : new Date().toISOString().slice(0, 7);
+};
+
 /** Priced usage records in append-only monthly JSON-lines files, indexed in memory by task. */
 export class UsageStore extends EventEmitter<{ changed: [taskId: string] }> {
   private readonly byId = new Map<string, UsageRecord>();
@@ -92,7 +98,7 @@ export class UsageStore extends EventEmitter<{ changed: [taskId: string] }> {
       const rec: UsageRecord = { ...e, ...priceEvent(this.rates(), e) };
       await fs.mkdir(this.dir, { recursive: true });
       await fs.appendFile(
-        path.join(this.dir, `records-${e.at.slice(0, 7)}.jsonl`),
+        path.join(this.dir, `records-${monthOf(e.at)}.jsonl`),
         `${JSON.stringify(rec)}\n`,
         'utf8',
       );

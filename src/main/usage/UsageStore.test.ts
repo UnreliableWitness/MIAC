@@ -179,4 +179,15 @@ describe('UsageStore', () => {
     expect(b.isBillable('t1', 's1')).toBe(false);
     expect(b.isBillable('t1', 's2')).toBe(false);
   });
+  it('files a record with an unusable timestamp under the current month', async () => {
+    const d = dir();
+    const s = new UsageStore(d, () => OFFICIAL_RATES);
+    await s.load();
+    await s.add(ev({ id: 'far', at: '+010000-01-01T00:00:00.000Z' }));
+    const month = new Date().toISOString().slice(0, 7);
+    expect(readdirSync(d)).toEqual([`records-${month}.jsonl`]);
+    const b = new UsageStore(d, () => OFFICIAL_RATES);
+    await b.load();
+    expect(b.records('t1').map((r) => r.id)).toEqual(['far']);
+  });
 });

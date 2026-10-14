@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { attrMap, parseClaudeLogs } from './otlp';
+import { attrMap, parseClaudeLogs, safeIso } from './otlp';
 
 const FIXTURE_TASK = '00000000-0000-4000-8000-000000000001';
 const fixture = (name: string) =>
@@ -133,5 +133,38 @@ describe('parseClaudeLogs', () => {
       ])
         expect(Number.isInteger(n) && n >= 0).toBe(true);
     }
+  });
+});
+
+describe('timestamps', () => {
+  const recent = (iso: string) => {
+    expect(iso).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(Math.abs(Date.now() - Date.parse(iso))).toBeLessThan(60_000);
+  };
+  const withTime = (timeUnixNano: string, attrs = full) => {
+    const b = body(attrs);
+    b.resourceLogs[0].scopeLogs[0].logRecords[0].timeUnixNano = timeUnixNano;
+    return b;
+  };
+  it('falls back to now for an absurd timeUnixNano instead of throwing', () => {
+    recent(parseClaudeLogs(withTime('1e30')).events[0].at);
+  });
+  it('falls back to now for a year past 9999', () => {
+    // 10000-01-02 in nanoseconds
+    recent(parseClaudeLogs(withTime('253402387200000000000')).events[0].at);
+    recent(
+      parseClaudeLogs(
+        body([
+          ...full,
+          kv('event.timestamp', { stringValue: '+010000-01-01T00:00:00Z' }),
+        ]),
+      ).events[0].at,
+    );
+  });
+  it('safeIso accepts only finite dates in 1970..9999', () => {
+    expect(safeIso(1760436000000)).toBe(new Date(1760436000000).toISOString());
+    recent(safeIso(Number.NaN));
+    recent(safeIso(-1));
+    recent(safeIso(1e30));
   });
 });

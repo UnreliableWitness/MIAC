@@ -1,5 +1,5 @@
 import type { UsageEvent } from '../../shared/usage';
-import { attrMap, int, nanosToIso } from './otlp';
+import { attrMap, int, nanosToIso, safeIso } from './otlp';
 
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj =>
@@ -17,9 +17,7 @@ function startIso(span: Obj): string {
   if (Array.isArray(span.startTime) && span.startTime.length === 2) {
     const [sec, nanos] = span.startTime.map(Number);
     if (Number.isFinite(sec))
-      return new Date(
-        sec * 1000 + Math.floor((nanos || 0) / 1e6),
-      ).toISOString();
+      return safeIso(sec * 1000 + Math.floor((nanos || 0) / 1e6));
   }
   return nanosToIso(span.startTimeUnixNano);
 }

@@ -145,4 +145,29 @@ describe('UsageReceiver', () => {
     expect(errors).toHaveBeenCalled();
     errors.mockRestore();
   });
+  it('never crashes on an absurd timestamp', async () => {
+    const { got, port } = await start();
+    const doc = JSON.parse(fixture.toString('utf8'));
+    for (const rl of doc.resourceLogs)
+      for (const sl of rl.scopeLogs)
+        for (const rec of sl.logRecords) {
+          rec.timeUnixNano = '1e30';
+          rec.attributes = rec.attributes.filter(
+            (a: { key: string }) => a.key !== 'event.timestamp',
+          );
+        }
+    const res = await fetch(`http://127.0.0.1:${port}/v1/logs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(doc),
+    });
+    expect([200, 400]).toContain(res.status);
+    const again = await fetch(`http://127.0.0.1:${port}/v1/logs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: fixture,
+    });
+    expect(again.status).toBe(200);
+    expect(got.length).toBeGreaterThan(0);
+  });
 });

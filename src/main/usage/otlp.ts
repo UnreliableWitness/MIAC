@@ -34,13 +34,20 @@ export const int = (v: Scalar | undefined): number => {
 const str = (v: Scalar | undefined): string =>
   typeof v === 'string' ? v : typeof v === 'number' ? String(v) : '';
 
+const MAX_MS = Date.UTC(9999, 11, 31, 23, 59, 59, 999);
+
+/** Milliseconds since the epoch to ISO, accepting only years 1970..9999; anything else falls back to now. */
+export function safeIso(ms: number): string {
+  return Number.isFinite(ms) && ms >= 0 && ms <= MAX_MS
+    ? new Date(ms).toISOString()
+    : new Date().toISOString();
+}
+
 /** Nanoseconds since the epoch (string or number) to ISO; falls back to now. */
 export function nanosToIso(v: unknown): string {
   const n =
     typeof v === 'string' || typeof v === 'number' ? Number(v) : Number.NaN;
-  return Number.isFinite(n) && n > 0
-    ? new Date(Math.floor(n / 1e6)).toISOString()
-    : new Date().toISOString();
+  return n > 0 ? safeIso(Math.floor(n / 1e6)) : safeIso(Number.NaN);
 }
 
 const isApiRequest = (record: Obj, attrs: Record<string, Scalar>): boolean => {
@@ -80,11 +87,13 @@ export function parseClaudeLogs(body: unknown): {
           skipped++;
           continue;
         }
-        const at =
-          typeof attrs['event.timestamp'] === 'string' &&
-          !Number.isNaN(Date.parse(attrs['event.timestamp']))
-            ? new Date(attrs['event.timestamp']).toISOString()
-            : nanosToIso(record.timeUnixNano ?? record.observedTimeUnixNano);
+        const stamp =
+          typeof attrs['event.timestamp'] === 'string'
+            ? Date.parse(attrs['event.timestamp'])
+            : Number.NaN;
+        const at = Number.isNaN(stamp)
+          ? nanosToIso(record.timeUnixNano ?? record.observedTimeUnixNano)
+          : safeIso(stamp);
         events.push({
           id,
           taskId,

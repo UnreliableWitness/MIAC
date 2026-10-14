@@ -65,4 +65,17 @@ describe('parseCopilotLine', () => {
       ),
     ).toEqual({ events: [], unreadable: 1 });
   });
+  it('falls back to now for an hrtime start past year 9999', () => {
+    const line = JSON.stringify({
+      name: 'chat gpt-5.5',
+      spanContext: { traceId: 'cccc', spanId: '0003' },
+      startTime: [1e15, 0],
+      attributes: {
+        'gen_ai.response.model': 'gpt-5.5',
+        'gen_ai.usage.input_tokens': 10,
+      },
+    });
+    const at = parseCopilotLine(line, 't1').events[0].at;
+    expect(Math.abs(Date.now() - Date.parse(at))).toBeLessThan(60_000);
+  });
 });

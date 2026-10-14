@@ -84,19 +84,21 @@ export class UsageReceiver {
     req.on('end', () => {
       if (tooBig) return;
       if (path === '/v1/metrics') return reply(200);
-      let parsed: unknown;
+      let events: UsageEvent[];
+      let skipped: number;
       try {
         let buf = Buffer.concat(chunks);
         if ((req.headers['content-encoding'] ?? '').toLowerCase() === 'gzip')
           buf = gunzipSync(buf, { maxOutputLength: LIMIT });
-        parsed = JSON.parse(buf.toString('utf8'));
+        ({ events, skipped } = parseClaudeLogs(
+          JSON.parse(buf.toString('utf8')),
+        ));
       } catch (e) {
         const tooLarge =
           (e as NodeJS.ErrnoException).code === 'ERR_BUFFER_TOO_LARGE' ||
           (e instanceof RangeError && /larger|size/i.test(e.message));
         return reply(tooLarge ? 413 : 400);
       }
-      const { events, skipped } = parseClaudeLogs(parsed);
       if (skipped > 0)
         console.warn(
           `[usage] skipped ${skipped} api_request record(s) without a model or request id`,
