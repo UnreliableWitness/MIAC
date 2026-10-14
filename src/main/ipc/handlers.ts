@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { Events, Handlers } from '../../shared/ipc';
 import { claudePrompt, renderTaskMd, taskSlug } from '../../shared/naming';
 import type {
+  Connection,
   MiacConfig,
   SetupEvent,
   SetupState,
@@ -14,6 +15,13 @@ import type {
 } from '../../shared/types';
 import { worktreeRoot } from '../paths';
 import type { Command, Platform } from '../platform/Platform';
+import { AdoClient, AdoError } from '../services/AdoClient';
+import type { AdoRegistry } from '../services/AdoRegistry';
+import {
+  normalizeOrganizationUrl,
+  TokenUnavailableError,
+  type ConnectionStore,
+} from '../services/ConnectionStore';
 import type { GitClient } from '../services/GitClient';
 import type { RepoRegistry } from '../services/RepoRegistry';
 import {
@@ -29,6 +37,9 @@ export type Services = {
   git: GitClient;
   platform: Platform;
   repos: RepoRegistry;
+  connections: ConnectionStore;
+  ado: AdoRegistry;
+  openExternal: (url: string) => Promise<void>;
   terminals: TerminalManager;
   runner: SetupRunner;
   loadConfig: (repoPath: string) => Promise<MiacConfig>;
@@ -69,6 +80,56 @@ export async function recoverInterruptedTasks(
 const creating = new Set<string>();
 
 export function createHandlers(s: Services): Handlers {
+  const connectionsChanged = () =>
+    s.broadcast('connections:changed', s.connections.list());
+
+  /** Runs an Azure DevOps call for a connection; a rejected token flips the status so Settings and the footer turn red. */
+  const withConnection = async <T>(
+    connectionId: string,
+    run: () => Promise<T>,
+  ): Promise<T> => {
+    try {
+      return await run();
+    } catch (e) {
+      if (
+        (e instanceof AdoError && e.kind === 'unauthorized') ||
+        e instanceof TokenUnavailableError
+      ) {
+        await s.connections.setStatus(connectionId, 'unauthorized');
+        connectionsChanged();
+      } else if (e instanceof AdoError && e.kind === 'unreachable') {
+        await s.connections.setStatus(connectionId, 'unreachable');
+        connectionsChanged();
+      }
+      throw e;
+    }
+  };
+
+  const verifyConnection = async (
+    connectionId: string,
+  ): Promise<Connection> => {
+    const c = s.connections.get(connectionId);
+    const { user } = await withConnection(connectionId, () =>
+      s.ado.client(connectionId).verify(c.project),
+    );
+    const updated = await s.connections.setStatus(connectionId, 'ok', user);
+    connectionsChanged();
+    return updated;
+  };
+
+  const allowedExternal = (url: string): boolean => {
+    try {
+      const u = new URL(url);
+      return (
+        u.protocol === 'https:' &&
+        (u.hostname === 'dev.azure.com' ||
+          u.hostname.endsWith('.visualstudio.com'))
+      );
+    } catch {
+      return false;
+    }
+  };
+
   const setupStates = new Map<string, SetupState>();
   const inFlight = new Set<string>();
 
@@ -462,5 +523,62 @@ export function createHandlers(s: Services): Handlers {
     },
     'terminals:buffer': async (id) => s.terminals.buffer(id),
     'terminals:isRunning': async (id) => s.terminals.isRunning(id),
-  } as Handlers;
+    'connections:list': async () => s.connections.list(),
+    'connections:save': async (input) => {
+      // Verify with a throwaway client before anything is written, so a bad token never lands on disk.
+      const organizationUrl = normalizeOrganizationUrl(input.organizationUrl);
+      const probe = new AdoClient(organizationUrl, async () =>
+        input.pat.trim(),
+      );
+      const { user } = await probe.verify(input.project.trim());
+      const saved = await s.connections.save(input);
+      s.ado.invalidate(saved.id);
+      const verified = await s.connections.setStatus(saved.id, 'ok', user);
+      connectionsChanged();
+      return verified;
+    },
+    'connections:remove': async (id) => {
+      s.connections.get(id);
+      for (const r of s.repos.list())
+        if (r.connectionId === id) await s.repos.setConnection(r.id, null);
+      await s.connections.remove(id);
+      s.ado.invalidate(id);
+      connectionsChanged();
+      s.broadcast('repos:changed', s.repos.list());
+    },
+    'connections:verify': async (id) => verifyConnection(id),
+    'repos:setConnection': async (repoId, connectionId) => {
+      if (connectionId !== null) s.connections.get(connectionId);
+      const repo = await s.repos.setConnection(repoId, connectionId);
+      s.broadcast('repos:changed', s.repos.list());
+      return repo;
+    },
+    'workItems:currentIteration': async (connectionId) => {
+      const c = s.connections.get(connectionId);
+      return withConnection(connectionId, () =>
+        s.ado.client(connectionId).currentIteration(c.project),
+      );
+    },
+    'workItems:search': async (connectionId, search) => {
+      const c = s.connections.get(connectionId);
+      return withConnection(connectionId, async () => {
+        const client = s.ado.client(connectionId);
+        const iteration =
+          search.scope === 'sprint'
+            ? await client.currentIteration(c.project)
+            : null;
+        return client.searchWorkItems({
+          project: c.project,
+          scope: search.scope,
+          text: search.text,
+          iterationPath: iteration?.path ?? null,
+        });
+      });
+    },
+    'shell:openExternal': async (url) => {
+      if (!allowedExternal(url))
+        throw new Error(`Opening ${url} is not allowed`);
+      await s.openExternal(url);
+    },
+  };
 }

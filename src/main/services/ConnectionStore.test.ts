@@ -6,8 +6,8 @@ import {
   ConnectionStore,
   normalizeOrganizationUrl,
   organizationSlug,
-  type TokenCrypto,
 } from './ConnectionStore';
+import { fakeCrypto } from '../test-helpers/fakeCrypto';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -18,13 +18,6 @@ const file = () => {
   dirs.push(d);
   return path.join(d, 'connections.json');
 };
-
-/** Reversible fake: "encrypted" is the reversed string, so the file visibly never holds the PAT. */
-const fakeCrypto = (available = true): TokenCrypto => ({
-  available: () => available,
-  encrypt: (s) => Buffer.from([...s].reverse().join(''), 'utf8'),
-  decrypt: (b) => [...b.toString('utf8')].reverse().join(''),
-});
 
 describe('normalizeOrganizationUrl', () => {
   it('accepts dev.azure.com org URLs with extra path or slash', () => {

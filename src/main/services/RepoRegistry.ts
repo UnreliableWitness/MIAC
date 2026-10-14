@@ -54,6 +54,18 @@ export class RepoRegistry {
   }
 
   /** Re-reads name, base branch and .miac.yml presence, e.g. after the user edits the file. */
+  async setConnection(
+    repoId: string,
+    connectionId: string | null,
+  ): Promise<Repo> {
+    this.get(repoId);
+    await this.store.update((s) => {
+      const r = s.repos.find((x) => x.id === repoId);
+      if (r) r.connectionId = connectionId;
+    });
+    return this.get(repoId);
+  }
+
   async refresh(id: string): Promise<Repo> {
     const current = this.get(id);
     const repo = await this.describe(current);

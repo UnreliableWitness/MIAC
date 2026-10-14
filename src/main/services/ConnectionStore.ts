@@ -49,12 +49,24 @@ export function normalizeOrganizationUrl(input: string): string {
   if (host.endsWith('.visualstudio.com') && host.split('.').length === 3) {
     return `https://${host}`;
   }
+  // Loopback only (the test fake server); a token sent there never leaves this machine.
+  if (
+    url.protocol === 'http:' &&
+    (host === '127.0.0.1' || host === 'localhost')
+  ) {
+    const org = url.pathname.split('/').filter(Boolean)[0];
+    if (org) return `${url.origin}/${org}`;
+  }
   throw new Error('Use a dev.azure.com or visualstudio.com organization URL');
 }
 
 export function organizationSlug(organizationUrl: string): string {
   const url = new URL(organizationUrl);
-  if (url.hostname === 'dev.azure.com')
+  if (
+    url.hostname === 'dev.azure.com' ||
+    url.hostname === '127.0.0.1' ||
+    url.hostname === 'localhost'
+  )
     return url.pathname.split('/').filter(Boolean)[0] ?? organizationUrl;
   return url.hostname.split('.')[0];
 }
