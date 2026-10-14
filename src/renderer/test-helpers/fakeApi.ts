@@ -16,6 +16,12 @@ const defaults: FakeHandlers = {
   'terminals:isRunning': () => false,
   'terminals:write': () => undefined,
   'terminals:resize': () => undefined,
+  'usage:receiverStatus': () => ({
+    listening: true,
+    port: 4319,
+    error: null,
+    copilot: { records: 0, unreadable: 0 },
+  }),
 };
 
 /** Installs `window.miac` backed by plain functions. Returns the call log and an `emit` to push events. */

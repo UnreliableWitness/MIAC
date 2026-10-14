@@ -103,3 +103,27 @@ describe('ConnectionsFileSchema', () => {
     ).toThrow();
   });
 });
+
+it('accepts a task saved before sub-project 3 and defaults the usage fields', async () => {
+  const { TaskSchema } = await import('./types');
+  const t = TaskSchema.parse({
+    id: 't',
+    repoId: 'r',
+    name: 'x',
+    workItem: null,
+    slug: 'x',
+    branch: 'b',
+    worktreePath: '/w',
+    baseRef: 'main',
+    status: 'ready',
+    setup: { copy: false, commands: [], startClaude: false, openShell: false },
+    terminals: [],
+    createdAt: 'now',
+    finishedAt: null,
+  });
+  expect(t).toMatchObject({
+    usageSyncedAt: null,
+    usageSyncError: null,
+    usageCommentId: null,
+  });
+});

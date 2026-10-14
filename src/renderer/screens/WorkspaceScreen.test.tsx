@@ -33,13 +33,22 @@ const task: TaskView = {
   worktreePath: '/src/webshop.worktrees/48213-save-delivery-address',
   baseRef: 'origin/main',
   status: 'ready',
-  setup: { copy: true, commands: [], startClaude: true, openShell: true },
+  setup: {
+    copy: true,
+    commands: [],
+    startClaude: true,
+    openShell: true,
+    openCopilot: false,
+  },
   terminals: [
     { id: 'c1', kind: 'claude', label: 'Claude Code' },
     { id: 's1', kind: 'shell', label: 'zsh' },
   ],
   createdAt: 'now',
   finishedAt: null,
+  usageSyncedAt: null,
+  usageSyncError: null,
+  usageCommentId: null,
   worktreeMissing: false,
 };
 const config = {

@@ -25,10 +25,19 @@ const repos: Repo[] = [
   },
 ];
 const base = {
-  setup: { copy: true, commands: [], startClaude: true, openShell: true },
+  setup: {
+    copy: true,
+    commands: [],
+    startClaude: true,
+    openShell: true,
+    openCopilot: false,
+  },
   terminals: [],
   createdAt: 'now',
   finishedAt: null,
+  usageSyncedAt: null,
+  usageSyncError: null,
+  usageCommentId: null,
   worktreeMissing: false,
   baseRef: 'origin/main',
 };
@@ -71,6 +80,9 @@ const tasks: TaskView[] = [
     worktreePath: '/w/c',
     status: 'done',
     finishedAt: 'then',
+    usageSyncedAt: null,
+    usageSyncError: null,
+    usageCommentId: null,
   },
   {
     ...base,

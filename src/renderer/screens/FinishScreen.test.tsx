@@ -21,13 +21,22 @@ const task: TaskView = {
   worktreePath: '/w/a',
   baseRef: 'origin/main',
   status: 'ready',
-  setup: { copy: true, commands: [], startClaude: true, openShell: true },
+  setup: {
+    copy: true,
+    commands: [],
+    startClaude: true,
+    openShell: true,
+    openCopilot: false,
+  },
   terminals: [
     { id: 'c1', kind: 'claude', label: 'Claude Code' },
     { id: 's1', kind: 'shell', label: 'zsh' },
   ],
   createdAt: 'now',
   finishedAt: null,
+  usageSyncedAt: null,
+  usageSyncError: null,
+  usageCommentId: null,
   worktreeMissing: false,
 };
 const dirty = {
@@ -96,7 +105,12 @@ describe('FinishScreen', () => {
     await waitFor(() =>
       expect(calls.find((c) => c.channel === 'tasks:finish')?.args).toEqual([
         'a',
-        { closeTerminals: true, removeWorktree: true, deleteBranch: false },
+        {
+          closeTerminals: true,
+          removeWorktree: true,
+          deleteBranch: false,
+          syncUsage: false,
+        },
       ]),
     );
     expect(useStore.getState().screen).toEqual({ kind: 'workspace' });

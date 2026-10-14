@@ -13,7 +13,7 @@ export type WorkItemRef = z.infer<typeof WorkItemRefSchema>;
 
 export const TerminalDefSchema = z.object({
   id: z.string().min(1),
-  kind: z.enum(['claude', 'shell', 'run']),
+  kind: z.enum(['claude', 'shell', 'run', 'copilot']),
   label: z.string(),
   command: z.string().optional(),
 });
@@ -34,6 +34,7 @@ export const TaskSetupSchema = z.object({
   commands: z.array(z.string()),
   startClaude: z.boolean(),
   openShell: z.boolean(),
+  openCopilot: z.boolean().default(false),
 });
 
 export const TaskSchema = z.object({
@@ -50,6 +51,9 @@ export const TaskSchema = z.object({
   terminals: z.array(TerminalDefSchema),
   createdAt: z.string(),
   finishedAt: z.string().nullable(),
+  usageSyncedAt: z.string().nullable().default(null),
+  usageSyncError: z.string().nullable().default(null),
+  usageCommentId: z.number().int().nullable().default(null),
 });
 export type Task = z.infer<typeof TaskSchema>;
 
@@ -91,12 +95,14 @@ export type CreateTaskInput = {
   commands: string[];
   startClaude: boolean;
   openShell: boolean;
+  openCopilot?: boolean;
 };
 
 export type FinishOptions = {
   closeTerminals: boolean;
   removeWorktree: boolean;
   deleteBranch: boolean;
+  syncUsage: boolean;
 };
 
 export type GitFile = { status: string; path: string };

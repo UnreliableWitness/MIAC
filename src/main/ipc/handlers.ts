@@ -413,10 +413,14 @@ export function createHandlers(s: Services): Handlers {
           commands: input.commands,
           startClaude: input.startClaude,
           openShell: input.openShell,
+          openCopilot: false,
         },
         terminals: [],
         createdAt: new Date().toISOString(),
         finishedAt: null,
+        usageSyncedAt: null,
+        usageSyncError: null,
+        usageCommentId: null,
       };
       inFlight.add(task.id);
       try {
@@ -617,5 +621,5 @@ export function createHandlers(s: Services): Handlers {
         throw new Error(`Opening ${url} is not allowed`);
       await s.openExternal(url);
     },
-  };
+  } as Handlers;
 }

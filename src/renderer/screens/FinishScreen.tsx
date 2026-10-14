@@ -80,6 +80,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
         closeTerminals: closeTerminals && nTerm > 0,
         removeWorktree,
         deleteBranch,
+        syncUsage: false,
       });
       return true;
     }, notify);

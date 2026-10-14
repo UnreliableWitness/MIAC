@@ -259,6 +259,7 @@ describe('handlers: missing worktree folder', () => {
       closeTerminals: true,
       removeWorktree: true,
       deleteBranch: true,
+      syncUsage: false,
     });
     const [view] = await h['tasks:list']();
     expect(view.status).toBe('done');
@@ -278,6 +279,7 @@ describe('handlers: finish', () => {
         closeTerminals: true,
         removeWorktree: false,
         deleteBranch: true,
+        syncUsage: false,
       }),
     ).rejects.toThrow();
     expect(existsSync(t.worktreePath)).toBe(true);
@@ -302,6 +304,7 @@ describe('handlers: finish', () => {
       closeTerminals: true,
       removeWorktree: true,
       deleteBranch: true,
+      syncUsage: false,
     });
     const [view] = await h['tasks:list']();
     expect(view.status).toBe('done');
@@ -325,6 +328,7 @@ describe('handlers: finish', () => {
         closeTerminals: true,
         removeWorktree: false,
         deleteBranch: true,
+        syncUsage: false,
       }),
     ).rejects.toThrow(/boom/);
     expect(store.state.tasks[0].status).toBe('ready');
@@ -372,6 +376,7 @@ describe('handlers: concurrency guards', () => {
         closeTerminals: true,
         removeWorktree: true,
         deleteBranch: true,
+        syncUsage: false,
       }),
     ).rejects.toThrow(/setting-up/);
     await done;
@@ -481,10 +486,14 @@ describe('recoverInterruptedTasks', () => {
         commands: [],
         startClaude: false,
         openShell: false,
+        openCopilot: false,
       },
       terminals: [],
       createdAt: 'now',
       finishedAt: null,
+      usageSyncedAt: null,
+      usageSyncError: null,
+      usageCommentId: null,
     };
     await store.update((s) => {
       s.tasks.push(

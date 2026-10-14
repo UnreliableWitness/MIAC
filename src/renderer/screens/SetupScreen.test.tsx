@@ -26,10 +26,14 @@ const task: TaskView = {
     commands: ['npm ci'],
     startClaude: true,
     openShell: true,
+    openCopilot: false,
   },
   terminals: [],
   createdAt: 'now',
   finishedAt: null,
+  usageSyncedAt: null,
+  usageSyncError: null,
+  usageCommentId: null,
   worktreeMissing: false,
 };
 const state: SetupState = {
