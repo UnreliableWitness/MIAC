@@ -5,7 +5,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import type { Events } from '../../shared/ipc';
 import type { CreateTaskInput, SetupEvent, Task } from '../../shared/types';
 import { AdoRegistry } from '../services/AdoRegistry';
-import { ConnectionStore } from '../services/ConnectionStore';
+import { ConnectionStore, type TokenCrypto } from '../services/ConnectionStore';
 import { fakeCrypto } from '../test-helpers/fakeCrypto';
 import { startAdoServer, type AdoServer } from '../test-helpers/adoServer';
 import { darwinPlatform } from '../platform/darwin';
@@ -27,21 +27,25 @@ type Broadcast = { event: keyof Events; payload: unknown };
 
 const allTerminals: TerminalManager[] = [];
 const servers: AdoServer[] = [];
+const connDirs: string[] = [];
 afterAll(async () => {
   await Promise.all(servers.map((v) => v.close()));
   for (const t of allTerminals) for (const id of t.ids()) t.kill(id);
+  for (const d of connDirs) rmSync(d, { recursive: true, force: true });
   cleanupTempRepos();
 });
 
-async function harness() {
+async function harness(crypto: TokenCrypto = fakeCrypto()) {
   const store = new TaskStore(
     path.join(mkdtempSync(path.join(os.tmpdir(), 'miac-ipc-')), 'state.json'),
   );
   await store.load();
   const dir = mkdtempSync(path.join(os.tmpdir(), 'miac-conn-'));
+  connDirs.push(dir);
   const connections = new ConnectionStore(
     path.join(dir, 'connections.json'),
-    fakeCrypto(),
+    crypto,
+    { allowLoopbackHttp: true },
   );
   await connections.load();
   const server = await startAdoServer();
@@ -608,6 +612,58 @@ describe('handlers: connections', () => {
   });
 });
 
+describe('handlers: connection robustness', () => {
+  it('validates before any network call', async () => {
+    const { h, server } = await harness();
+    await expect(
+      h['connections:save']({
+        organizationUrl: `${server.url}/unreliablewitness`,
+        project: ' ',
+        pat: 'secret',
+      }),
+    ).rejects.toThrow(/project/);
+    expect(server.requests).toHaveLength(0);
+  });
+  it('keeps the original error when the connection disappears mid-call', async () => {
+    const { h, server, connections } = await harness();
+    routeHealthyOrg(server);
+    const c = await h['connections:save']({
+      organizationUrl: `${server.url}/unreliablewitness`,
+      project: 'MIAC',
+      pat: 'p',
+    });
+    server.route('POST', '/unreliablewitness/MIAC/_apis/wit/wiql', () => {
+      void connections.remove(c.id);
+      return { status: 401, body: {} };
+    });
+    await expect(
+      h['workItems:search'](c.id, { scope: 'mine', text: '' }),
+    ).rejects.toThrow(/rejected the token/);
+  });
+  it('an undecryptable stored token flips the status without a network call', async () => {
+    let broken = false;
+    const base = fakeCrypto();
+    const { h, server, connections } = await harness({
+      ...base,
+      decrypt: (b) => {
+        if (broken) throw new Error('decrypt failed');
+        return base.decrypt(b);
+      },
+    });
+    const c = await connections.save({
+      organizationUrl: `${server.url}/unreliablewitness`,
+      project: 'MIAC',
+      pat: 'p',
+    });
+    broken = true;
+    await expect(
+      h['workItems:search'](c.id, { scope: 'mine', text: '' }),
+    ).rejects.toThrow(/could not be decrypted/);
+    expect((await h['connections:list']())[0].status).toBe('unauthorized');
+    expect(server.requests).toHaveLength(0);
+  });
+});
+
 describe('handlers: work items', () => {
   it('returns the current iteration and search results through the connection', async () => {
     const { h, server } = await harness();
@@ -669,6 +725,13 @@ describe('handlers: shell', () => {
     await expect(
       h['shell:openExternal']('javascript:alert(1)'),
     ).rejects.toThrow(/not allowed/);
+    for (const bad of [
+      'http://dev.azure.com/o/x',
+      'https://dev.azure.com.evil.com/x',
+      'https://evil@dev.azure.com/x',
+      'https://dev.azure.com:8443/x',
+    ])
+      await expect(h['shell:openExternal'](bad)).rejects.toThrow(/not allowed/);
     expect(opened).toHaveLength(2);
   });
 });

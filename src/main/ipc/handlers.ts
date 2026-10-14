@@ -18,7 +18,6 @@ import type { Command, Platform } from '../platform/Platform';
 import { AdoClient, AdoError } from '../services/AdoClient';
 import type { AdoRegistry } from '../services/AdoRegistry';
 import {
-  normalizeOrganizationUrl,
   TokenUnavailableError,
   type ConnectionStore,
 } from '../services/ConnectionStore';
@@ -91,15 +90,20 @@ export function createHandlers(s: Services): Handlers {
     try {
       return await run();
     } catch (e) {
-      if (
+      const status =
         (e instanceof AdoError && e.kind === 'unauthorized') ||
         e instanceof TokenUnavailableError
-      ) {
-        await s.connections.setStatus(connectionId, 'unauthorized');
-        connectionsChanged();
-      } else if (e instanceof AdoError && e.kind === 'unreachable') {
-        await s.connections.setStatus(connectionId, 'unreachable');
-        connectionsChanged();
+          ? 'unauthorized'
+          : e instanceof AdoError && e.kind === 'unreachable'
+            ? 'unreachable'
+            : null;
+      if (status) {
+        try {
+          await s.connections.setStatus(connectionId, status);
+          connectionsChanged();
+        } catch {
+          // The connection may be gone; keep the original error.
+        }
       }
       throw e;
     }
@@ -122,6 +126,9 @@ export function createHandlers(s: Services): Handlers {
       const u = new URL(url);
       return (
         u.protocol === 'https:' &&
+        !u.username &&
+        !u.password &&
+        u.port === '' &&
         (u.hostname === 'dev.azure.com' ||
           u.hostname.endsWith('.visualstudio.com'))
       );
@@ -526,7 +533,8 @@ export function createHandlers(s: Services): Handlers {
     'connections:list': async () => s.connections.list(),
     'connections:save': async (input) => {
       // Verify with a throwaway client before anything is written, so a bad token never lands on disk.
-      const organizationUrl = normalizeOrganizationUrl(input.organizationUrl);
+      s.connections.assertCanSave(input);
+      const organizationUrl = s.connections.normalizeUrl(input.organizationUrl);
       const probe = new AdoClient(organizationUrl, async () =>
         input.pat.trim(),
       );

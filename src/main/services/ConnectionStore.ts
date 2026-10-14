@@ -24,7 +24,10 @@ export class TokenUnavailableError extends Error {
 }
 
 /** `https://dev.azure.com/<org>` or `https://<org>.visualstudio.com`, from anything a user is likely to paste. */
-export function normalizeOrganizationUrl(input: string): string {
+export function normalizeOrganizationUrl(
+  input: string,
+  opts: { allowLoopbackHttp?: boolean } = {},
+): string {
   let text = input.trim();
   if (text.length === 0)
     throw new Error(
@@ -49,13 +52,13 @@ export function normalizeOrganizationUrl(input: string): string {
   if (host.endsWith('.visualstudio.com') && host.split('.').length === 3) {
     return `https://${host}`;
   }
-  // Loopback only (the test fake server); a token sent there never leaves this machine.
   if (
+    opts.allowLoopbackHttp &&
     url.protocol === 'http:' &&
     (host === '127.0.0.1' || host === 'localhost')
   ) {
     const org = url.pathname.split('/').filter(Boolean)[0];
-    if (org) return `${url.origin}/${org}`;
+    if (org) return `http://${url.host}/${org}`;
   }
   throw new Error('Use a dev.azure.com or visualstudio.com organization URL');
 }
@@ -83,7 +86,25 @@ export class ConnectionStore {
   constructor(
     private readonly filePath: string,
     private readonly crypto: TokenCrypto,
+    private readonly opts: { allowLoopbackHttp?: boolean } = {},
   ) {}
+
+  normalizeUrl(input: string): string {
+    return normalizeOrganizationUrl(input, this.opts);
+  }
+
+  /** Everything save() rejects up front, so callers can fail before any network call. */
+  assertCanSave(input: ConnectionInput): void {
+    this.normalizeUrl(input.organizationUrl);
+    if (input.project.trim().length === 0)
+      throw new Error('Enter the project name');
+    if (input.pat.trim().length === 0)
+      throw new Error('Enter a personal access token');
+    if (!this.crypto.available())
+      throw new TokenUnavailableError(
+        'Token encryption is not available on this machine; the connection was not saved',
+      );
+  }
 
   async load(): Promise<{ recovered: boolean; backup?: string }> {
     let raw: string;
@@ -116,15 +137,10 @@ export class ConnectionStore {
   }
 
   async save(input: ConnectionInput): Promise<Connection> {
-    const organizationUrl = normalizeOrganizationUrl(input.organizationUrl);
+    this.assertCanSave(input);
+    const organizationUrl = this.normalizeUrl(input.organizationUrl);
     const project = input.project.trim();
-    if (project.length === 0) throw new Error('Enter the project name');
     const pat = input.pat.trim();
-    if (pat.length === 0) throw new Error('Enter a personal access token');
-    if (!this.crypto.available())
-      throw new TokenUnavailableError(
-        'Token encryption is not available on this machine; the connection was not saved',
-      );
     const tokenCiphertext = this.crypto.encrypt(pat).toString('base64');
     const existing = input.id
       ? this.current.connections.find((c) => c.id === input.id)

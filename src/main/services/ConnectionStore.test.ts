@@ -19,6 +19,23 @@ const file = () => {
   return path.join(d, 'connections.json');
 };
 
+describe('loopback seam', () => {
+  it('accepts loopback http only when allowed', () => {
+    expect(() =>
+      normalizeOrganizationUrl('http://127.0.0.1:5555/org'),
+    ).toThrow();
+    expect(
+      normalizeOrganizationUrl('http://127.0.0.1:5555/org', {
+        allowLoopbackHttp: true,
+      }),
+    ).toBe('http://127.0.0.1:5555/org');
+  });
+  it('a strict store rejects localhost', () => {
+    const store = new ConnectionStore(file(), fakeCrypto());
+    expect(() => store.normalizeUrl('http://localhost:5555/org')).toThrow();
+  });
+});
+
 describe('normalizeOrganizationUrl', () => {
   it('accepts dev.azure.com org URLs with extra path or slash', () => {
     expect(
