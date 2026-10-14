@@ -84,7 +84,7 @@ A shared helper `renameWithRetry(from, to)` retries `fs.rename` on `EPERM`, `EBU
   - runs on every OS with a fake `which`;
   - covers pwsh present and missing, claude `.exe` versus `.cmd`, a prompt with `'` and `"`, the editor path with `'`, copilot, and the `shellCommand` wrapper text.
 - `src/main/test-helpers/shell.ts` exports portable helpers for tests that start real processes:
-  - `testPlatform()`: darwin with `/bin/sh` on macOS; windows with `cmd.exe`-free PowerShell on Windows;
+  - `testPlatform()`: darwin with `/bin/sh` on macOS; on Windows the real `windowsPlatform`, so tests exercise the PowerShell wrapper;
   - `echoCmd(text)`, `sleepCmd(seconds)`, `envRef(name)`, so a test can write a command once.
 - `handlers.test.ts`, `SetupRunner.test.ts` and `TerminalManager.test.ts` use these helpers.
   - A test that cannot be made portable gets `it.skipIf(process.platform === 'win32')` with a one-line reason.
