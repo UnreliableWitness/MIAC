@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import type { Repo } from '../../shared/types';
 import type { GitClient } from './GitClient';
+import { samePath } from '../paths';
 import { loadMiacConfig } from './MiacConfig';
 import type { TaskStore } from './TaskStore';
 
@@ -35,7 +36,7 @@ export class RepoRegistry {
     }
     const top = await this.git.toplevel(real);
     if (!top) throw new Error(`${folder} is not a git repository`);
-    if (this.store.state.repos.some((r) => r.path === top)) {
+    if (this.store.state.repos.some((r) => samePath(r.path, top))) {
       throw new Error(`${path.basename(top)} is already registered`);
     }
     const repo = await this.describe({
@@ -45,7 +46,7 @@ export class RepoRegistry {
     });
     // Re-check inside the update: a concurrent add may have registered the same path while we awaited.
     await this.store.update((s) => {
-      if (s.repos.some((r) => r.path === top)) {
+      if (s.repos.some((r) => samePath(r.path, top))) {
         throw new Error(`${path.basename(top)} is already registered`);
       }
       s.repos.push(repo);

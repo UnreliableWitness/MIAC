@@ -15,6 +15,16 @@ const client = new GitClient();
 afterAll(cleanupTempRepos);
 
 describe('GitClient', () => {
+  it('returns toplevel and commonDir in native path form', async () => {
+    const c = new GitClient();
+    const spy = vi.spyOn(c, 'run').mockResolvedValue('C:/x/y\n');
+    expect(await c.toplevel('/anywhere')).toBe(path.resolve('C:/x/y'));
+    expect(await c.commonDir('/anywhere')).toBe(
+      path.resolve('/anywhere', 'C:/x/y'),
+    );
+    spy.mockRestore();
+  });
+
   it('finds the toplevel and returns null outside a repo', async () => {
     const repo = makeRepo();
     expect(await client.toplevel(repo)).toBe(repo);

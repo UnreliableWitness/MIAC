@@ -1,6 +1,7 @@
 import {
   mkdirSync,
   mkdtempSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -16,7 +17,7 @@ import { TaskStore } from './TaskStore';
 /** Scratch folders this test creates itself (state dirs, non-git dirs), removed in afterAll. */
 const scratch: string[] = [];
 function tempDir(prefix: string): string {
-  const dir = mkdtempSync(path.join(os.tmpdir(), prefix));
+  const dir = realpathSync.native(mkdtempSync(path.join(os.tmpdir(), prefix)));
   scratch.push(dir);
   return dir;
 }

@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import type { GitSummary } from '../../shared/types';
+import { nativePath } from '../paths';
 
 const execFileAsync = promisify(execFile);
 
@@ -44,7 +45,10 @@ export class GitClient {
 
   async toplevel(dir: string): Promise<string | null> {
     try {
-      return (await this.run(dir, ['rev-parse', '--show-toplevel'])).trim();
+      const out = (
+        await this.run(dir, ['rev-parse', '--show-toplevel'])
+      ).trim();
+      return out ? nativePath(out) : null;
     } catch {
       return null;
     }
@@ -53,7 +57,7 @@ export class GitClient {
   /** The shared .git directory, also from inside a linked worktree. */
   async commonDir(cwd: string): Promise<string> {
     const out = (await this.run(cwd, ['rev-parse', '--git-common-dir'])).trim();
-    return path.resolve(cwd, out);
+    return nativePath(path.resolve(cwd, out));
   }
 
   async branchExists(cwd: string, branch: string): Promise<boolean> {
