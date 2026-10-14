@@ -96,16 +96,15 @@ A shared helper `renameWithRetry(from, to)` retries `fs.rename` on `EPERM`, `EBU
 
 - **Triggers:** `push` (all branches), `pull_request`, tags `v*`.
 - **Matrix:** `macos-latest`, `windows-latest`, Node 24. Each job runs `npm ci`, `npm run lint`, `npm run typecheck` and `npm test`.
-- **Windows job, after the tests:**
-  - `npm run make`, which builds the Squirrel installer;
-  - uploads `out/make/squirrel.windows/**/MIAC-Setup.exe` as the artifact `MIAC-Setup-<sha>`.
-- **Signing:**
-  - Runs only when the six repo variables below are set **and** the run is a push to `main` or a `v*` tag. It never runs on pull requests.
-  - Before `make`, CI logs in with `azure/login` (OIDC, `permissions: id-token: write`).
+- **Two Windows jobs, both after the tests:**
+  - `windows-installer`: runs on pull requests and on pushes to branches other than `main` and `v*` tags. It has `contents: read` only and never signs. It runs `npm run make`, uploads `out/make/squirrel.windows/**/MIAC-Setup.exe` as the artifact `MIAC-Setup-<sha>`, and the summary says it is unsigned because this is not main or a tag.
+  - `windows-release`: runs on pushes to `main` and `v*` tags, in the GitHub environment `release`, with `contents: write` and `id-token: write`. It builds and uploads the same artifact, and on `v*` tags it creates a GitHub Release with the installer attached.
+- **Signing** (only in `windows-release`):
+  - It runs only when all six variables below are set. If not, the job builds unsigned and the summary names the missing variables.
+  - Before `make`, CI logs in with `azure/login` (OIDC). The federated credential trusts the environment `release`, so a pull request can never obtain a token.
   - CI then exports the variables that the Forge signing hook reads.
-  - After `make`, `signtool verify /pa /v` on `MIAC-Setup.exe` must succeed, or the job fails.
-  - The job summary always states "signed" or "unsigned (signing variables not set)".
-- **On `v*` tags:** create a GitHub Release with the installer attached.
+  - After `make`, `signtool verify /pa /v` runs on every `*.exe` under `out/` (the packaged `MIAC.exe` and `MIAC-Setup.exe`), and any failure fails the job. This is needed because the nested signer in `electron-winstaller` swallows hook errors.
+  - In the signing job, every action is pinned to a full commit SHA.
 
 ### Packaging and signing: `forge.config.mts`
 
@@ -125,18 +124,19 @@ A shared helper `renameWithRetry(from, to)` retries `fs.rename` on `EPERM`, `EBU
 1. **Create an Artifact Signing account.** In an Azure subscription, create an Artifact Signing account in West Europe.
 2. **Request identity validation.** In the account, open Identity validation, choose **Organization**, and submit the company's legal details. Approval takes 1-20 business days.
 3. **Create a certificate profile.** After approval, create a **Public Trust** certificate profile. Note the account endpoint (for example `https://weu.codesigning.azure.net`), the account name and the profile name.
-4. **Create the CI identity.** In Microsoft Entra ID, create an app registration `miac-ci-signing`. Add two federated credentials:
-   - GitHub Actions, repo `UnreliableWitness/MIAC`, entity type Branch, value `main`;
-   - the same repo, entity type Tag, value `v*`.
+4. **Create the CI identity.**
+   - In Microsoft Entra ID, create an app registration `miac-ci-signing`.
+   - In GitHub, open the repo, then Settings > Environments, and create an environment named `release`. Under deployment branches and tags, allow branch `main` and tags matching `v*`.
+   - Add one federated credential to the app registration: GitHub Actions, repo `UnreliableWitness/MIAC`, entity type **Environment**, value `release` (subject `repo:UnreliableWitness/MIAC:environment:release`). This replaces separate branch and tag credentials.
 5. **Grant signing rights.** On the certificate profile, assign the role **Artifact Signing Certificate Profile Signer** to `miac-ci-signing`.
-6. **Add the repo variables.** In GitHub, open the repo, then Settings > Secrets and variables > Actions > Variables, and add:
+6. **Add the variables.** In GitHub, add these either at repo level (Settings > Secrets and variables > Actions > Variables) or as environment variables of `release`:
    - `AZURE_CLIENT_ID`
    - `AZURE_TENANT_ID`
    - `AZURE_SUBSCRIPTION_ID`
    - `ARTIFACT_SIGNING_ENDPOINT`
    - `ARTIFACT_SIGNING_ACCOUNT`
    - `ARTIFACT_SIGNING_PROFILE`
-   
+
    No secret is stored: OIDC replaces the client secret.
 
 The validated company name becomes the publisher Windows shows. Choose it once.

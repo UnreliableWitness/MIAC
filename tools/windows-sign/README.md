@@ -5,8 +5,8 @@ Electron Forge signs (the packaged exe, and the Squirrel installer). It runs `si
 Azure Artifact Signing dlib, SHA256, and the timestamp server `http://timestamp.acs.microsoft.com`.
 
 It only runs in CI. `forge.config.mts` enables it when `ARTIFACT_SIGNING_ENDPOINT` is set, and the
-workflow in `.github/workflows/ci.yml` sets that only on a push to `main` or a `v*` tag, and only
-when all six Azure variables exist. Never on pull requests.
+workflow in `.github/workflows/ci.yml` sets that only in the `windows-release` job (push to `main` or a
+`v*` tag, GitHub environment `release`), and only when all six Azure variables exist. Never on pull requests.
 
 Environment variables the hook reads (all set by the workflow):
 

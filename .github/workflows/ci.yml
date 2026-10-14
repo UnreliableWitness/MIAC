@@ -27,23 +27,74 @@ jobs:
       - run: npm test
 
   windows-installer:
+    # Unsigned build for pull requests and non-release branches. Never signs.
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/v'))
     needs: test
     runs-on: windows-latest
     permissions:
-      contents: write
-      id-token: write
-    env:
-      SIGN: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && vars.AZURE_CLIENT_ID != '' && vars.AZURE_TENANT_ID != '' && vars.AZURE_SUBSCRIPTION_ID != '' && vars.ARTIFACT_SIGNING_ENDPOINT != '' && vars.ARTIFACT_SIGNING_ACCOUNT != '' && vars.ARTIFACT_SIGNING_PROFILE != '' }}
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           cache: npm
       - run: npm ci
+      - run: npm run make
+      - name: Summary
+        shell: pwsh
+        run: '"Windows installer: **unsigned** (this is not main or a v* tag)" >> $env:GITHUB_STEP_SUMMARY'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: MIAC-Setup-${{ github.sha }}
+          path: out/make/squirrel.windows/**/MIAC-Setup.exe
+          if-no-files-found: error
+
+  windows-release:
+    # Push to main or a v* tag. Runs in the "release" environment, which holds the OIDC trust for signing.
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    needs: test
+    runs-on: windows-latest
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+    env:
+      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      AS_ENDPOINT: ${{ vars.ARTIFACT_SIGNING_ENDPOINT }}
+      AS_ACCOUNT: ${{ vars.ARTIFACT_SIGNING_ACCOUNT }}
+      AS_PROFILE: ${{ vars.ARTIFACT_SIGNING_PROFILE }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Decide on signing
+        shell: pwsh
+        run: |
+          $vars = [ordered]@{
+            AZURE_CLIENT_ID = $env:AZURE_CLIENT_ID
+            AZURE_TENANT_ID = $env:AZURE_TENANT_ID
+            AZURE_SUBSCRIPTION_ID = $env:AZURE_SUBSCRIPTION_ID
+            ARTIFACT_SIGNING_ENDPOINT = $env:AS_ENDPOINT
+            ARTIFACT_SIGNING_ACCOUNT = $env:AS_ACCOUNT
+            ARTIFACT_SIGNING_PROFILE = $env:AS_PROFILE
+          }
+          $missing = @($vars.Keys | Where-Object { -not $vars[$_] })
+          if ($missing.Count -eq 0) {
+            "SIGN=true" >> $env:GITHUB_ENV
+            "Windows installer: **signed** with Azure Artifact Signing" >> $env:GITHUB_STEP_SUMMARY
+          } else {
+            "SIGN=false" >> $env:GITHUB_ENV
+            "Windows installer: **unsigned**. Missing variables: $($missing -join ', ')" >> $env:GITHUB_STEP_SUMMARY
+          }
       - name: Azure login (OIDC)
         if: env.SIGN == 'true'
-        uses: azure/login@v2
+        uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2.3.1
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
@@ -56,25 +107,26 @@ jobs:
           $dlib = Get-ChildItem "$env:RUNNER_TEMP\as" -Recurse -Filter Azure.CodeSigning.Dlib.dll | Where-Object FullName -match 'x64' | Select-Object -First 1
           $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe | Where-Object FullName -match '\\x64\\' | Sort-Object FullName -Descending | Select-Object -First 1
           $meta = "$env:RUNNER_TEMP\metadata.json"
-          @{ Endpoint = "${{ vars.ARTIFACT_SIGNING_ENDPOINT }}"; CodeSigningAccountName = "${{ vars.ARTIFACT_SIGNING_ACCOUNT }}"; CertificateProfileName = "${{ vars.ARTIFACT_SIGNING_PROFILE }}"; ExcludeCredentials = @('ManagedIdentityCredential','EnvironmentCredential','WorkloadIdentityCredential','SharedTokenCacheCredential','VisualStudioCredential','VisualStudioCodeCredential','AzurePowerShellCredential','AzureDeveloperCliCredential','InteractiveBrowserCredential') } | ConvertTo-Json | Set-Content $meta
+          @{ Endpoint = $env:AS_ENDPOINT; CodeSigningAccountName = $env:AS_ACCOUNT; CertificateProfileName = $env:AS_PROFILE; ExcludeCredentials = @('ManagedIdentityCredential','EnvironmentCredential','WorkloadIdentityCredential','SharedTokenCacheCredential','VisualStudioCredential','VisualStudioCodeCredential','AzurePowerShellCredential','AzureDeveloperCliCredential','InteractiveBrowserCredential') } | ConvertTo-Json | Set-Content $meta
           "ARTIFACT_SIGNING_DLIB=$($dlib.FullName)" >> $env:GITHUB_ENV
           "SIGNTOOL_PATH=$($signtool.FullName)" >> $env:GITHUB_ENV
           "ARTIFACT_SIGNING_METADATA=$meta" >> $env:GITHUB_ENV
-          "ARTIFACT_SIGNING_ENDPOINT=${{ vars.ARTIFACT_SIGNING_ENDPOINT }}" >> $env:GITHUB_ENV
+          "ARTIFACT_SIGNING_ENDPOINT=$env:AS_ENDPOINT" >> $env:GITHUB_ENV
       - run: npm run make
-      - name: Verify signature
+      - name: Verify signatures
         if: env.SIGN == 'true'
         shell: pwsh
         run: |
-          $setup = Get-ChildItem out/make/squirrel.windows -Recurse -Filter MIAC-Setup.exe | Select-Object -First 1
-          & $env:SIGNTOOL_PATH verify /pa /v $setup.FullName
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-      - name: Summary
-        shell: pwsh
-        run: |
-          if ($env:SIGN -eq 'true') { "Windows installer: **signed** with Azure Artifact Signing" >> $env:GITHUB_STEP_SUMMARY }
-          else { "Windows installer: **unsigned** (signing variables not set, or not a push to main / v* tag)" >> $env:GITHUB_STEP_SUMMARY }
-      - uses: actions/upload-artifact@v4
+          # electron-winstaller's nested windows-sign swallows hook errors, so verify every exe we produced.
+          $exes = @(Get-ChildItem out -Recurse -Filter *.exe)
+          if ($exes.Count -eq 0) { throw 'No exe files found under out/' }
+          $failed = 0
+          foreach ($exe in $exes) {
+            & $env:SIGNTOOL_PATH verify /pa /v $exe.FullName
+            if ($LASTEXITCODE) { "Signature check failed: $($exe.FullName)"; $failed++ }
+          }
+          if ($failed) { exit 1 }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: MIAC-Setup-${{ github.sha }}
           path: out/make/squirrel.windows/**/MIAC-Setup.exe
@@ -84,6 +136,7 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
         run: |
           $setup = Get-ChildItem out/make/squirrel.windows -Recurse -Filter MIAC-Setup.exe | Select-Object -First 1
-          gh release create "${{ github.ref_name }}" $setup.FullName --title "MIAC ${{ github.ref_name }}" --generate-notes
+          gh release create $env:TAG $setup.FullName --title "MIAC $env:TAG" --generate-notes
