@@ -268,6 +268,38 @@ describe('FinishScreen AI usage', () => {
       ).toMatchObject({ syncUsage: true }),
     );
   });
+  it('leaves the checkbox unticked when no usage was captured, and still writes when ticked', async () => {
+    useStore.setState({
+      repos: [
+        {
+          id: task.repoId,
+          name: 'webshop',
+          path: '/r',
+          baseBranch: 'main',
+          connectionId: 'c1',
+          miacYmlFound: true,
+        },
+      ],
+    });
+    const { calls } = installFakeApi({
+      'tasks:finishChecks': () => clean,
+      'tasks:finish': () => undefined,
+    });
+    render(<FinishScreen taskId={task.id} />);
+    await screen.findByText('No AI usage captured for this task.');
+    const box = screen.getByRole('checkbox', {
+      name: /Write final totals to the work item/,
+    });
+    await waitFor(() => expect(box).toHaveProperty('checked', false));
+    await userEvent.click(box);
+    expect(box).toHaveProperty('checked', true);
+    await userEvent.click(screen.getByRole('button', { name: /Finish/ }));
+    await waitFor(() =>
+      expect(
+        calls.find((c) => c.channel === 'tasks:finish')?.args[1],
+      ).toMatchObject({ syncUsage: true }),
+    );
+  });
   it('hides the checkbox when the repo has no connection', async () => {
     useStore.setState({
       repos: [

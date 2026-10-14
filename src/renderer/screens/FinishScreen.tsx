@@ -27,7 +27,9 @@ export function FinishScreen({ taskId }: { taskId: string }) {
   const usage = useTaskUsage(ready ? taskId : null);
   const repo = useStore((s) => s.repos.find((r) => r.id === task?.repoId));
   const canSync = Boolean(task?.workItem) && Boolean(repo?.connectionId);
-  const [syncUsage, setSyncUsage] = useState(true);
+  // Untouched (null) defaults to on, except when no usage was captured.
+  const [syncChoice, setSyncUsage] = useState<boolean | null>(null);
+  const syncUsage = syncChoice ?? !(usage && usage.sessions.length === 0);
 
   useEffect(() => {
     if (!ready) return;
