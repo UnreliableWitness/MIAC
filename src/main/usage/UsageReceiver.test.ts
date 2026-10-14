@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import path from 'node:path';
 import { gzipSync } from 'node:zlib';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { UsageEvent } from '../../shared/usage';
 import { UsageReceiver } from './UsageReceiver';
 
@@ -112,5 +112,37 @@ describe('UsageReceiver', () => {
       port: other,
       error: null,
     });
+  });
+  it('rejects a small gzip body that inflates past the limit', async () => {
+    const { got, port } = await start();
+    const res = await fetch(`http://127.0.0.1:${port}/v1/logs`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'content-encoding': 'gzip',
+      },
+      body: gzipSync(Buffer.alloc(6 * 1024 * 1024, 0x20)),
+    });
+    expect(res.status).toBe(413);
+    expect(got).toEqual([]);
+  });
+  it('answers 500 when the handler throws and keeps serving', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const r = new UsageReceiver(() => {
+      throw new Error('boom');
+    });
+    receivers.push(r);
+    const port = await freePort();
+    await r.start(port);
+    const send = () =>
+      fetch(`http://127.0.0.1:${port}/v1/logs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: fixture,
+      });
+    expect((await send()).status).toBe(500);
+    expect((await send()).status).toBe(500);
+    expect(errors).toHaveBeenCalled();
+    errors.mockRestore();
   });
 });

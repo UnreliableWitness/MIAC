@@ -88,17 +88,25 @@ export class UsageReceiver {
       try {
         let buf = Buffer.concat(chunks);
         if ((req.headers['content-encoding'] ?? '').toLowerCase() === 'gzip')
-          buf = gunzipSync(buf);
+          buf = gunzipSync(buf, { maxOutputLength: LIMIT });
         parsed = JSON.parse(buf.toString('utf8'));
-      } catch {
-        return reply(400);
+      } catch (e) {
+        const tooLarge =
+          (e as NodeJS.ErrnoException).code === 'ERR_BUFFER_TOO_LARGE' ||
+          (e instanceof RangeError && /larger|size/i.test(e.message));
+        return reply(tooLarge ? 413 : 400);
       }
       const { events, skipped } = parseClaudeLogs(parsed);
       if (skipped > 0)
         console.warn(
           `[usage] skipped ${skipped} api_request record(s) without a model or request id`,
         );
-      if (events.length > 0) this.onEvents(events);
+      try {
+        if (events.length > 0) this.onEvents(events);
+      } catch (e) {
+        console.error('[usage] failed to handle usage events', e);
+        return reply(500);
+      }
       reply(200);
     });
   }
