@@ -1,12 +1,13 @@
 import os from 'node:os';
 import type { Platform } from './platform/Platform';
-import type { TerminalManager } from './services/TerminalManager';
+import { type TerminalManager, UNKNOWN_EXIT } from './services/TerminalManager';
 
 const MARKER = 'miac-smoke-pty';
 
 /**
  * The packaged-app smoke check (MIAC_SMOKE=1): one pty through TerminalManager, running a shell command
- * that prints a marker. True when the marker arrives and the command exits 0 within the timeout.
+ * that prints a marker. True when the marker arrives and the command exits 0 (or with no known exit code)
+ * within the timeout.
  * Touches no stores, so it is safe to run from CI against a fresh install.
  */
 export async function runSmoke(o: {
@@ -28,7 +29,7 @@ export async function runSmoke(o: {
       timer = setTimeout(() => resolve('timeout'), o.timeoutMs ?? 20_000);
     });
     // `echo` exists in sh, zsh and PowerShell (alias of Write-Output).
-    const cmd = o.platform.shellCommand(`echo ${MARKER}`);
+    const cmd = o.platform.runCommand(`echo ${MARKER}`);
     terminals.spawn({
       id,
       taskId: 'miac-smoke',
@@ -41,6 +42,11 @@ export async function runSmoke(o: {
       return false;
     }
     const output = terminals.buffer(id);
+    if (result === UNKNOWN_EXIT && output.includes(MARKER)) {
+      // The pty closed before node-pty knew the code (conpty.dll); the marker proves the command ran.
+      log('smoke: the pty reported no exit code, the marker arrived');
+      return true;
+    }
     if (result !== 0) {
       log(`smoke failed: exit code ${result}\n${output}`);
       return false;

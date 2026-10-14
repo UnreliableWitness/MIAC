@@ -15,6 +15,8 @@ const WRAP = (cmd: string) =>
     'if ($LASTEXITCODE) { exit $LASTEXITCODE }',
     'if ($miacFailed) { exit 1 }',
   ].join('\n');
+const RUN_WRAP = (cmd: string) =>
+  ['& {', cmd, '}', 'if ($LASTEXITCODE) { exit $LASTEXITCODE }'].join('\n');
 const make = (found: Record<string, string>) =>
   windowsPlatform({}, { which: (n) => found[n] ?? null });
 
@@ -50,6 +52,25 @@ describe('windowsPlatform', () => {
     const args = make({}).shellCommand('npm ci # install').args;
     expect(args.at(-1)).toBe(WRAP('npm ci # install'));
     expect(args.at(-1)).toContain('npm ci # install\n}');
+  });
+
+  it('runs terminal commands without the setup pipe, so the console stays a console', () => {
+    expect(make({}).runCommand('npm run dev')).toEqual({
+      command: 'powershell.exe',
+      args: [
+        '-NoLogo',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        RUN_WRAP('npm run dev'),
+      ],
+    });
+    const text = make({}).runCommand('npm run dev # dev').args.at(-1);
+    expect(text).toContain('npm run dev # dev\n}');
+    expect(text).not.toContain('2>&1');
+    expect(text).not.toContain('ForEach-Object');
   });
 
   it('starts a native claude.exe directly with the prompt as one argument', () => {

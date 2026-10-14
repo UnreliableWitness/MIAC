@@ -25,6 +25,12 @@ const BUFFER_LIMIT = 200_000;
 /** How long kill waits for the exit before giving up (a process that ignores the kill must not block Finish). */
 const KILL_WAIT_MS = 3000;
 
+/** The exit code reported when the pty closed before the code was known (node-pty with conpty.dll). */
+export const UNKNOWN_EXIT = -1;
+
+export const normaliseExitCode = (code: unknown): number =>
+  typeof code === 'number' && Number.isFinite(code) ? code : UNKNOWN_EXIT;
+
 /** One pty per terminal id. Exited terminals stay known (for restart and buffer) until killed. */
 export class TerminalManager extends EventEmitter<{
   data: [id: string, data: string];
@@ -72,7 +78,7 @@ export class TerminalManager extends EventEmitter<{
       exitResolve();
       if (this.entries.get(options.id) !== entry) return;
       entry.exited = true;
-      this.emit('exit', options.id, exitCode);
+      this.emit('exit', options.id, normaliseExitCode(exitCode));
     });
   }
 

@@ -53,6 +53,26 @@ describe('GitClient', () => {
     spy.mockRestore();
   });
 
+  it('worktreeRemove keeps retrying for about 5 s before giving up', async () => {
+    const waits: number[] = [];
+    const c = new GitClient(async (ms) => {
+      waits.push(ms);
+    });
+    const spy = vi.spyOn(c, 'run').mockImplementation(async (_cwd, args) => {
+      throw new GitError(
+        args,
+        "error: failed to delete 'C:/w': Permission denied",
+        128,
+      );
+    });
+    await expect(c.worktreeRemove('/repo', '/w', true)).rejects.toThrow(
+      /Permission denied/,
+    );
+    expect(waits).toEqual([50, 100, 200, 400, 800, 1600, 1850]);
+    expect(waits.reduce((a, b) => a + b, 0)).toBe(5000);
+    spy.mockRestore();
+  });
+
   it('worktreeRemove does not retry other failures', async () => {
     const waits: number[] = [];
     const c = new GitClient(async (ms) => {

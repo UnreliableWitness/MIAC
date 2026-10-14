@@ -279,7 +279,7 @@ export function createHandlers(s: Services): Handlers {
     if (def.kind === 'claude')
       return s.platform.claudeCommand(claudePrompt(task));
     if (def.kind === 'run' && def.command)
-      return s.platform.shellCommand(def.command);
+      return s.platform.runCommand(def.command);
     if (def.kind === 'copilot') return s.platform.copilotCommand();
     return s.platform.interactiveShell();
   };
@@ -551,8 +551,11 @@ export function createHandlers(s: Services): Handlers {
         const task = taskById(taskId);
         const repo = s.repos.get(task.repoId);
         await patchTask(taskId, { status: 'finishing' });
+        // A terminal running in the folder blocks its removal on Windows (and a terminal without its
+        // folder is useless), so removing the worktree closes the terminals even when that was unticked.
+        const killTerminals = options.closeTerminals || options.removeWorktree;
         try {
-          if (options.closeTerminals) {
+          if (killTerminals) {
             await s.terminals.killAllForTask(taskId);
             await patchTask(taskId, { terminals: [] });
           }
@@ -574,7 +577,7 @@ export function createHandlers(s: Services): Handlers {
         });
         if (options.syncUsage) {
           try {
-            if (options.closeTerminals && s.finishFlushMs > 0)
+            if (killTerminals && s.finishFlushMs > 0)
               await new Promise((r) => setTimeout(r, s.finishFlushMs));
             await s.copilot.poll();
             const result = await usageSync.syncTask(taskId, {

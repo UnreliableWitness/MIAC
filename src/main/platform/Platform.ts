@@ -10,8 +10,16 @@ export interface Platform {
   shellLabel: string;
   /** An interactive shell for a terminal tab. */
   interactiveShell(): Command;
-  /** Run one command line non-interactively, with the user's PATH loaded. */
+  /**
+   * Run one setup command line non-interactively, with the user's PATH loaded. Its output goes to pipes
+   * (SetupRunner), and the exit code reports success.
+   */
   shellCommand(cmd: string): Command;
+  /**
+   * Run one command line in a terminal (a pty, e.g. the dev server), with the user's PATH loaded. The
+   * program keeps the console: no pipe in between, so colour, UTF-8 output and unbuffered logs survive.
+   */
+  runCommand(cmd: string): Command;
   /** Start Claude Code with a first prompt. */
   claudeCommand(prompt: string): Command;
   /** Start GitHub Copilot CLI. */

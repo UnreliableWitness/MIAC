@@ -355,6 +355,53 @@ describe('handlers: finish', () => {
     expect(order).toEqual(['terminals exited', 'remove']);
   });
 
+  it('removing the worktree closes the terminals first, even when Close terminals is unticked', async () => {
+    const { h, input, setupDone, terminals, services, store } = await harness();
+    const done = setupDone();
+    const t = await h['tasks:create'](input());
+    await done;
+    expect(terminals.runningCount(t.id)).toBe(1);
+    const order: string[] = [];
+    const realKill = terminals.killAllForTask.bind(terminals);
+    vi.spyOn(terminals, 'killAllForTask').mockImplementation(async (id) => {
+      await realKill(id);
+      await new Promise((r) => setTimeout(r, 50));
+      order.push('terminals exited');
+    });
+    const realRemove = services.git.worktreeRemove.bind(services.git);
+    vi.spyOn(services.git, 'worktreeRemove').mockImplementation(
+      async (...a) => {
+        order.push('remove');
+        return realRemove(...a);
+      },
+    );
+    await h['tasks:finish'](t.id, {
+      closeTerminals: false,
+      removeWorktree: true,
+      deleteBranch: true,
+      syncUsage: false,
+    });
+    expect(order).toEqual(['terminals exited', 'remove']);
+    expect(terminals.runningCount(t.id)).toBe(0);
+    expect(store.state.tasks[0].terminals).toEqual([]);
+    expect(existsSync(t.worktreePath)).toBe(false);
+  });
+
+  it('keeps the terminals when neither Close terminals nor Remove worktree is ticked', async () => {
+    const { h, input, setupDone, terminals } = await harness();
+    const done = setupDone();
+    const t = await h['tasks:create'](input());
+    await done;
+    await h['tasks:finish'](t.id, {
+      closeTerminals: false,
+      removeWorktree: false,
+      deleteBranch: false,
+      syncUsage: false,
+    });
+    expect(terminals.runningCount(t.id)).toBe(1);
+    await terminals.killAllForTask(t.id);
+  });
+
   it('cancelSetup waits for the terminals to exit before removing the worktree', async () => {
     const { h, input, setupDone, terminals, services } = await harness();
     const done = setupDone();
@@ -556,6 +603,37 @@ describe('handlers: terminals', () => {
       def.id,
     );
     expect(terminals.runningCount(t.id)).toBe(0);
+  });
+});
+
+describe('handlers: run terminal command', () => {
+  it('starts a run terminal with runCommand, not the setup wrapper', async () => {
+    const base = testPlatform();
+    const ran: string[] = [];
+    const platform = {
+      ...base,
+      runCommand: (cmd: string) => {
+        ran.push(cmd);
+        return base.runCommand(cmd);
+      },
+    };
+    const hx = await harness(fakeCrypto(), { platform });
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](hx.input({ openShell: false }));
+    await done;
+    const command = `${echoCmd('via-run')}; ${sleepCmd(5)}`;
+    const def = await hx.h['terminals:open'](t.id, {
+      kind: 'run',
+      label: 'dev',
+      command,
+    });
+    expect(ran).toEqual([command]);
+    await vi.waitFor(
+      async () =>
+        expect(await hx.h['terminals:buffer'](def.id)).toContain('via-run'),
+      { timeout: 10_000 },
+    );
+    await hx.terminals.killAllForTask(t.id);
   });
 });
 

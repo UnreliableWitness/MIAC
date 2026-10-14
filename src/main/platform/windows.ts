@@ -39,6 +39,16 @@ export const psSetupWrapper = (cmd: string): string =>
     'if ($miacFailed) { exit 1 }',
   ].join('\n');
 
+/**
+ * Runs a command line in a pty (a `run` terminal such as the dev server) and passes on the last native
+ * exit code. No pipe: the program writes straight to the console, so it sees a TTY, its UTF-8 output
+ * is not decoded through the OEM code page and its logs are not block-buffered. In a real console
+ * PowerShell 5.1 does not wrap native stderr in error records, so the setup wrapper is not needed here.
+ * A `throw` still exits 1 under -Command. The command sits on its own lines (trailing # comments).
+ */
+export const psRunWrapper = (cmd: string): string =>
+  ['& {', cmd, '}', 'if ($LASTEXITCODE) { exit $LASTEXITCODE }'].join('\n');
+
 /** Windows: PowerShell 7 if installed, else Windows PowerShell 5.1. */
 export function windowsPlatform(
   _env: NodeJS.ProcessEnv,
@@ -58,6 +68,19 @@ export function windowsPlatform(
   });
 
   /** Native .exe runs directly (node-pty quotes args for ConPTY); shims go through PowerShell. */
+  const nonInteractive = (command: string): Command => ({
+    command: shell,
+    args: [
+      '-NoLogo',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      command,
+    ],
+  });
+
   const tool = (name: string, args: string[], promptEnv?: string): Command => {
     const found = deps.which(name);
     if (found && found.toLowerCase().endsWith('.exe'))
@@ -77,18 +100,8 @@ export function windowsPlatform(
       command: shell,
       args: ['-NoLogo', '-ExecutionPolicy', 'Bypass'],
     }),
-    shellCommand: (cmd) => ({
-      command: shell,
-      args: [
-        '-NoLogo',
-        '-ExecutionPolicy',
-        'Bypass',
-        '-NoProfile',
-        '-NonInteractive',
-        '-Command',
-        psSetupWrapper(cmd),
-      ],
-    }),
+    shellCommand: (cmd) => nonInteractive(psSetupWrapper(cmd)),
+    runCommand: (cmd) => nonInteractive(psRunWrapper(cmd)),
     claudeCommand: (prompt) => tool('claude', [prompt], prompt),
     copilotCommand: () => tool('copilot', []),
     editorCommand: (p) => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { failCmd, sleepCmd, testPlatform } from './test-helpers/shell';
-import { TerminalManager } from './services/TerminalManager';
+import { TerminalManager, UNKNOWN_EXIT } from './services/TerminalManager';
 import { runSmoke } from './smoke';
 
 describe('runSmoke', () => {
@@ -20,7 +20,7 @@ describe('runSmoke', () => {
     const lines: string[] = [];
     const ok = await runSmoke({
       terminals: new TerminalManager(),
-      platform: { ...p, shellCommand: () => p.shellCommand(failCmd(3)) },
+      platform: { ...p, runCommand: () => p.runCommand(failCmd(3)) },
       log: (l) => lines.push(l),
     });
     expect(ok).toBe(false);
@@ -33,7 +33,7 @@ describe('runSmoke', () => {
     const lines: string[] = [];
     const ok = await runSmoke({
       terminals,
-      platform: { ...p, shellCommand: () => p.shellCommand(sleepCmd(30)) },
+      platform: { ...p, runCommand: () => p.runCommand(sleepCmd(30)) },
       log: (l) => lines.push(l),
       timeoutMs: 500,
     });
@@ -48,7 +48,7 @@ describe('runSmoke', () => {
       terminals: new TerminalManager(),
       platform: {
         ...testPlatform(),
-        shellCommand: () => ({
+        runCommand: () => ({
           command: 'x',
           args: [1 as unknown as string],
         }),
@@ -56,5 +56,25 @@ describe('runSmoke', () => {
       log: (l) => lines.push(l),
     });
     expect(ok).toBe(false);
+  });
+
+  it('passes on the marker when the pty reports no exit code', async () => {
+    const terminals = new TerminalManager();
+    const lines: string[] = [];
+    // node-pty with conpty.dll can report exit before the code is known; TerminalManager then says UNKNOWN_EXIT.
+    const realOn = terminals.on.bind(terminals);
+    terminals.on = ((event: 'exit' | 'data', listener: never) => {
+      if (event !== 'exit') return realOn(event, listener);
+      const wrapped = (id: string) =>
+        (listener as (id: string, code: number) => void)(id, UNKNOWN_EXIT);
+      return realOn('exit', wrapped);
+    }) as typeof terminals.on;
+    const ok = await runSmoke({
+      terminals,
+      platform: testPlatform(),
+      log: (l) => lines.push(l),
+    });
+    expect(ok).toBe(true);
+    expect(lines.join('\n')).toMatch(/no exit code/);
   });
 });

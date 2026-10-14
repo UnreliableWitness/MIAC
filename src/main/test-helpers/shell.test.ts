@@ -105,6 +105,21 @@ describe.runIf(isWindows).each([
     expect(runIn('miac-no-such-command-xyz').status).not.toBe(0);
   });
 
+  it('a throw fails with exit 1', () => {
+    const r = runIn("throw 'boom'");
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('boom');
+  });
+
+  it('native stdout passes through intact', () => {
+    const node = `& '${process.execPath.replaceAll("'", "''")}'`;
+    const r = runIn(
+      `cmd /c echo native-out; ${node} -e 'process.stdout.write(String.fromCharCode(108,105,110,101,49,10,108,105,110,101,50,10))'`,
+    );
+    expect(r.status).toBe(0);
+    expect(normaliseEol(r.stdout)).toContain('native-out\nline1\nline2\n');
+  });
+
   it('a cmdlet error fails', () => {
     expect(runIn('Write-Error x').status).not.toBe(0);
   });

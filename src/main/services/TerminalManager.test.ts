@@ -7,10 +7,14 @@ import {
   sleepCmd,
   testPlatform,
 } from '../test-helpers/shell';
-import { TerminalManager } from './TerminalManager';
+import {
+  normaliseExitCode,
+  TerminalManager,
+  UNKNOWN_EXIT,
+} from './TerminalManager';
 
-/** command and args that run one command line in this OS's shell. */
-const sh = (cmd: string) => testPlatform().shellCommand(cmd);
+/** command and args that run one command line in this OS's shell, as a `run` terminal does. */
+const sh = (cmd: string) => testPlatform().runCommand(cmd);
 
 const managers: TerminalManager[] = [];
 const create = (o?: { killWaitMs?: number }) => {
@@ -268,5 +272,82 @@ describe('TerminalManager', () => {
     await exited;
     await m.kill('gone');
     expect(m.ids()).toEqual([]);
+  });
+
+  it('reports an unknown exit code as UNKNOWN_EXIT, never undefined', () => {
+    expect(UNKNOWN_EXIT).toBe(-1);
+    expect(normaliseExitCode(0)).toBe(0);
+    expect(normaliseExitCode(3)).toBe(3);
+    expect(normaliseExitCode(undefined)).toBe(UNKNOWN_EXIT);
+    expect(normaliseExitCode(null)).toBe(UNKNOWN_EXIT);
+    expect(normaliseExitCode(Number.NaN)).toBe(UNKNOWN_EXIT);
+  });
+});
+
+// The `run` terminal wrapper inside ConPTY: the program must keep the console (no pipe in between).
+describe.runIf(isWindows)('run terminals on Windows', () => {
+  const node = `& '${process.execPath.replaceAll("'", "''")}'`;
+
+  it('passes non-ASCII output from a native program through intact', async () => {
+    const m = create();
+    const exited = waitFor(m, 'u');
+    // U+279C (the arrow Vite prints before "Local:"), then " ok".
+    m.spawn({
+      id: 'u',
+      taskId: 't',
+      cwd: os.tmpdir(),
+      ...sh(
+        `${node} -e 'process.stdout.write(String.fromCharCode(0x279C,32,111,107,10))'`,
+      ),
+    });
+    expect(await exited).toBe(0);
+    expect(m.buffer('u')).toContain(`${String.fromCharCode(0x279c)} ok`);
+  });
+
+  it('gives a native program a TTY', async () => {
+    const m = create();
+    const exited = waitFor(m, 'tty');
+    m.spawn({
+      id: 'tty',
+      taskId: 't',
+      cwd: os.tmpdir(),
+      ...sh(
+        `${node} -e 'process.stdout.write(String(process.stdout.isTTY===true))'`,
+      ),
+    });
+    expect(await exited).toBe(0);
+    expect(m.buffer('tty')).toContain('true');
+  });
+
+  it('native stderr with exit 0 succeeds', async () => {
+    const m = create();
+    const exited = waitFor(m, 'se');
+    m.spawn({
+      id: 'se',
+      taskId: 't',
+      cwd: os.tmpdir(),
+      ...sh('cmd /c "echo warn 1>&2"'),
+    });
+    expect(await exited).toBe(0);
+    expect(m.buffer('se')).toContain('warn');
+  });
+
+  it('passes a native exit code on', async () => {
+    const m = create();
+    const exited = waitFor(m, 'ne');
+    m.spawn({
+      id: 'ne',
+      taskId: 't',
+      cwd: os.tmpdir(),
+      ...sh('cmd /c exit 5'),
+    });
+    expect(await exited).toBe(5);
+  });
+
+  it('exits 1 on throw', async () => {
+    const m = create();
+    const exited = waitFor(m, 'th');
+    m.spawn({ id: 'th', taskId: 't', cwd: os.tmpdir(), ...sh("throw 'boom'") });
+    expect(await exited).toBe(1);
   });
 });

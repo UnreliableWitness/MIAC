@@ -88,4 +88,21 @@ describe('withRetry', () => {
     ).rejects.toThrow('other');
     expect(waits).toEqual([]);
   });
+
+  it('takes its own list of waits', async () => {
+    const waits: number[] = [];
+    await expect(
+      withRetry(
+        async () => {
+          throw new Error('busy');
+        },
+        () => true,
+        async (ms) => {
+          waits.push(ms);
+        },
+        [10, 20, 30],
+      ),
+    ).rejects.toThrow('busy');
+    expect(waits).toEqual([10, 20, 30]);
+  });
 });

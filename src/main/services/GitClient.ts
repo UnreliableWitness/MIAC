@@ -26,6 +26,12 @@ export class GitError extends Error {
 const FOLDER_IN_USE =
   /Permission denied|Directory not empty|being used by another process|EBUSY/i;
 
+/**
+ * Backoff for removing a worktree, about 5 s in total: with conpty.dll a killed terminal's pipe closes
+ * before a child that handles CTRL_CLOSE (a dev server) has let go of the folder.
+ */
+const REMOVE_WAITS = [50, 100, 200, 400, 800, 1600, 1850];
+
 /** Thin wrapper over the git CLI. Every method takes the directory to run in. */
 export class GitClient {
   constructor(private readonly wait: Wait = realWait) {}
@@ -144,6 +150,7 @@ export class GitClient {
         ]),
       (e) => e instanceof GitError && FOLDER_IN_USE.test(e.stderr),
       this.wait,
+      REMOVE_WAITS,
     );
   }
 

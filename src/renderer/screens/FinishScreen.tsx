@@ -243,6 +243,11 @@ export function FinishScreen({ taskId }: { taskId: string }) {
             />
             Remove worktree folder
           </label>
+          {removeWorktree && !closeTerminals && nTerm > 0 && (
+            <div className="muted small">
+              Removing the worktree folder closes its terminals too.
+            </div>
+          )}
           {!removeWorktree && deleteBranch && (
             <div className="muted small">
               The branch cannot be deleted while its worktree folder exists.
