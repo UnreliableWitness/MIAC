@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { windowsPlatform } from './windows';
+import { shimSafePrompt, windowsPlatform } from './windows';
 
 const WRAP = (cmd: string) =>
   `$ErrorActionPreference = 'Stop'; & { ${cmd} }; if ($LASTEXITCODE) { exit $LASTEXITCODE }`;
@@ -10,11 +10,11 @@ describe('windowsPlatform', () => {
   it('prefers pwsh and falls back to Windows PowerShell', () => {
     expect(make({ pwsh: 'C:\\pwsh\\pwsh.exe' }).interactiveShell()).toEqual({
       command: 'C:\\pwsh\\pwsh.exe',
-      args: ['-NoLogo'],
+      args: ['-NoLogo', '-ExecutionPolicy', 'Bypass'],
     });
     expect(make({}).interactiveShell()).toEqual({
       command: 'powershell.exe',
-      args: ['-NoLogo'],
+      args: ['-NoLogo', '-ExecutionPolicy', 'Bypass'],
     });
     expect(make({}).shellLabel).toBe('PowerShell');
   });
@@ -24,6 +24,8 @@ describe('windowsPlatform', () => {
       command: 'powershell.exe',
       args: [
         '-NoLogo',
+        '-ExecutionPolicy',
+        'Bypass',
         '-NoProfile',
         '-NonInteractive',
         '-Command',
@@ -45,25 +47,34 @@ describe('windowsPlatform', () => {
   });
 
   it('starts an npm shim through PowerShell with the prompt in an env var', () => {
-    const prompt = `it's "quoted"; $(rm -rf x)`;
+    const prompt = `it's "quoted" & <b> | 50% ^x`;
     expect(
       make({ claude: 'C:\\npm\\claude.cmd' }).claudeCommand(prompt),
     ).toEqual({
       command: 'powershell.exe',
       args: [
         '-NoLogo',
+        '-ExecutionPolicy',
+        'Bypass',
         '-NoProfile',
         '-Command',
         '& claude $env:MIAC_CLAUDE_PROMPT',
       ],
-      env: { MIAC_CLAUDE_PROMPT: prompt },
+      env: { MIAC_CLAUDE_PROMPT: "it's 'quoted' b 50 x" },
     });
   });
 
   it('lets PowerShell report a missing claude', () => {
     expect(make({}).claudeCommand('x')).toEqual({
       command: 'powershell.exe',
-      args: ['-NoLogo', '-NoProfile', '-Command', 'claude'],
+      args: [
+        '-NoLogo',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-NoProfile',
+        '-Command',
+        'claude',
+      ],
     });
   });
 
@@ -74,7 +85,14 @@ describe('windowsPlatform', () => {
     });
     expect(make({ copilot: 'C:\\npm\\copilot.cmd' }).copilotCommand()).toEqual({
       command: 'powershell.exe',
-      args: ['-NoLogo', '-NoProfile', '-Command', '& copilot'],
+      args: [
+        '-NoLogo',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-NoProfile',
+        '-Command',
+        '& copilot',
+      ],
     });
   });
 
@@ -83,10 +101,16 @@ describe('windowsPlatform', () => {
       command: 'powershell.exe',
       args: [
         '-NoLogo',
+        '-ExecutionPolicy',
+        'Bypass',
         '-NoProfile',
         '-Command',
         "& code 'C:\\src\\o''brien.worktrees\\3-x'",
       ],
     });
+  });
+
+  it('shimSafePrompt strips quotes and cmd metacharacters', () => {
+    expect(shimSafePrompt(`a "b" & c | <d> ^ 5%`)).toBe("a 'b' c d 5");
   });
 });

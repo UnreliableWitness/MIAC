@@ -1,5 +1,13 @@
 import type { Command, Platform } from './Platform';
 
+/** Makes a prompt safe to pass through a .cmd/.bat shim: no quotes or cmd.exe metacharacters. */
+export function shimSafePrompt(s: string): string {
+  return s
+    .replaceAll('"', "'")
+    .replace(/[&|<>^%]/g, '')
+    .replace(/ {2,}/g, ' ');
+}
+
 const psQuote = (s: string): string => `'${s.replaceAll("'", "''")}'`;
 
 /** Windows: PowerShell 7 if installed, else Windows PowerShell 5.1. */
@@ -10,7 +18,14 @@ export function windowsPlatform(
   const shell = deps.which('pwsh') ?? 'powershell.exe';
   const ps = (command: string): Command => ({
     command: shell,
-    args: ['-NoLogo', '-NoProfile', '-Command', command],
+    args: [
+      '-NoLogo',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-NoProfile',
+      '-Command',
+      command,
+    ],
   });
 
   /** Native .exe runs directly (node-pty quotes args for ConPTY); shims go through PowerShell. */
@@ -22,18 +37,23 @@ export function windowsPlatform(
     if (promptEnv !== undefined)
       return {
         ...ps(`& ${name} $env:MIAC_CLAUDE_PROMPT`),
-        env: { MIAC_CLAUDE_PROMPT: promptEnv },
+        env: { MIAC_CLAUDE_PROMPT: shimSafePrompt(promptEnv) },
       };
     return ps(`& ${name}`);
   };
 
   return {
     shellLabel: 'PowerShell',
-    interactiveShell: () => ({ command: shell, args: ['-NoLogo'] }),
+    interactiveShell: () => ({
+      command: shell,
+      args: ['-NoLogo', '-ExecutionPolicy', 'Bypass'],
+    }),
     shellCommand: (cmd) => ({
       command: shell,
       args: [
         '-NoLogo',
+        '-ExecutionPolicy',
+        'Bypass',
         '-NoProfile',
         '-NonInteractive',
         '-Command',
