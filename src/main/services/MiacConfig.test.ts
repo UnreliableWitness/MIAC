@@ -83,8 +83,42 @@ describe('loadMiacConfig', () => {
   it('names the bad field when run is a list', async () => {
     const r = repo();
     writeFileSync(path.join(r, '.miac.yml'), 'run:\n  - npm run dev\n');
-    await expect(loadMiacConfig(r)).rejects.toThrow(MiacConfigError);
-    await expect(loadMiacConfig(r)).rejects.toThrow(/run/);
+    const load = loadMiacConfig(r);
+    await expect(load).rejects.toThrow(MiacConfigError);
+    await expect(load).rejects.toThrow(/run/);
+  });
+
+  it('names the bad field when setup is a number', async () => {
+    const r = repo();
+    writeFileSync(path.join(r, '.miac.yml'), 'setup: 5\n');
+    const load = loadMiacConfig(r);
+    await expect(load).rejects.toThrow(MiacConfigError);
+    await expect(load).rejects.toThrow(/setup/);
+  });
+
+  it('names the bad field when a run value is not a string', async () => {
+    const r = repo();
+    writeFileSync(path.join(r, '.miac.yml'), 'run:\n  dev: 1\n');
+    const load = loadMiacConfig(r);
+    await expect(load).rejects.toThrow(MiacConfigError);
+    await expect(load).rejects.toThrow(/run\.dev/);
+  });
+
+  it('reports invalid YAML with the file path', async () => {
+    const r = repo();
+    writeFileSync(path.join(r, '.miac.yml'), 'setup: [npm ci\n');
+    const load = loadMiacConfig(r);
+    await expect(load).rejects.toThrow(MiacConfigError);
+    await expect(load).rejects.toThrow(/not valid YAML/);
+    await expect(load).rejects.toThrow(/\.miac\.yml/);
+  });
+
+  it('rejects a non-object document naming the root', async () => {
+    const r = repo();
+    writeFileSync(path.join(r, '.miac.yml'), '- npm ci\n');
+    const load = loadMiacConfig(r);
+    await expect(load).rejects.toThrow(MiacConfigError);
+    await expect(load).rejects.toThrow(/\(root\)/);
   });
 
   it('rejects unknown keys so typos are caught', async () => {
