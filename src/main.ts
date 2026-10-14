@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, session } from 'electron';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
 
@@ -6,6 +6,9 @@ import started from 'electron-squirrel-startup';
 if (started) {
   app.quit();
 }
+
+const PROD_CSP =
+  "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self'";
 
 const createWindow = () => {
   // Create the browser window.
@@ -26,6 +29,15 @@ const createWindow = () => {
     );
   }
 
+  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+    // Surface renderer errors in the Forge terminal (dev only).
+    mainWindow.webContents.on('console-message', (event) => {
+      if (event.level === 'error') {
+        console.error(`[renderer] ${event.message}`);
+      }
+    });
+  }
+
   // Open the DevTools.
   mainWindow.webContents.openDevTools();
 };
@@ -34,6 +46,19 @@ const createWindow = () => {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
+  // Strict CSP outside dev. In dev, Vite's HMR and the React refresh preamble
+  // need inline scripts and a websocket, so no CSP is set.
+  if (!MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          'Content-Security-Policy': [PROD_CSP],
+        },
+      });
+    });
+  }
+
   createWindow();
 
   // On OS X it's common to re-create a window in the app when the
