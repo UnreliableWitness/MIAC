@@ -502,57 +502,6 @@
 .text-red {
   color: var(--red);
 }
-.usage {
-  display: grid;
-  grid-template-columns: 1fr 340px;
-  gap: 24px;
-  padding: 24px;
-  overflow: auto;
-}
-.usage-main {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  min-width: 0;
-}
-.usage-tiles {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-}
-.usage-tile {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 12px 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--panel);
-}
-.usage-tile .amount {
-  font: 600 22px var(--font-mono);
-}
-.usage-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-.usage-table th,
-.usage-table td {
-  text-align: left;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--line);
-}
-.usage-side {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--panel);
-  align-self: start;
-}
 .usage-fields {
   display: grid;
   gap: 6px;

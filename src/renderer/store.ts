@@ -10,8 +10,7 @@ export type Screen =
   | { kind: 'new-task' }
   | { kind: 'setup'; taskId: string }
   | { kind: 'finish'; taskId: string }
-  | { kind: 'settings' }
-  | { kind: 'usage'; taskId: string };
+  | { kind: 'settings' };
 
 type Store = {
   screen: Screen;

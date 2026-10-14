@@ -1,4 +1,5 @@
 import { TaskNav } from '../components/TaskNav';
+import { UsagePanel } from '../components/UsagePanel';
 import { TerminalTabs } from '../components/TerminalTabs';
 import { IconButton } from '../components/instrument';
 import { CrumbStrip, TaskStrip } from '../components/TaskStrip';
@@ -55,19 +56,15 @@ export function WorkspaceScreen() {
               <TerminalTabs key={`tabs-${task.id}`} task={task} />
             </>
           ) : task ? (
-            <div className="empty">
-              <p>
-                This task is done. Its worktree and branch were cleaned up on{' '}
-                {task.finishedAt}.
-              </p>
-              <button
-                type="button"
-                className="btn"
-                onClick={() => go({ kind: 'usage', taskId: task.id })}
-              >
-                View AI usage
-              </button>
-            </div>
+            <>
+              <div className="done-banner">
+                <p>
+                  This task is done. Its worktree and branch were cleaned up on{' '}
+                  {task.finishedAt}.
+                </p>
+              </div>
+              <UsagePanel taskId={task.id} />
+            </>
           ) : (
             <div className="empty">
               No task selected. Create one with New task.
