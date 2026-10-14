@@ -36,7 +36,9 @@ const t = setInterval(() => {
     const wait = setInterval(() => {
       if (inFlight <= 0 || Date.now() > end + 15000) {
         clearInterval(wait);
-        console.log(`done: spawned=${spawned} exited=${exited} inFlight=${inFlight}`);
+        console.log(
+          `done: spawned=${spawned} exited=${exited} inFlight=${inFlight}`,
+        );
         process.exit(0);
       }
     }, 100);

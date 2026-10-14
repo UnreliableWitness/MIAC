@@ -8,7 +8,7 @@ permissions:
 jobs:
   diag:
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
@@ -23,21 +23,48 @@ jobs:
       - if: matrix.pty != '1.1.0'
         run: npm install --no-save node-pty@${{ matrix.pty }}
       - run: node -e "console.log(require('node-pty/package.json').version)"
-      - name: stress (conpty.dll)
+      - name: enable crash dumps for node.exe
+        shell: pwsh
+        run: |
+          $k = 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\node.exe'
+          New-Item -Path $k -Force | Out-Null
+          New-ItemProperty -Path $k -Name DumpFolder -Value "$env:RUNNER_TEMP\dumps" -PropertyType ExpandString -Force | Out-Null
+          New-ItemProperty -Path $k -Name DumpType -Value 1 -PropertyType DWord -Force | Out-Null
+          New-ItemProperty -Path $k -Name DumpCount -Value 5 -PropertyType DWord -Force | Out-Null
+      - name: stress (conpty.dll) x20
+        continue-on-error: true
         shell: pwsh
         run: |
           $codes = @()
-          for ($i = 0; $i -lt 10; $i++) { node .github/diag/pty-stress.mjs dll 20; $codes += $LASTEXITCODE }
+          for ($i = 0; $i -lt 20; $i++) { node .github/diag/pty-stress.mjs dll 20; $codes += $LASTEXITCODE }
           "stress dll exit codes: $($codes -join ' ')"
-      - name: stress (system conpty)
+          exit 0
+      - name: stress (system conpty) x10
+        continue-on-error: true
         shell: pwsh
         run: |
           $codes = @()
           for ($i = 0; $i -lt 10; $i++) { node .github/diag/pty-stress.mjs system 20; $codes += $LASTEXITCODE }
           "stress system exit codes: $($codes -join ' ')"
-      - name: handlers.test.ts x10
+          exit 0
+      - name: handlers.test.ts + TerminalManager.test.ts x10
+        continue-on-error: true
         shell: pwsh
         run: |
           $codes = @()
-          for ($i = 0; $i -lt 10; $i++) { npx vitest run src/main/ipc/handlers.test.ts src/main/services/TerminalManager.test.ts 2>&1 | Select-String -Pattern 'Worker exited|Test Files|Tests ' ; $codes += $LASTEXITCODE }
+          for ($i = 0; $i -lt 10; $i++) { npx vitest run src/main/ipc/handlers.test.ts src/main/services/TerminalManager.test.ts 2>&1 | Select-String -Pattern 'Worker exited|Test Files' ; $codes += $LASTEXITCODE }
           "handlers exit codes: $($codes -join ' ')"
+          exit 0
+      - name: analyze dumps
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $dumps = @(Get-ChildItem "$env:RUNNER_TEMP\dumps" -Filter *.dmp -ErrorAction SilentlyContinue)
+          "dumps: $($dumps.Count)"
+          $cdb = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\Debuggers\x64\cdb.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $cdb) { 'no cdb'; exit 0 }
+          $sym = "$PWD\node_modules\node-pty\prebuilds\win32-x64;srv*$env:RUNNER_TEMP\sym*https://msdl.microsoft.com/download/symbols"
+          foreach ($d in ($dumps | Select-Object -First 2)) {
+            "=== $($d.Name)"
+            & $cdb.FullName -z $d.FullName -y $sym -c ".ecxr; kb 30; ~*kb 12; q" 2>&1 | Select-Object -Last 200
+          }
