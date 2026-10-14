@@ -233,7 +233,8 @@ fieldset.group legend {
   background: transparent;
   color: var(--muted);
 }
-.segmented button[aria-selected='true'] {
+.segmented button[aria-selected='true'],
+.segmented button[aria-pressed='true'] {
   background: #2c3038;
   color: var(--text);
 }

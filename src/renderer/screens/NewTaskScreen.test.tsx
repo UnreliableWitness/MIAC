@@ -156,4 +156,63 @@ describe('NewTaskScreen', () => {
     await userEvent.type(screen.getByLabelText('Work item id'), '48231');
     expect(screen.getByRole('button', { name: 'Create task' })).toBeEnabled();
   });
+
+  it('creates a task from a picked work item when the repo has a connection', async () => {
+    const { calls } = installFakeApi({
+      'repos:config': () => config,
+      'workItems:currentIteration': () => ({
+        path: 'MIAC\\Sprint 1',
+        name: 'Sprint 1',
+      }),
+      'workItems:search': () => [
+        {
+          id: '12',
+          type: 'Issue',
+          title: 'Save delivery address',
+          state: 'To Do',
+          areaPath: 'MIAC',
+          iterationPath: 'MIAC\\Sprint 1',
+          assignedTo: null,
+          url: 'https://dev.azure.com/unreliablewitness/MIAC/_workitems/edit/12',
+        },
+      ],
+      'tasks:create': () => ({ id: 't9' }) as never,
+    });
+    useStore.setState({
+      repos: [{ ...webshop, connectionId: 'c1' }],
+      connections: [
+        {
+          id: 'c1',
+          name: 'uw',
+          organizationUrl: 'https://dev.azure.com/unreliablewitness',
+          project: 'MIAC',
+          user: 'D',
+          status: 'ok',
+          checkedAt: null,
+        },
+      ],
+    });
+    render(<NewTaskScreen />);
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Save delivery address/ }),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText('Branch')).toHaveValue(
+        'feature/12-save-delivery-address',
+      ),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    await waitFor(() =>
+      expect(
+        calls.find((c) => c.channel === 'tasks:create')?.args[0],
+      ).toMatchObject({
+        workItem: {
+          id: '12',
+          type: 'Issue',
+          title: 'Save delivery address',
+          url: 'https://dev.azure.com/unreliablewitness/MIAC/_workitems/edit/12',
+        },
+      }),
+    );
+  });
 });
