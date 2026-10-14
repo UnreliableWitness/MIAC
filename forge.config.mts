@@ -29,6 +29,7 @@ const config: ForgeConfig = {
     asar: { unpack: '**/node_modules/node-pty/**' },
     ignore: (file: string) => !keepInPackage(file),
     executableName: 'MIAC',
+    icon: 'assets/icon/miac',
     ...(signing ? { windowsSign: signing } : {}),
   },
   rebuildConfig: {},
@@ -51,6 +52,7 @@ const config: ForgeConfig = {
     new MakerSquirrel({
       name: 'miac',
       setupExe: 'MIAC-Setup.exe',
+      setupIcon: 'assets/icon/miac.ico',
       ...(signing ? { windowsSign: signing } : {}),
     }),
     new MakerZIP({}, ['darwin']),

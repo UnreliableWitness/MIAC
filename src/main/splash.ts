@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, type NativeImage } from 'electron';
 
 export const SPLASH_MIN_MS = 2200;
 export const SPLASH_FADE_MS = 200;
@@ -103,7 +103,8 @@ export class SplashReporter {
 /** Chromium's net::ERR_ABORTED: a navigation that was replaced, not a failure. */
 const ERR_ABORTED = -3;
 
-export function createSplashWindow(): BrowserWindow {
+/** `icon` is set on Windows and Linux only (macOS takes the app bundle icon). */
+export function createSplashWindow(icon?: NativeImage): BrowserWindow {
   const win = new BrowserWindow({
     width: 640,
     height: 400,
@@ -114,6 +115,7 @@ export function createSplashWindow(): BrowserWindow {
     alwaysOnTop: false,
     backgroundColor: '#050609',
     title: 'MIAC',
+    ...(icon ? { icon } : {}),
     skipTaskbar: false,
     webPreferences: {
       preload: path.join(__dirname, 'splashPreload.cjs'),

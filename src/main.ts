@@ -6,10 +6,12 @@ import {
   BrowserWindow,
   dialog,
   ipcMain,
+  nativeImage,
   safeStorage,
   shell,
 } from 'electron';
 import started from 'electron-squirrel-startup';
+import iconUrl from '../assets/icon/png/256.png?inline';
 import { EVENT_PREFIX, type Events } from './shared/ipc';
 import type { UsageEvent } from './shared/usage';
 import {
@@ -37,6 +39,10 @@ import { createSplashWindow, SplashReporter } from './main/splash';
 
 if (started) app.quit();
 
+const icon = nativeImage.createFromDataURL(iconUrl);
+// macOS takes the icon from the app bundle; only Windows and Linux windows need it passed in.
+const windowIcon = process.platform === 'darwin' ? undefined : icon;
+
 let mainWindow: BrowserWindow | null = null;
 let splashWin: BrowserWindow | null = null;
 /** True until the main window is revealed (stays true after a boot failure). */
@@ -59,6 +65,7 @@ function createWindow(): BrowserWindow {
     show: false,
     backgroundColor: '#090b10',
     title: 'MIAC',
+    ...(windowIcon ? { icon: windowIcon } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -109,7 +116,7 @@ async function boot(): Promise<void> {
   const userData = app.getPath('userData');
   const settings = new SettingsStore(path.join(userData, 'settings.json'));
   const settingsLoaded = await settings.load();
-  splashWin = settings.get().showSplash ? createSplashWindow() : null;
+  splashWin = settings.get().showSplash ? createSplashWindow(windowIcon) : null;
   const reporter = new SplashReporter(splashWin);
   ipcMain.on('splash:skip', () => reporter.skip());
   ipcMain.on('splash:quit', () => app.quit());
@@ -311,7 +318,12 @@ if (process.env.MIAC_SMOKE === '1') {
   });
   app
     .whenReady()
-    .then(boot)
+    .then(() => {
+      // Packaged macOS builds get the icon from the bundle; in dev the Dock shows Electron's.
+      if (process.platform === 'darwin' && !app.isPackaged)
+        app.dock?.setIcon(icon);
+      return boot();
+    })
     // boot reports its own failures on the splash; this catches the ones before it exists (settings load).
     .catch((e) => {
       console.error(e);

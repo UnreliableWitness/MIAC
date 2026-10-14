@@ -1,5 +1,9 @@
 /// <reference types="@electron-forge/plugin-vite/forge-vite-env" />
 declare module '*.css';
+declare module '*.png?inline' {
+  const src: string;
+  export default src;
+}
 
 interface Window {
   miac: import('./shared/ipc').MiacApi;
