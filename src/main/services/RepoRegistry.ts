@@ -1,0 +1,81 @@
+import { promises as fs } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import path from 'node:path';
+import type { Repo } from '../../shared/types';
+import type { GitClient } from './GitClient';
+import { loadMiacConfig } from './MiacConfig';
+import type { TaskStore } from './TaskStore';
+
+export class RepoRegistry {
+  constructor(
+    private readonly store: TaskStore,
+    private readonly git: GitClient,
+    private readonly loadConfig: typeof loadMiacConfig = loadMiacConfig,
+  ) {}
+
+  list(): Repo[] {
+    return this.store.state.repos;
+  }
+
+  get(id: string): Repo {
+    const repo = this.store.state.repos.find((r) => r.id === id);
+    if (!repo) throw new Error(`Unknown repo ${id}`);
+    return repo;
+  }
+
+  async add(folder: string): Promise<Repo> {
+    const real = await fs.realpath(folder);
+    const top = await this.git.toplevel(real);
+    if (!top) throw new Error(`${folder} is not a git repository`);
+    if (this.store.state.repos.some((r) => r.path === top)) {
+      throw new Error(`${path.basename(top)} is already registered`);
+    }
+    const repo = await this.describe({
+      id: randomUUID(),
+      path: top,
+      connectionId: null,
+    });
+    await this.store.update((s) => {
+      s.repos.push(repo);
+    });
+    return repo;
+  }
+
+  /** Re-reads name, base branch and .miac.yml presence, e.g. after the user edits the file. */
+  async refresh(id: string): Promise<Repo> {
+    const current = this.get(id);
+    const repo = await this.describe(current);
+    await this.store.update((s) => {
+      const i = s.repos.findIndex((r) => r.id === id);
+      if (i >= 0) s.repos[i] = repo;
+    });
+    return repo;
+  }
+
+  async remove(id: string): Promise<void> {
+    const open = this.store.state.tasks.filter(
+      (t) => t.repoId === id && t.status !== 'done',
+    );
+    if (open.length > 0)
+      throw new Error(
+        `Repo still has ${open.length} open task(s); finish them first`,
+      );
+    await this.store.update((s) => {
+      s.repos = s.repos.filter((r) => r.id !== id);
+    });
+  }
+
+  private async describe(
+    base: Pick<Repo, 'id' | 'path' | 'connectionId'>,
+  ): Promise<Repo> {
+    const config = await this.loadConfig(base.path);
+    return {
+      id: base.id,
+      name: path.basename(base.path),
+      path: base.path,
+      baseBranch: config.base,
+      connectionId: base.connectionId,
+      miacYmlFound: config.found,
+    };
+  }
+}
