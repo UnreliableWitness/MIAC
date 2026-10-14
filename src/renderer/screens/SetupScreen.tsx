@@ -13,11 +13,13 @@ export function applySetupEvent(state: SetupState, e: SetupEvent): SetupState {
         ? {
             ...s,
             status: e.status,
-            detail: e.detail ?? s.detail,
-            ms: e.ms ?? s.ms,
+            detail: e.status === 'running' ? e.detail : (e.detail ?? s.detail),
+            ms: e.status === 'running' ? e.ms : (e.ms ?? s.ms),
           }
         : s,
     );
+    if (e.status === 'running')
+      return { ...state, steps, finished: false, ok: null, failedStep: null };
     return { ...state, steps };
   }
   return {
@@ -26,6 +28,40 @@ export function applySetupEvent(state: SetupState, e: SetupEvent): SetupState {
     ok: e.ok,
     failedStep: e.failedStep ?? null,
   };
+}
+
+const EMPTY_STATE: SetupState = {
+  steps: [],
+  log: [],
+  finished: false,
+  ok: null,
+  failedStep: null,
+};
+
+/** Applies events buffered during the snapshot fetch, skipping log lines the snapshot already holds. */
+function replayPending(
+  snapshot: SetupState,
+  pending: SetupEvent[],
+): SetupState {
+  const buffered = pending.flatMap((e) => (e.type === 'log' ? [e.line] : []));
+  let overlap = 0;
+  for (let j = Math.min(buffered.length, snapshot.log.length); j > 0; j--) {
+    const tail = snapshot.log.slice(snapshot.log.length - j);
+    if (tail.every((line, i) => line === buffered[i])) {
+      overlap = j;
+      break;
+    }
+  }
+  let skip = overlap;
+  let state = snapshot;
+  for (const e of pending) {
+    if (e.type === 'log' && skip > 0) {
+      skip--;
+      continue;
+    }
+    state = applySetupEvent(state, e);
+  }
+  return state;
 }
 
 export function SetupScreen({ taskId }: { taskId: string }) {
@@ -40,24 +76,37 @@ export function SetupScreen({ taskId }: { taskId: string }) {
 
   useEffect(() => {
     let live = true;
-    void api()
-      .invoke('tasks:setupState', taskId)
-      .then((s) => {
-        if (live) setState(s);
-      });
+    let pending: SetupEvent[] | null = [];
     const off = api().on('setup', (e) => {
       if (e.taskId !== taskId) return;
+      if (pending) {
+        pending.push(e);
+        return;
+      }
       setState((prev) => (prev ? applySetupEvent(prev, e) : prev));
       if (e.type === 'finished' && e.ok) {
         select(taskId);
         go({ kind: 'workspace' });
       }
     });
+    void tryInvoke(() => api().invoke('tasks:setupState', taskId), notify).then(
+      (snapshot) => {
+        const buffered = pending ?? [];
+        pending = null;
+        if (!live) return;
+        const next = replayPending(snapshot ?? EMPTY_STATE, buffered);
+        setState(next);
+        if (next.finished && next.ok) {
+          select(taskId);
+          go({ kind: 'workspace' });
+        }
+      },
+    );
     return () => {
       live = false;
       off();
     };
-  }, [taskId, go, select]);
+  }, [taskId, go, select, notify]);
 
   useEffect(() => {
     if (follow && logRef.current)
@@ -70,7 +119,16 @@ export function SetupScreen({ taskId }: { taskId: string }) {
   const running = state?.steps.find((s) => s.status === 'running');
 
   const retry = async () => {
-    await tryInvoke(() => api().invoke('tasks:retrySetup', taskId), notify);
+    const ok = await tryInvoke(async () => {
+      await api().invoke('tasks:retrySetup', taskId);
+      return true;
+    }, notify);
+    if (!ok) return;
+    const fresh = await tryInvoke(
+      () => api().invoke('tasks:setupState', taskId),
+      notify,
+    );
+    if (fresh) setState(fresh);
   };
   const cancel = async () => {
     const ok = await tryInvoke(async () => {
@@ -125,7 +183,7 @@ export function SetupScreen({ taskId }: { taskId: string }) {
             >
               Back to tasks
             </button>
-            {failedLabel && (
+            {failedLabel && task.status === 'setup-failed' && (
               <button
                 type="button"
                 className="btn btn-primary"

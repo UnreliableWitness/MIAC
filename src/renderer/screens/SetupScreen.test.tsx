@@ -176,4 +176,88 @@ describe('SetupScreen', () => {
     );
     expect(useStore.getState().selectedTaskId).toBe('t1');
   });
+
+  it('replays events that arrive before the snapshot, without duplicating log lines', async () => {
+    let resolve!: (s: SetupState) => void;
+    const deferred = new Promise<SetupState>((r) => (resolve = r));
+    const { emit } = installFakeApi({ 'tasks:setupState': () => deferred });
+    render(<SetupScreen taskId="t1" />);
+    act(() => {
+      emit('setup', { taskId: 't1', type: 'log', line: 'early line' });
+      emit('setup', {
+        taskId: 't1',
+        type: 'step',
+        index: 2,
+        status: 'running',
+      });
+    });
+    await act(async () =>
+      resolve({ ...state, log: [...state.log, 'early line'] }),
+    );
+    expect(screen.getAllByText('early line')).toHaveLength(1);
+    expect(screen.getByRole('listitem', { name: /npm ci/ })).toHaveAttribute(
+      'data-status',
+      'running',
+    );
+  });
+
+  it('navigates to the workspace on mount when setup already finished', async () => {
+    installFakeApi({
+      'tasks:setupState': () => ({ ...state, finished: true, ok: true }),
+    });
+    render(<SetupScreen taskId="t1" />);
+    await waitFor(() =>
+      expect(useStore.getState().screen).toEqual({ kind: 'workspace' }),
+    );
+    expect(useStore.getState().selectedTaskId).toBe('t1');
+  });
+
+  it('clears the failure state once the failed step runs again', async () => {
+    const failed: SetupState = {
+      ...state,
+      steps: state.steps.map((s, i) => ({
+        ...s,
+        status: i === 2 ? 'failed' : 'done',
+        detail: i === 2 ? 'npm ci exited with code 1' : s.detail,
+      })),
+      finished: true,
+      ok: false,
+      failedStep: 2,
+    };
+    useStore.setState({ tasks: [{ ...task, status: 'setup-failed' }] });
+    const { emit } = installFakeApi({
+      'tasks:setupState': () => failed,
+      'tasks:retrySetup': () => undefined,
+    });
+    render(<SetupScreen taskId="t1" />);
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Retry from npm ci' }),
+    );
+    act(() =>
+      emit('setup', {
+        taskId: 't1',
+        type: 'step',
+        index: 2,
+        status: 'running',
+      }),
+    );
+    expect(screen.queryByText(/Setup failed/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /Retry from/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('npm ci exited with code 1'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('shows a notice and stops loading when the snapshot request fails', async () => {
+    installFakeApi({
+      'tasks:setupState': () => Promise.reject(new Error('boom')),
+    });
+    render(<SetupScreen taskId="t1" />);
+    await waitFor(() =>
+      expect(useStore.getState().notices.length).toBeGreaterThan(0),
+    );
+    expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
+  });
 });
