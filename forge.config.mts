@@ -73,11 +73,20 @@ const config: ForgeConfig = {
           config: 'vite.preload.config.mts',
           target: 'preload',
         },
+        {
+          entry: 'src/splashPreload.ts',
+          config: 'vite.preload.config.mts',
+          target: 'preload',
+        },
       ],
       renderer: [
         {
           name: 'main_window',
           config: 'vite.renderer.config.mts',
+        },
+        {
+          name: 'splash_window',
+          config: 'vite.splash.config.mts',
         },
       ],
     }),
