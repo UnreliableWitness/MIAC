@@ -47,20 +47,29 @@ export function FinishScreen({ taskId }: { taskId: string }) {
   const [syncChoice, setSyncUsage] = useState<boolean | null>(null);
   const syncUsage = syncChoice ?? !(usage && usage.sessions.length === 0);
 
-  useEffect(() => {
-    if (!ready) return;
-    let live = true;
-    void tryInvoke(async () => {
+  const loadChecks = async (isLive: () => boolean) => {
+    const c = await tryInvoke(async () => {
       try {
         return await api().invoke('tasks:finishChecks', taskId);
       } catch (e) {
-        if (live)
+        if (isLive()) {
+          setChecks(null);
           setChecksFailed(e instanceof Error ? e.message : 'unknown error');
+        }
         throw e;
       }
-    }, notify).then((c) => {
-      if (live && c) setChecks(c);
-    });
+    }, notify);
+    if (isLive() && c) {
+      setChecks(c);
+      setChecksFailed(null);
+    }
+    return c ?? null;
+  };
+
+  useEffect(() => {
+    if (!ready) return;
+    let live = true;
+    void loadChecks(() => live);
     void tryInvoke(
       () => api().invoke('tasks:prAvailability', taskId),
       notify,
@@ -70,6 +79,8 @@ export function FinishScreen({ taskId }: { taskId: string }) {
     return () => {
       live = false;
     };
+    // loadChecks only closes over taskId and notify, which are listed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taskId, notify, ready]);
 
   useEscape(back);
@@ -111,12 +122,25 @@ export function FinishScreen({ taskId }: { taskId: string }) {
 
   const createPr = Boolean(pr?.available && prChoice);
 
+  /** Whether finishing without the PR path would discard work, exactly as the main button judges it. */
+  const dirtyWith = (
+    c: FinishChecks | null,
+    failed: boolean,
+    withPr: boolean,
+  ) =>
+    failed
+      ? true
+      : c
+        ? c.uncommitted.length > 0 || (c.unpushed > 0 && !withPr)
+        : false;
+
   const finish = async (withoutPr = false) => {
     const withPr = createPr && !withoutPr;
     setBusy(true);
     setFinishError(null);
     // The choice is saved when Finish is clicked, not on every toggle.
     if (pr?.available && !withoutPr) writePrChoice(task.repoId, prChoice);
+    let prFailed = false;
     const ok = await tryInvoke(async () => {
       try {
         await api().invoke('tasks:finish', taskId, {
@@ -129,11 +153,14 @@ export function FinishScreen({ taskId }: { taskId: string }) {
       } catch (e) {
         const m = e instanceof Error ? e.message : '';
         if (!m.includes(PR_FAILED)) throw e;
+        prFailed = true;
         setFinishError(m.slice(m.indexOf(PR_FAILED)));
         return false;
       }
       return true;
     }, notify);
+    // A push that went through changes what is unpushed; the fallback below must judge fresh checks.
+    if (prFailed) await loadChecks(stillHere);
     setBusy(false);
     // Only when the user is still here: Escape or the nav may have taken them elsewhere meanwhile.
     if (ok && stillHere()) {
@@ -142,11 +169,21 @@ export function FinishScreen({ taskId }: { taskId: string }) {
     }
   };
 
-  const dirty = checksFailed
-    ? true
-    : checks
-      ? checks.uncommitted.length > 0 || (checks.unpushed > 0 && !createPr)
-      : false;
+  /**
+   * Without the PR, unpushed commits are a risk again. When dropping the PR would discard work, untick
+   * the box instead of finishing: the page then shows the same warnings and danger button as a normal
+   * Finish, and that button is the confirmation.
+   */
+  const finishWithoutPr = async () => {
+    if (dirtyWith(checks, Boolean(checksFailed), false)) {
+      setPrChoice(false);
+      setFinishError(null);
+      return;
+    }
+    await finish(true);
+  };
+
+  const dirty = dirtyWith(checks, Boolean(checksFailed), createPr);
   const nTerm = task.terminals.length;
   const terminalLabels = task.terminals.map((t) => t.label).join(', ');
 
@@ -288,7 +325,11 @@ export function FinishScreen({ taskId }: { taskId: string }) {
                 type="checkbox"
                 checked={createPr}
                 disabled={!pr.available}
-                onChange={(e) => setPrChoice(e.target.checked)}
+                onChange={(e) => {
+                  setPrChoice(e.target.checked);
+                  // A stale error's Retry would otherwise run with the new choice and no fresh look.
+                  setFinishError(null);
+                }}
               />
               {pr.available
                 ? `Create a draft pull request into ${pr.target}`
@@ -356,7 +397,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
               type="button"
               className="btn btn-subtle btn-sm"
               disabled={busy}
-              onClick={() => finish(true)}
+              onClick={() => void finishWithoutPr()}
             >
               Finish without PR
             </button>

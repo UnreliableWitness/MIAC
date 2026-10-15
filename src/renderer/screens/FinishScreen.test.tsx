@@ -506,3 +506,110 @@ describe('FinishScreen pull request', () => {
     );
   });
 });
+
+describe('FinishScreen pull request failure with unpushed commits', () => {
+  const available = {
+    'tasks:prAvailability': () => ({
+      available: true,
+      reason: null,
+      target: 'main',
+    }),
+  };
+  const label = 'Create a draft pull request into main';
+  const message =
+    'Pull request not created: git push failed: could not read from remote';
+  const finishArgs = (calls: { channel: string; args: unknown[] }[]) =>
+    calls.filter((c) => c.channel === 'tasks:finish').map((c) => c.args[1]);
+  const checkCalls = (calls: { channel: string }[]) =>
+    calls.filter((c) => c.channel === 'tasks:finishChecks').length;
+
+  it('Finish without PR does not delete unpushed commits until the user confirms the discard', async () => {
+    let n = 0;
+    const { calls } = installFakeApi({
+      ...available,
+      'tasks:finishChecks': () => ({ ...clean, unpushed: 3 }),
+      'tasks:finish': () => {
+        if (n++ === 0) throw new Error(message);
+        return undefined;
+      },
+    });
+    render(<FinishScreen taskId="a" />);
+    await userEvent.click(await screen.findByLabelText(label));
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Finish and clean up' }),
+    );
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    // The failure re-runs the checks: a push that went through changes the count.
+    await waitFor(() => expect(checkCalls(calls)).toBe(2));
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Finish without PR' }),
+    );
+    expect(finishArgs(calls)).toHaveLength(1);
+    expect(screen.getByText('3 commits not pushed')).toBeInTheDocument();
+    expect(screen.getByLabelText(label)).not.toBeChecked();
+    expect(screen.queryByText(message)).toBeNull();
+    const danger = screen.getByRole('button', {
+      name: 'Discard changes and clean up',
+    });
+    expect(danger).toHaveClass('btn-danger');
+    await userEvent.click(danger);
+    await waitFor(() => expect(finishArgs(calls)).toHaveLength(2));
+    expect(finishArgs(calls)[1]).toMatchObject({
+      createPullRequest: false,
+      deleteBranch: true,
+    });
+  });
+
+  it('Finish without PR finishes directly when the push went through', async () => {
+    let checks = 0;
+    let n = 0;
+    const { calls } = installFakeApi({
+      ...available,
+      'tasks:finishChecks': () => ({ ...clean, unpushed: checks++ ? 0 : 3 }),
+      'tasks:finish': () => {
+        if (n++ === 0)
+          throw new Error(
+            'Pull request not created: Azure DevOps is unreachable',
+          );
+        return undefined;
+      },
+    });
+    render(<FinishScreen taskId="a" />);
+    await userEvent.click(await screen.findByLabelText(label));
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Finish and clean up' }),
+    );
+    await screen.findByText(/Azure DevOps is unreachable/);
+    await waitFor(() => expect(checkCalls(calls)).toBe(2));
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Finish without PR' }),
+    );
+    await waitFor(() => expect(finishArgs(calls)).toHaveLength(2));
+    expect(finishArgs(calls)[1]).toMatchObject({ createPullRequest: false });
+  });
+
+  it('unticking the box clears the stale error, so Retry cannot run a plain finish', async () => {
+    const { calls } = installFakeApi({
+      ...available,
+      'tasks:finishChecks': () => ({ ...clean, unpushed: 3 }),
+      'tasks:finish': () => {
+        throw new Error(message);
+      },
+    });
+    render(<FinishScreen taskId="a" />);
+    const box = await screen.findByLabelText(label);
+    await userEvent.click(box);
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Finish and clean up' }),
+    );
+    await screen.findByText(message);
+    await waitFor(() => expect(checkCalls(calls)).toBe(2));
+    await userEvent.click(box);
+    expect(screen.queryByText(message)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'Discard changes and clean up' }),
+    ).toHaveClass('btn-danger');
+    expect(finishArgs(calls)).toHaveLength(1);
+  });
+});
