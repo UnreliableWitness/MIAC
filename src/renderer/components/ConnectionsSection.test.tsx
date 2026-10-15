@@ -55,6 +55,17 @@ describe('ConnectionsSection', () => {
     ).toBeInTheDocument();
   });
 
+  it('tells which token scopes are needed', async () => {
+    installFakeApi();
+    render(<ConnectionsSection />);
+    await userEvent.click(
+      screen.getByRole('button', { name: /Add connection/ }),
+    );
+    expect(
+      screen.getByText(/Work Items \(Read & write\) and Code \(Read & write\)/),
+    ).toBeInTheDocument();
+  });
+
   it('adds a connection and never echoes the token', async () => {
     const { calls } = installFakeApi({
       'connections:save': () => ok,

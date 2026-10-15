@@ -167,8 +167,8 @@ function AddConnectionForm({ onDone }: { onDone: () => void }) {
         </div>
       )}
       <div className="small muted" style={{ gridColumn: '1 / -1' }}>
-        The token needs Work Items (read) and Code (read). It is encrypted with
-        the OS keychain and never shown again.
+        The token needs Work Items (Read & write) and Code (Read & write). It is
+        encrypted with the OS keychain and never shown again.
       </div>
       <div className="actions">
         <button type="button" className="btn" onClick={onDone} disabled={busy}>
