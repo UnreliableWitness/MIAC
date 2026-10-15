@@ -49,5 +49,6 @@ Download the installer from GitHub: open the Actions run for the commit, then th
     - Start a task on a work item in To Do. The setup step "Update work item" ends with a check, and in Azure DevOps the item shows Doing (or the type's In Progress state) and is assigned to you.
     - Commit a change in the task. On the Finish page, tick "Create a draft pull request into <base>" and finish. A draft pull request opens in the browser, from the task branch into the base, with the work item linked and the commit listed in its description.
     - On the Done page, the Pull request fact shows `PR <id> · Draft` and the branch shows as pushed.
+    - Remove the cached Azure DevOps credential (Credential Manager, Windows Credentials, `git:https://dev.azure.com`) and finish another task with the box ticked. The Git Credential Manager sign-in appears (check behind MIAC too); after signing in the PR is created. If you ignore it, Finish stops after 120 s with "git push timed out after 120 s (a credential prompt may be waiting)" and the task stays ready.
 
 If a setup command or a shim fails with "running scripts is disabled on this system": MIAC passes `-ExecutionPolicy Bypass`, but an execution policy set by Group Policy overrides it. Ask IT, or install claude and copilot as native `.exe` builds.

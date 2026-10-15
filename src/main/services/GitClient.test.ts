@@ -1,6 +1,6 @@
-import { existsSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { afterAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import {
   addOrigin,
   cleanupTempRepos,
@@ -484,5 +484,73 @@ describe('GitClient', () => {
     expect(err).toBeInstanceOf(Error);
     expect((err as Error).message).toContain('rejected');
     expect((err as Error).message).not.toMatch(/^git push/);
+  });
+});
+
+describe('GitClient push from the GUI', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  /** A repo with a branch to push and a pre-push hook; hooks inherit git's environment. */
+  function repoWithHook(script: string): { repo: string; out: string } {
+    const repo = makeRepo();
+    addOrigin(repo);
+    git(repo, 'checkout', '-q', '-b', 'feature/h');
+    commitFile(repo, 'h.txt', 'h');
+    const out = path.join(path.dirname(repo), 'hook-out.txt');
+    const hook = path.join(repo, '.git', 'hooks', 'pre-push');
+    writeFileSync(hook, `#!/bin/sh\n${script.replace('OUT', out)}\n`);
+    chmodSync(hook, 0o755);
+    return { repo, out };
+  }
+
+  const isolate = () => {
+    vi.stubEnv('GIT_CONFIG_GLOBAL', '/dev/null');
+    vi.stubEnv('GIT_SSH_COMMAND', undefined);
+    vi.stubEnv('GIT_SSH', undefined);
+  };
+  const hookEnv =
+    'printf "%s|%s" "$GIT_SSH_COMMAND" "$GIT_TERMINAL_PROMPT" > "OUT"';
+
+  it('runs ssh in batch mode and keeps the terminal prompt off', async () => {
+    isolate();
+    const { repo, out } = repoWithHook(hookEnv);
+    await client.push(repo, 'origin', 'feature/h');
+    expect(readFileSync(out, 'utf8')).toBe('ssh -o BatchMode=yes|0');
+  });
+
+  it("respects the user's own GIT_SSH_COMMAND", async () => {
+    isolate();
+    vi.stubEnv('GIT_SSH_COMMAND', 'my-ssh -i key');
+    const { repo, out } = repoWithHook(hookEnv);
+    await client.push(repo, 'origin', 'feature/h');
+    expect(readFileSync(out, 'utf8')).toBe('my-ssh -i key|0');
+  });
+
+  it("respects the user's core.sshCommand", async () => {
+    isolate();
+    const { repo, out } = repoWithHook(hookEnv);
+    git(repo, 'config', 'core.sshCommand', 'plink -batch');
+    await client.push(repo, 'origin', 'feature/h');
+    expect(readFileSync(out, 'utf8')).toBe('|0');
+  });
+
+  it('gives up on a push that hangs, with a hint about a credential prompt', async () => {
+    isolate();
+    const { repo } = repoWithHook('sleep 10');
+    const c = new GitClient(undefined, { pushTimeoutMs: 300 });
+    const started = Date.now();
+    const err = await c
+      .push(repo, 'origin', 'feature/h')
+      .catch((e: unknown) => e);
+    expect(Date.now() - started).toBeLessThan(5000);
+    expect((err as Error).message).toBe(
+      'git push timed out after 0.3 s (a credential prompt may be waiting)',
+    );
+  });
+
+  it('waits 120 s for a push by default', () => {
+    expect(new GitClient().pushTimeoutMs).toBe(120_000);
   });
 });

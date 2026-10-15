@@ -1,4 +1,10 @@
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
@@ -1865,6 +1871,21 @@ describe('handlers: finish with a pull request', () => {
     expect(hx.opened).toEqual([]);
     kill.mockRestore();
     await hx.terminals.killAllForTask(hx.t.id);
+  });
+
+  it('stops Finish before cleanup when the push hangs past its timeout', async () => {
+    const hx = await prHarness();
+    commitFile(hx.t.worktreePath, 'mine.txt', 'a\n', 'Mine');
+    const hook = path.join(hx.repo, '.git', 'hooks', 'pre-push');
+    writeFileSync(hook, '#!/bin/sh\nsleep 10\n');
+    chmodSync(hook, 0o755);
+    (hx.services.git as { pushTimeoutMs: number }).pushTimeoutMs = 300;
+    await expect(hx.h['tasks:finish'](hx.t.id, finishWithPr)).rejects.toThrow(
+      'Pull request not created: git push timed out after 0.3 s (a credential prompt may be waiting)',
+    );
+    expect(hx.store.state.tasks[0].status).toBe('ready');
+    expect(existsSync(hx.t.worktreePath)).toBe(true);
+    expect(hx.create).not.toHaveBeenCalled();
   });
 
   it('stops Finish before cleanup when the PR call fails', async () => {
