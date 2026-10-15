@@ -161,18 +161,31 @@ export const useTaskConnectionId = (task: { repoId: string } | null) =>
 type ConnectionState = Pick<
   Store,
   'connections' | 'connectionId' | 'repos' | 'tasks' | 'selectedTaskId'
->;
+> & { screen?: Screen };
+
+/** The task a task, setup or finish page is about. */
+const pageTaskId = (s: ConnectionState): string | null => {
+  const screen = s.screen;
+  if (!screen) return null;
+  if (screen.kind === 'task') return s.selectedTaskId;
+  if (screen.kind === 'setup' || screen.kind === 'finish') return screen.taskId;
+  return null;
+};
 
 /**
- * The project the shell shows: the one picked in the switcher, else the selected task's repo connection,
- * else the first linked repo's, else the first connection.
+ * The project the shell shows. On a task's own pages, the task's repo connection; otherwise the one picked in
+ * the switcher, else the selected task's repo connection, else the first linked repo's, else the first connection.
  */
 export function activeConnection(s: ConnectionState): Connection | null {
   const byId = (id: string | null | undefined) =>
     id ? (s.connections.find((c) => c.id === id) ?? null) : null;
-  const task = s.tasks.find((t) => t.id === s.selectedTaskId);
-  const taskRepo = s.repos.find((r) => r.id === task?.repoId);
+  const repoOf = (taskId: string | null) => {
+    const task = s.tasks.find((t) => t.id === taskId);
+    return s.repos.find((r) => r.id === task?.repoId);
+  };
+  const taskRepo = repoOf(s.selectedTaskId);
   return (
+    byId(repoOf(pageTaskId(s))?.connectionId) ??
     byId(s.connectionId) ??
     byId(taskRepo?.connectionId) ??
     byId(s.repos.find((r) => r.connectionId)?.connectionId) ??

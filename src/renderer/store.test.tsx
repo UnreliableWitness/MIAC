@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { TaskView } from '../shared/types';
-import { activeConnection, USAGE_TAB, useStore } from './store';
+import { activeConnection, type Screen, USAGE_TAB, useStore } from './store';
 
 const base = useStore.getState();
 const task = (id: string, terms: string[]): TaskView => ({
@@ -145,6 +145,7 @@ describe('activeConnection', () => {
       tasks: [{ ...task('t', []), repoId: 'b' }],
       selectedTaskId: null as string | null,
       connectionId: null as string | null,
+      screen: { kind: 'sprint' } as Screen,
     };
     expect(activeConnection(s)?.id).toBe('2');
     expect(activeConnection({ ...s, selectedTaskId: 't' })?.id).toBe('3');
@@ -155,5 +156,30 @@ describe('activeConnection', () => {
       activeConnection({ ...s, repos: [], connections: [conn('9')] })?.id,
     ).toBe('9');
     expect(activeConnection({ ...s, connections: [] })).toBeNull();
+  });
+
+  it("names the task's own project on its task, setup and finish pages, over the switcher", () => {
+    const s = {
+      connections: [conn('1'), conn('3')],
+      repos: [repo('b', '3')],
+      tasks: [{ ...task('t', []), repoId: 'b' }],
+      selectedTaskId: 't' as string | null,
+      connectionId: '1' as string | null,
+      screen: { kind: 'task' } as Screen,
+    };
+    expect(activeConnection(s)?.id).toBe('3');
+    expect(
+      activeConnection({ ...s, screen: { kind: 'setup', taskId: 't' } })?.id,
+    ).toBe('3');
+    expect(
+      activeConnection({
+        ...s,
+        selectedTaskId: null,
+        screen: { kind: 'finish', taskId: 't' },
+      })?.id,
+    ).toBe('3');
+    expect(activeConnection({ ...s, screen: { kind: 'sprint' } })?.id).toBe(
+      '1',
+    );
   });
 });
