@@ -144,7 +144,11 @@ export class AdoClient {
       : null;
   }
 
-  /** The sprint backlog of the project's default team, in backlog order: top-level entries have no source, children name their parent. */
+  /**
+   * The sprint backlog of the project's default team, in backlog order: top-level entries have no source, children
+   * name their parent. Verified live (2026-10-15): after reordering through `iterations/{id}/workitemsorder`, this
+   * API returns items by their new StackRank, not by id, so no client-side sort is needed.
+   */
   async iterationWorkItems(
     project: string,
     iterationId: string,
