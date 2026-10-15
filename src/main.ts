@@ -6,6 +6,7 @@ import {
   BrowserWindow,
   dialog,
   ipcMain,
+  Menu,
   nativeImage,
   safeStorage,
   shell,
@@ -36,6 +37,7 @@ import { OFFICIAL_RATES } from './main/pricing/officialRates';
 import { UsageStore } from './main/usage/UsageStore';
 import { runSmoke } from './main/smoke';
 import { createSplashWindow, SplashReporter } from './main/splash';
+import { appMenu } from './main/appMenu';
 
 if (started) app.quit();
 
@@ -322,6 +324,10 @@ if (process.env.MIAC_SMOKE === '1') {
       // Packaged macOS builds get the icon from the bundle; in dev the Dock shows Electron's.
       if (process.platform === 'darwin' && !app.isPackaged)
         app.dock?.setIcon(icon);
+      const menu = appMenu(process.platform, app.isPackaged);
+      if (menu.kind === 'template')
+        Menu.setApplicationMenu(Menu.buildFromTemplate(menu.template));
+      else if (menu.kind === 'none') Menu.setApplicationMenu(null);
       return boot();
     })
     // boot reports its own failures on the splash; this catches the ones before it exists (settings load).
