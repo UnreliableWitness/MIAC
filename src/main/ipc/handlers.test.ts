@@ -1771,6 +1771,18 @@ describe('handlers: finish with a pull request', () => {
     });
   });
 
+  it('tells telemetry to scrub the project and repo of the Azure Repos remote', async () => {
+    const hx = await prHarness(
+      'git@ssh.dev.azure.com:v3/contoso/Other%20Project/azure-repo',
+    );
+    const seen: string[] = [];
+    hx.services.rememberSensitive = (values) => seen.push(...values);
+    await hx.h['tasks:prAvailability'](hx.t.id);
+    expect(seen).toEqual(
+      expect.arrayContaining(['Other Project', 'azure-repo']),
+    );
+  });
+
   it('pushes, creates a draft PR linked to the work item, opens it, then cleans up', async () => {
     const hx = await prHarness();
     commitFile(hx.t.worktreePath, 'feature.txt', 'a\n', 'Add the feature');

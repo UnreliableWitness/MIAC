@@ -234,12 +234,15 @@ async function boot(): Promise<void> {
         return undefined;
       }
     })();
+    // Learned at run time: an Azure Repos remote's project and repo can differ from anything stored.
+    const learned = new Set<string>();
     sensitive = () =>
       sensitiveValues({
         repos: repos.list(),
         tasks: store.state.tasks,
         connections: connections.list(),
         username,
+        extra: learned,
       });
     lap('tasksMs');
     const usageDir = path.join(userData, 'usage');
@@ -278,6 +281,9 @@ async function boot(): Promise<void> {
       connections,
       ado: new AdoRegistry(connections, timedFetch(telemetry)),
       telemetry,
+      rememberSensitive: (values) => {
+        for (const v of values) learned.add(v);
+      },
       openExternal: (url) => shell.openExternal(url),
       store,
       git,

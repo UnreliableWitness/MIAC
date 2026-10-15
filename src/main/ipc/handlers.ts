@@ -85,6 +85,8 @@ export type Services = {
   finishFlushMs: number;
   /** App telemetry (usage, errors, timings); see docs/telemetry.md. Defaults to sending nothing. */
   telemetry?: Telemetry;
+  /** Adds values telemetry must scrub from now on, such as the project and repo of a remote. */
+  rememberSensitive?: (values: string[]) => void;
 };
 
 async function exists(p: string): Promise<boolean> {
@@ -272,6 +274,12 @@ export function createHandlers(s: Services): Handlers {
       remoteUrl,
       connectionOrgUrl: connection?.organizationUrl ?? null,
     });
+    // ADO 404 messages and git push errors name them; they may differ from the connection and folder names.
+    if (availability.target)
+      s.rememberSensitive?.([
+        availability.target.project,
+        availability.target.repo,
+      ]);
     return {
       connection,
       availability,

@@ -243,4 +243,20 @@ describe('AppInsightsClient', () => {
       (ev.data.baseData.properties as Record<string, string>).message,
     ).toBe('Could not find "<redacted>" at <url>');
   });
+
+  it('scrubs ssh remotes from git output', async () => {
+    const { client, posts } = setup();
+    client.exception(
+      new Error(
+        'fatal: Could not read from remote repository git@ssh.dev.azure.com:v3/acme/Proj/repo and ssh://git@host.example:22/x/y.git (mail me@x.org)',
+      ),
+    );
+    await client.flush();
+    const detail = (
+      posts[0].body[0].data.baseData.exceptions as { message: string }[]
+    )[0];
+    expect(detail.message).toBe(
+      'fatal: Could not read from remote repository <url> and <url> (mail <email>)',
+    );
+  });
 });

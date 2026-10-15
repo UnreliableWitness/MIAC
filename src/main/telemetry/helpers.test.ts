@@ -28,6 +28,18 @@ function recorder() {
 }
 
 describe('adoOperation', () => {
+  it('replaces a repository name in a git route', () => {
+    expect(
+      adoOperation(
+        'https://dev.azure.com/acme/Other/_apis/git/repositories/secret-repo/pullrequests?x=1',
+      ).name,
+    ).toBe('GET _apis/git/repositories/{repo}/pullrequests');
+    expect(
+      adoOperation(
+        'https://dev.azure.com/acme/Other/_apis/git/repositories/0f8fad5b-d9cb-469f-a165-70867728950e/pullrequests/7',
+      ).name,
+    ).toBe('GET _apis/git/repositories/{id}/pullrequests/{id}');
+  });
   it('keeps only the API route, with ids replaced', () => {
     expect(
       adoOperation(
@@ -181,5 +193,30 @@ describe('changedKeys and sensitiveValues', () => {
       ]),
     );
     expect(v).not.toContain('');
+  });
+  it('adds the project and repo of stored pull requests and extra values', () => {
+    const v = sensitiveValues({
+      repos: [],
+      tasks: [
+        {
+          name: '',
+          branch: 'b',
+          slug: 's',
+          worktreePath: '/w',
+          workItem: null,
+          pullRequest: { project: 'Other Project', repo: 'azure-repo' },
+        },
+      ],
+      connections: [],
+      extra: ['ssh-project', 'ssh-repo'],
+    });
+    expect(v).toEqual(
+      expect.arrayContaining([
+        'Other Project',
+        'azure-repo',
+        'ssh-project',
+        'ssh-repo',
+      ]),
+    );
   });
 });

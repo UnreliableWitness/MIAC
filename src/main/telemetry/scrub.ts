@@ -33,7 +33,9 @@ export function scrub(
     for (const f of forms(opts.home))
       out = out.replace(new RegExp(`([A-Za-z]:)?${escape(f)}`, 'gi'), '~');
   out = out
-    .replace(/\bhttps?:\/\/[^\s'")]+/gi, '<url>')
+    .replace(/\b(?:https?|ssh|git):\/\/[^\s'")]+/gi, '<url>')
+    // scp-like ssh remotes (git@ssh.dev.azure.com:v3/org/project/repo) name the project and repo.
+    .replace(/\b[\w.-]+@[\w-]+(\.[\w-]+)+:[^\s'")]+/g, '<url>')
     .replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, '<email>');
   return out;
 }
