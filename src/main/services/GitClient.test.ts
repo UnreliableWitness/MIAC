@@ -442,4 +442,47 @@ describe('GitClient', () => {
       ).pushed,
     ).toBe(false);
   });
+
+  it('remoteUrl returns the remote URL, or null for an unknown remote', async () => {
+    const repo = makeRepo();
+    const bare = addOrigin(repo);
+    expect(await client.remoteUrl(repo, 'origin')).toBe(bare);
+    expect(await client.remoteUrl(repo, 'nope')).toBeNull();
+  });
+
+  it('push creates the remote branch and sets the upstream', async () => {
+    const repo = makeRepo();
+    addOrigin(repo);
+    git(repo, 'checkout', '-q', '-b', 'feature/p');
+    commitFile(repo, 'p.txt', 'p');
+    await client.push(repo, 'origin', 'feature/p');
+    expect(git(repo, 'rev-parse', 'origin/feature/p').trim()).toBe(
+      git(repo, 'rev-parse', 'HEAD').trim(),
+    );
+    expect(git(repo, 'rev-parse', '--abbrev-ref', '@{u}').trim()).toBe(
+      'origin/feature/p',
+    );
+  });
+
+  it('push rejects with git stderr when the remote moved ahead', async () => {
+    const repo = makeRepo();
+    const bare = addOrigin(repo);
+    git(repo, 'checkout', '-q', '-b', 'feature/q');
+    commitFile(repo, 'q.txt', 'q');
+    await client.push(repo, 'origin', 'feature/q');
+    const other = path.join(path.dirname(repo), 'other');
+    git(path.dirname(repo), 'clone', '-q', bare, other);
+    git(other, 'config', 'user.email', 'tests@miac.local');
+    git(other, 'config', 'user.name', 'MIAC tests');
+    git(other, 'checkout', '-q', 'feature/q');
+    commitFile(other, 'o.txt', 'o');
+    git(other, 'push', '-q', 'origin', 'feature/q');
+    commitFile(repo, 'q2.txt', 'q2');
+    const err = await client
+      .push(repo, 'origin', 'feature/q')
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toContain('rejected');
+    expect((err as Error).message).not.toMatch(/^git push/);
+  });
 });

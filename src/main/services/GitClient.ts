@@ -168,6 +168,26 @@ export class GitClient {
     await this.run(cwd, ['branch', '-D', branch]);
   }
 
+  /** The URL of a remote, or null when there is no such remote. */
+  async remoteUrl(cwd: string, remote: string): Promise<string | null> {
+    try {
+      return (
+        (await this.run(cwd, ['remote', 'get-url', remote])).trim() || null
+      );
+    } catch {
+      return null;
+    }
+  }
+
+  /** Pushes a branch and sets its upstream. Never forces; a failure throws git's own stderr. */
+  async push(cwd: string, remote: string, branch: string): Promise<void> {
+    try {
+      await this.run(cwd, ['push', '-u', remote, branch]);
+    } catch (e) {
+      throw e instanceof GitError ? new Error(e.stderr.trim()) : e;
+    }
+  }
+
   async summary(worktree: string, baseRef: string): Promise<GitSummary> {
     const out = await this.run(worktree, [
       '--no-optional-locks',

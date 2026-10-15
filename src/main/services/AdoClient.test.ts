@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { startAdoServer, type AdoServer } from '../test-helpers/adoServer';
-import { AdoClient, AdoError, buildWiql } from './AdoClient';
+import {
+  AdoClient,
+  AdoError,
+  buildWiql,
+  CODE_WRITE_DENIED,
+  WRITE_DENIED,
+} from './AdoClient';
 
 let server: AdoServer;
 let client: AdoClient;
@@ -855,6 +861,182 @@ describe('AdoClient writes', () => {
       kind: 'unauthorized',
       message:
         'The token cannot write work items (needs Work Items: Read & write)',
+    });
+  });
+});
+
+describe('work item state and pull request calls', () => {
+  const P = '/unreliablewitness/MIAC/_apis';
+
+  it('reads type, state and assignee, preferring the unique name', async () => {
+    server.route('GET', '/unreliablewitness/_apis/wit/workitems/7', {
+      body: {
+        fields: {
+          'System.WorkItemType': 'Task',
+          'System.State': 'To Do',
+          'System.AssignedTo': { uniqueName: 'a@b.c', displayName: 'Ann' },
+        },
+      },
+    });
+    expect(await client.workItemForStart(7)).toEqual({
+      type: 'Task',
+      state: 'To Do',
+      assignedTo: 'a@b.c',
+    });
+    expect(server.requests.at(-1)!.path).toBe(
+      '/unreliablewitness/_apis/wit/workitems/7?fields=System.WorkItemType,System.State,System.AssignedTo&api-version=7.1',
+    );
+  });
+  it('falls back to the display name, then to null', async () => {
+    server.route('GET', '/unreliablewitness/_apis/wit/workitems/7', {
+      body: {
+        fields: {
+          'System.WorkItemType': 'Task',
+          'System.State': 'To Do',
+          'System.AssignedTo': { displayName: 'Ann' },
+        },
+      },
+    });
+    expect((await client.workItemForStart(7)).assignedTo).toBe('Ann');
+    server.route('GET', '/unreliablewitness/_apis/wit/workitems/7', {
+      body: { fields: { 'System.WorkItemType': 'Task', 'System.State': 'x' } },
+    });
+    expect((await client.workItemForStart(7)).assignedTo).toBeNull();
+  });
+  it('lists the states of a type with their category', async () => {
+    server.route('GET', `${P}/wit/workitemtypes/User%20Story/states`, {
+      body: {
+        value: [{ name: 'New', category: 'Proposed' }, { name: 'Odd' }],
+      },
+    });
+    expect(await client.typeStates('MIAC', 'User Story')).toEqual([
+      { name: 'New', category: 'Proposed' },
+      { name: 'Odd', category: null },
+    ]);
+    expect(server.requests.at(-1)!.path).toBe(
+      `${P}/wit/workitemtypes/User%20Story/states?api-version=7.1`,
+    );
+  });
+  it('patches state and assignee, and skips an empty change', async () => {
+    server.route('PATCH', '/unreliablewitness/_apis/wit/workitems/7', {
+      body: { id: 7 },
+    });
+    await client.updateWorkItem(7, { state: 'Active', assignedTo: 'a@b.c' });
+    const req = server.requests.at(-1)!;
+    expect(req.path).toBe(
+      '/unreliablewitness/_apis/wit/workitems/7?api-version=7.1',
+    );
+    expect(JSON.parse(req.body)).toEqual([
+      { op: 'add', path: '/fields/System.State', value: 'Active' },
+      { op: 'add', path: '/fields/System.AssignedTo', value: 'a@b.c' },
+    ]);
+    const count = server.requests.length;
+    await client.updateWorkItem(7, {});
+    expect(server.requests.length).toBe(count);
+  });
+  it('reports a write denial and ADO rule errors on update', async () => {
+    server.route('PATCH', '/unreliablewitness/_apis/wit/workitems/7', {
+      status: 403,
+      body: {},
+    });
+    await expect(
+      client.updateWorkItem(7, { state: 'Active' }),
+    ).rejects.toMatchObject({ message: WRITE_DENIED });
+    server.route('PATCH', '/unreliablewitness/_apis/wit/workitems/7', {
+      status: 400,
+      raw: '{"message":"TF401320: Rule Error for field State"}',
+    });
+    const e = await client
+      .updateWorkItem(7, { state: 'Nope' })
+      .catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(AdoError);
+    expect((e as AdoError).message).toContain(
+      'TF401320: Rule Error for field State',
+    );
+  });
+  it('resolves a repository id', async () => {
+    server.route('GET', `${P}/git/repositories/my%20repo`, {
+      body: { id: 'guid-1' },
+    });
+    expect(await client.repositoryId('MIAC', 'my repo')).toBe('guid-1');
+    expect(server.requests.at(-1)!.path).toBe(
+      `${P}/git/repositories/my%20repo?api-version=7.1`,
+    );
+  });
+  it('finds the first active pull request or null', async () => {
+    server.route('GET', `${P}/git/repositories/r1/pullrequests`, {
+      body: {
+        value: [{ pullRequestId: 5, status: 'active', isDraft: true }],
+      },
+    });
+    expect(
+      await client.findActivePullRequest('MIAC', 'r1', 'feature/1-x'),
+    ).toEqual({ pullRequestId: 5, status: 'active', isDraft: true });
+    expect(server.requests.at(-1)!.path).toBe(
+      `${P}/git/repositories/r1/pullrequests?searchCriteria.sourceRefName=${encodeURIComponent('refs/heads/feature/1-x')}&searchCriteria.status=active&api-version=7.1`,
+    );
+    server.route('GET', `${P}/git/repositories/r1/pullrequests`, {
+      body: { value: [] },
+    });
+    expect(await client.findActivePullRequest('MIAC', 'r1', 'b')).toBeNull();
+  });
+  it('creates a draft pull request linked to the work item', async () => {
+    server.route('POST', `${P}/git/repositories/r1/pullrequests`, {
+      body: { pullRequestId: 9, status: 'active', isDraft: true },
+    });
+    const pr = await client.createPullRequest('MIAC', 'r1', {
+      source: 'feature/1-x',
+      target: 'main',
+      title: 'T',
+      description: 'D',
+      workItemId: 1,
+    });
+    expect(pr.pullRequestId).toBe(9);
+    const req = server.requests.at(-1)!;
+    expect(req.path).toBe(
+      `${P}/git/repositories/r1/pullrequests?api-version=7.1`,
+    );
+    expect(JSON.parse(req.body)).toEqual({
+      sourceRefName: 'refs/heads/feature/1-x',
+      targetRefName: 'refs/heads/main',
+      title: 'T',
+      description: 'D',
+      isDraft: true,
+      workItemRefs: [{ id: '1' }],
+    });
+  });
+  it('sends no work item refs without a work item, and names the Code scope on 403', async () => {
+    server.route('POST', `${P}/git/repositories/r1/pullrequests`, {
+      body: { pullRequestId: 9, status: 'active', isDraft: true },
+    });
+    const input = {
+      source: 'a',
+      target: 'main',
+      title: 'T',
+      description: 'D',
+      workItemId: null,
+    };
+    await client.createPullRequest('MIAC', 'r1', input);
+    expect(JSON.parse(server.requests.at(-1)!.body).workItemRefs).toEqual([]);
+    server.route('POST', `${P}/git/repositories/r1/pullrequests`, {
+      status: 403,
+      body: {},
+    });
+    await expect(
+      client.createPullRequest('MIAC', 'r1', input),
+    ).rejects.toMatchObject({
+      kind: 'unauthorized',
+      message: CODE_WRITE_DENIED,
+    });
+  });
+  it('reads a pull request', async () => {
+    server.route('GET', `${P}/git/repositories/r1/pullrequests/9`, {
+      body: { pullRequestId: 9, status: 'completed', isDraft: false },
+    });
+    expect(await client.pullRequest('MIAC', 'r1', 9)).toEqual({
+      pullRequestId: 9,
+      status: 'completed',
+      isDraft: false,
     });
   });
 });
