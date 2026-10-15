@@ -1,4 +1,5 @@
-// Renders assets/icon/*.svg to PNGs, a Windows .ico and (on macOS) a .icns. Outputs are committed.
+// Renders assets/icon/*.svg to PNGs, a Windows .ico and a macOS .icns. Outputs are committed.
+// The .icns needs macOS iconutil: elsewhere the PNGs and .ico are written and the script exits 1.
 import { execFileSync } from 'node:child_process';
 import {
   copyFileSync,
@@ -49,9 +50,9 @@ console.log('wrote png/*.png and miac.ico');
 
 if (process.platform !== 'darwin') {
   console.error(
-    'miac.icns needs macOS iconutil; skipped. Commit the .icns from a Mac.',
+    'build-icons: miac.icns needs macOS iconutil, so it was NOT updated (png/*.png and miac.ico were). Run `npm run icons` on a Mac before committing, so the three stay in step.',
   );
-  process.exit(0);
+  process.exit(1);
 }
 const tmp = mkdtempSync(path.join(os.tmpdir(), 'miac-icns-'));
 const set = path.join(tmp, 'miac.iconset');
