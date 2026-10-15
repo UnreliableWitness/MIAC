@@ -14,15 +14,25 @@ import { useStore } from '../store';
 import { installFakeApi } from '../test-helpers/fakeApi';
 import { Shell } from '../App';
 
-vi.mock('../components/TerminalView', () => ({
-  TerminalView: ({
-    terminalId,
-    active,
-  }: {
-    terminalId: string;
-    active: boolean;
-  }) => <div data-testid={`term-${terminalId}`} data-active={active} />,
-}));
+const mounts = vi.hoisted(() => ({ count: 0 }));
+
+vi.mock('../components/TerminalView', async () => {
+  const { useEffect } = await import('react');
+  return {
+    TerminalView: ({
+      terminalId,
+      active,
+    }: {
+      terminalId: string;
+      active: boolean;
+    }) => {
+      useEffect(() => {
+        mounts.count++;
+      }, []);
+      return <div data-testid={`term-${terminalId}`} data-active={active} />;
+    },
+  };
+});
 
 const AHEAD_CHANGED = new RegExp(
   `${String.fromCharCode(0x2191)}2 ${String.fromCharCode(0xb7)} 3${String.fromCharCode(0x394)}`,
@@ -296,7 +306,11 @@ describe('TaskScreen', () => {
       'data-active',
       'true',
     );
-    expect(screen.queryByTestId('term-c1')).not.toBeInTheDocument();
+    // The other task's terminals stay mounted but inactive, so switching back does not replay them.
+    expect(screen.getByTestId('term-c1')).toHaveAttribute(
+      'data-active',
+      'false',
+    );
     await waitFor(() =>
       expect(screen.getByRole('tab', { name: /Claude Code/ })).toHaveAttribute(
         'aria-selected',
@@ -619,5 +633,31 @@ describe('tabs and focus', () => {
     expect(useStore.getState().focus).toBe(true);
     fireEvent.keyDown(window, FOCUS_KEYS);
     expect(useStore.getState().focus).toBe(false);
+  });
+
+  it('keeps the terminals mounted while another page is open, so they do not replay', async () => {
+    setup();
+    render(<Shell />);
+    await screen.findByRole('tablist', { name: 'Terminals' });
+    mounts.count = 0;
+    for (const page of [
+      { kind: 'settings' },
+      { kind: 'new-task' },
+      { kind: 'finish', taskId: 'a' },
+      { kind: 'sprint' },
+    ] as const) {
+      act(() => useStore.getState().go(page));
+      expect(screen.getByTestId('term-c1')).toHaveAttribute(
+        'data-active',
+        'false',
+      );
+      expect(screen.queryByRole('tablist', { name: 'Terminals' })).toBeNull();
+      act(() => useStore.getState().go({ kind: 'task' }));
+      expect(screen.getByTestId('term-c1')).toHaveAttribute(
+        'data-active',
+        'true',
+      );
+    }
+    expect(mounts.count).toBe(0);
   });
 });

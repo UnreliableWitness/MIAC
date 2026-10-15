@@ -1,6 +1,7 @@
 import { TaskTypeIcon } from '../components/TaskTypeIcon';
 import { PageHeader } from '../components/ui';
 import { TerminalTabs } from '../components/TerminalTabs';
+import type { TaskView } from '../../shared/types';
 import { useStore } from '../store';
 import { DoneTaskPage } from './DoneTaskPage';
 
@@ -47,5 +48,30 @@ export function TaskScreen() {
         </div>
       </div>
     );
-  return <TerminalTabs key={`tabs-${task.id}`} task={task} />;
+  // A running task's terminals live in TaskTerminals, which stays mounted across pages.
+  return null;
+}
+
+/** Tasks whose terminals are shown: everything between setup and done. */
+const hasTerminals = (t: TaskView) =>
+  t.status === 'ready' || t.status === 'finishing';
+
+/**
+ * The terminals of every running task, mounted for as long as the task runs and hidden while another page
+ * or task is shown. Remounting would replay main's buffer into a fresh xterm, which garbles full-screen TUIs.
+ */
+export function TaskTerminals() {
+  const tasks = useStore((s) => s.tasks);
+  const shown = useStore((s) =>
+    s.screen.kind === 'task' ? s.selectedTaskId : null,
+  );
+  return (
+    <>
+      {tasks.filter(hasTerminals).map((t) => (
+        <div key={t.id} className="task-layer" hidden={t.id !== shown}>
+          <TerminalTabs task={t} visible={t.id === shown} />
+        </div>
+      ))}
+    </>
+  );
 }

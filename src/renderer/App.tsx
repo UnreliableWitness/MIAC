@@ -10,7 +10,7 @@ import { NewTaskScreen } from './screens/NewTaskScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { SetupScreen } from './screens/SetupScreen';
 import { SprintScreen } from './screens/SprintScreen';
-import { TaskScreen } from './screens/TaskScreen';
+import { TaskScreen, TaskTerminals } from './screens/TaskScreen';
 import { useStore } from './store';
 import { useWorkItemTypes } from './workItemTypes';
 
@@ -54,6 +54,7 @@ export function Shell() {
         {(!inFocus || navCollapsed) && <TaskNav />}
         <main className="content">
           <Page />
+          <TaskTerminals />
         </main>
       </div>
       <Notices />

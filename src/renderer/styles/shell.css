@@ -401,6 +401,15 @@ button.projecttile:hover {
 .taskbar-cost {
   color: var(--text);
 }
+.task-layer {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.task-layer[hidden] {
+  display: none;
+}
 .termhost {
   flex: 1;
   min-height: 0;

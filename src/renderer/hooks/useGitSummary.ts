@@ -7,10 +7,12 @@ const POLL_MS = 5000;
 export function useGitSummary(
   taskId: string,
   worktreeMissing: boolean,
+  enabled = true,
 ): GitSummary | null {
   const [git, setGit] = useState<GitSummary | null>(null);
 
   useEffect(() => {
+    if (!enabled) return;
     let live = true;
     const refresh = () =>
       api()
@@ -27,7 +29,7 @@ export function useGitSummary(
       live = false;
       clearInterval(timer);
     };
-  }, [taskId, worktreeMissing]);
+  }, [taskId, worktreeMissing, enabled]);
 
   return git;
 }

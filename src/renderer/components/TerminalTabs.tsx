@@ -43,11 +43,18 @@ export function CostButton({ taskId }: { taskId: string }) {
 }
 
 /** The 36 px task row: pivots per terminal and Usage on the left, git state and task commands on the right. */
-export function TerminalTabs({ task }: { task: TaskView }) {
+export function TerminalTabs({
+  task,
+  visible = true,
+}: {
+  task: TaskView;
+  /** False while kept mounted behind another page: terminals stay alive but are not active, git is not polled. */
+  visible?: boolean;
+}) {
   const notify = useStore((s) => s.notify);
   const go = useStore((s) => s.go);
   const config = useRepoConfig(task.repoId);
-  const git = useGitSummary(task.id, task.worktreeMissing);
+  const git = useGitSummary(task.id, task.worktreeMissing, visible);
   const active = useStore((s) => s.activeTab(task.id));
   const setTab = useStore((s) => s.setTab);
   // Same rule as the shell: Focus chrome only for a ready task.
@@ -210,9 +217,13 @@ export function TerminalTabs({ task }: { task: TaskView }) {
         </div>
       </div>
       <div className="termhost">
-        {active === USAGE_TAB && <UsagePanel taskId={task.id} />}
+        {visible && active === USAGE_TAB && <UsagePanel taskId={task.id} />}
         {task.terminals.map((t) => (
-          <TerminalView key={t.id} terminalId={t.id} active={active === t.id} />
+          <TerminalView
+            key={t.id}
+            terminalId={t.id}
+            active={visible && active === t.id}
+          />
         ))}
       </div>
     </>
