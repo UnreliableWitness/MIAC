@@ -25,7 +25,11 @@ Download the installer from GitHub: open the Actions run for the commit, then th
    - a click or a key press skips it;
    - with Settings > Appearance > "Show splash on start" off, the next start has no splash;
    - the taskbar icon is legible at 100% and 150% display scaling;
-   - the installer (`MIAC-Setup.exe`) and the Start menu entry show the Mind dial icon.
+   - the 16 px title-bar icon is sharp, not blank or blurry;
+   - the installer (`MIAC-Setup.exe`) and the Start menu entry show the Mind dial icon;
+   - Settings > Apps > Installed apps (Apps & features) shows the Mind dial icon for MIAC, not the Electron icon. The installer fetches it from `main` on GitHub, so this needs a build after the merge;
+   - the main window has no menu bar above the task strip.
 10. **Shortcuts.** While a PowerShell terminal has focus, `Ctrl+0` opens the Usage tab, `Ctrl+1..9` switch terminals and `Ctrl+Shift+F` toggles Focus. `Ctrl+C` still interrupts the running command.
+    - On a Belgian or French (AZERTY) keyboard, `Ctrl+1` (the `&` key, no Shift) switches to the first terminal and `Ctrl+0` (the `à` key) opens the Usage tab.
 
 If a setup command or a shim fails with "running scripts is disabled on this system": MIAC passes `-ExecutionPolicy Bypass`, but an execution policy set by Group Policy overrides it. Ask IT, or install claude and copilot as native `.exe` builds.
