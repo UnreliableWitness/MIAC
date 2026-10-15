@@ -1640,6 +1640,26 @@ describe('handlers: work item on start', () => {
     expect(step?.status).toBe('done');
   });
 
+  it('looks up the unique name for a connection saved before it was stored', async () => {
+    const hx = await harness();
+    const { c, update } = await connected(hx);
+    await hx.connections.setStatus(c.id, 'ok', 'Dries Hoebeke', null);
+    hx.server.route('GET', '/unreliablewitness/_apis/connectionData', {
+      body: {
+        authenticatedUser: {
+          providerDisplayName: 'Dries Hoebeke',
+          properties: { Account: { $value: 'me@x.com' } },
+        },
+      },
+    });
+    await createAndWait(hx);
+    expect(update).toHaveBeenCalledWith(48231, {
+      state: 'Doing',
+      assignedTo: 'me@x.com',
+    });
+    expect(hx.connections.get(c.id).userUniqueName).toBe('me@x.com');
+  });
+
   it('warns but finishes the setup when the update fails', async () => {
     const hx = await harness();
     const { update } = await connected(hx);

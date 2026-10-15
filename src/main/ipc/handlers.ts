@@ -477,11 +477,17 @@ export function createHandlers(s: Services): Handlers {
               connection.project,
               current.type,
             );
+            // Connections saved before the unique name was stored have none; look it up once.
+            let user = connection.userUniqueName;
+            if (!user && repo.workItemOnStart.assignToMe)
+              user = await verifyConnection(connection.id)
+                .then((c) => c.userUniqueName)
+                .catch(() => null);
             const plan = planStartUpdate(
               current,
               states,
               repo.workItemOnStart,
-              connection.userUniqueName,
+              user,
             );
             if (plan.state || plan.assignTo)
               await client.updateWorkItem(id, {
