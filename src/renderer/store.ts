@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { Connection, Notice, Repo, TaskView } from '../shared/types';
 import { api } from './api';
+import { track, trackScreen } from './telemetry';
 import { readPrefs, writePref } from './uiPrefs';
 
 export const USAGE_TAB = 'usage';
@@ -48,7 +49,10 @@ export const useStore = create<Store>((set, get) => ({
   notices: [],
   tabByTask: {},
   ...readPrefs(),
-  go: (screen) => set({ screen }),
+  go: (screen) => {
+    if (screen.kind !== get().screen.kind) trackScreen(screen.kind);
+    set({ screen });
+  },
   select: (selectedTaskId) => set({ selectedTaskId }),
   setRepos: (repos) => set({ repos }),
   setConnections: (connections) => set({ connections }),
@@ -59,13 +63,19 @@ export const useStore = create<Store>((set, get) => ({
     set({ tasks, selectedTaskId: stillThere ? selected : firstOpen });
   },
   notify: (level, message) => {
+    // Main scrubs the message (paths, repo and work item names) before it is sent.
+    if (level !== 'info')
+      track('notice', { level, message: message.slice(0, 200) });
     const id = `n${++noticeSeq}`;
     set({ notices: [...get().notices, { id, level, message }] });
     if (level !== 'error') setTimeout(() => get().dismiss(id), 6000);
   },
   dismiss: (id) => set({ notices: get().notices.filter((n) => n.id !== id) }),
-  setTab: (taskId, tab) =>
-    set({ tabByTask: { ...get().tabByTask, [taskId]: tab } }),
+  setTab: (taskId, tab) => {
+    if (tab === USAGE_TAB && get().activeTab(taskId) !== USAGE_TAB)
+      track('usage.opened', { via: 'tab' });
+    set({ tabByTask: { ...get().tabByTask, [taskId]: tab } });
+  },
   activeTab: (taskId) => {
     const task = get().tasks.find((t) => t.id === taskId);
     const want = get().tabByTask[taskId];
@@ -73,18 +83,22 @@ export const useStore = create<Store>((set, get) => ({
     if (task && want && task.terminals.some((t) => t.id === want)) return want;
     return task?.terminals[0]?.id ?? USAGE_TAB;
   },
-  openUsage: (taskId) =>
+  openUsage: (taskId) => {
+    track('usage.opened', { via: 'strip' });
     set({
       selectedTaskId: taskId,
       screen: { kind: 'workspace' },
       tabByTask: { ...get().tabByTask, [taskId]: USAGE_TAB },
-    }),
+    });
+  },
   toggleFocus: () => {
     const focus = !get().focus;
+    track('focus.toggled', { on: focus });
     writePref('focus', focus);
     set({ focus });
   },
   setNavCollapsed: (navCollapsed) => {
+    track('nav.toggled', { collapsed: navCollapsed });
     writePref('navCollapsed', navCollapsed);
     set({ navCollapsed });
   },
@@ -97,5 +111,6 @@ export const useStore = create<Store>((set, get) => ({
     get().setRepos(repos);
     get().setTasks(tasks);
     get().setConnections(connections);
+    trackScreen(get().screen.kind);
   },
 }));

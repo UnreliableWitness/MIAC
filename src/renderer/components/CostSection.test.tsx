@@ -24,6 +24,7 @@ const settings = {
   receiverPort: 4319,
   hourlySync: true,
   showSplash: true,
+  sendTelemetry: true,
 };
 
 beforeEach(() => {
@@ -64,6 +65,7 @@ describe('CostSection', () => {
       receiverPort: 4319,
       hourlySync: false,
       showSplash: true,
+      sendTelemetry: true,
     });
   });
   it('shows the receiver status and Copilot counters', async () => {

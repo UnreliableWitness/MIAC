@@ -153,6 +153,20 @@ describe('SettingsScreen', () => {
     );
   });
 
+  it('turns anonymous usage and error data off', async () => {
+    const { calls } = installFakeApi({ 'settings:save': (next) => next });
+    render(<SettingsScreen />);
+    const box = await screen.findByRole('checkbox', {
+      name: 'Send anonymous usage and error data',
+    });
+    await waitFor(() => expect(box).toBeChecked());
+    await userEvent.click(box);
+    expect(
+      calls.find((c) => c.channel === 'settings:save')?.args[0],
+    ).toMatchObject({ sendTelemetry: false, showSplash: true });
+    await waitFor(() => expect(box).not.toBeChecked());
+  });
+
   it('toggles the splash setting', async () => {
     const { calls } = installFakeApi({ 'settings:save': (next) => next });
     render(<SettingsScreen />);
@@ -166,6 +180,7 @@ describe('SettingsScreen', () => {
       receiverPort: 4319,
       hourlySync: true,
       showSplash: false,
+      sendTelemetry: true,
     });
   });
 
@@ -175,6 +190,7 @@ describe('SettingsScreen', () => {
       receiverPort: 4319,
       hourlySync: true,
       showSplash: true,
+      sendTelemetry: true,
     };
     const { calls } = installFakeApi({
       'settings:get': () => stored,
@@ -205,6 +221,7 @@ describe('SettingsScreen', () => {
       receiverPort: 4319,
       hourlySync: false,
       showSplash: false,
+      sendTelemetry: true,
     });
   });
 

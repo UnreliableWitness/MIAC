@@ -29,6 +29,8 @@ jobs:
       # The packaged app must load node-pty and spawn a pty (Windows does this in the installer jobs).
       - name: Package and smoke-test (macOS)
         if: runner.os == 'macOS'
+        env:
+          APPINSIGHTS_CONNECTION_STRING: ${{ vars.APPINSIGHTS_CONNECTION_STRING }}
         run: |
           npx electron-forge package
           node tools/forge/smoke.mjs
@@ -48,7 +50,10 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      # App telemetry (docs/telemetry.md): baked into the main bundle at build time; empty means none is sent.
       - run: npm run make
+        env:
+          APPINSIGHTS_CONNECTION_STRING: ${{ vars.APPINSIGHTS_CONNECTION_STRING }}
       - name: Smoke-test the packaged app
         run: node tools/forge/smoke.mjs
       - name: Summary
@@ -134,7 +139,10 @@ jobs:
           if ($env:TAG -notmatch '^v(\d+\.\d+\.\d+)$') { throw "Tag $env:TAG is not vX.Y.Z" }
           npm version $Matches[1] --no-git-tag-version --allow-same-version
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      # App telemetry (docs/telemetry.md): baked into the main bundle at build time; empty means none is sent.
       - run: npm run make
+        env:
+          APPINSIGHTS_CONNECTION_STRING: ${{ vars.APPINSIGHTS_CONNECTION_STRING }}
       - name: Smoke-test the packaged app
         run: node tools/forge/smoke.mjs
       - name: Verify signatures
