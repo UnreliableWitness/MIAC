@@ -237,7 +237,8 @@
   flex-wrap: wrap;
 }
 .picker-bar .field {
-  flex: 0 1 360px;
+  flex: 1 1 200px;
+  max-width: 360px;
 }
 .picker-grid {
   flex: 1;
@@ -414,4 +415,9 @@
 }
 .facts dd {
   margin: 0;
+}
+.newtask-preview-type {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }

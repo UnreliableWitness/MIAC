@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { renderBranch, taskSlug } from '../../shared/naming';
 import type { MiacConfig, WorkItemRef, WorkItemType } from '../../shared/types';
 import { api, tryInvoke } from '../api';
-import { PageHeader, Pivots } from '../components/ui';
+import { PageHeader, Pivots, WorkItemTypeIcon } from '../components/ui';
 import { WorkItemPicker } from '../components/WorkItemPicker';
 import { useEscape } from '../hooks/useEscape';
 import { useStore } from '../store';
@@ -258,7 +258,10 @@ export function NewTaskScreen({
         </section>
         <section className="newtask-details" aria-label="Task preview">
           <div>
-            <div className="muted small">
+            <div className="muted small newtask-preview-type">
+              {workItem?.id && (
+                <WorkItemTypeIcon type={workItem.type} size={14} />
+              )}
               {workItem?.id ? `${workItem.type} ${workItem.id}` : 'Blank task'}
             </div>
             <div className="newtask-preview-title">{label || 'New task'}</div>

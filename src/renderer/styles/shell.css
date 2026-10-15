@@ -321,7 +321,7 @@ button.projecttile:hover {
   border-bottom: 1px solid var(--line);
 }
 .tabrow {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -365,11 +365,15 @@ button.projecttile:hover {
   height: 22px;
 }
 .taskbar-right {
-  flex: 0 1 auto;
+  flex: 1 1 0;
   min-width: 0;
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 4px;
+}
+.taskbar-right > :not(.taskbar-git) {
+  flex: none;
 }
 .taskbar-right .ibtn {
   width: 28px;
