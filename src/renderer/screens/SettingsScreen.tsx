@@ -117,12 +117,14 @@ function AppearanceSection() {
     };
   }, [notify]);
 
-  const toggle = async (showSplash: boolean) => {
+  const toggle = async (
+    patch: Partial<Pick<AppSettings, 'showSplash' | 'sendTelemetry'>>,
+  ) => {
     if (!settings) return;
     // Read fresh so a save from another section is not overwritten.
     const saved = await tryInvoke(async () => {
       const fresh = await api().invoke('settings:get');
-      return api().invoke('settings:save', { ...fresh, showSplash });
+      return api().invoke('settings:save', { ...fresh, ...patch });
     }, notify);
     if (saved) setSettings(saved);
   };
@@ -139,9 +141,20 @@ function AppearanceSection() {
               type="checkbox"
               checked={settings?.showSplash ?? true}
               disabled={!settings}
-              onChange={(e) => void toggle(e.target.checked)}
+              onChange={(e) => void toggle({ showSplash: e.target.checked })}
             />{' '}
             Show splash on start
+          </label>
+        </div>
+        <div className="list-row">
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={settings?.sendTelemetry ?? true}
+              disabled={!settings}
+              onChange={(e) => void toggle({ sendTelemetry: e.target.checked })}
+            />{' '}
+            Send anonymous usage and error data
           </label>
         </div>
       </div>

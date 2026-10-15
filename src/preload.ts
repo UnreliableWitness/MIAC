@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { EVENT_PREFIX, type MiacApi } from './shared/ipc';
+import { TELEMETRY_CHANNEL } from './shared/telemetry';
 
 const api: MiacApi = {
   invoke: async (channel, ...args) => {
@@ -23,6 +24,7 @@ const api: MiacApi = {
     ipcRenderer.on(channel, wrapped);
     return () => ipcRenderer.removeListener(channel, wrapped);
   },
+  track: (message) => ipcRenderer.send(TELEMETRY_CHANNEL, message),
 };
 
 contextBridge.exposeInMainWorld('miac', api);

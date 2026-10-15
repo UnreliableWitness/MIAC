@@ -1,5 +1,6 @@
 import type { TaskUsage } from '../../shared/usage';
 import type { Channels, Events, MiacApi } from '../../shared/ipc';
+import type { RendererTelemetry } from '../../shared/telemetry';
 
 type AnyFn = (...args: never[]) => unknown;
 export type FakeHandlers = Partial<{
@@ -27,6 +28,7 @@ const defaults: FakeHandlers = {
     receiverPort: 4319,
     hourlySync: true,
     showSplash: true,
+    sendTelemetry: true,
   }),
   'app:info': () => ({ version: '1.0.0' }),
   'rates:list': () => ({ rates: [], officialAsOf: '2026-10-14' }),
@@ -51,6 +53,7 @@ const defaults: FakeHandlers = {
 /** Installs `window.miac` backed by plain functions. Returns the call log and an `emit` to push events. */
 export function installFakeApi(overrides: FakeHandlers = {}) {
   const calls: { channel: keyof Channels; args: unknown[] }[] = [];
+  const tracked: RendererTelemetry[] = [];
   const listeners = new Map<string, Set<(payload: unknown) => void>>();
   const handlers = { ...defaults, ...overrides };
   const fake: MiacApi = {
@@ -66,9 +69,12 @@ export function installFakeApi(overrides: FakeHandlers = {}) {
       listeners.set(event, set);
       return () => set.delete(listener as (p: unknown) => void);
     },
+    track: (message) => {
+      tracked.push(message);
+    },
   };
   window.miac = fake;
   const emit = <K extends keyof Events>(event: K, payload: Events[K]) =>
     listeners.get(event)?.forEach((l) => l(payload));
-  return { calls, emit };
+  return { calls, emit, tracked };
 }

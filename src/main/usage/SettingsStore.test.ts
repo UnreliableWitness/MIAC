@@ -60,6 +60,7 @@ describe('SettingsStore', () => {
       receiverPort: 5000,
       hourlySync: false,
       showSplash: true,
+      sendTelemetry: true,
     });
     await s.save({ ...s.get(), hourlySync: true });
     expect(JSON.parse(readFileSync(f, 'utf8'))).toEqual({
@@ -67,6 +68,7 @@ describe('SettingsStore', () => {
       receiverPort: 5000,
       hourlySync: true,
       showSplash: true,
+      sendTelemetry: true,
     });
   });
   it('rejects invalid values', async () => {

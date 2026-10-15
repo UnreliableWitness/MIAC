@@ -16,6 +16,7 @@ import { loadMiacConfig } from '../services/MiacConfig';
 import { RepoRegistry } from '../services/RepoRegistry';
 import { SetupRunner } from '../services/SetupRunner';
 import { TaskStore } from '../services/TaskStore';
+import type { Telemetry } from '../telemetry/AppInsightsClient';
 import { TerminalManager } from '../services/TerminalManager';
 import {
   cleanupTempRepos,
@@ -1491,5 +1492,69 @@ describe('handlers: usage', () => {
       type: 'User Story',
       missing: [],
     });
+  });
+});
+
+describe('handlers: telemetry', () => {
+  function recorder() {
+    const items: {
+      kind: string;
+      name: string;
+      props?: unknown;
+      m?: unknown;
+    }[] = [];
+    const telemetry: Telemetry = {
+      event: (name, props, m) => items.push({ kind: 'event', name, props, m }),
+      pageView: (name) => items.push({ kind: 'pageView', name }),
+      metric: (name, value, props) =>
+        items.push({ kind: 'metric', name, props, m: value }),
+      exception: (e, props) =>
+        items.push({ kind: 'exception', name: String(e), props }),
+      exceptionParts: (p) => items.push({ kind: 'exception', name: p.message }),
+      dependency: (d) => items.push({ kind: 'dependency', name: d.name }),
+      flush: async () => {},
+    };
+    return { items, telemetry };
+  }
+
+  it('reports task creation, setup timing and terminals without names', async () => {
+    const { items, telemetry } = recorder();
+    const hx = await harness(fakeCrypto(), { telemetry });
+    const done = hx.setupDone();
+    const task = await hx.h['tasks:create'](hx.input());
+    await done;
+    const names = items.map((i) => `${i.kind}:${i.name}`);
+    expect(names).toContain('event:repo.added');
+    expect(names).toContain('event:task.created');
+    expect(names).toContain('metric:setup.step.worktree');
+    expect(names).toContain('event:terminal.opened');
+    const finished = items.find((i) => i.name === 'setup.finished');
+    expect(finished?.props).toMatchObject({ ok: true, failedStep: 'none' });
+    expect(finished?.m).toMatchObject({ durationMs: expect.any(Number) });
+    // No title, branch or repo name in any property.
+    const all = JSON.stringify(items);
+    expect(all).not.toContain('delivery');
+    expect(all).not.toContain('webshop');
+    hx.terminals.killAllForTask(task.id);
+  });
+
+  it('reports which settings changed, but not turning telemetry off', async () => {
+    const { items, telemetry } = recorder();
+    const hx = await harness(fakeCrypto(), { telemetry });
+    const s = await hx.h['settings:get']();
+    await hx.h['settings:save']({ ...s, showSplash: false });
+    await hx.h['settings:save']({
+      ...s,
+      showSplash: false,
+      sendTelemetry: false,
+    });
+    expect(items.filter((i) => i.name === 'settings.changed')).toEqual([
+      {
+        kind: 'event',
+        name: 'settings.changed',
+        props: { keys: 'showSplash' },
+        m: undefined,
+      },
+    ]);
   });
 });

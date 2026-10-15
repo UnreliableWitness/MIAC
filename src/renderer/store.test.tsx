@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { TaskView } from '../shared/types';
 import { activeConnection, type Screen, USAGE_TAB, useStore } from './store';
+import { installFakeApi } from './test-helpers/fakeApi';
 
 const base = useStore.getState();
 const task = (id: string, terms: string[]): TaskView => ({
@@ -181,5 +182,29 @@ describe('activeConnection', () => {
     expect(activeConnection({ ...s, screen: { kind: 'sprint' } })?.id).toBe(
       '1',
     );
+  });
+});
+
+describe('telemetry', () => {
+  it('tracks screens, the Usage tab, focus mode and error notices', () => {
+    const { tracked } = installFakeApi();
+    useStore.setState({ tasks: [task('t1', ['a'])] });
+    useStore.getState().go({ kind: 'settings' });
+    useStore.getState().go({ kind: 'settings' });
+    useStore.getState().setTab('t1', USAGE_TAB);
+    useStore.getState().setTab('t1', USAGE_TAB);
+    useStore.getState().toggleFocus();
+    useStore.getState().notify('error', 'Setup failed: x');
+    useStore.getState().notify('info', 'Settings saved');
+    expect(tracked).toEqual([
+      { type: 'pageView', name: 'settings', props: undefined },
+      { type: 'event', name: 'usage.opened', props: { via: 'tab' } },
+      { type: 'event', name: 'focus.toggled', props: { on: true } },
+      {
+        type: 'event',
+        name: 'notice',
+        props: { level: 'error', message: 'Setup failed: x' },
+      },
+    ]);
   });
 });
