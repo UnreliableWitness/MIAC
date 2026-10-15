@@ -51,6 +51,8 @@ export const AppSettingsSchema = z.object({
   receiverPort: z.number().int().min(1024).max(65535),
   hourlySync: z.boolean(),
   showSplash: z.boolean().default(true),
+  /** Auto-update (packaged Windows builds). No UI yet: set false in settings.json to turn it off. */
+  autoUpdate: z.boolean().optional(),
 });
 export type AppSettings = z.infer<typeof AppSettingsSchema>;
 export const defaultSettings = (): AppSettings => ({

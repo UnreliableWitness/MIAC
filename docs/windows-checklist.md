@@ -31,5 +31,13 @@ Download the installer from GitHub: open the Actions run for the commit, then th
    - the main window has no menu bar above the task strip.
 10. **Shortcuts.** While a PowerShell terminal has focus, `Ctrl+0` opens the Usage tab, `Ctrl+1..9` switch terminals and `Ctrl+Shift+F` toggles Focus. `Ctrl+C` still interrupts the running command.
     - On a Belgian or French (AZERTY) keyboard, `Ctrl+1` (the `&` key, no Shift) switches to the first terminal and `Ctrl+0` (the `à` key) opens the Usage tab.
+11. **Auto-update.** Needs two tag releases, vN and vN+1 (for example `v0.2.0` and `v0.2.1`), each a normal release with `MIAC-Setup.exe`, `RELEASES` and `miac-<version>-full.nupkg` attached.
+    - Install vN from its release and start it. Settings shows version N.
+    - Publish vN+1. Within about an hour (or restart MIAC and wait 30 s), a notice says the new version is downloaded and a dialog offers Restart now or Later.
+    - Pick Later, quit MIAC and start it again from the Start menu: Settings shows version N+1.
+    - Repeat with vN+2 and pick Restart now: MIAC closes, restarts and shows version N+2. Open terminals are closed by the restart.
+    - The first start after an install (Squirrel's `--squirrel-firstrun`) does not check; the hourly check still does.
+    - With `"autoUpdate": false` in `%APPDATA%\miac\settings.json`, no update is downloaded.
+    - `https://update.electronjs.org/UnreliableWitness/MIAC/win32-x64/<N>/RELEASES` returns a line naming the vN+1 `.nupkg`.
 
 If a setup command or a shim fails with "running scripts is disabled on this system": MIAC passes `-ExecutionPolicy Bypass`, but an execution policy set by Group Policy overrides it. Ask IT, or install claude and copilot as native `.exe` builds.
