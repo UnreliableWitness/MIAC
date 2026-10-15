@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   app,
+  autoUpdater,
   BrowserWindow,
   dialog,
   ipcMain,
@@ -53,6 +54,7 @@ import {
   trackHandlerFailures,
 } from './main/telemetry/helpers';
 import { TELEMETRY_CHANNEL } from './shared/telemetry';
+import { startAutoUpdate } from './main/autoUpdate';
 
 if (started) app.quit();
 
@@ -98,6 +100,7 @@ let booting = true;
 const terminals = new TerminalManager();
 const DOT = String.fromCharCode(0xb7);
 let stopUsage: () => void = () => {};
+let stopUpdates: () => void = () => {};
 
 function broadcast<K extends keyof Events>(event: K, payload: Events[K]): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -398,6 +401,36 @@ async function boot(): Promise<void> {
       },
     );
     telemetry.metric('app.startup.readyMs', timings.readyMs ?? 0);
+    stopUpdates =
+      startAutoUpdate({
+        isPackaged: app.isPackaged,
+        platform: process.platform,
+        arch: process.arch,
+        version: app.getVersion(),
+        argv: process.argv,
+        enabled: settings.get().autoUpdate,
+        updater: autoUpdater,
+        notify: (level, message) => broadcast('notice', { level, message }),
+        confirmRestart: async (name) => {
+          const options = {
+            type: 'info' as const,
+            buttons: ['Restart now', 'Later'],
+            defaultId: 1,
+            cancelId: 1,
+            title: 'MIAC update',
+            message: `${name ?? 'A new version of MIAC'} is ready.`,
+            detail:
+              'Restart now to install it; this closes all task terminals. Otherwise it is installed the next time MIAC starts.',
+          };
+          const owner =
+            mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+          const r = owner
+            ? await dialog.showMessageBox(owner, options)
+            : await dialog.showMessageBox(options);
+          return r.response === 0;
+        },
+        log: (message, error) => console.error(message, error ?? ''),
+      })?.stop ?? (() => {});
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     console.error(e);
@@ -481,6 +514,7 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   for (const id of terminals.ids()) terminals.kill(id);
   stopUsage();
+  stopUpdates();
 });
 
 let telemetryFlushed = false;

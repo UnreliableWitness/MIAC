@@ -53,6 +53,8 @@ export const AppSettingsSchema = z.object({
   showSplash: z.boolean().default(true),
   /** Send anonymous usage and error data (see docs/telemetry.md). */
   sendTelemetry: z.boolean().default(true),
+  /** Auto-update (packaged Windows builds). No UI yet: set false in settings.json to turn it off. */
+  autoUpdate: z.boolean().optional(),
 });
 export type AppSettings = z.infer<typeof AppSettingsSchema>;
 export const defaultSettings = (): AppSettings => ({
