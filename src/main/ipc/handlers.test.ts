@@ -1092,14 +1092,14 @@ describe('handlers: sprint, types and live work items', () => {
             name: 'Task',
             color: 'A4880A',
             icon: {
-              url: `${hx.server.url}/_apis/wit/workItemIcons/icon_check_box`,
+              url: `${hx.server.url}/unreliablewitness/_apis/wit/workItemIcons/icon_check_box`,
             },
             states: [{ name: 'Done', color: '339933', category: 'Completed' }],
           },
         ],
       },
     });
-    hx.server.route('GET', '/_apis/wit/workItemIcons/', {
+    hx.server.route('GET', '/unreliablewitness/_apis/wit/workItemIcons/', {
       raw: '<svg/>',
       headers: { 'content-type': 'image/svg+xml' },
     });
@@ -1112,9 +1112,9 @@ describe('handlers: sprint, types and live work items', () => {
         states: [{ name: 'Done', color: '#339933', category: 'Completed' }],
       },
     ]);
-    // The icon came from the organization's own host, so it carried the PAT.
+    // The icon came from under the organization itself, so it carried the PAT.
     const icon = hx.server.requests.find((r) =>
-      r.path.startsWith('/_apis/wit/workItemIcons/'),
+      r.path.startsWith('/unreliablewitness/_apis/wit/workItemIcons/'),
     );
     expect(icon!.auth).toBe(`Basic ${Buffer.from(':p').toString('base64')}`);
     const before = hx.server.requests.length;

@@ -620,11 +620,13 @@ describe('AdoClient.iconDataUrl', () => {
       f.impl,
     );
     expect(
-      await c.iconDataUrl('https://dev.azure.com/_apis/wit/workItemIcons/x'),
+      await c.iconDataUrl(
+        'https://dev.azure.com/unreliablewitness/_apis/wit/workItemIcons/x',
+      ),
     ).toBe(dataUrl);
     expect(f.calls).toEqual([
       {
-        url: 'https://dev.azure.com/_apis/wit/workItemIcons/x',
+        url: 'https://dev.azure.com/unreliablewitness/_apis/wit/workItemIcons/x',
         auth: authFor('secret-pat'),
         redirect: 'manual',
       },
@@ -638,9 +640,103 @@ describe('AdoClient.iconDataUrl', () => {
       f.impl,
     );
     expect(
-      await c.iconDataUrl('https://dev.azure.com/_apis/wit/workItemIcons/x'),
+      await c.iconDataUrl(
+        'https://dev.azure.com/unreliablewitness/_apis/wit/workItemIcons/x',
+      ),
     ).toBe(dataUrl);
     expect(f.calls.map((x) => Boolean(x.auth))).toEqual([true, false]);
+  });
+  it('sends the PAT only under the organization itself, not to another org on the same host', async () => {
+    const f = fakeFetch(() => ({}));
+    const c = new AdoClient(
+      'https://dev.azure.com/unreliablewitness',
+      async () => 'secret-pat',
+      f.impl,
+    );
+    for (const u of [
+      'https://dev.azure.com/someone-else/_apis/wit/workItemIcons/x',
+      'https://dev.azure.com/unreliablewitness-evil/_apis/wit/workItemIcons/x',
+      'https://dev.azure.com/_apis/wit/workItemIcons/x',
+    ])
+      expect(await c.iconDataUrl(u)).toBe(dataUrl);
+    expect(f.calls.every((x) => x.auth === undefined)).toBe(true);
+    const old = fakeFetch(() => ({}));
+    const vs = new AdoClient(
+      'https://unreliablewitness.visualstudio.com',
+      async () => 'secret-pat',
+      old.impl,
+    );
+    await vs.iconDataUrl(
+      'https://unreliablewitness.visualstudio.com/_apis/wit/workItemIcons/x',
+    );
+    await vs.iconDataUrl(
+      'https://other.visualstudio.com/_apis/wit/workItemIcons/x',
+    );
+    expect(old.calls.map((x) => Boolean(x.auth))).toEqual([true, false]);
+  });
+  it('accepts only SVG and PNG', async () => {
+    const c = (type: string) =>
+      new AdoClient(
+        'https://dev.azure.com/unreliablewitness',
+        async () => 'secret-pat',
+        fakeFetch(() => ({ type })).impl,
+      );
+    expect(await c('image/png').iconDataUrl('https://i.example/i')).toBe(
+      `data:image/png;base64,${Buffer.from(SVG).toString('base64')}`,
+    );
+    for (const type of ['image/gif', 'image/webp', 'image/svg'])
+      expect(await c(type).iconDataUrl('https://i.example/i')).toBeNull();
+  });
+  it('stops reading an icon once it passes the size limit', async () => {
+    let pulled = 0;
+    const chunk = new Uint8Array(64 * 1024);
+    const impl = (async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          pull(ctl) {
+            pulled++;
+            if (pulled > 1000) ctl.close();
+            else ctl.enqueue(chunk);
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'image/svg+xml' } },
+      )) as unknown as typeof fetch;
+    const c = new AdoClient(
+      'https://dev.azure.com/unreliablewitness',
+      async () => 'secret-pat',
+      impl,
+    );
+    expect(await c.iconDataUrl('https://i.example/i')).toBeNull();
+    expect(pulled).toBeLessThan(20);
+  });
+  it('refuses an icon whose declared length is over the limit without reading it', async () => {
+    let read = false;
+    const impl = (async () =>
+      new Response(
+        new ReadableStream<Uint8Array>(
+          {
+            pull(ctl) {
+              read = true;
+              ctl.close();
+            },
+          },
+          { highWaterMark: 0 },
+        ),
+        {
+          status: 200,
+          headers: {
+            'content-type': 'image/png',
+            'content-length': String(10 * 1024 * 1024),
+          },
+        },
+      )) as unknown as typeof fetch;
+    const c = new AdoClient(
+      'https://dev.azure.com/unreliablewitness',
+      async () => 'secret-pat',
+      impl,
+    );
+    expect(await c.iconDataUrl('https://i.example/i')).toBeNull();
+    expect(read).toBe(false);
   });
   it('returns null for a non-image, an error, plain http elsewhere or a bad URL', async () => {
     const c = (reply: Parameters<typeof fakeFetch>[0]) =>

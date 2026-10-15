@@ -43,6 +43,8 @@ const MAX_RESULTS = 50;
 const BATCH = 200;
 /** Type icons are small SVGs; anything bigger is not an icon. */
 const MAX_ICON_BYTES = 256 * 1024;
+/** The only icon formats accepted; anything else could be interpolated into a data URL in odd ways. */
+const ICON_TYPES = new Set(['image/svg+xml', 'image/png']);
 
 /** ADO sends colors as `rrggbb` without the hash; null for anything else. */
 export const hexColor = (c: unknown): string | null =>
@@ -317,7 +319,8 @@ export class AdoClient {
   }
 
   /**
-   * Downloads a type icon and returns it as a data URL, or null. The PAT goes only to the organization's own host;
+   * Downloads a type icon (SVG or PNG, at most 256 KB) and returns it as a data URL, or null. The PAT goes only to
+   * URLs under the organization itself (`dev.azure.com/<org>/...`, or the whole `<org>.visualstudio.com` host);
    * a refused or failed authenticated fetch is retried without it, as ADO serves the icons anonymously too.
    */
   async iconDataUrl(iconUrl: string): Promise<string | null> {
@@ -328,19 +331,25 @@ export class AdoClient {
       return null;
     }
     const org = new URL(this.organizationUrl);
-    const ownHost = url.host === org.host;
-    if (
-      url.protocol !== 'https:' &&
-      !(ownHost && url.protocol === org.protocol)
-    )
-      return null;
+    const orgPath = org.pathname.replace(/\/+$/, '');
+    const ownOrg =
+      url.host === org.host &&
+      url.protocol === org.protocol &&
+      (orgPath === '' || url.pathname.startsWith(`${orgPath}/`));
+    if (url.protocol !== 'https:' && !ownOrg) return null;
     const get = async (auth: boolean): Promise<string | null> => {
+      const abort = new AbortController();
       try {
-        const headers: Record<string, string> = { accept: 'image/*' };
+        const headers: Record<string, string> = {
+          accept: 'image/svg+xml, image/png',
+        };
         if (auth)
           headers.authorization = `Basic ${Buffer.from(`:${await this.token()}`).toString('base64')}`;
         const res = await this.fetchImpl(url.href, {
-          signal: AbortSignal.timeout(this.timeoutMs),
+          signal: AbortSignal.any([
+            abort.signal,
+            AbortSignal.timeout(this.timeoutMs),
+          ]),
           // Never carry the PAT along a redirect.
           redirect: auth ? 'manual' : 'follow',
           headers,
@@ -349,15 +358,38 @@ export class AdoClient {
           .split(';')[0]
           .trim()
           .toLowerCase();
-        if (!res.ok || !type.startsWith('image/')) return null;
-        const body = Buffer.from(await res.arrayBuffer());
-        if (body.length === 0 || body.length > MAX_ICON_BYTES) return null;
-        return `data:${type};base64,${body.toString('base64')}`;
+        const declared = Number(res.headers.get('content-length') ?? 0);
+        if (
+          !res.ok ||
+          !ICON_TYPES.has(type) ||
+          !res.body ||
+          declared > MAX_ICON_BYTES
+        ) {
+          abort.abort();
+          return null;
+        }
+        const chunks: Uint8Array[] = [];
+        let size = 0;
+        const reader = res.body.getReader();
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          size += value.byteLength;
+          if (size > MAX_ICON_BYTES) {
+            abort.abort();
+            await reader.cancel().catch(() => undefined);
+            return null;
+          }
+          chunks.push(value);
+        }
+        if (size === 0) return null;
+        return `data:${type};base64,${Buffer.concat(chunks).toString('base64')}`;
       } catch {
+        abort.abort();
         return null;
       }
     };
-    return (ownHost ? await get(true) : null) ?? get(false);
+    return (ownOrg ? await get(true) : null) ?? get(false);
   }
 
   async updateWorkItemFields(
