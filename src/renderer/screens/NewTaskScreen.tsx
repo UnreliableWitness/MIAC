@@ -2,21 +2,30 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { renderBranch, taskSlug } from '../../shared/naming';
 import type { MiacConfig, WorkItemRef, WorkItemType } from '../../shared/types';
 import { api, tryInvoke } from '../api';
-import { Label } from '../components/instrument';
+import { PageHeader, Pivots } from '../components/ui';
 import { WorkItemPicker } from '../components/WorkItemPicker';
+import { useEscape } from '../hooks/useEscape';
 import { useStore } from '../store';
 
 type Mode = 'pick' | 'typed' | 'blank';
 const TYPES: WorkItemType[] = ['Issue', 'User Story', 'Bug', 'Task', 'Epic'];
 
-export function NewTaskScreen() {
+/** Opening New task from a sprint row passes the work item and its repo. */
+export function NewTaskScreen({
+  initial = {},
+}: {
+  initial?: { workItem?: WorkItemRef; repoId?: string };
+}) {
   const repos = useStore((s) => s.repos);
   const go = useStore((s) => s.go);
+  const back = useStore((s) => s.back);
   const select = useStore((s) => s.select);
   const notify = useStore((s) => s.notify);
   const connections = useStore((s) => s.connections);
 
-  const [repoId, setRepoId] = useState(repos[0]?.id ?? '');
+  const [repoId, setRepoId] = useState(
+    repos.find((r) => r.id === initial.repoId)?.id ?? repos[0]?.id ?? '',
+  );
   const connectionOf = (rid: string) => {
     const cid = repos.find((x) => x.id === rid)?.connectionId;
     return cid ? (connections.find((c) => c.id === cid) ?? null) : null;
@@ -26,8 +35,13 @@ export function NewTaskScreen() {
   );
   const modeChosen = useRef(false);
   const lastRepo = useRef(repoId);
-  const lastConnection = useRef<string | null>(null);
-  const [picked, setPicked] = useState<WorkItemRef | null>(null);
+  const lastConnection = useRef<string | null>(
+    connectionOf(repoId)?.id ?? null,
+  );
+  const [picked, setPicked] = useState<WorkItemRef | null>(
+    initial.workItem ?? null,
+  );
+  useEscape(back);
   const [config, setConfig] = useState<{
     config: MiacConfig;
     worktreeRoot: string;
@@ -167,246 +181,210 @@ export function NewTaskScreen() {
     }
   };
 
+  const pivots: { key: Mode; label: string }[] = [
+    ...(connection ? [{ key: 'pick' as const, label: 'Work item' }] : []),
+    { key: 'typed', label: 'Typed' },
+    { key: 'blank', label: 'Blank' },
+  ];
+
   return (
-    <div className="overlay">
-      <div role="dialog" aria-labelledby="nt-title" className="dialog newtask">
-        <div className="dialog-head">
-          <h2 id="nt-title">
-            <Label>New task</Label>
-          </h2>
-          <div role="tablist" aria-label="Start from" className="segmented">
-            {connection && (
-              <button
-                type="button"
-                role="tab"
-                aria-selected={mode === 'pick'}
-                onClick={() => changeMode('pick')}
-              >
-                Work item
-              </button>
-            )}
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mode === 'typed'}
-              onClick={() => changeMode('typed')}
+    <div className="page page-newtask">
+      <PageHeader
+        title="New task"
+        pivots={
+          <Pivots
+            label="Start from"
+            items={pivots}
+            selected={mode}
+            onSelect={changeMode}
+          />
+        }
+      />
+      <div className="newtask">
+        <section
+          className="newtask-main"
+          aria-label={mode === 'blank' ? 'Task' : 'Work item'}
+        >
+          {mode === 'pick' && connection ? (
+            <WorkItemPicker
+              key={connection.id}
+              connectionId={connection.id}
+              selectedId={picked?.id ?? null}
+              onPick={setPicked}
+            />
+          ) : mode === 'typed' ? (
+            <div className="form-stack">
+              <label>
+                Work item id
+                <input
+                  className="field mono"
+                  value={id}
+                  onChange={(e) => setId(e.target.value)}
+                />
+              </label>
+              <label>
+                Type
+                <select
+                  className="field"
+                  value={type}
+                  onChange={(e) => setType(e.target.value as WorkItemType)}
+                >
+                  {TYPES.map((t) => (
+                    <option key={t}>{t}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Title
+                <input
+                  className="field"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                />
+              </label>
+            </div>
+          ) : (
+            <div className="form-stack">
+              <label>
+                Task name
+                <input
+                  className="field"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
+              </label>
+            </div>
+          )}
+        </section>
+        <section className="newtask-details" aria-label="Task preview">
+          <div>
+            <div className="muted small">
+              {workItem?.id ? `${workItem.type} ${workItem.id}` : 'Blank task'}
+            </div>
+            <div className="newtask-preview-title">{label || 'New task'}</div>
+          </div>
+          <div className="form-grid">
+            <label htmlFor="nt-repo">Repo</label>
+            <select
+              id="nt-repo"
+              className="field"
+              value={repoId}
+              onChange={(e) => setRepoId(e.target.value)}
             >
-              Typed
+              {repos.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+            <label htmlFor="nt-base">From</label>
+            <select
+              id="nt-base"
+              className="field mono"
+              value={baseRef}
+              onChange={(e) => setBaseRef(e.target.value)}
+            >
+              {baseOptions.map((b) => (
+                <option key={b}>{b}</option>
+              ))}
+            </select>
+            <label htmlFor="nt-branch">Branch</label>
+            <input
+              id="nt-branch"
+              className="field mono"
+              value={branch}
+              onChange={(e) => {
+                setBranchEdited(true);
+                setBranch(e.target.value);
+              }}
+              onBlur={(e) => {
+                if (!e.target.value) setBranchEdited(false);
+              }}
+            />
+            <span className="label">Folder</span>
+            <span className="mono small" style={{ overflowWrap: 'anywhere' }}>
+              {folder}
+            </span>
+          </div>
+          <fieldset className="group">
+            <legend>Setup from .miac.yml</legend>
+            {config && config.config.copy.length > 0 && (
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={copy}
+                  onChange={(e) => setCopy(e.target.checked)}
+                />
+                Copy{' '}
+                <span className="mono small">
+                  {config.config.copy.join(', ')}
+                </span>
+              </label>
+            )}
+            {(config?.config.setup ?? []).map((c) => (
+              <label key={c} className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={commands[c] ?? false}
+                  onChange={(e) => {
+                    const { checked } = e.target;
+                    setCommands((prev) => ({ ...prev, [c]: checked }));
+                  }}
+                />
+                <span className="mono">{c}</span>
+              </label>
+            ))}
+            {config &&
+              config.config.setup.length === 0 &&
+              config.config.copy.length === 0 && (
+                <span className="muted small">
+                  Nothing to run for this repo.
+                </span>
+              )}
+          </fieldset>
+          <fieldset className="group">
+            <legend>When ready</legend>
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={startClaude}
+                onChange={(e) => setStartClaude(e.target.checked)}
+              />
+              Start Claude Code with the task
+            </label>
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={openShell}
+                onChange={(e) => setOpenShell(e.target.checked)}
+              />
+              Open a shell tab
+            </label>
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={openCopilot}
+                onChange={(e) => setOpenCopilot(e.target.checked)}
+              />
+              Start Copilot CLI with the task
+            </label>
+          </fieldset>
+          <div className="actions">
+            <button type="button" className="btn" onClick={back}>
+              Cancel
             </button>
             <button
               type="button"
-              role="tab"
-              aria-selected={mode === 'blank'}
-              onClick={() => changeMode('blank')}
+              className="btn btn-primary"
+              disabled={
+                busy || !repo || !config || !baseRef || !branch || !canCreate
+              }
+              onClick={create}
             >
-              Blank task
+              Create task
             </button>
           </div>
-          <button
-            type="button"
-            className="btn btn-ghost spacer"
-            aria-label="Close"
-            onClick={() => go({ kind: 'workspace' })}
-          >
-            &times;
-          </button>
-        </div>
-        <div className="newtask-body">
-          <section
-            className="newtask-left"
-            aria-label={mode === 'blank' ? 'Task' : 'Work item'}
-          >
-            {mode === 'pick' && connection ? (
-              <WorkItemPicker
-                key={connection.id}
-                connectionId={connection.id}
-                selectedId={picked?.id ?? null}
-                onPick={setPicked}
-              />
-            ) : mode === 'typed' ? (
-              <div className="form-stack">
-                <label>
-                  Work item id
-                  <input
-                    className="field mono"
-                    value={id}
-                    onChange={(e) => setId(e.target.value)}
-                  />
-                </label>
-                <label>
-                  Type
-                  <select
-                    className="field"
-                    value={type}
-                    onChange={(e) => setType(e.target.value as WorkItemType)}
-                  >
-                    {TYPES.map((t) => (
-                      <option key={t}>{t}</option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Title
-                  <input
-                    className="field"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                  />
-                </label>
-              </div>
-            ) : (
-              <div className="form-stack">
-                <label>
-                  Task name
-                  <input
-                    className="field"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                  />
-                </label>
-              </div>
-            )}
-          </section>
-          <section className="newtask-right" aria-label="Task preview">
-            <div>
-              <div className="muted small">
-                {workItem?.id
-                  ? `${workItem.type} ${workItem.id}`
-                  : 'Blank task'}
-              </div>
-              <div style={{ fontSize: 16, fontWeight: 600 }}>
-                {label || 'New task'}
-              </div>
-            </div>
-            <div className="form-grid">
-              <label htmlFor="nt-repo">Repo</label>
-              <select
-                id="nt-repo"
-                className="field"
-                value={repoId}
-                onChange={(e) => setRepoId(e.target.value)}
-              >
-                {repos.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.name}
-                  </option>
-                ))}
-              </select>
-              <label htmlFor="nt-base">From</label>
-              <select
-                id="nt-base"
-                className="field mono"
-                value={baseRef}
-                onChange={(e) => setBaseRef(e.target.value)}
-              >
-                {baseOptions.map((b) => (
-                  <option key={b}>{b}</option>
-                ))}
-              </select>
-              <label htmlFor="nt-branch">Branch</label>
-              <input
-                id="nt-branch"
-                className="field mono"
-                value={branch}
-                onChange={(e) => {
-                  setBranchEdited(true);
-                  setBranch(e.target.value);
-                }}
-                onBlur={(e) => {
-                  if (!e.target.value) setBranchEdited(false);
-                }}
-              />
-              <span className="label">
-                <Label>Folder</Label>
-              </span>
-              <span className="mono small" style={{ overflowWrap: 'anywhere' }}>
-                {folder}
-              </span>
-            </div>
-            <fieldset className="group">
-              <legend>Setup from .miac.yml</legend>
-              {config && config.config.copy.length > 0 && (
-                <label className="checkbox">
-                  <input
-                    type="checkbox"
-                    checked={copy}
-                    onChange={(e) => setCopy(e.target.checked)}
-                  />
-                  Copy{' '}
-                  <span className="mono small">
-                    {config.config.copy.join(', ')}
-                  </span>
-                </label>
-              )}
-              {(config?.config.setup ?? []).map((c) => (
-                <label key={c} className="checkbox">
-                  <input
-                    type="checkbox"
-                    checked={commands[c] ?? false}
-                    onChange={(e) => {
-                      const { checked } = e.target;
-                      setCommands((prev) => ({ ...prev, [c]: checked }));
-                    }}
-                  />
-                  <span className="mono">{c}</span>
-                </label>
-              ))}
-              {config &&
-                config.config.setup.length === 0 &&
-                config.config.copy.length === 0 && (
-                  <span className="muted small">
-                    Nothing to run for this repo.
-                  </span>
-                )}
-            </fieldset>
-            <fieldset className="group">
-              <legend>When ready</legend>
-              <label className="checkbox">
-                <input
-                  type="checkbox"
-                  checked={startClaude}
-                  onChange={(e) => setStartClaude(e.target.checked)}
-                />
-                Start Claude Code with the task
-              </label>
-              <label className="checkbox">
-                <input
-                  type="checkbox"
-                  checked={openShell}
-                  onChange={(e) => setOpenShell(e.target.checked)}
-                />
-                Open a shell tab
-              </label>
-              <label className="checkbox">
-                <input
-                  type="checkbox"
-                  checked={openCopilot}
-                  onChange={(e) => setOpenCopilot(e.target.checked)}
-                />
-                Start Copilot CLI with the task
-              </label>
-            </fieldset>
-            <div className="actions">
-              <button
-                type="button"
-                className="btn"
-                onClick={() => go({ kind: 'workspace' })}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={
-                  busy || !repo || !config || !baseRef || !branch || !canCreate
-                }
-                onClick={create}
-              >
-                Create task
-              </button>
-            </div>
-          </section>
-        </div>
+        </section>
       </div>
     </div>
   );

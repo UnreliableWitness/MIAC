@@ -169,16 +169,16 @@ describe('SetupScreen', () => {
     await waitFor(() =>
       expect(calls.some((c) => c.channel === 'tasks:cancelSetup')).toBe(true),
     );
-    expect(useStore.getState().screen).toEqual({ kind: 'workspace' });
+    expect(useStore.getState().screen).toEqual({ kind: 'sprint' });
   });
 
-  it('jumps to the workspace when setup finishes successfully', async () => {
+  it('jumps to the task page when setup finishes successfully', async () => {
     const { emit } = installFakeApi({ 'tasks:setupState': () => state });
     render(<SetupScreen taskId="t1" />);
     await screen.findByText('Fetch base');
     act(() => emit('setup', { taskId: 't1', type: 'finished', ok: true }));
     await waitFor(() =>
-      expect(useStore.getState().screen).toEqual({ kind: 'workspace' }),
+      expect(useStore.getState().screen).toEqual({ kind: 'task' }),
     );
     expect(useStore.getState().selectedTaskId).toBe('t1');
   });
@@ -207,13 +207,13 @@ describe('SetupScreen', () => {
     );
   });
 
-  it('navigates to the workspace on mount when setup already finished', async () => {
+  it('navigates to the task page on mount when setup already finished', async () => {
     installFakeApi({
       'tasks:setupState': () => ({ ...state, finished: true, ok: true }),
     });
     render(<SetupScreen taskId="t1" />);
     await waitFor(() =>
-      expect(useStore.getState().screen).toEqual({ kind: 'workspace' }),
+      expect(useStore.getState().screen).toEqual({ kind: 'task' }),
     );
     expect(useStore.getState().selectedTaskId).toBe('t1');
   });

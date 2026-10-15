@@ -1,24 +1,56 @@
+import {
+  Add16Regular,
+  Branch16Regular,
+  Code16Regular,
+  DataPie16Regular,
+  FullScreenMaximize16Regular,
+  FullScreenMinimize16Regular,
+} from '@fluentui/react-icons';
 import { useEffect, useState } from 'react';
 import type { TaskView } from '../../shared/types';
 import { api, tryInvoke } from '../api';
+import { eur } from '../format';
+import { useGitSummary } from '../hooks/useGitSummary';
 import { useRepoConfig } from '../hooks/useRepoConfig';
+import { useTaskUsage } from '../hooks/useTaskUsage';
 import { USAGE_TAB, useStore } from '../store';
-import { IconButton, MindMark, modKey } from './instrument';
-import { CostPill } from './TaskStrip';
 import { TerminalView } from './TerminalView';
+import { IconButton, MindMark, modKey } from './ui';
 import { UsagePanel } from './UsagePanel';
 
-const PLUS = String.fromCharCode(0xff0b);
-const QUARTER = String.fromCharCode(0x25d4);
-const EXPAND = String.fromCharCode(0x2922);
-const COLLAPSE = String.fromCharCode(0x2921);
+const UP = String.fromCharCode(0x2191);
+const DOWN = String.fromCharCode(0x2193);
+const DOT = String.fromCharCode(0xb7);
+const DELTA = String.fromCharCode(0x394);
+const DASH = String.fromCharCode(0x2014);
 
+/** The task's AI cost; opens the Usage tab. */
+export function CostButton({ taskId }: { taskId: string }) {
+  const openUsage = useStore((s) => s.openUsage);
+  const usage = useTaskUsage(taskId);
+  const cost = usage?.billable.costEur ?? 0;
+  return (
+    <button
+      type="button"
+      className="btn btn-subtle btn-sm taskbar-cost"
+      aria-label={`AI cost ${usage ? eur(cost) : 'unknown'}, open usage`}
+      title="AI cost, open usage"
+      onClick={() => openUsage(taskId)}
+    >
+      <span className="mono">{usage ? eur(cost) : DASH}</span>
+    </button>
+  );
+}
+
+/** The 36 px task row: pivots per terminal and Usage on the left, git state and task commands on the right. */
 export function TerminalTabs({ task }: { task: TaskView }) {
   const notify = useStore((s) => s.notify);
+  const go = useStore((s) => s.go);
   const config = useRepoConfig(task.repoId);
+  const git = useGitSummary(task.id, task.worktreeMissing);
   const active = useStore((s) => s.activeTab(task.id));
   const setTab = useStore((s) => s.setTab);
-  // Same rule as WorkspaceScreen: Focus chrome only for a ready task.
+  // Same rule as the shell: Focus chrome only for a ready task.
   const ready = task.status === 'ready';
   const inFocus = useStore((s) => s.focus) && ready;
   const toggleFocus = useStore((s) => s.toggleFocus);
@@ -56,102 +88,124 @@ export function TerminalTabs({ task }: { task: TaskView }) {
 
   return (
     <>
-      <div
-        role="tablist"
-        aria-label="Terminals"
-        className="tabrow"
-        onDoubleClick={(e) => {
-          if (ready && e.target === e.currentTarget) toggleFocus();
-        }}
-      >
-        {inFocus && (
-          <span className="tabrow-brand">
-            <MindMark size={14} />
-            <span className="mono">{task.workItem?.id ?? task.name}</span>
-          </span>
-        )}
-        <button
-          type="button"
-          role="tab"
-          aria-selected={active === USAGE_TAB}
-          aria-label={unseen ? 'Usage, new usage' : 'Usage'}
-          className="tab tab-pin"
-          onClick={() => setTab(task.id, USAGE_TAB)}
+      <div className="taskbar">
+        <div
+          role="tablist"
+          aria-label="Terminals"
+          className="tabrow"
+          onDoubleClick={(e) => {
+            if (ready && e.target === e.currentTarget) toggleFocus();
+          }}
         >
-          <span className="mono tab-glyph" aria-hidden="true">
-            {QUARTER}
-          </span>
-          Usage
-          {unseen && <span className="tab-new" aria-hidden="true" />}
-        </button>
-        {task.terminals.map((t) => (
+          {inFocus && (
+            <span className="tabrow-brand">
+              <MindMark size={14} />
+              <span className="mono">{task.workItem?.id ?? task.name}</span>
+            </span>
+          )}
           <button
-            key={t.id}
             type="button"
             role="tab"
-            aria-selected={active === t.id}
-            className="tab"
-            onClick={() => setTab(task.id, t.id)}
+            aria-selected={active === USAGE_TAB}
+            aria-label={unseen ? 'Usage, new usage' : 'Usage'}
+            className="pivot"
+            onClick={() => setTab(task.id, USAGE_TAB)}
           >
-            <span
-              className="dot"
-              style={{
-                background:
-                  t.kind === 'claude'
-                    ? 'var(--blue)'
-                    : t.kind === 'run'
-                      ? 'var(--green)'
-                      : t.kind === 'copilot'
-                        ? 'var(--accent)'
-                        : 'var(--idle)',
-              }}
-            />
-            {t.label}
+            <DataPie16Regular aria-hidden="true" />
+            Usage
+            {unseen && <span className="tab-new" aria-hidden="true" />}
           </button>
-        ))}
-        <button
-          type="button"
-          className="tab tab-add"
-          aria-label="New terminal"
-          onClick={() => open({ kind: 'shell', label: 'shell' })}
-          disabled={task.worktreeMissing}
-        >
-          {PLUS}
-        </button>
-        <button
-          type="button"
-          className="tab tab-add"
-          onClick={() => open({ kind: 'copilot', label: 'Copilot CLI' })}
-          disabled={task.worktreeMissing}
-        >
-          Copilot CLI
-        </button>
-        <div className="tabrow-right">
+          {task.terminals.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              role="tab"
+              aria-selected={active === t.id}
+              className="pivot"
+              onClick={() => setTab(task.id, t.id)}
+            >
+              {t.label}
+            </button>
+          ))}
+          <button
+            type="button"
+            className="btn btn-subtle btn-sm tab-add"
+            aria-label="New terminal"
+            title="New terminal"
+            onClick={() => open({ kind: 'shell', label: 'shell' })}
+            disabled={task.worktreeMissing}
+          >
+            <Add16Regular />
+          </button>
+          <button
+            type="button"
+            className="btn btn-subtle btn-sm tab-add"
+            onClick={() => open({ kind: 'copilot', label: 'Copilot CLI' })}
+            disabled={task.worktreeMissing}
+          >
+            Copilot CLI
+          </button>
           {runCommands.length > 0 && (
-            <>
-              <span className="ilabel">Run</span>
+            <span className="tabrow-run">
+              <span className="small muted">Run</span>
               {runCommands.map(([name, command]) => (
                 <button
                   key={name}
                   type="button"
-                  className="chip"
+                  className="btn btn-sm chip"
                   onClick={() => open({ kind: 'run', label: name, command })}
                   disabled={task.worktreeMissing}
                 >
                   {name}
                 </button>
               ))}
-            </>
+            </span>
           )}
-          {inFocus && <CostPill taskId={task.id} />}
+        </div>
+        <div className="taskbar-right">
+          <span className="mono taskbar-git" title={task.branch}>
+            <Branch16Regular aria-hidden="true" />
+            <span className="taskbar-branch">{task.branch}</span>
+            {git &&
+              ` ${UP}${git.ahead}${git.behind ? ` ${DOWN}${git.behind}` : ''} ${DOT} ${git.files.length ? `${git.files.length}${DELTA}` : 'clean'}`}
+          </span>
+          <CostButton taskId={task.id} />
           {ready && (
-            <IconButton
-              label={inFocus ? 'Exit focus' : 'Focus'}
-              shortcut={`${modKey}+Shift+F`}
-              onClick={toggleFocus}
-            >
-              {inFocus ? COLLAPSE : EXPAND}
-            </IconButton>
+            <>
+              <button
+                type="button"
+                className="btn btn-subtle btn-sm"
+                disabled={task.worktreeMissing}
+                onClick={() =>
+                  tryInvoke(
+                    () => api().invoke('tasks:openInEditor', task.id),
+                    notify,
+                  )
+                }
+              >
+                <Code16Regular aria-hidden="true" />
+                Open in VS Code
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                aria-label="Finish task"
+                onClick={() => go({ kind: 'finish', taskId: task.id })}
+              >
+                Finish
+              </button>
+              <IconButton
+                label={inFocus ? 'Exit focus' : 'Focus'}
+                shortcut={`${modKey}+Shift+F`}
+                onClick={toggleFocus}
+              >
+                {inFocus ? (
+                  <FullScreenMinimize16Regular />
+                ) : (
+                  <FullScreenMaximize16Regular />
+                )}
+              </IconButton>
+            </>
           )}
         </div>
       </div>

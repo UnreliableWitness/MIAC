@@ -1,0 +1,199 @@
+/* Usage panel */
+.usagepanel {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--bg-page);
+  padding: 16px 32px 32px;
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 16px;
+  align-content: start;
+}
+/* The window is at least 960 px wide, so this measures the task area: about 720 px next to the full nav. */
+@container (max-width: 900px) {
+  .usagepanel {
+    grid-template-columns: 1fr;
+  }
+}
+.up-col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.up-box {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.up-billable {
+  align-items: center;
+  position: relative;
+}
+.up-billable h3 {
+  align-self: flex-start;
+}
+.up-total {
+  position: absolute;
+  top: 98px;
+  font-size: 20px;
+  font-weight: 600;
+}
+.up-sub {
+  position: absolute;
+  top: 126px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.up-split {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  font-size: 12px;
+}
+.up-split b {
+  font-weight: 600;
+}
+.up-mixrow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+}
+.up-mixrow .up-bar {
+  grid-column: 1 / -1;
+}
+.up-bar {
+  height: 4px;
+  background: var(--bg-selected);
+  border-radius: 2px;
+}
+.up-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--chart-claude);
+}
+.up-timeline {
+  width: 100%;
+  height: 56px;
+}
+.up-caption {
+  font-size: 12px;
+  color: var(--muted);
+}
+.up-workitem .label {
+  color: var(--muted);
+  font-size: 12px;
+}
+.usagepanel table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.usagepanel th {
+  text-align: left;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+  padding: 0 8px;
+  height: 32px;
+  border-bottom: 1px solid var(--line);
+}
+.usagepanel td {
+  padding: 0 8px;
+  height: 36px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.usagepanel tbody tr:hover {
+  background: var(--bg-hover);
+}
+.usagepanel tr.is-excluded {
+  color: var(--disabled);
+}
+.usagepanel tr.is-excluded td.eur {
+  text-decoration: line-through;
+}
+.usagepanel .empty {
+  padding: 16px 0;
+  text-align: left;
+}
+.ring {
+  flex: none;
+  display: block;
+}
+.live {
+  color: var(--green);
+  font-size: 11px;
+  font-weight: 600;
+  margin-left: 6px;
+}
+rect.is-live {
+  animation: pulse 1.6s ease-in-out infinite;
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+.switch input {
+  appearance: none;
+  width: 32px;
+  height: 16px;
+  margin: 0;
+  border-radius: 8px;
+  border: 1px solid var(--muted);
+  background: transparent;
+  position: relative;
+  cursor: pointer;
+  vertical-align: middle;
+}
+.switch input::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 3px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text);
+}
+.switch input:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.switch input:checked::after {
+  left: 17px;
+  background: #fff;
+}
+.usage-fields {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+.usage-fields div {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.usage-fields dt {
+  flex: 1;
+  color: var(--muted);
+}
+.usage-fields dd {
+  margin: 0;
+}
+.usage-comment {
+  white-space: pre-wrap;
+  font: 12px var(--font-code);
+  background: var(--bg-page);
+  padding: 10px;
+  border-radius: var(--radius);
+  margin: 8px 0 0;
+}
+details summary {
+  cursor: pointer;
+  color: var(--link);
+}

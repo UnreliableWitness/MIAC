@@ -1,13 +1,11 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import type { GitSummary, TaskView } from '../../shared/types';
 import { useStore } from '../store';
 import { emptyUsage, installFakeApi } from '../test-helpers/fakeApi';
-import { CrumbStrip, TaskStrip } from './TaskStrip';
+import { HeaderBar } from './HeaderBar';
 
-const EURO = String.fromCharCode(0x20ac);
-const UP = String.fromCharCode(0x2191);
 const task: TaskView = {
   id: 'a',
   repoId: 'r1',
@@ -58,16 +56,24 @@ const usage = {
 };
 
 async function openCard() {
-  await userEvent.tab(); // MIAC home button
-  await userEvent.tab(); // title
+  await userEvent.tab(); // MIAC
+  await userEvent.tab(); // project
+  await userEvent.tab(); // task crumb
   return screen.findByRole('dialog', { name: 'Task details' });
 }
 
+const crumbs = () =>
+  within(screen.getByRole('navigation', { name: 'Breadcrumb' }))
+    .getAllByRole('button')
+    .map((b) => b.textContent);
+
 beforeEach(() => {
   useStore.setState({
-    screen: { kind: 'workspace' },
+    screen: { kind: 'task' },
+    previous: null,
     tasks: [task],
     selectedTaskId: 'a',
+    connectionId: null,
     repos: [
       {
         id: 'r1',
@@ -78,42 +84,82 @@ beforeEach(() => {
         miacYmlFound: true,
       },
     ],
+    connections: [
+      {
+        id: 'c1',
+        name: 'unreliablewitness',
+        organizationUrl: 'https://dev.azure.com/unreliablewitness',
+        project: 'DXP',
+        user: 'D',
+        status: 'ok',
+        checkedAt: null,
+      },
+    ],
   });
 });
 
-describe('TaskStrip', () => {
-  it('shows id, title, branch, git state and cost', async () => {
-    installFakeApi({
-      'tasks:gitSummary': () => git,
-      'usage:task': (id) => ({
-        ...emptyUsage(id as string),
-        billable: { costUsd: 25, costEur: 23, tokens: 1 },
-      }),
-    });
-    render(<TaskStrip task={task} />);
-    expect(screen.getByText('48213')).toBeInTheDocument();
+describe('HeaderBar', () => {
+  it('shows MIAC, the project and the task as breadcrumb links', async () => {
+    installFakeApi();
+    render(<HeaderBar />);
+    expect(crumbs()).toEqual([
+      'MIAC',
+      'DXP',
+      'User Story 48213 Checkout: allow saving a delivery address',
+    ]);
     expect(
-      screen.getByText('Checkout: allow saving a delivery address'),
-    ).toBeInTheDocument();
-    expect(
-      await screen.findByText(/feature\/48213-save-delivery-address/),
-    ).toBeInTheDocument();
-    expect(await screen.findByText(new RegExp(`${UP}2`))).toBeInTheDocument();
-    expect(
-      await screen.findByRole('button', { name: /AI cost .*23\.00/ }),
-    ).toBeInTheDocument();
+      screen.getByRole('button', { name: /User Story 48213/ }),
+    ).toHaveAttribute('aria-current', 'page');
+    await userEvent.click(screen.getByRole('button', { name: 'DXP' }));
+    expect(useStore.getState().screen).toEqual({ kind: 'sprint' });
   });
-  it('opens the Usage tab from the cost gauge', async () => {
-    installFakeApi({ 'tasks:gitSummary': () => git });
-    render(<TaskStrip task={task} />);
+  it('names the page for Sprint, Settings, Setup, Finish and New task', () => {
+    installFakeApi();
+    const { rerender } = render(<HeaderBar />);
+    const at = (
+      screen: Parameters<ReturnType<typeof useStore.getState>['go']>[0],
+    ) => {
+      useStore.setState({ screen });
+      rerender(<HeaderBar />);
+      return crumbs();
+    };
+    expect(at({ kind: 'sprint' })).toEqual(['MIAC', 'DXP', 'Sprint']);
+    expect(at({ kind: 'settings' })).toEqual(['MIAC', 'Settings']);
+    expect(at({ kind: 'new-task' })).toEqual(['MIAC', 'DXP', 'New task']);
+    expect(at({ kind: 'setup', taskId: 'a' })).toEqual([
+      'MIAC',
+      'DXP',
+      'User Story 48213 Checkout: allow saving a delivery address',
+      'Setup',
+    ]);
+    expect(at({ kind: 'finish', taskId: 'a' }).at(-1)).toBe('Finish');
+  });
+  it('leaves out the project without a connection', () => {
+    installFakeApi();
+    useStore.setState({ connections: [], screen: { kind: 'sprint' } });
+    render(<HeaderBar />);
+    expect(crumbs()).toEqual(['MIAC', 'Sprint']);
+  });
+  it('goes to Sprint from the MIAC crumb', async () => {
+    installFakeApi();
+    useStore.setState({ screen: { kind: 'settings' } });
+    render(<HeaderBar />);
     await userEvent.click(
-      await screen.findByRole('button', { name: /AI cost/ }),
+      screen.getByRole('button', { name: 'MIAC, go to Sprint' }),
     );
-    expect(useStore.getState().activeTab(task.id)).toBe('usage');
+    expect(useStore.getState().screen).toEqual({ kind: 'sprint' });
   });
-  it('opens the detail card on title focus and closes it with Escape', async () => {
+  it('has New task and Settings actions', async () => {
+    installFakeApi();
+    render(<HeaderBar />);
+    await userEvent.click(screen.getByRole('button', { name: 'New task' }));
+    expect(useStore.getState().screen).toEqual({ kind: 'new-task' });
+    await userEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    expect(useStore.getState().screen).toEqual({ kind: 'settings' });
+  });
+  it('opens the detail card on task crumb focus and closes it with Escape', async () => {
     installFakeApi({ 'tasks:gitSummary': () => git });
-    render(<TaskStrip task={task} />);
+    render(<HeaderBar />);
     const card = await openCard();
     expect(card).toHaveTextContent('User Story 48213');
     expect(card).toHaveTextContent(
@@ -122,75 +168,25 @@ describe('TaskStrip', () => {
     expect(card).toHaveTextContent('Not logged on the work item yet');
     await userEvent.keyboard('{Escape}');
     expect(screen.queryByRole('dialog', { name: 'Task details' })).toBeNull();
-  });
-  it('has Open in VS Code, Finish task, New task and Settings actions', async () => {
-    installFakeApi({ 'tasks:gitSummary': () => git });
-    render(<TaskStrip task={task} />);
-    for (const name of [
-      'Open in VS Code',
-      'Finish task',
-      'New task',
-      'Settings',
-    ])
-      expect(screen.getByRole('button', { name })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Finish task' }));
-    expect(useStore.getState().screen).toEqual({
-      kind: 'finish',
-      taskId: task.id,
-    });
+    // The card took the Escape; the page did not navigate.
+    expect(useStore.getState().screen).toEqual({ kind: 'task' });
   });
   it('closes the card when focus tabs past its last control', async () => {
     installFakeApi({ 'tasks:gitSummary': () => git });
-    render(
-      <TaskStrip
-        task={{
+    useStore.setState({
+      tasks: [
+        {
           ...task,
           workItem: { ...task.workItem!, url: 'https://example.test/48213' },
-        }}
-      />,
-    );
+        },
+      ],
+    });
+    render(<HeaderBar />);
     await openCard();
     await userEvent.tab(); // ADO link inside the card
     expect(screen.getByRole('dialog', { name: 'Task details' })).toBeTruthy();
     await userEvent.tab(); // out of the card
     expect(screen.queryByRole('dialog', { name: 'Task details' })).toBeNull();
-  });
-  it('hides Finish task and Open in VS Code unless the task is ready', () => {
-    installFakeApi({ 'tasks:gitSummary': () => git });
-    render(<TaskStrip task={{ ...task, status: 'done' }} />);
-    expect(screen.queryByRole('button', { name: 'Finish task' })).toBeNull();
-    expect(
-      screen.queryByRole('button', { name: 'Open in VS Code' }),
-    ).toBeNull();
-    expect(screen.getByRole('button', { name: 'New task' })).toBeTruthy();
-  });
-  it('goes home from the MIAC button', async () => {
-    installFakeApi({ 'tasks:gitSummary': () => git });
-    useStore.setState({ screen: { kind: 'settings' } });
-    render(<TaskStrip task={task} />);
-    await userEvent.click(
-      screen.getByRole('button', { name: 'MIAC, back to tasks' }),
-    );
-    expect(useStore.getState().screen).toEqual({ kind: 'workspace' });
-  });
-  it('opens the editor, and disables it when the worktree is missing', async () => {
-    const { calls } = installFakeApi({
-      'tasks:gitSummary': () => git,
-      'tasks:openInEditor': () => undefined,
-    });
-    const { rerender } = render(<TaskStrip task={task} />);
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Open in VS Code' }),
-    );
-    await waitFor(() =>
-      expect(
-        calls.find((c) => c.channel === 'tasks:openInEditor')?.args,
-      ).toEqual(['a']),
-    );
-    rerender(<TaskStrip task={{ ...task, worktreeMissing: true }} />);
-    expect(
-      screen.getByRole('button', { name: 'Open in VS Code' }),
-    ).toBeDisabled();
   });
   it('shows the git summary, changed files and clean state in the card', async () => {
     installFakeApi({
@@ -203,22 +199,26 @@ describe('TaskStrip', () => {
         ],
       }),
     });
-    render(<TaskStrip task={task} />);
-    await screen.findByText(new RegExp(`${UP}2`));
+    render(<HeaderBar />);
     const card = await openCard();
-    expect(card).toHaveTextContent(`${UP}2 ${String.fromCharCode(0x2193)}0`);
+    await waitFor(() =>
+      expect(card).toHaveTextContent(
+        `${String.fromCharCode(0x2191)}2 ${String.fromCharCode(0x2193)}0`,
+      ),
+    );
     expect(card).toHaveTextContent('3 changed');
   });
-  it('opens the work item in Azure DevOps from the card badge', async () => {
+  it('opens the work item in Azure DevOps from the card', async () => {
     const url =
       'https://dev.azure.com/unreliablewitness/MIAC/_workitems/edit/48213';
     const { calls } = installFakeApi({
       'tasks:gitSummary': () => git,
       'shell:openExternal': () => undefined,
     });
-    render(
-      <TaskStrip task={{ ...task, workItem: { ...task.workItem!, url } }} />,
-    );
+    useStore.setState({
+      tasks: [{ ...task, workItem: { ...task.workItem!, url } }],
+    });
+    render(<HeaderBar />);
     await openCard();
     await userEvent.click(
       screen.getByRole('button', {
@@ -233,63 +233,33 @@ describe('TaskStrip', () => {
   });
   it('shows a plain badge for work items without a url', async () => {
     installFakeApi({ 'tasks:gitSummary': () => git });
-    render(<TaskStrip task={task} />);
-    await openCard();
+    render(<HeaderBar />);
+    const card = await openCard();
     expect(
       screen.queryByRole('button', { name: /in Azure DevOps/ }),
     ).not.toBeInTheDocument();
-    expect(screen.getByText('User Story 48213')).toBeInTheDocument();
+    expect(within(card).getByText('User Story 48213')).toBeInTheDocument();
   });
-  it('shows the billable total and the Claude and Copilot split', async () => {
+  it('shows the Claude and Copilot split and a sync error in the card', async () => {
     installFakeApi({
       'usage:task': () => usage,
       'tasks:gitSummary': () => git,
     });
-    render(<TaskStrip task={task} />);
-    expect(await screen.findByText(`${EURO}9.20`)).toBeTruthy();
-    const card = await openCard();
-    await waitFor(() => expect(card).toHaveTextContent(/Claude .8\.28/));
-    expect(card).toHaveTextContent('Not logged on the work item yet');
-  });
-  it('refreshes on usage:changed and shows a sync error', async () => {
-    let current = emptyUsage('a');
-    const { emit } = installFakeApi({
-      'usage:task': () => current,
-      'tasks:gitSummary': () => git,
-    });
-    render(
-      <TaskStrip
-        task={{
+    useStore.setState({
+      tasks: [
+        {
           ...task,
           usageSyncError:
             'The token cannot write work items (needs Work Items: Read & write)',
-        }}
-      />,
-    );
-    expect(await screen.findByText(`${EURO}0.00`)).toBeTruthy();
-    current = usage;
-    emit('usage:changed', { taskId: 'a' });
-    await waitFor(() => expect(screen.getByText(`${EURO}9.20`)).toBeTruthy());
-    await openCard();
+        },
+      ],
+    });
+    render(<HeaderBar />);
+    const card = await openCard();
+    await waitFor(() => expect(card).toHaveTextContent(/Claude .8\.28/));
+    expect(card).toHaveTextContent(/Copilot .0\.92/);
     expect(
-      screen.getByText(/Sync failed: The token cannot write/),
+      within(card).getByText(/Sync failed: The token cannot write/),
     ).toBeTruthy();
-  });
-});
-
-describe('CrumbStrip', () => {
-  it('shows the crumb and a back link', async () => {
-    const back = vi.fn();
-    render(
-      <CrumbStrip
-        crumb="Settings"
-        back={{ label: 'Back to tasks', onClick: back }}
-      />,
-    );
-    expect(screen.getByText('Settings')).toBeInTheDocument();
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Back to tasks' }),
-    );
-    expect(back).toHaveBeenCalled();
   });
 });

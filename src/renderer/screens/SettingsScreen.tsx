@@ -2,11 +2,9 @@ import { useEffect, useState } from 'react';
 import type { AppSettings } from '../../shared/usage';
 import type { MiacConfig, Repo } from '../../shared/types';
 import { api, tryInvoke } from '../api';
-import { ArtSlot } from '../components/ArtSlot';
 import { ConnectionsSection } from '../components/ConnectionsSection';
 import { CostSection } from '../components/CostSection';
-import { Label, MindMark } from '../components/instrument';
-import { CrumbStrip } from '../components/TaskStrip';
+import { MindMark, PageHeader } from '../components/ui';
 import { useStore } from '../store';
 
 function renderConfig(
@@ -132,9 +130,7 @@ function AppearanceSection() {
   return (
     <section id="appearance" className="section">
       <div className="section-head">
-        <h2>
-          <Label>Appearance</Label>
-        </h2>
+        <h2>Appearance</h2>
       </div>
       <div className="list">
         <div className="list-row">
@@ -170,13 +166,21 @@ function AboutSection() {
   }, []);
 
   return (
-    <section id="about" aria-label="About" className="about bracketed">
-      <ArtSlot name="about-registry" />
-      <MindMark size={40} />
-      <h2 className="mono">MIAC</h2>
-      <p>Me, I&apos;m Counting</p>
-      <p className="muted">General Systems Vehicle (accounting division)</p>
-      {version && <p className="mono muted">v{version}</p>}
+    <section id="about" aria-label="About" className="section">
+      <div className="section-head">
+        <h2>About</h2>
+      </div>
+      <div className="card about">
+        <MindMark size={40} />
+        <div>
+          <div className="about-name">MIAC</div>
+          <div className="muted">Me, I&apos;m Counting</div>
+          <div className="small muted">
+            General Systems Vehicle (accounting division)
+          </div>
+          {version && <div className="mono small muted">v{version}</div>}
+        </div>
+      </div>
     </section>
   );
 }
@@ -185,7 +189,6 @@ export function SettingsScreen() {
   const repos = useStore((s) => s.repos);
   const setRepos = useStore((s) => s.setRepos);
   const notify = useStore((s) => s.notify);
-  const go = useStore((s) => s.go);
 
   const addFolder = async () => {
     const folder = await tryInvoke(
@@ -201,14 +204,8 @@ export function SettingsScreen() {
   };
 
   return (
-    <>
-      <CrumbStrip
-        crumb="Settings"
-        back={{
-          label: 'Back to tasks',
-          onClick: () => go({ kind: 'workspace' }),
-        }}
-      />
+    <div className="page">
+      <PageHeader title="Settings" />
       <div className="settings">
         <nav className="settings-nav" aria-label="Settings sections">
           <a href="#repos" className="active">
@@ -224,9 +221,7 @@ export function SettingsScreen() {
         <main className="settings-main">
           <section id="repos" className="section">
             <div className="section-head">
-              <h2>
-                <Label>Repositories</Label>
-              </h2>
+              <h2>Repositories</h2>
               <button type="button" className="btn" onClick={addFolder}>
                 Add folder&hellip;
               </button>
@@ -250,9 +245,7 @@ export function SettingsScreen() {
           <CostSection />
           <section id="terminals" className="section">
             <div className="section-head">
-              <h2>
-                <Label>Terminals and Claude</Label>
-              </h2>
+              <h2>Terminals and Claude</h2>
             </div>
             <p className="placeholder">
               Default shell and Claude flags are fixed to the platform defaults
@@ -263,6 +256,6 @@ export function SettingsScreen() {
           <AboutSection />
         </main>
       </div>
-    </>
+    </div>
   );
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ago, compact, eur } from './format';
+import { ago, compact, dateTime, eur } from './format';
 
 describe('format', () => {
   it('formats euros, token counts and ages', () => {
@@ -14,5 +14,11 @@ describe('format', () => {
     expect(ago('2026-10-14T11:48:00.000Z', now)).toBe('12 min ago');
     expect(ago('2026-10-14T09:00:00.000Z', now)).toBe('3 h ago');
     expect(ago('2026-10-12T12:00:00.000Z', now)).toBe('2 d ago');
+  });
+  it('formats a local date and time without ISO noise', () => {
+    expect(dateTime(new Date(2026, 9, 15, 12, 1).toISOString())).toBe(
+      '15 Oct 2026, 12:01',
+    );
+    expect(dateTime('not a date')).toBe('not a date');
   });
 });

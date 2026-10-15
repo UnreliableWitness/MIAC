@@ -6,7 +6,6 @@ import { useStore } from '../store';
 import { installFakeApi } from '../test-helpers/fakeApi';
 import { WorkItemPicker } from './WorkItemPicker';
 
-const DOT = String.fromCharCode(0xb7);
 const item = (id: string, title: string, type = 'Issue'): WorkItemSummary => ({
   id,
   type,
@@ -37,7 +36,12 @@ describe('WorkItemPicker', () => {
       <WorkItemPicker connectionId="c1" selectedId={null} onPick={() => {}} />,
     );
     expect(await screen.findByText('Save address')).toBeInTheDocument();
-    expect(screen.getByText(`12 ${DOT} To Do ${DOT} MIAC`)).toBeInTheDocument();
+    const row = screen.getByRole('button', { name: /Save address/ });
+    expect(row).toHaveTextContent('12');
+    expect(row).toHaveTextContent('To Do');
+    expect(row).toHaveTextContent('Unassigned');
+    expect(screen.getAllByRole('img', { name: 'Issue' })).toHaveLength(1);
+    expect(screen.getByRole('img', { name: 'Task' })).toBeInTheDocument();
     expect(calls.find((c) => c.channel === 'workItems:search')?.args).toEqual([
       'c1',
       { scope: 'sprint', text: '' },

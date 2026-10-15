@@ -1,6 +1,6 @@
-export { Bracketed } from './Bracketed';
 export { IconButton, modKey } from './IconButton';
-export { Label } from './Label';
 export { MindMark } from './MindMark';
+export { PageHeader, Pivots } from './PageHeader';
 export { REFERENCE_EUR, RingGauge } from './RingGauge';
-export { TickRule } from './TickRule';
+export { StateDot, stateColor } from './StateDot';
+export { typeColor, WorkItemTypeIcon } from './WorkItemTypeIcon';

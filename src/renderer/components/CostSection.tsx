@@ -7,7 +7,6 @@ import type {
 } from '../../shared/usage';
 import { OFFICIAL_USD_TO_EUR } from '../../shared/usage';
 import { api, tryInvoke } from '../api';
-import { Label } from './instrument';
 import { useStore } from '../store';
 
 type SettingsDraft = {
@@ -274,9 +273,7 @@ export function CostSection() {
   return (
     <section id="cost" className="section">
       <div className="section-head">
-        <h2>
-          <Label>AI cost and invoicing</Label>
-        </h2>
+        <h2>AI cost and invoicing</h2>
       </div>
       <InvoicingPart />
       <RatesPart />

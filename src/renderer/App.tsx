@@ -1,16 +1,66 @@
 import { useEffect } from 'react';
 import { api } from './api';
-import { invalidateRepoConfig } from './hooks/useRepoConfig';
+import { HeaderBar } from './components/HeaderBar';
 import { Notices } from './components/Notices';
+import { TaskNav } from './components/TaskNav';
+import { invalidateRepoConfig } from './hooks/useRepoConfig';
+import { useShortcuts } from './hooks/useShortcuts';
 import { FinishScreen } from './screens/FinishScreen';
 import { NewTaskScreen } from './screens/NewTaskScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { SetupScreen } from './screens/SetupScreen';
-import { WorkspaceScreen } from './screens/WorkspaceScreen';
+import { SprintScreen } from './screens/SprintScreen';
+import { TaskScreen } from './screens/TaskScreen';
 import { useStore } from './store';
 
-export function App() {
+function Page() {
   const screen = useStore((s) => s.screen);
+  switch (screen.kind) {
+    case 'sprint':
+      return <SprintScreen />;
+    case 'task':
+      return <TaskScreen />;
+    case 'new-task':
+      return (
+        <NewTaskScreen
+          key={`${screen.repoId ?? ''}:${screen.workItem?.id ?? ''}`}
+          initial={screen}
+        />
+      );
+    case 'setup':
+      return <SetupScreen taskId={screen.taskId} />;
+    case 'finish':
+      return <FinishScreen taskId={screen.taskId} />;
+    case 'settings':
+      return <SettingsScreen />;
+  }
+}
+
+/** Header, nav and the current page. Focus hides the header and nav for a ready task. */
+export function Shell() {
+  const inFocus = useStore(
+    (s) =>
+      s.focus &&
+      s.screen.kind === 'task' &&
+      s.tasks.find((t) => t.id === s.selectedTaskId)?.status === 'ready',
+  );
+  const navCollapsed = useStore((s) => s.navCollapsed);
+  useShortcuts();
+  return (
+    <div className="app">
+      {!inFocus && <HeaderBar />}
+      <div className="shell">
+        {(!inFocus || navCollapsed) && <TaskNav />}
+        <main className="content">
+          <Page />
+        </main>
+      </div>
+      <Notices />
+    </div>
+  );
+}
+
+export function App() {
   const load = useStore((s) => s.load);
   const setTasks = useStore((s) => s.setTasks);
   const setRepos = useStore((s) => s.setRepos);
@@ -31,18 +81,5 @@ export function App() {
     return () => offs.forEach((off) => off());
   }, [load, setTasks, setRepos, setConnections, notify]);
 
-  return (
-    <div className="app">
-      {screen.kind === 'settings' ? (
-        <SettingsScreen />
-      ) : screen.kind === 'setup' ? (
-        <SetupScreen taskId={screen.taskId} />
-      ) : (
-        <WorkspaceScreen />
-      )}
-      {screen.kind === 'new-task' && <NewTaskScreen />}
-      {screen.kind === 'finish' && <FinishScreen taskId={screen.taskId} />}
-      <Notices />
-    </div>
-  );
+  return <Shell />;
 }

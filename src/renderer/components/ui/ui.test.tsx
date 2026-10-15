@@ -1,7 +1,15 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { Bracketed, IconButton, Label, MindMark, RingGauge } from '.';
+import {
+  IconButton,
+  MindMark,
+  PageHeader,
+  Pivots,
+  RingGauge,
+  StateDot,
+  WorkItemTypeIcon,
+} from '.';
 
 const arcLength = (el: Element) =>
   Number(el.querySelector('[data-part="arc"]')!.getAttribute('data-fraction'));
@@ -25,8 +33,8 @@ describe('RingGauge', () => {
         value={10}
         max={10}
         segments={[
-          { value: 8, color: 'var(--accent)' },
-          { value: 2, color: 'var(--blue)' },
+          { value: 8, color: 'var(--chart-claude)' },
+          { value: 2, color: 'var(--chart-copilot)' },
         ]}
       />,
     );
@@ -60,19 +68,81 @@ describe('IconButton', () => {
   });
 });
 
-describe('Bracketed, Label, MindMark', () => {
-  it('marks the active frame', () => {
-    const { container } = render(<Bracketed active>x</Bracketed>);
-    expect(container.firstChild).toHaveClass('bracketed', 'is-active');
-  });
-  it('renders a label and a decorative mark', () => {
+describe('WorkItemTypeIcon', () => {
+  it('falls back to a square in the ADO type color', () => {
     const { container } = render(
       <>
-        <Label>webshop</Label>
-        <MindMark />
+        <WorkItemTypeIcon type="Bug" />
+        <WorkItemTypeIcon type="Product Backlog Item" />
+        <WorkItemTypeIcon type="Something else" />
       </>,
     );
-    expect(screen.getByText('webshop')).toHaveClass('ilabel');
+    const fills = [...container.querySelectorAll('.wit-fallback > span')].map(
+      (s) => (s as HTMLElement).style.background,
+    );
+    expect(fills).toEqual([
+      'rgb(204, 41, 61)',
+      'rgb(0, 156, 204)',
+      'rgb(136, 136, 136)',
+    ]);
+    expect(screen.getByRole('img', { name: 'Bug' })).toBeInTheDocument();
+  });
+  it('shows the real icon when given one', () => {
+    render(<WorkItemTypeIcon type="Task" iconUrl="data:image/svg+xml,x" />);
+    expect(screen.getByRole('img', { name: 'Task' })).toHaveAttribute(
+      'src',
+      'data:image/svg+xml,x',
+    );
+  });
+});
+
+describe('StateDot', () => {
+  it('draws the state color before the name, with a fallback map', () => {
+    const { container, rerender } = render(<StateDot state="Active" />);
+    expect(screen.getByText('Active')).toBeInTheDocument();
+    const dot = () => container.querySelector('.state-dot') as HTMLElement;
+    expect(dot().style.background).toBe('rgb(0, 122, 204)');
+    rerender(<StateDot state="Closed" />);
+    expect(dot().style.background).toBe('rgb(51, 153, 51)');
+    rerender(<StateDot state="Doing" color="#123456" />);
+    expect(dot().style.background).toBe('rgb(18, 52, 86)');
+  });
+});
+
+describe('PageHeader and Pivots', () => {
+  it('renders the title and selects pivots', async () => {
+    const onSelect = vi.fn();
+    render(
+      <PageHeader
+        title="New task"
+        pivots={
+          <Pivots
+            label="Start from"
+            items={[
+              { key: 'a', label: 'Work item' },
+              { key: 'b', label: 'Typed' },
+            ]}
+            selected="a"
+            onSelect={onSelect}
+          />
+        }
+      />,
+    );
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'New task' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Work item' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await userEvent.click(screen.getByRole('tab', { name: 'Typed' }));
+    expect(onSelect).toHaveBeenCalledWith('b');
+  });
+});
+
+describe('MindMark', () => {
+  it('is decorative', () => {
+    const { container } = render(<MindMark />);
     expect(container.querySelector('svg')).toHaveAttribute(
       'aria-hidden',
       'true',
