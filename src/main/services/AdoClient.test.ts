@@ -196,17 +196,25 @@ describe('AdoClient reads', () => {
         body: {
           value: [
             {
+              id: 'it-1',
               name: 'Sprint 1',
               path: 'MIAC\\Sprint 1',
-              attributes: { timeFrame: 'current' },
+              attributes: {
+                startDate: '2026-10-15T00:00:00Z',
+                finishDate: '2026-10-28T00:00:00Z',
+                timeFrame: 'current',
+              },
             },
           ],
         },
       },
     );
     expect(await client.currentIteration('MIAC')).toEqual({
+      id: 'it-1',
       path: 'MIAC\\Sprint 1',
       name: 'Sprint 1',
+      startDate: '2026-10-15T00:00:00Z',
+      finishDate: '2026-10-28T00:00:00Z',
     });
     expect(server.requests.at(-1)?.path).toContain('$timeframe=current');
     server.route(
@@ -362,6 +370,297 @@ describe('AdoClient reads', () => {
     const err = await client.currentIteration('MIAC').catch((e) => e);
     expect(err).toBeInstanceOf(AdoError);
     expect(err.kind).toBe('http');
+  });
+});
+
+const ITERATIONS = '/unreliablewitness/MIAC/_apis/work/teamsettings/iterations';
+const wi = (id: number, fields: Record<string, unknown> = {}) => ({
+  id,
+  fields: {
+    'System.WorkItemType': 'Task',
+    'System.Title': `Item ${id}`,
+    'System.State': 'To Do',
+    ...fields,
+  },
+});
+
+describe('AdoClient sprint', () => {
+  const current = (attributes: Record<string, unknown> = {}) =>
+    server.route('GET', `${ITERATIONS}?`, {
+      body: {
+        value: [
+          { id: 'it-1', name: 'Sprint 1', path: 'MIAC\\Sprint 1', attributes },
+        ],
+      },
+    });
+
+  it('keeps null sprint dates as null', async () => {
+    current({ startDate: null, finishDate: null, timeFrame: 'current' });
+    expect(await client.currentIteration('MIAC')).toMatchObject({
+      startDate: null,
+      finishDate: null,
+    });
+  });
+  it('reads the iteration work items as relations', async () => {
+    server.route('GET', `${ITERATIONS}/it-1/workitems`, {
+      body: {
+        workItemRelations: [
+          { rel: null, source: null, target: { id: 1 } },
+          {
+            rel: 'System.LinkTypes.Hierarchy-Forward',
+            source: { id: 1 },
+            target: { id: 5 },
+          },
+          { rel: null, source: null, target: null },
+        ],
+      },
+    });
+    expect(await client.iterationWorkItems('MIAC', 'it-1')).toEqual([
+      { rel: null, source: null, target: { id: 1 } },
+      {
+        rel: 'System.LinkTypes.Hierarchy-Forward',
+        source: { id: 1 },
+        target: { id: 5 },
+      },
+    ]);
+    expect(server.requests.at(-1)?.path).toBe(
+      `${ITERATIONS}/it-1/workitems?api-version=7.1`,
+    );
+  });
+  it('builds the sprint tree with remaining work, in backlog order', async () => {
+    current();
+    server.route('GET', `${ITERATIONS}/it-1/workitems`, {
+      body: {
+        workItemRelations: [
+          { rel: null, source: null, target: { id: 2 } },
+          { rel: null, source: null, target: { id: 1 } },
+          {
+            rel: 'System.LinkTypes.Hierarchy-Forward',
+            source: { id: 1 },
+            target: { id: 5 },
+          },
+        ],
+      },
+    });
+    server.route('GET', '/unreliablewitness/_apis/wit/workitems', {
+      body: {
+        value: [
+          wi(1, { 'System.WorkItemType': 'Issue' }),
+          wi(5, { 'Microsoft.VSTS.Scheduling.RemainingWork': 3 }),
+          wi(2),
+        ],
+      },
+    });
+    const sprint = await client.sprint('MIAC');
+    expect(sprint.iteration?.name).toBe('Sprint 1');
+    expect(
+      sprint.rows.map((r) => [r.item.id, r.depth, r.item.remainingWork]),
+    ).toEqual([
+      ['2', 0, null],
+      ['1', 0, null],
+      ['5', 1, 3],
+    ]);
+    const batch = server.requests.find((r) =>
+      r.path.includes('/_apis/wit/workitems?'),
+    );
+    expect(batch!.path).toContain('ids=2,1,5');
+    expect(batch!.path).toContain('Microsoft.VSTS.Scheduling.RemainingWork');
+    expect(batch!.path).toContain('errorPolicy=omit');
+  });
+  it('fetches the items in chunks of 200', async () => {
+    current();
+    server.route('GET', `${ITERATIONS}/it-1/workitems`, {
+      body: {
+        workItemRelations: Array.from({ length: 450 }, (_, i) => ({
+          rel: null,
+          source: null,
+          target: { id: i + 1 },
+        })),
+      },
+    });
+    server.route('GET', '/unreliablewitness/_apis/wit/workitems', (req) => ({
+      body: {
+        value: req.path
+          .match(/ids=([^&]+)/)![1]
+          .split(',')
+          .map((id) => wi(Number(id))),
+      },
+    }));
+    const sprint = await client.sprint('MIAC');
+    expect(sprint.rows).toHaveLength(450);
+    expect(sprint.rows[449].item.id).toBe('450');
+    const sizes = server.requests
+      .filter((r) => r.path.includes('/_apis/wit/workitems?'))
+      .map((r) => r.path.match(/ids=([^&]+)/)![1].split(',').length);
+    expect(sizes).toEqual([200, 200, 50]);
+  });
+  it('returns no iteration and no rows without a current sprint', async () => {
+    server.route('GET', `${ITERATIONS}?`, { body: { value: [] } });
+    expect(await client.sprint('MIAC')).toEqual({ iteration: null, rows: [] });
+    expect(server.requests).toHaveLength(1);
+  });
+  it('skips the batch call for an empty sprint', async () => {
+    current();
+    server.route('GET', `${ITERATIONS}/it-1/workitems`, {
+      body: { workItemRelations: [] },
+    });
+    expect((await client.sprint('MIAC')).rows).toEqual([]);
+    expect(
+      server.requests.some((r) => r.path.includes('/_apis/wit/workitems?')),
+    ).toBe(false);
+  });
+});
+
+describe('AdoClient work item types', () => {
+  it('returns colors, icon URLs and states, asking per type only when the list has none', async () => {
+    server.route('GET', '/unreliablewitness/MIAC/_apis/wit/workitemtypes?', {
+      body: {
+        value: [
+          {
+            name: 'Task',
+            color: 'A4880A',
+            icon: { url: 'https://icons.example/icon_check_box?color=A4880A' },
+            states: [
+              { name: 'To Do', color: 'b2b2b2', category: 'Proposed' },
+              { name: 'Done', color: '339933', category: 'Completed' },
+            ],
+          },
+          { name: 'User Story', color: 'nonsense' },
+          { name: 'Old', isDisabled: true },
+        ],
+      },
+    });
+    server.route(
+      'GET',
+      '/unreliablewitness/MIAC/_apis/wit/workitemtypes/User%20Story/states',
+      {
+        body: {
+          value: [{ name: 'Active', color: '007acc', category: 'InProgress' }],
+        },
+      },
+    );
+    expect(await client.workItemTypes('MIAC')).toEqual([
+      {
+        name: 'Task',
+        color: '#a4880a',
+        iconUrl: 'https://icons.example/icon_check_box?color=A4880A',
+        states: [
+          { name: 'To Do', color: '#b2b2b2', category: 'Proposed' },
+          { name: 'Done', color: '#339933', category: 'Completed' },
+        ],
+      },
+      {
+        name: 'User Story',
+        color: null,
+        iconUrl: null,
+        states: [{ name: 'Active', color: '#007acc', category: 'InProgress' }],
+      },
+    ]);
+  });
+  it('keeps a type whose states cannot be read, with no states', async () => {
+    server.route('GET', '/unreliablewitness/MIAC/_apis/wit/workitemtypes?', {
+      body: { value: [{ name: 'Bug', color: 'CC293D' }] },
+    });
+    server.route(
+      'GET',
+      '/unreliablewitness/MIAC/_apis/wit/workitemtypes/Bug/states',
+      { status: 500, body: {} },
+    );
+    expect(await client.workItemTypes('MIAC')).toEqual([
+      { name: 'Bug', color: '#cc293d', iconUrl: null, states: [] },
+    ]);
+  });
+});
+
+describe('AdoClient.iconDataUrl', () => {
+  const SVG = '<svg xmlns="http://www.w3.org/2000/svg"/>';
+  type Call = { url: string; auth: string | undefined; redirect?: string };
+  const fakeFetch = (
+    reply: (call: Call) => { status?: number; type?: string; body?: string },
+  ) => {
+    const calls: Call[] = [];
+    const impl = (async (url: string, init: RequestInit = {}) => {
+      const headers = (init.headers ?? {}) as Record<string, string>;
+      const call = {
+        url,
+        auth: headers.authorization,
+        redirect: init.redirect,
+      };
+      calls.push(call);
+      const r = reply(call);
+      return new Response(r.body ?? SVG, {
+        status: r.status ?? 200,
+        headers: { 'content-type': r.type ?? 'image/svg+xml; charset=utf-8' },
+      });
+    }) as unknown as typeof fetch;
+    return { calls, impl };
+  };
+  const dataUrl = `data:image/svg+xml;base64,${Buffer.from(SVG).toString('base64')}`;
+
+  it('fetches an icon on another host without the PAT', async () => {
+    const f = fakeFetch(() => ({}));
+    const c = new AdoClient(
+      'https://dev.azure.com/unreliablewitness',
+      async () => 'secret-pat',
+      f.impl,
+    );
+    expect(
+      await c.iconDataUrl(
+        'https://tfsprodweu11.visualstudio.com/_apis/wit/workItemIcons/icon_check_box?color=A4880A&v=2',
+      ),
+    ).toBe(dataUrl);
+    expect(f.calls).toHaveLength(1);
+    expect(f.calls[0].auth).toBeUndefined();
+  });
+  it('sends the PAT to the organization host, without following redirects', async () => {
+    const f = fakeFetch(() => ({}));
+    const c = new AdoClient(
+      'https://dev.azure.com/unreliablewitness',
+      async () => 'secret-pat',
+      f.impl,
+    );
+    expect(
+      await c.iconDataUrl('https://dev.azure.com/_apis/wit/workItemIcons/x'),
+    ).toBe(dataUrl);
+    expect(f.calls).toEqual([
+      {
+        url: 'https://dev.azure.com/_apis/wit/workItemIcons/x',
+        auth: authFor('secret-pat'),
+        redirect: 'manual',
+      },
+    ]);
+  });
+  it('falls back to no auth when the authenticated fetch fails', async () => {
+    const f = fakeFetch((call) => (call.auth ? { status: 401 } : {}));
+    const c = new AdoClient(
+      'https://dev.azure.com/unreliablewitness',
+      async () => 'secret-pat',
+      f.impl,
+    );
+    expect(
+      await c.iconDataUrl('https://dev.azure.com/_apis/wit/workItemIcons/x'),
+    ).toBe(dataUrl);
+    expect(f.calls.map((x) => Boolean(x.auth))).toEqual([true, false]);
+  });
+  it('returns null for a non-image, an error, plain http elsewhere or a bad URL', async () => {
+    const c = (reply: Parameters<typeof fakeFetch>[0]) =>
+      new AdoClient(
+        'https://dev.azure.com/unreliablewitness',
+        async () => 'secret-pat',
+        fakeFetch(reply).impl,
+      );
+    expect(
+      await c(() => ({ type: 'text/html', body: '<html>' })).iconDataUrl(
+        'https://icons.example/i',
+      ),
+    ).toBeNull();
+    expect(
+      await c(() => ({ status: 404 })).iconDataUrl('https://icons.example/i'),
+    ).toBeNull();
+    expect(
+      await c(() => ({})).iconDataUrl('http://icons.example/i'),
+    ).toBeNull();
+    expect(await c(() => ({})).iconDataUrl('not a url')).toBeNull();
   });
 });
 

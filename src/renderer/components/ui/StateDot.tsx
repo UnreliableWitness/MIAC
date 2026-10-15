@@ -1,3 +1,5 @@
+import { stateMeta, useTypeMeta } from '../../workItemTypes';
+
 /** ADO's default state colors, used until the project's state colors are fetched. */
 const STATE_COLOR: Record<string, string> = {
   new: '#b2b2b2',
@@ -13,14 +15,20 @@ const STATE_COLOR: Record<string, string> = {
 export const stateColor = (state: string): string =>
   STATE_COLOR[state.toLowerCase()] ?? '#b2b2b2';
 
-/** A work item state as ADO draws it: a colored dot before the state name. */
+/** A work item state as ADO draws it: a colored dot before the state name, in the project's color when `connectionId` and `type` are given. */
 export function StateDot({
   state,
-  color,
+  type,
+  connectionId,
+  color: givenColor,
 }: {
   state: string;
+  type?: string | null;
+  connectionId?: string | null;
   color?: string | null;
 }) {
+  const meta = useTypeMeta(connectionId, type);
+  const color = givenColor ?? stateMeta(meta, state)?.color;
   return (
     <span className="state">
       <span

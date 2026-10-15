@@ -149,10 +149,14 @@ export function WorkItemPicker({
                 onPick({ id: w.id, type: w.type, title: w.title, url: w.url })
               }
             >
-              <WorkItemTypeIcon type={w.type} />
+              <WorkItemTypeIcon type={w.type} connectionId={connectionId} />
               <span className="grid-id">{w.id}</span>
               <span className="grid-title">{w.title}</span>
-              <StateDot state={w.state} />
+              <StateDot
+                state={w.state}
+                type={w.type}
+                connectionId={connectionId}
+              />
               <span className="grid-muted">{w.assignedTo ?? 'Unassigned'}</span>
             </button>
           ))}

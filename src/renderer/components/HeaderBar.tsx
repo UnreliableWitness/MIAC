@@ -6,7 +6,8 @@ import { ago, eur } from '../format';
 import { useGitSummary } from '../hooks/useGitSummary';
 import { useTaskUsage } from '../hooks/useTaskUsage';
 import { activeConnection, useStore } from '../store';
-import { IconButton, MindMark, WorkItemTypeIcon } from './ui';
+import { TaskTypeIcon } from './TaskTypeIcon';
+import { IconButton, MindMark } from './ui';
 
 const UP = String.fromCharCode(0x2191);
 const DOWN = String.fromCharCode(0x2193);
@@ -133,9 +134,7 @@ function TaskCrumb({ task, current }: { task: TaskView; current: boolean }) {
         }}
         onClick={() => openTask(task.id)}
       >
-        {task.workItem && (
-          <WorkItemTypeIcon type={task.workItem.type} size={14} />
-        )}
+        <TaskTypeIcon task={task} size={14} />
         <span className="crumb-text">{taskLabel(task)}</span>
       </button>
       {card && <TaskDetails task={task} onClose={() => setCard(false)} />}
@@ -178,6 +177,7 @@ export function HeaderBar() {
           : null;
     return s.tasks.find((t) => t.id === id) ?? null;
   });
+  const sprintName = useStore((s) => s.sprintName);
   const home = () => go({ kind: 'sprint' });
 
   const crumbs: ReactNode[] = [];
@@ -190,7 +190,7 @@ export function HeaderBar() {
   if (screen.kind === 'sprint')
     crumbs.push(
       <Crumb key="page" current onClick={home}>
-        Sprint
+        {sprintName ?? 'Sprint'}
       </Crumb>,
     );
   if (task)

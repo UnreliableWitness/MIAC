@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import type { SetupEvent, SetupState } from '../../shared/types';
 import { api, tryInvoke } from '../api';
 import { StepList } from '../components/StepList';
-import { PageHeader, WorkItemTypeIcon } from '../components/ui';
+import { TaskTypeIcon } from '../components/TaskTypeIcon';
+import { PageHeader } from '../components/ui';
 import { useStore } from '../store';
 
 export function applySetupEvent(state: SetupState, e: SetupEvent): SetupState {
@@ -143,7 +144,7 @@ export function SetupScreen({ taskId }: { taskId: string }) {
   return (
     <div className="page">
       <PageHeader
-        before={task.workItem && <WorkItemTypeIcon type={task.workItem.type} />}
+        before={<TaskTypeIcon task={task} />}
         title={task.workItem?.title ?? task.name}
         after={
           <span className="muted">

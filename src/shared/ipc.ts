@@ -11,11 +11,13 @@ import type {
   Repo,
   SetupEvent,
   SetupState,
+  Sprint,
   Task,
   TaskView,
   TerminalDef,
   WorkItemSearch,
   WorkItemSummary,
+  WorkItemTypeMeta,
 } from './types';
 import type {
   AppSettings,
@@ -52,6 +54,13 @@ export type Channels = {
   'workItems:search': {
     args: [connectionId: string, search: WorkItemSearch];
     result: WorkItemSummary[];
+  };
+  /** The current sprint in backlog order, or `iteration: null` when the project has none. */
+  'workItems:sprint': { args: [connectionId: string]; result: Sprint };
+  /** The project's work item types with icons as data URLs and state colors; cached in main for the session. */
+  'workItems:types': {
+    args: [connectionId: string];
+    result: WorkItemTypeMeta[];
   };
   'shell:openExternal': { args: [url: string]; result: void };
   'tasks:list': { args: []; result: TaskView[] };

@@ -30,6 +30,8 @@ type Store = {
   /** The project chosen in the nav's project switcher; null follows the selection. */
   connectionId: string | null;
   selectedTaskId: string | null;
+  /** The current sprint's name once the Sprint page has loaded it, for the breadcrumb. */
+  sprintName: string | null;
   notices: Notice[];
   tabByTask: Record<string, string>;
   focus: boolean;
@@ -42,6 +44,7 @@ type Store = {
   setTasks(tasks: TaskView[]): void;
   setConnections(connections: Connection[]): void;
   setConnectionId(id: string | null): void;
+  setSprintName(name: string | null): void;
   notify(level: Notice['level'], message: string): void;
   dismiss(id: string): void;
   load(): Promise<void>;
@@ -65,6 +68,7 @@ export const useStore = create<Store>((set, get) => ({
   connections: [],
   connectionId: null,
   selectedTaskId: null,
+  sprintName: null,
   notices: [],
   tabByTask: {},
   ...readPrefs(),
@@ -98,6 +102,7 @@ export const useStore = create<Store>((set, get) => ({
   setRepos: (repos) => set({ repos }),
   setConnections: (connections) => set({ connections }),
   setConnectionId: (connectionId) => set({ connectionId }),
+  setSprintName: (sprintName) => set({ sprintName }),
   setTasks: (tasks) => {
     // No auto-select: the app opens on Sprint and only the user picks a task.
     const selected = get().selectedTaskId;
@@ -144,6 +149,14 @@ export const useStore = create<Store>((set, get) => ({
     get().setConnections(connections);
   },
 }));
+
+/** The connection of a task's repo, for its work item icons and live state. */
+export const useTaskConnectionId = (task: { repoId: string } | null) =>
+  useStore((s) =>
+    task
+      ? (s.repos.find((r) => r.id === task.repoId)?.connectionId ?? null)
+      : null,
+  );
 
 type ConnectionState = Pick<
   Store,

@@ -1,4 +1,5 @@
-import { PageHeader, WorkItemTypeIcon } from '../components/ui';
+import { TaskTypeIcon } from '../components/TaskTypeIcon';
+import { PageHeader } from '../components/ui';
 import { TerminalTabs } from '../components/TerminalTabs';
 import { useStore } from '../store';
 import { DoneTaskPage } from './DoneTaskPage';
@@ -25,9 +26,7 @@ export function TaskScreen() {
     return (
       <div className="page">
         <PageHeader
-          before={
-            task.workItem && <WorkItemTypeIcon type={task.workItem.type} />
-          }
+          before={<TaskTypeIcon task={task} />}
           title={task.workItem?.title ?? task.name}
         />
         <div className="page-body">

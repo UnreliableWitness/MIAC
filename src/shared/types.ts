@@ -200,6 +200,12 @@ export type ConnectionInput = {
 };
 
 export type Iteration = { path: string; name: string };
+/** The current sprint as the sprint page needs it; ADO leaves the dates null until someone sets them. */
+export type SprintIteration = Iteration & {
+  id: string;
+  startDate: string | null;
+  finishDate: string | null;
+};
 
 export type WorkItemSummary = {
   id: string;
@@ -213,3 +219,28 @@ export type WorkItemSummary = {
 };
 
 export type WorkItemSearch = { scope: 'sprint' | 'mine'; text: string };
+
+/** A sprint backlog item: the picker's fields plus remaining work (hours, null when unset). */
+export type SprintItem = WorkItemSummary & { remainingWork: number | null };
+/** One grid row of the sprint page, in ADO's backlog order; children follow their parent. */
+export type SprintRow = {
+  item: SprintItem;
+  depth: number;
+  parentId: string | null;
+  hasChildren: boolean;
+};
+export type Sprint = { iteration: SprintIteration | null; rows: SprintRow[] };
+
+/** A state of a work item type, with ADO's color (`#rrggbb`) and state category (Proposed, InProgress, Completed, Removed...). */
+export type WorkItemStateMeta = {
+  name: string;
+  color: string | null;
+  category: string | null;
+};
+/** A work item type of the project: its color, its real ADO icon as a data URL (null when it could not be fetched) and its states. */
+export type WorkItemTypeMeta = {
+  name: string;
+  color: string | null;
+  icon: string | null;
+  states: WorkItemStateMeta[];
+};

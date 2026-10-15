@@ -12,6 +12,7 @@ import { SetupScreen } from './screens/SetupScreen';
 import { SprintScreen } from './screens/SprintScreen';
 import { TaskScreen } from './screens/TaskScreen';
 import { useStore } from './store';
+import { useWorkItemTypes } from './workItemTypes';
 
 function Page() {
   const screen = useStore((s) => s.screen);
@@ -75,7 +76,10 @@ export function App() {
         invalidateRepoConfig();
         setRepos(repos);
       }),
-      api().on('connections:changed', setConnections),
+      api().on('connections:changed', (connections) => {
+        useWorkItemTypes.getState().prune(connections.map((c) => c.id));
+        setConnections(connections);
+      }),
       api().on('notice', (n) => notify(n.level, n.message)),
     ];
     return () => offs.forEach((off) => off());

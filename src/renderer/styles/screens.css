@@ -421,3 +421,125 @@
   align-items: center;
   gap: 6px;
 }
+
+/* Sprint home: the sprint backlog grid in ADO order. */
+.sprint-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--line);
+}
+.grid.sprint-grid {
+  flex: 1;
+  --grid-cols: 24px minmax(0, 1fr) 140px 180px 120px 180px;
+}
+.sprint-grid .grid-head,
+.sprint-grid .grid-row {
+  padding: 0 32px 0 20px;
+}
+.sprint-row.has-task {
+  cursor: pointer;
+}
+.sprint-chevron {
+  display: flex;
+  justify-content: center;
+}
+.ibtn.sprint-toggle {
+  width: 24px;
+  height: 24px;
+  color: var(--muted);
+}
+.sprint-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.sprint-open {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--text);
+  text-align: left;
+}
+.sprint-open:hover {
+  color: var(--link);
+  text-decoration: underline;
+}
+.sprint-num {
+  text-align: right;
+  padding-right: 24px;
+}
+.sprint-task {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.btn.sprint-start {
+  height: 28px;
+  opacity: 0;
+}
+.sprint-row:hover .sprint-start,
+.sprint-start:focus-visible {
+  opacity: 1;
+}
+.sprint-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+.sprint-empty p {
+  margin: 0;
+}
+.sprint-note {
+  padding: 16px 32px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.sprint-note p {
+  margin: 0;
+  color: var(--muted);
+}
+.sprint-note h2 {
+  font-size: 16px;
+  font-weight: 600;
+}
+.done-commits h2 {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.done-commits ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--line);
+}
+.done-commits li {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 32px;
+  border-bottom: 1px solid var(--line);
+}
+.done-commits li .mono {
+  flex: none;
+  width: 80px;
+}
+.done-subject {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.done-commits p {
+  margin: 8px 0 0;
+}
+.done-nosummary {
+  margin: 0;
+  padding: 16px 32px 0;
+}

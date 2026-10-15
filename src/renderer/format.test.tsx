@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ago, compact, dateTime, eur } from './format';
+import { ago, compact, dateTime, eur, sprintDates } from './format';
 
 describe('format', () => {
   it('formats euros, token counts and ages', () => {
@@ -20,5 +20,18 @@ describe('format', () => {
       '15 Oct 2026, 12:01',
     );
     expect(dateTime('not a date')).toBe('not a date');
+  });
+});
+
+describe('sprintDates', () => {
+  it('shows day and month of both ends, in UTC', () => {
+    expect(sprintDates('2026-10-15T00:00:00Z', '2026-10-28T00:00:00Z')).toBe(
+      '15 Oct – 28 Oct',
+    );
+  });
+  it('is null when a date is unset or unreadable', () => {
+    expect(sprintDates(null, '2026-10-28T00:00:00Z')).toBeNull();
+    expect(sprintDates('2026-10-15T00:00:00Z', null)).toBeNull();
+    expect(sprintDates('soon', '2026-10-28T00:00:00Z')).toBeNull();
   });
 });

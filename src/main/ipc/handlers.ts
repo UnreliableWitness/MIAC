@@ -12,6 +12,7 @@ import type {
   TaskStatus,
   TaskView,
   TerminalDef,
+  WorkItemTypeMeta,
 } from '../../shared/types';
 import { worktreeRoot } from '../paths';
 import type { Command, Platform } from '../platform/Platform';
@@ -119,6 +120,10 @@ export async function pruneDanglingConnectionLinks(
 export function createHandlers(s: Services): Handlers {
   const connectionsChanged = () =>
     s.broadcast('connections:changed', s.connections.list());
+
+  /** Work item types per connection, with icons, for the session. A failed load is not kept, so the next call retries. */
+  const typesCache = new Map<string, Promise<WorkItemTypeMeta[]>>();
+  const dropTypes = (connectionId: string) => typesCache.delete(connectionId);
 
   /** Runs an Azure DevOps call for a connection; a rejected token flips the status so Settings and the footer turn red. */
   const withConnection = async <T>(
@@ -662,6 +667,7 @@ export function createHandlers(s: Services): Handlers {
       const { user } = await probe.verify(input.project.trim());
       const saved = await s.connections.save(input);
       s.ado.invalidate(saved.id);
+      dropTypes(saved.id);
       const verified = await s.connections.setStatus(saved.id, 'ok', user);
       connectionsChanged();
       return verified;
@@ -672,6 +678,7 @@ export function createHandlers(s: Services): Handlers {
         if (r.connectionId === id) await s.repos.setConnection(r.id, null);
       await s.connections.remove(id);
       s.ado.invalidate(id);
+      dropTypes(id);
       connectionsChanged();
       s.broadcast('repos:changed', s.repos.list());
     },
@@ -704,6 +711,34 @@ export function createHandlers(s: Services): Handlers {
           iterationPath: iteration?.path ?? null,
         });
       });
+    },
+    'workItems:sprint': async (connectionId) => {
+      const c = s.connections.get(connectionId);
+      return withConnection(connectionId, () =>
+        s.ado.client(connectionId).sprint(c.project),
+      );
+    },
+    'workItems:types': async (connectionId) => {
+      const c = s.connections.get(connectionId);
+      let hit = typesCache.get(connectionId);
+      if (!hit) {
+        const client = s.ado.client(connectionId);
+        hit = withConnection(connectionId, () =>
+          client.workItemTypes(c.project),
+        ).then((types) =>
+          Promise.all(
+            types.map(async ({ iconUrl, ...t }) => ({
+              ...t,
+              icon: iconUrl ? await client.iconDataUrl(iconUrl) : null,
+            })),
+          ),
+        );
+        typesCache.set(connectionId, hit);
+        hit.catch(() => {
+          if (typesCache.get(connectionId) === hit) dropTypes(connectionId);
+        });
+      }
+      return hit;
     },
     'shell:openExternal': async (url) => {
       if (!allowedExternal(url))

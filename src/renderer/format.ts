@@ -31,3 +31,24 @@ export const dateTime = (iso: string): string => {
         minute: '2-digit',
       });
 };
+
+/** A sprint's dates such as "15 Oct – 28 Oct". ADO stores them as UTC midnights, so they are read in UTC. Null when either is unset. */
+export const sprintDates = (
+  start: string | null,
+  finish: string | null,
+): string | null => {
+  if (!start || !finish) return null;
+  const day = (iso: string) => {
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime())
+      ? null
+      : d.toLocaleDateString('en-GB', {
+          day: 'numeric',
+          month: 'short',
+          timeZone: 'UTC',
+        });
+  };
+  const a = day(start);
+  const b = day(finish);
+  return a && b ? `${a} ${String.fromCharCode(0x2013)} ${b}` : null;
+};

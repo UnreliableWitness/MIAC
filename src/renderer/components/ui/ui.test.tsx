@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -10,6 +10,21 @@ import {
   StateDot,
   WorkItemTypeIcon,
 } from '.';
+import { installFakeApi } from '../../test-helpers/fakeApi';
+import { useWorkItemTypes } from '../../workItemTypes';
+
+const projectTypes = () =>
+  installFakeApi({
+    'workItems:types': () => [
+      {
+        name: 'Task',
+        color: '#a4880a',
+        icon: 'data:image/svg+xml;base64,PHN2Zy8+',
+        states: [{ name: 'Doing', color: '#007acc', category: 'InProgress' }],
+      },
+      { name: 'Issue', color: '#339947', icon: null, states: [] },
+    ],
+  });
 
 const arcLength = (el: Element) =>
   Number(el.querySelector('[data-part="arc"]')!.getAttribute('data-fraction'));
@@ -94,6 +109,44 @@ describe('WorkItemTypeIcon', () => {
       'data:image/svg+xml,x',
     );
   });
+  it("looks up the project's real icon and color for a connection, once", async () => {
+    const { calls } = projectTypes();
+    const { container } = render(
+      <>
+        <WorkItemTypeIcon type="task" connectionId="c1" />
+        <WorkItemTypeIcon type="Issue" connectionId="c1" />
+      </>,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('img', { name: 'task' })).toHaveAttribute(
+        'src',
+        'data:image/svg+xml;base64,PHN2Zy8+',
+      ),
+    );
+    expect(
+      (container.querySelector('.wit-fallback > span') as HTMLElement).style
+        .background,
+    ).toBe('rgb(51, 153, 71)');
+    expect(calls.filter((c) => c.channel === 'workItems:types')).toHaveLength(
+      1,
+    );
+  });
+  it('keeps the fallback when the types cannot be loaded', async () => {
+    installFakeApi({
+      'workItems:types': () => {
+        throw new Error('offline');
+      },
+    });
+    const { container } = render(
+      <WorkItemTypeIcon type="Bug" connectionId="c1" />,
+    );
+    await waitFor(() =>
+      expect(useWorkItemTypes.getState().byConnection.c1?.status).toBe(
+        'failed',
+      ),
+    );
+    expect(container.querySelector('.wit-fallback')).not.toBeNull();
+  });
 });
 
 describe('StateDot', () => {
@@ -106,6 +159,18 @@ describe('StateDot', () => {
     expect(dot().style.background).toBe('rgb(51, 153, 51)');
     rerender(<StateDot state="Doing" color="#123456" />);
     expect(dot().style.background).toBe('rgb(18, 52, 86)');
+  });
+  it("uses the project's state color for the type", async () => {
+    projectTypes();
+    const { container } = render(
+      <StateDot state="Doing" type="Task" connectionId="c1" />,
+    );
+    const dot = () => container.querySelector('.state-dot') as HTMLElement;
+    // Doing is not in the fallback map, so it starts grey.
+    expect(dot().style.background).toBe('rgb(178, 178, 178)');
+    await waitFor(() =>
+      expect(dot().style.background).toBe('rgb(0, 122, 204)'),
+    );
   });
 });
 

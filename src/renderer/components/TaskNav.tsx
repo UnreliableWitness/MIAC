@@ -12,7 +12,7 @@ import type { Repo, TaskStatus, TaskView } from '../../shared/types';
 import { statusText } from '../connectionStatus';
 import { eur } from '../format';
 import { useTaskUsage } from '../hooks/useTaskUsage';
-import { activeConnection, useStore } from '../store';
+import { activeConnection, useStore, useTaskConnectionId } from '../store';
 import { WorkItemTypeIcon } from './ui';
 
 export function groupTasks(tasks: TaskView[], repos: Repo[]) {
@@ -49,8 +49,13 @@ function useIsCurrent(taskId: string) {
 }
 
 function TypeIcon({ task, size = 16 }: { task: TaskView; size?: number }) {
+  const connectionId = useTaskConnectionId(task);
   return task.workItem ? (
-    <WorkItemTypeIcon type={task.workItem.type} size={size} />
+    <WorkItemTypeIcon
+      type={task.workItem.type}
+      connectionId={connectionId}
+      size={size}
+    />
   ) : (
     <Document16Regular className="navrow-blank" aria-label="Blank task" />
   );

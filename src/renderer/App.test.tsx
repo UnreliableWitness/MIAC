@@ -102,7 +102,9 @@ describe('App', () => {
         name: 'Sprint',
       }),
     ).toBeInTheDocument();
-    expect(screen.getByText('Sprint view coming next.')).toBeInTheDocument();
+    expect(
+      screen.getByText(/Connect Azure DevOps in Settings/),
+    ).toBeInTheDocument();
     expect(
       within(screen.getByRole('navigation', { name: 'Tasks' })).getByRole(
         'button',

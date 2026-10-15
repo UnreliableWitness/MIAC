@@ -260,7 +260,11 @@ export function NewTaskScreen({
           <div>
             <div className="muted small newtask-preview-type">
               {workItem?.id && (
-                <WorkItemTypeIcon type={workItem.type} size={14} />
+                <WorkItemTypeIcon
+                  type={workItem.type}
+                  connectionId={connectionId}
+                  size={14}
+                />
               )}
               {workItem?.id ? `${workItem.type} ${workItem.id}` : 'Blank task'}
             </div>

@@ -713,6 +713,7 @@ function routeHealthyOrg(server: AdoServer, org = 'unreliablewitness') {
     body: {
       value: [
         {
+          id: 'it-1',
           name: 'Sprint 1',
           path: 'MIAC\\Sprint 1',
           attributes: { timeFrame: 'current' },
@@ -720,6 +721,15 @@ function routeHealthyOrg(server: AdoServer, org = 'unreliablewitness') {
       ],
     },
   });
+  server.route(
+    'GET',
+    `/${org}/MIAC/_apis/work/teamsettings/iterations/it-1/workitems`,
+    {
+      body: {
+        workItemRelations: [{ rel: null, source: null, target: { id: 5 } }],
+      },
+    },
+  );
   server.route('POST', `/${org}/MIAC/_apis/wit/wiql`, {
     body: { workItems: [{ id: 5 }] },
   });
@@ -925,8 +935,11 @@ describe('handlers: work items', () => {
       pat: 'p',
     });
     expect(await h['workItems:currentIteration'](c.id)).toEqual({
+      id: 'it-1',
       path: 'MIAC\\Sprint 1',
       name: 'Sprint 1',
+      startDate: null,
+      finishDate: null,
     });
     const items = await h['workItems:search'](c.id, {
       scope: 'sprint',
@@ -958,6 +971,83 @@ describe('handlers: work items', () => {
     expect(broadcasts.some((b) => b.event === 'connections:changed')).toBe(
       true,
     );
+  });
+});
+
+describe('handlers: sprint, types and live work items', () => {
+  const save = async (hx: Awaited<ReturnType<typeof harness>>) => {
+    routeHealthyOrg(hx.server);
+    return hx.h['connections:save']({
+      organizationUrl: `${hx.server.url}/unreliablewitness`,
+      project: 'MIAC',
+      pat: 'p',
+    });
+  };
+  it('returns the sprint rows through the connection', async () => {
+    const hx = await harness();
+    const c = await save(hx);
+    const sprint = await hx.h['workItems:sprint'](c.id);
+    expect(sprint.iteration?.name).toBe('Sprint 1');
+    expect(sprint.rows.map((r) => [r.item.id, r.item.title, r.depth])).toEqual([
+      ['5', 'Five', 0],
+    ]);
+  });
+  it('a 401 on the sprint marks the connection unauthorized', async () => {
+    const hx = await harness();
+    const c = await save(hx);
+    hx.server.route(
+      'GET',
+      '/unreliablewitness/MIAC/_apis/work/teamsettings/iterations',
+      { status: 401, body: {} },
+    );
+    await expect(hx.h['workItems:sprint'](c.id)).rejects.toThrow(
+      /rejected the token/,
+    );
+    expect((await hx.h['connections:list']())[0].status).toBe('unauthorized');
+  });
+  it('loads the types with icons as data URLs once per connection, and retries after a failure', async () => {
+    const hx = await harness();
+    const c = await save(hx);
+    hx.server.route('GET', '/unreliablewitness/MIAC/_apis/wit/workitemtypes', {
+      status: 500,
+      body: {},
+    });
+    await expect(hx.h['workItems:types'](c.id)).rejects.toThrow();
+    hx.server.route('GET', '/unreliablewitness/MIAC/_apis/wit/workitemtypes', {
+      body: {
+        value: [
+          {
+            name: 'Task',
+            color: 'A4880A',
+            icon: {
+              url: `${hx.server.url}/_apis/wit/workItemIcons/icon_check_box`,
+            },
+            states: [{ name: 'Done', color: '339933', category: 'Completed' }],
+          },
+        ],
+      },
+    });
+    hx.server.route('GET', '/_apis/wit/workItemIcons/', {
+      raw: '<svg/>',
+      headers: { 'content-type': 'image/svg+xml' },
+    });
+    const types = await hx.h['workItems:types'](c.id);
+    expect(types).toEqual([
+      {
+        name: 'Task',
+        color: '#a4880a',
+        icon: `data:image/svg+xml;base64,${Buffer.from('<svg/>').toString('base64')}`,
+        states: [{ name: 'Done', color: '#339933', category: 'Completed' }],
+      },
+    ]);
+    // The icon came from the organization's own host, so it carried the PAT.
+    const icon = hx.server.requests.find((r) =>
+      r.path.startsWith('/_apis/wit/workItemIcons/'),
+    );
+    expect(icon!.auth).toBe(`Basic ${Buffer.from(':p').toString('base64')}`);
+    const before = hx.server.requests.length;
+    expect(await hx.h['workItems:types'](c.id)).toEqual(types);
+    expect(hx.server.requests.length).toBe(before);
   });
 });
 
