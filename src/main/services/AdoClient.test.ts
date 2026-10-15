@@ -4,6 +4,7 @@ import {
   AdoClient,
   AdoError,
   buildWiql,
+  CODE_READ_DENIED,
   CODE_WRITE_DENIED,
   WRITE_DENIED,
 } from './AdoClient';
@@ -1038,5 +1039,29 @@ describe('work item state and pull request calls', () => {
       status: 'completed',
       isDraft: false,
     });
+  });
+  it('names the Code scope when a repository or pull request read is denied', async () => {
+    const reads: [string, () => Promise<unknown>][] = [
+      [`${P}/git/repositories/r1`, () => client.repositoryId('MIAC', 'r1')],
+      [
+        `${P}/git/repositories/r1/pullrequests`,
+        () => client.findActivePullRequest('MIAC', 'r1', 'b'),
+      ],
+      [
+        `${P}/git/repositories/r1/pullrequests/9`,
+        () => client.pullRequest('MIAC', 'r1', 9),
+      ],
+    ];
+    for (const status of [401, 403])
+      for (const [route, call] of reads) {
+        server.route('GET', route, { status, body: {} });
+        await expect(call()).rejects.toMatchObject({
+          kind: 'unauthorized',
+          message: CODE_READ_DENIED,
+        });
+      }
+    expect(CODE_READ_DENIED).toBe(
+      'The token cannot read repositories or pull requests (needs Code: Read & write)',
+    );
   });
 });

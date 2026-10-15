@@ -81,6 +81,9 @@ export function buildWiql(opts: {
 export const WRITE_DENIED =
   'The token cannot write work items (needs Work Items: Read & write)';
 
+export const CODE_READ_DENIED =
+  'The token cannot read repositories or pull requests (needs Code: Read & write)';
+
 export const CODE_WRITE_DENIED =
   'The token cannot create pull requests (needs Code: Read & write)';
 
@@ -511,6 +514,8 @@ export class AdoClient {
   async repositoryId(project: string, repo: string): Promise<string> {
     const data = await this.request<{ id: string }>(
       `/${encodeURIComponent(project)}/_apis/git/repositories/${encodeURIComponent(repo)}?${API}`,
+      {},
+      { code: true },
     );
     return data.id;
   }
@@ -522,6 +527,8 @@ export class AdoClient {
   ): Promise<RawPr | null> {
     const data = await this.request<{ value?: RawPr[] }>(
       `/${encodeURIComponent(project)}/_apis/git/repositories/${encodeURIComponent(repositoryId)}/pullrequests?searchCriteria.sourceRefName=${encodeURIComponent(`refs/heads/${branch}`)}&searchCriteria.status=active&${API}`,
+      {},
+      { code: true },
     );
     return (data.value ?? [])[0] ?? null;
   }
@@ -564,6 +571,8 @@ export class AdoClient {
   ): Promise<RawPr> {
     return this.request<RawPr>(
       `/${encodeURIComponent(project)}/_apis/git/repositories/${encodeURIComponent(repositoryId)}/pullrequests/${id}?${API}`,
+      {},
+      { code: true },
     );
   }
 
@@ -611,7 +620,9 @@ export class AdoClient {
         path,
         (res.status === 401 || res.status === 403) && (opts.code || opts.write)
           ? opts.code
-            ? CODE_WRITE_DENIED
+            ? opts.write
+              ? CODE_WRITE_DENIED
+              : CODE_READ_DENIED
             : WRITE_DENIED
           : 'Azure DevOps rejected the token (check that it is valid and has Work Items read scope)',
         res.status,
