@@ -30,7 +30,7 @@ const defaults: FakeHandlers = {
     showSplash: true,
     sendTelemetry: true,
   }),
-  'app:info': () => ({ version: '1.0.0' }),
+  'app:info': () => ({ version: '1.0.0', windowsBuild: null }),
   'rates:list': () => ({ rates: [], officialAsOf: '2026-10-14' }),
   'usage:task': (taskId) => emptyUsage(taskId),
   'repos:list': () => [],

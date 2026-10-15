@@ -40,4 +40,9 @@ Download the installer from GitHub: open the Actions run for the commit, then th
     - With `"autoUpdate": false` in `%APPDATA%\miac\settings.json`, no update is downloaded.
     - `https://update.electronjs.org/UnreliableWitness/MIAC/win32-x64/<N>/RELEASES` returns a line naming the vN+1 `.nupkg`.
 
+12. **Terminal rendering.** In a task's PowerShell tab and its Claude Code tab, check that:
+    - Claude Code's start-up logo (the block-character mascot) and its rounded input box are drawn cleanly, with no gaps, overlaps or stretched characters.
+    - In PowerShell, type a command longer than the window width, then resize the window narrower and wider: the line wraps and unwraps without duplicated or scrambled text. `cls`, `Get-ChildItem` and PSReadLine's grey prediction text look as they do in Windows Terminal.
+    - Resizing while Claude Code runs redraws it without leftover fragments.
+
 If a setup command or a shim fails with "running scripts is disabled on this system": MIAC passes `-ExecutionPolicy Bypass`, but an execution policy set by Group Policy overrides it. Ask IT, or install claude and copilot as native `.exe` builds.
