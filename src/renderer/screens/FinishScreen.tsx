@@ -56,6 +56,11 @@ export function FinishScreen({ taskId }: { taskId: string }) {
 
   useEscape(back);
 
+  const stillHere = () => {
+    const now = useStore.getState().screen;
+    return now.kind === 'finish' && now.taskId === taskId;
+  };
+
   if (!task) return null;
 
   if (!ready) {
@@ -80,7 +85,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
         api().invoke('terminals:open', taskId, { kind: 'run', label, command }),
       notify,
     );
-    if (opened) {
+    if (opened && stillHere()) {
       select(taskId);
       go({ kind: 'task' });
     }
@@ -98,7 +103,8 @@ export function FinishScreen({ taskId }: { taskId: string }) {
       return true;
     }, notify);
     setBusy(false);
-    if (ok) {
+    // Only when the user is still here: Escape or the nav may have taken them elsewhere meanwhile.
+    if (ok && stillHere()) {
       select(taskId);
       go({ kind: 'task' });
     }

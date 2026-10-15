@@ -119,6 +119,30 @@ describe('FinishScreen', () => {
     expect(useStore.getState().selectedTaskId).toBe('a');
   });
 
+  it('does not move the user to the Done page when they left the Finish page while it ran', async () => {
+    let resolve: () => void = () => {};
+    installFakeApi({
+      'tasks:finishChecks': () => clean,
+      'tasks:finish': () =>
+        new Promise<void>((r) => {
+          resolve = r;
+        }),
+    });
+    useStore.setState({
+      screen: { kind: 'finish', taskId: 'a' },
+      previous: { kind: 'sprint' },
+    });
+    render(<FinishScreen taskId="a" />);
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Finish and clean up' }),
+    );
+    await userEvent.keyboard('{Escape}');
+    useStore.getState().go({ kind: 'new-task' });
+    resolve();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(useStore.getState().screen).toEqual({ kind: 'new-task' });
+  });
+
   it('opens commit and push in a terminal tab', async () => {
     const { calls } = installFakeApi({
       'tasks:finishChecks': () => dirty,
