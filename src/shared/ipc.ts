@@ -25,6 +25,7 @@ import type {
   SyncResult,
   TaskUsage,
 } from './usage';
+import type { RendererTelemetry } from './telemetry';
 
 /** Request/response channels. `args` is the tuple the renderer passes; `result` is what main resolves. */
 export type Channels = {
@@ -122,6 +123,8 @@ export type MiacApi = {
     event: K,
     listener: (payload: Events[K]) => void,
   ): () => void;
+  /** Fire-and-forget app telemetry; main validates, scrubs and drops it when the user opted out. */
+  track(message: RendererTelemetry): void;
 };
 
 export const EVENT_PREFIX = 'miac-event:';

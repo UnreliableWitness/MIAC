@@ -51,6 +51,8 @@ export const AppSettingsSchema = z.object({
   receiverPort: z.number().int().min(1024).max(65535),
   hourlySync: z.boolean(),
   showSplash: z.boolean().default(true),
+  /** Send anonymous usage and error data (see docs/telemetry.md). */
+  sendTelemetry: z.boolean().default(true),
 });
 export type AppSettings = z.infer<typeof AppSettingsSchema>;
 export const defaultSettings = (): AppSettings => ({
@@ -58,6 +60,7 @@ export const defaultSettings = (): AppSettings => ({
   receiverPort: 4319,
   hourlySync: true,
   showSplash: true,
+  sendTelemetry: true,
 });
 
 export type SessionSummary = {

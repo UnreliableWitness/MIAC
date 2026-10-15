@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import {
   app,
@@ -38,8 +40,52 @@ import { UsageStore } from './main/usage/UsageStore';
 import { runSmoke } from './main/smoke';
 import { createSplashWindow, SplashReporter } from './main/splash';
 import { appMenu } from './main/appMenu';
+import {
+  AppInsightsClient,
+  NoopTelemetry,
+  type Telemetry,
+} from './main/telemetry/AppInsightsClient';
+import {
+  forwardRendererTelemetry,
+  installId,
+  sensitiveValues,
+  timedFetch,
+  trackHandlerFailures,
+} from './main/telemetry/helpers';
+import { TELEMETRY_CHANNEL } from './shared/telemetry';
 
 if (started) app.quit();
+
+/** Replaced by the real client in boot when the build has a connection string (CI release builds). */
+let telemetry: Telemetry = NoopTelemetry;
+const sessionStart = Date.now();
+
+// Monitor only: Electron's own handling of an uncaught exception (the error dialog) stays as it is.
+process.on('uncaughtExceptionMonitor', (error, origin) => {
+  telemetry.exception(error, { source: 'main', origin }, 'critical');
+  void telemetry.flush();
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled rejection in main:', reason);
+  telemetry.exception(reason, { source: 'main', origin: 'unhandledRejection' });
+});
+app.on('render-process-gone', (_e, _wc, details) => {
+  if (details.reason === 'clean-exit') return;
+  telemetry.event('process.gone', {
+    process: 'renderer',
+    reason: details.reason,
+    exitCode: details.exitCode,
+  });
+  void telemetry.flush();
+});
+app.on('child-process-gone', (_e, details) => {
+  if (details.reason === 'clean-exit') return;
+  telemetry.event('process.gone', {
+    process: details.type,
+    reason: details.reason,
+    exitCode: details.exitCode,
+  });
+});
 
 const icon = nativeImage.createFromDataURL(iconUrl);
 // macOS takes the icon from the app bundle; only Windows and Linux windows need it passed in.
@@ -115,6 +161,7 @@ function revealMain(win: BrowserWindow): void {
 }
 
 async function boot(): Promise<void> {
+  const bootStart = performance.now();
   const userData = app.getPath('userData');
   const settings = new SettingsStore(path.join(userData, 'settings.json'));
   const settingsLoaded = await settings.load();
@@ -122,6 +169,43 @@ async function boot(): Promise<void> {
   const reporter = new SplashReporter(splashWin);
   ipcMain.on('splash:skip', () => reporter.skip());
   ipcMain.on('splash:quit', () => app.quit());
+  // Boot step timings (ms), measured around the real work, not the splash pacing.
+  const timings: Record<string, number> = {
+    settingsMs: performance.now() - bootStart,
+  };
+  let mark = performance.now();
+  const lap = (key: string) => {
+    const now = performance.now();
+    timings[key] = now - mark;
+    mark = now;
+  };
+  let sensitive: () => string[] = () => [];
+  if (__APPINSIGHTS_CONNECTION_STRING__ && process.env.MIAC_TELEMETRY !== '0') {
+    try {
+      telemetry = new AppInsightsClient({
+        connectionString: __APPINSIGHTS_CONNECTION_STRING__,
+        enabled: () => settings.get().sendTelemetry,
+        home: app.getPath('home'),
+        sensitive: () => sensitive(),
+        context: {
+          appVersion: app.getVersion(),
+          os: process.platform,
+          osVersion: os.release(),
+          arch: process.arch,
+          electronVersion: process.versions.electron,
+          packaged: app.isPackaged,
+          installId: await installId(userData),
+          sessionId: randomUUID(),
+        },
+      });
+    } catch (e) {
+      console.error('[telemetry] disabled:', e);
+    }
+  }
+  ipcMain.on(TELEMETRY_CHANNEL, (_e, payload: unknown) =>
+    forwardRendererTelemetry(payload, telemetry),
+  );
+  lap('telemetryMs');
   try {
     reporter.step('Loading tasks');
     const store = new TaskStore(path.join(userData, 'state.json'));
@@ -140,10 +224,26 @@ async function boot(): Promise<void> {
     const connectionsLoaded = await connections.load();
     const repos = new RepoRegistry(store, git);
     await pruneDanglingConnectionLinks(repos, connections);
+    const username = (() => {
+      try {
+        return os.userInfo().username;
+      } catch {
+        return undefined;
+      }
+    })();
+    sensitive = () =>
+      sensitiveValues({
+        repos: repos.list(),
+        tasks: store.state.tasks,
+        connections: connections.list(),
+        username,
+      });
+    lap('tasksMs');
     const usageDir = path.join(userData, 'usage');
     await fs.mkdir(path.join(usageDir, 'copilot'), { recursive: true });
     const usage = new UsageStore(usageDir, () => OFFICIAL_RATES);
     const usageLoaded = await usage.load();
+    lap('usageMs');
     const ingest = (events: UsageEvent[]) => {
       for (const e of events)
         usage
@@ -169,7 +269,8 @@ async function boot(): Promise<void> {
       },
       finishFlushMs: 2500,
       connections,
-      ado: new AdoRegistry(connections),
+      ado: new AdoRegistry(connections, timedFetch(telemetry)),
+      telemetry,
       openExternal: (url) => shell.openExternal(url),
       store,
       git,
@@ -202,12 +303,14 @@ async function boot(): Promise<void> {
         }),
       broadcast,
     });
-    registerIpc(ipcMain, handlers);
+    registerIpc(ipcMain, trackHandlerFailures(handlers, telemetry));
     reporter.step(
       `Starting usage receiver 127.0.0.1:${settings.get().receiverPort}`,
     );
+    lap('handlersMs');
     const receiverStarted = await receiver.start(settings.get().receiverPort);
     copilot.start();
+    lap('receiverMs');
     stopUsage = () => {
       copilot.stop();
       void receiver.stop();
@@ -264,7 +367,13 @@ async function boot(): Promise<void> {
         });
     });
     await Promise.all([
-      new Promise<void>((r) => win.once('ready-to-show', () => r())),
+      new Promise<void>((r) =>
+        win.once('ready-to-show', () => {
+          lap('windowMs');
+          timings.readyMs = performance.now() - bootStart;
+          r();
+        }),
+      ),
       reporter.done(),
     ]);
     reporter.step('Ready');
@@ -273,9 +382,27 @@ async function boot(): Promise<void> {
     booting = false;
     reporter.close();
     splashWin = null;
+    telemetry.event(
+      'app.started',
+      {
+        splash: settings.get().showSplash,
+        repos: repos.list().length,
+        openTasks: store.state.tasks.filter((t) => t.status !== 'done').length,
+        connections: connections.list().length,
+        receiverListening: receiverStarted.listening,
+      },
+      {
+        ...timings,
+        // From process start to the main window shown (includes splash pacing).
+        visibleMs: process.uptime() * 1000,
+      },
+    );
+    telemetry.metric('app.startup.readyMs', timings.readyMs ?? 0);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     console.error(e);
+    telemetry.exception(e, { source: 'boot' }, 'critical');
+    void telemetry.flush();
     if (reporter.active) {
       reporter.fail(message);
       // Closing the failed splash (Cmd+W) must not leave a windowless, half-booted app on macOS.
@@ -354,4 +481,19 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   for (const id of terminals.ids()) terminals.kill(id);
   stopUsage();
+});
+
+let telemetryFlushed = false;
+app.on('will-quit', (e) => {
+  // Hold the quit for one last best-effort send (at most 2 s), then exit.
+  if (telemetryFlushed || telemetry === NoopTelemetry) return;
+  telemetryFlushed = true;
+  e.preventDefault();
+  telemetry.event('app.quit', undefined, {
+    sessionMinutes: (Date.now() - sessionStart) / 60_000,
+  });
+  void Promise.race([
+    telemetry.flush(),
+    new Promise((r) => setTimeout(r, 2000)),
+  ]).finally(() => app.exit(0));
 });

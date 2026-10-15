@@ -38,6 +38,8 @@ import type { TerminalManager } from '../services/TerminalManager';
 import type { CopilotFileTailer } from '../usage/CopilotFileTailer';
 import { usageCsv } from '../usage/csv';
 import type { SettingsStore } from '../usage/SettingsStore';
+import { NoopTelemetry, type Telemetry } from '../telemetry/AppInsightsClient';
+import { changedKeys } from '../telemetry/helpers';
 import { telemetryEnv } from '../usage/telemetryEnv';
 import type { UsageReceiver } from '../usage/UsageReceiver';
 import type { UsageStore } from '../usage/UsageStore';
@@ -67,6 +69,8 @@ export type Services = {
   onHourly: (fn: () => void) => void;
   /** How long Finish waits after closing terminals so the last telemetry batch arrives (main 2500, tests 0). */
   finishFlushMs: number;
+  /** App telemetry (usage, errors, timings); see docs/telemetry.md. Defaults to sending nothing. */
+  telemetry?: Telemetry;
 };
 
 async function exists(p: string): Promise<boolean> {
@@ -117,6 +121,7 @@ export async function pruneDanglingConnectionLinks(
 }
 
 export function createHandlers(s: Services): Handlers {
+  const tel = s.telemetry ?? NoopTelemetry;
   const connectionsChanged = () =>
     s.broadcast('connections:changed', s.connections.list());
 
@@ -353,10 +358,25 @@ export function createHandlers(s: Services): Handlers {
   const runSetup = async (taskId: string, fromStep?: number): Promise<void> => {
     let state: SetupState | undefined;
     let finishedEvent: SetupEvent | null = null;
+    const t0 = Date.now();
+    let steps: ReturnType<typeof planSteps> = [];
+    const report = (ok: boolean, failedStep: number | null) =>
+      tel.event(
+        'setup.finished',
+        {
+          ok,
+          retry: fromStep !== undefined,
+          failedStep:
+            failedStep === null
+              ? 'none'
+              : (steps[failedStep]?.kind ?? 'unknown'),
+        },
+        { durationMs: Date.now() - t0, steps: steps.length },
+      );
     try {
       const task = taskById(taskId);
       const plan = await buildPlan(task);
-      const steps = planSteps(plan);
+      steps = planSteps(plan);
       const current: SetupState = {
         steps: steps.map((def) => ({ def, status: 'todo' })),
         log: [],
@@ -370,20 +390,33 @@ export function createHandlers(s: Services): Handlers {
         fromStep,
         onEvent: (e) => {
           applySetupEvent(current, e);
+          if (e.type === 'step' && e.ms !== undefined)
+            tel.metric(
+              `setup.step.${steps[e.index]?.kind ?? 'unknown'}`,
+              e.ms,
+              {
+                status: e.status,
+              },
+            );
           // Hold back 'finished' until the task status is persisted, so listeners never see a stale status.
           if (e.type === 'finished') finishedEvent = e;
           else s.broadcast('setup', e);
         },
         startTerminals: async () => {
           const defs = initialTerminals(task);
-          for (const def of defs)
+          for (const def of defs) {
             spawnTerminal({ ...task, terminals: defs }, def);
+            tel.event('terminal.opened', { kind: def.kind, initial: true });
+          }
           await updateTerminals(taskId, (list) => [...list, ...defs]);
         },
       });
       await patchTask(taskId, { status: result.ok ? 'ready' : 'setup-failed' });
+      report(result.ok, result.ok ? null : current.failedStep);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
+      report(false, null);
+      tel.exception(e, { source: 'setup' });
       s.broadcast('notice', {
         level: 'error',
         message: `Setup failed: ${message}`,
@@ -413,11 +446,13 @@ export function createHandlers(s: Services): Handlers {
     'repos:add': async (folder) => {
       const repo = await s.repos.add(folder);
       s.broadcast('repos:changed', s.repos.list());
+      tel.event('repo.added', { repos: s.repos.list().length });
       return repo;
     },
     'repos:remove': async (id) => {
       await s.repos.remove(id);
       s.broadcast('repos:changed', s.repos.list());
+      tel.event('repo.removed');
     },
     'repos:refresh': async (id) => {
       const repo = await s.repos.refresh(id);
@@ -497,6 +532,14 @@ export function createHandlers(s: Services): Handlers {
         for (const k of keys) creating.delete(k);
       }
       startSetupInBackground(task.id);
+      tel.event('task.created', {
+        workItem: input.workItem !== null && input.workItem !== undefined,
+        copy: input.copy,
+        startClaude: input.startClaude,
+        openShell: input.openShell,
+        openCopilot: input.openCopilot ?? false,
+        commands: input.commands.length,
+      });
       await tasksChanged();
       return task;
     },
@@ -511,6 +554,7 @@ export function createHandlers(s: Services): Handlers {
         throw e;
       }
       startSetupInBackground(taskId, from);
+      tel.event('setup.retried');
     },
     'tasks:cancelSetup': async (taskId) => {
       claim(taskId, ['setup-failed'], 'cancel the setup of');
@@ -529,6 +573,7 @@ export function createHandlers(s: Services): Handlers {
           st.tasks = st.tasks.filter((t) => t.id !== taskId);
         });
         await tasksChanged();
+        tel.event('setup.cancelled');
       } finally {
         release(taskId);
       }
@@ -576,6 +621,17 @@ export function createHandlers(s: Services): Handlers {
           status: 'done',
           finishedAt: new Date().toISOString(),
         });
+        tel.event(
+          'task.finished',
+          {
+            removeWorktree: options.removeWorktree,
+            deleteBranch: options.deleteBranch,
+            closeTerminals: options.closeTerminals,
+            syncUsage: options.syncUsage,
+            workItem: task.workItem !== null && task.workItem !== undefined,
+          },
+          { ageHours: (Date.now() - Date.parse(task.createdAt)) / 3_600_000 },
+        );
         if (options.syncUsage) {
           try {
             if (killTerminals && s.finishFlushMs > 0)
@@ -585,6 +641,7 @@ export function createHandlers(s: Services): Handlers {
               comment: true,
               refreshFields: true,
             });
+            tel.event('usage.synced', { ok: result.ok, onFinish: true });
             if (!result.ok)
               s.broadcast('notice', {
                 level: 'warn',
@@ -605,6 +662,7 @@ export function createHandlers(s: Services): Handlers {
     'tasks:openInEditor': async (taskId) => {
       const task = taskById(taskId);
       await s.launch(s.platform.editorCommand(task.worktreePath));
+      tel.event('editor.opened');
     },
 
     'terminals:open': async (taskId, def) => {
@@ -617,6 +675,7 @@ export function createHandlers(s: Services): Handlers {
         release(taskId);
       }
       await updateTerminals(taskId, (list) => [...list, full]);
+      tel.event('terminal.opened', { kind: full.kind, initial: false });
       return full;
     },
     'terminals:write': async (id, data) => s.terminals.write(id, data),
@@ -648,6 +707,7 @@ export function createHandlers(s: Services): Handlers {
           `Cannot restart a terminal of a task that is ${owner.status}`,
         );
       spawnTerminal(owner, def);
+      tel.event('terminal.restarted', { kind: def.kind, afterRelaunch: true });
     },
     'terminals:buffer': async (id) => s.terminals.buffer(id),
     'terminals:isRunning': async (id) => s.terminals.isRunning(id),
@@ -664,6 +724,9 @@ export function createHandlers(s: Services): Handlers {
       s.ado.invalidate(saved.id);
       const verified = await s.connections.setStatus(saved.id, 'ok', user);
       connectionsChanged();
+      tel.event('connection.saved', {
+        connections: s.connections.list().length,
+      });
       return verified;
     },
     'connections:remove': async (id) => {
@@ -674,12 +737,14 @@ export function createHandlers(s: Services): Handlers {
       s.ado.invalidate(id);
       connectionsChanged();
       s.broadcast('repos:changed', s.repos.list());
+      tel.event('connection.removed');
     },
     'connections:verify': async (id) => verifyConnection(id),
     'repos:setConnection': async (repoId, connectionId) => {
       if (connectionId !== null) s.connections.get(connectionId);
       const repo = await s.repos.setConnection(repoId, connectionId);
       s.broadcast('repos:changed', s.repos.list());
+      tel.event('repo.connectionLinked', { linked: connectionId !== null });
       return repo;
     },
     'workItems:currentIteration': async (connectionId) => {
@@ -690,6 +755,10 @@ export function createHandlers(s: Services): Handlers {
     },
     'workItems:search': async (connectionId, search) => {
       const c = s.connections.get(connectionId);
+      tel.event('workItems.search', {
+        scope: search.scope,
+        hasText: search.text.trim().length > 0,
+      });
       return withConnection(connectionId, async () => {
         const client = s.ado.client(connectionId);
         const iteration =
@@ -716,13 +785,17 @@ export function createHandlers(s: Services): Handlers {
       await s.usage.setBillable(taskId, sessionId, billable);
       return s.usage.summarize(taskId);
     },
-    'usage:sync': async (taskId) =>
-      usageSync.syncTask(taskId, {
+    'usage:sync': async (taskId) => {
+      const result = await usageSync.syncTask(taskId, {
         refreshFields: true,
         // A done task still owes its one usage comment if the write on finish failed.
         comment: taskById(taskId).status === 'done',
-      }),
+      });
+      tel.event('usage.synced', { ok: result.ok, onFinish: false });
+      return result;
+    },
     'usage:exportCsv': async (taskId) => {
+      tel.event('usage.exportCsv');
       return usageCsv(
         s.usage.records(taskId),
         (sessionId) => s.usage.isBillable(taskId, sessionId),
@@ -744,6 +817,10 @@ export function createHandlers(s: Services): Handlers {
     'settings:save': async (next) => {
       const before = s.settings.get();
       const saved = await s.settings.save(next);
+      const changed = changedKeys(before, saved);
+      // Turning telemetry off is the one change that is not reported.
+      if (changed.length > 0 && saved.sendTelemetry)
+        tel.event('settings.changed', { keys: changed.join(',') });
       if (
         saved.receiverPort !== before.receiverPort ||
         !s.receiver.status.listening

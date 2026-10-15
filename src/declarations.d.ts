@@ -13,3 +13,6 @@ interface Window {
 // Forge's env types declare only MAIN_WINDOW_*; the splash renderer gets its own pair.
 declare const SPLASH_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 declare const SPLASH_WINDOW_VITE_NAME: string;
+
+/** App Insights connection string baked in at build time (empty in local builds). */
+declare const __APPINSIGHTS_CONNECTION_STRING__: string;
