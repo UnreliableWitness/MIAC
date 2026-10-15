@@ -1064,4 +1064,44 @@ describe('work item state and pull request calls', () => {
       'The token cannot read repositories or pull requests (needs Code: Read & write)',
     );
   });
+  it('maps an unknown PR status to active and a missing isDraft to false', async () => {
+    server.route('GET', `${P}/git/repositories/r1/pullrequests/9`, {
+      body: { pullRequestId: 9, status: 'notSet' },
+    });
+    expect(await client.pullRequest('MIAC', 'r1', 9)).toEqual({
+      pullRequestId: 9,
+      status: 'active',
+      isDraft: false,
+    });
+    server.route('GET', `${P}/git/repositories/r1/pullrequests`, {
+      body: {
+        value: [{ pullRequestId: 5, status: 'abandoned', isDraft: 'yes' }],
+      },
+    });
+    expect(await client.findActivePullRequest('MIAC', 'r1', 'b')).toEqual({
+      pullRequestId: 5,
+      status: 'abandoned',
+      isDraft: false,
+    });
+    server.route('POST', `${P}/git/repositories/r1/pullrequests`, {
+      body: { pullRequestId: 11, status: 42, isDraft: true },
+    });
+    expect(
+      await client.createPullRequest('MIAC', 'r1', {
+        source: 'a',
+        target: 'main',
+        title: 'T',
+        description: 'D',
+        workItemId: null,
+      }),
+    ).toEqual({ pullRequestId: 11, status: 'active', isDraft: true });
+  });
+  it('rejects a pull request response without a numeric id', async () => {
+    server.route('GET', `${P}/git/repositories/r1/pullrequests/9`, {
+      body: { status: 'active' },
+    });
+    await expect(client.pullRequest('MIAC', 'r1', 9)).rejects.toThrow(
+      /pull request id/,
+    );
+  });
 });

@@ -95,6 +95,30 @@ export type RawPr = {
 
 type Json = Record<string, unknown>;
 
+const PR_STATUSES: readonly RawPr['status'][] = [
+  'active',
+  'completed',
+  'abandoned',
+];
+
+/** Azure DevOps answers are not trusted as is: an unknown status reads as active, a missing isDraft as false. */
+function toRawPr(data: unknown, path: string): RawPr {
+  const d = (data ?? {}) as Json;
+  if (typeof d.pullRequestId !== 'number')
+    throw new AdoError(
+      'http',
+      path,
+      'Azure DevOps returned a pull request without a pull request id',
+    );
+  return {
+    pullRequestId: d.pullRequestId,
+    status: PR_STATUSES.includes(d.status as RawPr['status'])
+      ? (d.status as RawPr['status'])
+      : 'active',
+    isDraft: d.isDraft === true,
+  };
+}
+
 /** Read calls and three write calls (work item fields, comment, type field listing) against one Azure DevOps organization. The token provider is called per request so a re-entered PAT takes effect immediately. */
 export class AdoClient {
   constructor(
@@ -525,12 +549,14 @@ export class AdoClient {
     repositoryId: string,
     branch: string,
   ): Promise<RawPr | null> {
-    const data = await this.request<{ value?: RawPr[] }>(
-      `/${encodeURIComponent(project)}/_apis/git/repositories/${encodeURIComponent(repositoryId)}/pullrequests?searchCriteria.sourceRefName=${encodeURIComponent(`refs/heads/${branch}`)}&searchCriteria.status=active&${API}`,
+    const path = `/${encodeURIComponent(project)}/_apis/git/repositories/${encodeURIComponent(repositoryId)}/pullrequests`;
+    const data = await this.request<{ value?: unknown[] }>(
+      `${path}?searchCriteria.sourceRefName=${encodeURIComponent(`refs/heads/${branch}`)}&searchCriteria.status=active&${API}`,
       {},
       { code: true },
     );
-    return (data.value ?? [])[0] ?? null;
+    const first = (data.value ?? [])[0];
+    return first === undefined ? null : toRawPr(first, path);
   }
 
   async createPullRequest(
@@ -544,8 +570,9 @@ export class AdoClient {
       workItemId: number | null;
     },
   ): Promise<RawPr> {
-    return this.request<RawPr>(
-      `/${encodeURIComponent(project)}/_apis/git/repositories/${encodeURIComponent(repositoryId)}/pullrequests?${API}`,
+    const path = `/${encodeURIComponent(project)}/_apis/git/repositories/${encodeURIComponent(repositoryId)}/pullrequests`;
+    const data = await this.request<unknown>(
+      `${path}?${API}`,
       {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -562,6 +589,7 @@ export class AdoClient {
       },
       { write: true, code: true },
     );
+    return toRawPr(data, path);
   }
 
   async pullRequest(
@@ -569,11 +597,13 @@ export class AdoClient {
     repositoryId: string,
     id: number,
   ): Promise<RawPr> {
-    return this.request<RawPr>(
-      `/${encodeURIComponent(project)}/_apis/git/repositories/${encodeURIComponent(repositoryId)}/pullrequests/${id}?${API}`,
+    const path = `/${encodeURIComponent(project)}/_apis/git/repositories/${encodeURIComponent(repositoryId)}/pullrequests/${id}`;
+    const data = await this.request<unknown>(
+      `${path}?${API}`,
       {},
       { code: true },
     );
+    return toRawPr(data, path);
   }
 
   private async request<T>(
