@@ -18,5 +18,7 @@ don't render standalone in a browser; read them for layout, copy, colors and dat
 | `Usage.dc.html` | 6. Task AI usage: per-session tokens and cost, custom fields and comment on the work item |
 | `Invoicing.dc.html` | 7. AI cost per customer for invoicing, per period, with CSV export |
 
-Visual language: dark UI (`#15171a` ground, `#1b1e23` panels, `#2a2e35` borders), amber accent `#f0a443`,
-IBM Plex Sans for UI, JetBrains Mono for code, ids, paths and money.
+Visual language (sub-project 6 replaces the mockups' greys): space-black ground `#090b10` (`#07080c` void,
+`#0c0e14` panels), `#1d2230` hairlines, amber `#f0a443` as the one accent, cream `#f6e7c8` for highlights. Instrument
+motifs: the Mind dial mark, ring gauges, bracketed values, tick rules and small spaced-out labels. IBM Plex Sans for UI,
+JetBrains Mono for code, ids, paths and money, both bundled with the app (no font downloads).

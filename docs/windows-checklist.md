@@ -20,5 +20,12 @@ Download the installer from GitHub: open the Actions run for the commit, then th
    - the worktree folder and branch are removed;
    - the work item has the fields and the comment.
 8. **Restart the app.** State, connections and usage are kept. Starting MIAC a second time while it runs focuses the open window instead of opening another.
+9. **Splash and icon.** Start the app. Check that:
+   - the splash appears centred, plays, shows the boot steps and hands off to the main window;
+   - a click or a key press skips it;
+   - with Settings > Appearance > "Show splash on start" off, the next start has no splash;
+   - the taskbar icon is legible at 100% and 150% display scaling;
+   - the installer (`MIAC-Setup.exe`) and the Start menu entry show the Mind dial icon.
+10. **Shortcuts.** While a PowerShell terminal has focus, `Ctrl+0` opens the Usage tab, `Ctrl+1..9` switch terminals and `Ctrl+Shift+F` toggles Focus. `Ctrl+C` still interrupts the running command.
 
 If a setup command or a shim fails with "running scripts is disabled on this system": MIAC passes `-ExecutionPolicy Bypass`, but an execution policy set by Group Policy overrides it. Ask IT, or install claude and copilot as native `.exe` builds.
