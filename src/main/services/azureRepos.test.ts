@@ -1,0 +1,147 @@
+import { describe, expect, it } from 'vitest';
+import {
+  organizationOf,
+  parseAzureReposRemote,
+  prAvailability,
+  prDescription,
+  prTitle,
+  prWebUrl,
+  targetBranch,
+} from './azureRepos';
+
+describe('parseAzureReposRemote', () => {
+  const ref = { org: 'contoso', project: 'Web Shop', repo: 'DXP' };
+  it.each([
+    'https://dev.azure.com/contoso/Web%20Shop/_git/DXP',
+    'https://contoso@dev.azure.com/contoso/Web%20Shop/_git/DXP',
+    'https://dev.azure.com/contoso/Web%20Shop/_git/DXP.git',
+    'https://dev.azure.com/contoso/Web%20Shop/_git/DXP/',
+    'https://contoso.visualstudio.com/Web%20Shop/_git/DXP',
+    'https://contoso.visualstudio.com/DefaultCollection/Web%20Shop/_git/DXP',
+    'git@ssh.dev.azure.com:v3/contoso/Web%20Shop/DXP',
+    'ssh://git@ssh.dev.azure.com/v3/contoso/Web%20Shop/DXP',
+    'contoso@vs-ssh.visualstudio.com:v3/contoso/Web%20Shop/DXP',
+  ])('parses %s', (url) => {
+    expect(parseAzureReposRemote(url)).toEqual(ref);
+  });
+  it.each([
+    'https://github.com/contoso/dxp.git',
+    'git@github.com:contoso/dxp.git',
+    '/Users/me/origin.git',
+    '',
+    'https://dev.azure.com/contoso/_git',
+  ])('rejects %s', (url) => {
+    expect(parseAzureReposRemote(url)).toBeNull();
+  });
+});
+
+describe('organizationOf', () => {
+  it('reads both URL styles, lower-cased', () => {
+    expect(organizationOf('https://dev.azure.com/Contoso')).toBe('contoso');
+    expect(organizationOf('https://dev.azure.com/contoso/')).toBe('contoso');
+    expect(organizationOf('https://Contoso.visualstudio.com')).toBe('contoso');
+    expect(organizationOf('not a url')).toBeNull();
+  });
+});
+
+describe('prAvailability', () => {
+  const remote = 'https://dev.azure.com/contoso/P/_git/R';
+  it('is available for a remote in the connection org', () => {
+    expect(
+      prAvailability({
+        remoteUrl: remote,
+        connectionOrgUrl: 'https://dev.azure.com/Contoso',
+      }),
+    ).toEqual({
+      available: true,
+      reason: null,
+      target: { org: 'contoso', project: 'P', repo: 'R' },
+    });
+  });
+  it('explains why not', () => {
+    expect(
+      prAvailability({ remoteUrl: remote, connectionOrgUrl: null }).reason,
+    ).toBe('this repo has no Azure DevOps connection');
+    expect(
+      prAvailability({
+        remoteUrl: 'https://github.com/a/b',
+        connectionOrgUrl: 'https://dev.azure.com/contoso',
+      }).reason,
+    ).toBe('origin is not an Azure Repos URL');
+    expect(
+      prAvailability({
+        remoteUrl: null,
+        connectionOrgUrl: 'https://dev.azure.com/contoso',
+      }).reason,
+    ).toBe('origin is not an Azure Repos URL');
+    expect(
+      prAvailability({
+        remoteUrl: remote,
+        connectionOrgUrl: 'https://dev.azure.com/fabrikam',
+      }).reason,
+    ).toBe('origin is in another Azure DevOps organization');
+  });
+});
+
+describe('targetBranch', () => {
+  it('strips a known remote prefix only', () => {
+    expect(targetBranch('origin/main', ['origin'])).toBe('main');
+    expect(targetBranch('upstream/dev', ['origin', 'upstream'])).toBe('dev');
+    expect(targetBranch('main', ['origin'])).toBe('main');
+    expect(targetBranch('feature/x', ['origin'])).toBe('feature/x');
+  });
+});
+
+describe('prTitle', () => {
+  it('uses id and title, or the task name', () => {
+    expect(prTitle({ workItem: { id: '42', title: 'Fix it' }, name: '' })).toBe(
+      '42 Fix it',
+    );
+    expect(prTitle({ workItem: null, name: 'Spike' })).toBe('Spike');
+  });
+});
+
+describe('prWebUrl', () => {
+  it('encodes project and repo', () => {
+    expect(
+      prWebUrl('https://dev.azure.com/contoso/', 'Web Shop', 'DXP', 7),
+    ).toBe('https://dev.azure.com/contoso/Web%20Shop/_git/DXP/pullrequest/7');
+  });
+});
+
+describe('prDescription', () => {
+  const base = {
+    heading: 'Bug 42: Fix it',
+    commits: [
+      { sha: 'abc1234', subject: 'First' },
+      { sha: 'def5678', subject: 'Second' },
+    ],
+    commitCount: 2,
+    costLine: 'AI cost for this task: €1.00 (Claude €1.00, Copilot €0.00)',
+  };
+  it('lists commits and the cost line', () => {
+    expect(prDescription(base)).toBe(
+      'Bug 42: Fix it\n\n## Commits\n- abc1234 First\n- def5678 Second\n\nAI cost for this task: €1.00 (Claude €1.00, Copilot €0.00) · recorded by MIAC',
+    );
+  });
+  it('mentions commits beyond the list', () => {
+    expect(prDescription({ ...base, commitCount: 5 })).toContain(
+      '…and 3 more commits',
+    );
+  });
+  it('stays within 4000 characters by dropping commits', () => {
+    const commits = Array.from({ length: 300 }, (_, i) => ({
+      sha: `s${String(i).padStart(6, '0')}`,
+      subject: 'x'.repeat(40),
+    }));
+    const text = prDescription({ ...base, commits, commitCount: 300 });
+    expect(text.length).toBeLessThanOrEqual(4000);
+    expect(text).toMatch(/…and \d+ more commits/);
+    expect(text.endsWith('· recorded by MIAC')).toBe(true);
+  });
+  it('omits the commits section when there are none', () => {
+    expect(prDescription({ ...base, commits: [], commitCount: 0 })).toBe(
+      'Bug 42: Fix it\n\nAI cost for this task: €1.00 (Claude €1.00, Copilot €0.00) · recorded by MIAC',
+    );
+  });
+});
