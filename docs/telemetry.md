@@ -26,7 +26,7 @@ This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 
 
 | Name | Properties / measurements |
 | --- | --- |
-| Screen views (page views) | `workspace`, `new-task`, `setup`, `finish`, `settings` |
+| Screen views (page views) | `sprint`, `task`, `new-task`, `setup`, `finish`, `settings` |
 | `app.started` | splash on/off; counts of repos, open tasks, connections; whether the usage receiver listens; boot step timings (see Performance) |
 | `app.quit` | session length in minutes |
 | `task.created` | has a work item; copy files, start Claude, open shell, open Copilot (booleans); number of setup commands |
