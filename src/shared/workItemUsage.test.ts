@@ -7,6 +7,7 @@ const session = (over: Partial<SessionSummary>): SessionSummary => ({
   sessionId: 's',
   tool: 'claude-code',
   startedAt: '2026-10-14T09:00:00.000Z',
+  lastAt: '2026-10-14T09:00:00.000Z',
   models: ['claude-opus-5-5'],
   requests: 1,
   inputTokens: 0,
@@ -24,6 +25,7 @@ const usage = (
 ): TaskUsage => ({
   taskId: 't',
   sessions,
+  recent: [],
   unpricedRequests: 0,
   usdToEur: 1,
   billable: { costUsd: 23.85, costEur: 23.854, tokens: 6812400 },

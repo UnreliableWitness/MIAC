@@ -1,7 +1,10 @@
-import { TaskHeader } from '../components/TaskHeader';
+import { ArtSlot } from '../components/ArtSlot';
 import { TaskNav } from '../components/TaskNav';
+import { UsagePanel } from '../components/UsagePanel';
 import { TerminalTabs } from '../components/TerminalTabs';
-import { TopBar } from '../components/TopBar';
+import { IconButton } from '../components/instrument';
+import { CrumbStrip, TaskStrip } from '../components/TaskStrip';
+import { useShortcuts } from '../hooks/useShortcuts';
 import { useStore } from '../store';
 
 const PLUS = String.fromCharCode(0xff0b);
@@ -12,28 +15,31 @@ export function WorkspaceScreen() {
   const task = useStore(
     (s) => s.tasks.find((t) => t.id === s.selectedTaskId) ?? null,
   );
+  const hasTasks = useStore((s) => s.tasks.length > 0);
+  const focus = useStore((s) => s.focus);
+  const navCollapsed = useStore((s) => s.navCollapsed);
+  useShortcuts();
+  const inFocus = focus && task?.status === 'ready';
   return (
     <>
-      <TopBar>
-        <div className="spacer" />
-        <button
-          type="button"
-          className="btn btn-primary"
-          onClick={() => go({ kind: 'new-task' })}
-        >
-          {PLUS} New task
-        </button>
-        <button
-          type="button"
-          className="btn"
-          aria-label="Settings"
-          onClick={() => go({ kind: 'settings' })}
-        >
-          {GEAR}
-        </button>
-      </TopBar>
+      {inFocus ? null : task ? (
+        <TaskStrip key={`strip-${task.id}`} task={task} />
+      ) : (
+        <CrumbStrip crumb="Tasks">
+          <IconButton
+            label="New task"
+            tone="accent"
+            onClick={() => go({ kind: 'new-task' })}
+          >
+            {PLUS}
+          </IconButton>
+          <IconButton label="Settings" onClick={() => go({ kind: 'settings' })}>
+            {GEAR}
+          </IconButton>
+        </CrumbStrip>
+      )}
       <div className="workspace">
-        <TaskNav />
+        {(!inFocus || navCollapsed) && <TaskNav />}
         <main className="taskmain">
           {task &&
           (task.status === 'setting-up' || task.status === 'setup-failed') ? (
@@ -54,26 +60,26 @@ export function WorkspaceScreen() {
             </div>
           ) : task && task.status !== 'done' ? (
             <>
-              <TaskHeader key={`head-${task.id}`} task={task} />
               <TerminalTabs key={`tabs-${task.id}`} task={task} />
             </>
           ) : task ? (
-            <div className="empty">
-              <p>
-                This task is done. Its worktree and branch were cleaned up on{' '}
-                {task.finishedAt}.
-              </p>
-              <button
-                type="button"
-                className="btn"
-                onClick={() => go({ kind: 'usage', taskId: task.id })}
-              >
-                View AI usage
-              </button>
-            </div>
+            <>
+              <div className="done-banner">
+                <ArtSlot name="empty-done" />
+                <p>
+                  This task is done. Its worktree and branch were cleaned up on{' '}
+                  {task.finishedAt}.
+                </p>
+              </div>
+              <UsagePanel taskId={task.id} />
+            </>
           ) : (
-            <div className="empty">
-              No task selected. Create one with New task.
+            <div className="empty empty-art">
+              <ArtSlot
+                key={hasTasks ? 'empty-no-selection' : 'empty-no-tasks'}
+                name={hasTasks ? 'empty-no-selection' : 'empty-no-tasks'}
+              />
+              <p>No task selected. Create one with New task.</p>
             </div>
           )}
         </main>

@@ -3,6 +3,7 @@ import type { FinishChecks } from '../../shared/types';
 import { api, tryInvoke } from '../api';
 import { eur } from '../format';
 import { useTaskUsage } from '../hooks/useTaskUsage';
+import { Label } from '../components/instrument';
 import { useStore } from '../store';
 
 const ELLIPSIS = String.fromCharCode(0x2026);
@@ -113,7 +114,9 @@ export function FinishScreen({ taskId }: { taskId: string }) {
         </div>
 
         <div className="finish-section">
-          <div className="label">Safety checks</div>
+          <div className="label">
+            <Label>Safety checks</Label>
+          </div>
           {!checks && !checksFailed && (
             <div className="muted">Checking{ELLIPSIS}</div>
           )}
@@ -196,7 +199,9 @@ export function FinishScreen({ taskId }: { taskId: string }) {
         </div>
 
         <div className="finish-section">
-          <div className="label">AI usage</div>
+          <div className="label">
+            <Label>AI usage</Label>
+          </div>
           {usage && usage.sessions.length > 0 ? (
             <div>
               <div className="amount-line">{`${eur(usage.billable.costEur)} billable`}</div>
@@ -225,7 +230,9 @@ export function FinishScreen({ taskId }: { taskId: string }) {
         </div>
 
         <div className="finish-section">
-          <div className="label">Clean up</div>
+          <div className="label">
+            <Label>Clean up</Label>
+          </div>
           <label className="checkbox">
             <input
               type="checkbox"

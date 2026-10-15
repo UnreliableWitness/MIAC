@@ -1,0 +1,32 @@
+import { render, screen } from '@testing-library/react';
+import { describe, expect, it } from 'vitest';
+import type { SetupState } from '../../shared/types';
+import { StepList } from './StepList';
+
+describe('StepList', () => {
+  it('renders a ticked rule with status per step', () => {
+    const steps: SetupState['steps'] = [
+      {
+        def: { kind: 'worktree', label: 'Create worktree', detail: '' },
+        status: 'done',
+        ms: 1200,
+      },
+      {
+        def: { kind: 'command', label: 'npm ci', detail: '' },
+        status: 'running',
+      },
+      {
+        def: { kind: 'command', label: 'Build', detail: '' },
+        status: 'failed',
+      },
+    ];
+    render(<StepList steps={steps} />);
+    const items = screen.getAllByRole('listitem');
+    expect(items.map((i) => i.getAttribute('data-status'))).toEqual([
+      'done',
+      'running',
+      'failed',
+    ]);
+    expect(screen.getByRole('list')).toHaveClass('steps', 'steps-rule');
+  });
+});

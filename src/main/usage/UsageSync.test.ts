@@ -39,6 +39,7 @@ const task = (over: Partial<Task> = {}): Task => ({
 const usage: TaskUsage = {
   taskId: 't1',
   sessions: [],
+  recent: [],
   unpricedRequests: 0,
   usdToEur: 0.92,
   billable: { costUsd: 10, costEur: 9.2, tokens: 5000 },

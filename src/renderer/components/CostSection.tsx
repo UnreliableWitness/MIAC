@@ -7,6 +7,7 @@ import type {
 } from '../../shared/usage';
 import { OFFICIAL_USD_TO_EUR } from '../../shared/usage';
 import { api, tryInvoke } from '../api';
+import { Label } from './instrument';
 import { useStore } from '../store';
 
 type SettingsDraft = {
@@ -70,15 +71,16 @@ function InvoicingPart() {
       return;
     }
     setError(null);
-    const settings: AppSettings = {
-      version: 1,
-      receiverPort,
-      hourlySync: draft.hourlySync,
-    };
-    const saved = await tryInvoke(
-      () => api().invoke('settings:save', settings),
-      notify,
-    );
+    // Read fresh so a save from another section is not overwritten.
+    const saved = await tryInvoke(async () => {
+      const fresh = await api().invoke('settings:get');
+      const settings: AppSettings = {
+        ...fresh,
+        receiverPort,
+        hourlySync: draft.hourlySync,
+      };
+      return api().invoke('settings:save', settings);
+    }, notify);
     if (saved) notify('info', 'Settings saved');
   };
 
@@ -272,7 +274,9 @@ export function CostSection() {
   return (
     <section id="cost" className="section">
       <div className="section-head">
-        <h2>AI cost and invoicing</h2>
+        <h2>
+          <Label>AI cost and invoicing</Label>
+        </h2>
       </div>
       <InvoicingPart />
       <RatesPart />

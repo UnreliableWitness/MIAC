@@ -16,6 +16,17 @@ const file = () => {
 };
 
 describe('SettingsStore', () => {
+  it('defaults showSplash to true for files written before sub-project 6', async () => {
+    const f = file();
+    writeFileSync(
+      f,
+      JSON.stringify({ version: 1, receiverPort: 4319, hourlySync: true }),
+    );
+    const s = new SettingsStore(f);
+    await s.load();
+    expect(s.get().showSplash).toBe(true);
+  });
+
   it('defaults, saves and reloads', async () => {
     const f = file();
     const a = new SettingsStore(f);
@@ -48,12 +59,14 @@ describe('SettingsStore', () => {
       version: 1,
       receiverPort: 5000,
       hourlySync: false,
+      showSplash: true,
     });
     await s.save({ ...s.get(), hourlySync: true });
     expect(JSON.parse(readFileSync(f, 'utf8'))).toEqual({
       version: 1,
       receiverPort: 5000,
       hourlySync: true,
+      showSplash: true,
     });
   });
   it('rejects invalid values', async () => {

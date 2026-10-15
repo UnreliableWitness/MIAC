@@ -190,3 +190,24 @@ describe('UsageStore', () => {
     expect(b.records('t1').map((r) => r.id)).toEqual(['far']);
   });
 });
+
+describe('summarize views', () => {
+  it('reports lastAt per session and recent billable priced points in the last 6 hours', async () => {
+    const s = new UsageStore(dir(), () => OFFICIAL_RATES);
+    await s.load();
+    const now = Date.parse('2026-10-14T12:00:00.000Z');
+    const iso = (minAgo: number) =>
+      new Date(now - minAgo * 60_000).toISOString();
+    await s.add(ev({ id: 'e1', sessionId: 's1', at: iso(400) }));
+    await s.add(ev({ id: 'e2', sessionId: 's1', at: iso(30) }));
+    await s.add(ev({ id: 'e3', sessionId: 's2', at: iso(10) }));
+    await s.setBillable('t1', 's2', false);
+    const u = s.summarize('t1', now);
+    expect(u.sessions.find((x) => x.sessionId === 's1')!.lastAt).toBe(iso(30));
+    expect(u.sessions.find((x) => x.sessionId === 's1')!.startedAt).toBe(
+      iso(400),
+    );
+    expect(u.recent.map((r) => r.at)).toEqual([iso(30)]);
+    expect(u.recent[0].costEur).toBeGreaterThan(0);
+  });
+});

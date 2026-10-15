@@ -1,9 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import type { AppSettings } from '../../shared/usage';
 import type { MiacConfig, Repo } from '../../shared/types';
 import { api, tryInvoke } from '../api';
+import { ArtSlot } from '../components/ArtSlot';
 import { ConnectionsSection } from '../components/ConnectionsSection';
 import { CostSection } from '../components/CostSection';
-import { TopBar } from '../components/TopBar';
+import { Label, MindMark } from '../components/instrument';
+import { CrumbStrip } from '../components/TaskStrip';
 import { useStore } from '../store';
 
 function renderConfig(
@@ -102,6 +105,82 @@ function RepoRow({ repo }: { repo: Repo }) {
   );
 }
 
+function AppearanceSection() {
+  const notify = useStore((s) => s.notify);
+  const [settings, setSettings] = useState<AppSettings | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    void tryInvoke(() => api().invoke('settings:get'), notify).then((s) => {
+      if (live && s) setSettings(s);
+    });
+    return () => {
+      live = false;
+    };
+  }, [notify]);
+
+  const toggle = async (showSplash: boolean) => {
+    if (!settings) return;
+    // Read fresh so a save from another section is not overwritten.
+    const saved = await tryInvoke(async () => {
+      const fresh = await api().invoke('settings:get');
+      return api().invoke('settings:save', { ...fresh, showSplash });
+    }, notify);
+    if (saved) setSettings(saved);
+  };
+
+  return (
+    <section id="appearance" className="section">
+      <div className="section-head">
+        <h2>
+          <Label>Appearance</Label>
+        </h2>
+      </div>
+      <div className="list">
+        <div className="list-row">
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={settings?.showSplash ?? true}
+              disabled={!settings}
+              onChange={(e) => void toggle(e.target.checked)}
+            />{' '}
+            Show splash on start
+          </label>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function AboutSection() {
+  const [version, setVersion] = useState('');
+
+  useEffect(() => {
+    let live = true;
+    api()
+      .invoke('app:info')
+      .then((i) => {
+        if (live) setVersion(i.version);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  return (
+    <section id="about" aria-label="About" className="about bracketed">
+      <ArtSlot name="about-registry" />
+      <MindMark size={40} />
+      <h2 className="mono">MIAC</h2>
+      <p>Me, I&apos;m Counting</p>
+      <p className="muted">General Systems Vehicle (accounting division)</p>
+      {version && <p className="mono muted">v{version}</p>}
+    </section>
+  );
+}
+
 export function SettingsScreen() {
   const repos = useStore((s) => s.repos);
   const setRepos = useStore((s) => s.setRepos);
@@ -123,18 +202,13 @@ export function SettingsScreen() {
 
   return (
     <>
-      <TopBar crumb="Settings">
-        <a
-          href="#"
-          className="spacer"
-          onClick={(e) => {
-            e.preventDefault();
-            go({ kind: 'workspace' });
-          }}
-        >
-          Back to tasks
-        </a>
-      </TopBar>
+      <CrumbStrip
+        crumb="Settings"
+        back={{
+          label: 'Back to tasks',
+          onClick: () => go({ kind: 'workspace' }),
+        }}
+      />
       <div className="settings">
         <nav className="settings-nav" aria-label="Settings sections">
           <a href="#repos" className="active">
@@ -142,6 +216,7 @@ export function SettingsScreen() {
           </a>
           <a href="#ado">Azure DevOps</a>
           <a href="#cost">AI cost and invoicing</a>
+          <a href="#appearance">Appearance</a>
           <a href="#terminals" className="disabled" aria-disabled="true">
             Terminals and Claude
           </a>
@@ -149,7 +224,9 @@ export function SettingsScreen() {
         <main className="settings-main">
           <section id="repos" className="section">
             <div className="section-head">
-              <h2>Repositories</h2>
+              <h2>
+                <Label>Repositories</Label>
+              </h2>
               <button type="button" className="btn" onClick={addFolder}>
                 Add folder&hellip;
               </button>
@@ -173,13 +250,17 @@ export function SettingsScreen() {
           <CostSection />
           <section id="terminals" className="section">
             <div className="section-head">
-              <h2>Terminals and Claude</h2>
+              <h2>
+                <Label>Terminals and Claude</Label>
+              </h2>
             </div>
             <p className="placeholder">
               Default shell and Claude flags are fixed to the platform defaults
               for now.
             </p>
           </section>
+          <AppearanceSection />
+          <AboutSection />
         </main>
       </div>
     </>

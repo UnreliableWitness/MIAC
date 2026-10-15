@@ -152,4 +152,70 @@ describe('SettingsScreen', () => {
       ).toEqual(['r1', 'c1']),
     );
   });
+
+  it('toggles the splash setting', async () => {
+    const { calls } = installFakeApi({ 'settings:save': (next) => next });
+    render(<SettingsScreen />);
+    const box = await screen.findByRole('checkbox', {
+      name: 'Show splash on start',
+    });
+    await waitFor(() => expect(box).toBeChecked());
+    await userEvent.click(box);
+    expect(calls.find((c) => c.channel === 'settings:save')?.args[0]).toEqual({
+      version: 1,
+      receiverPort: 4319,
+      hourlySync: true,
+      showSplash: false,
+    });
+  });
+
+  it('keeps fields saved by the other section', async () => {
+    let stored = {
+      version: 1 as const,
+      receiverPort: 4319,
+      hourlySync: true,
+      showSplash: true,
+    };
+    const { calls } = installFakeApi({
+      'settings:get': () => stored,
+      'settings:save': (next) => {
+        stored = next;
+        return next;
+      },
+    });
+    render(<SettingsScreen />);
+    await userEvent.click(
+      await screen.findByRole('checkbox', { name: 'Show splash on start' }),
+    );
+    await userEvent.click(
+      await screen.findByRole('checkbox', { name: /every hour/ }),
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Save settings' }),
+    );
+    await waitFor(() =>
+      expect(calls.filter((c) => c.channel === 'settings:save')).toHaveLength(
+        2,
+      ),
+    );
+    expect(
+      calls.filter((c) => c.channel === 'settings:save')[1]?.args[0],
+    ).toEqual({
+      version: 1,
+      receiverPort: 4319,
+      hourlySync: false,
+      showSplash: false,
+    });
+  });
+
+  it('shows the About panel with the version', async () => {
+    installFakeApi();
+    render(<SettingsScreen />);
+    const about = await screen.findByRole('region', { name: 'About' });
+    expect(about).toHaveTextContent("Me, I'm Counting");
+    expect(about).toHaveTextContent(
+      'General Systems Vehicle (accounting division)',
+    );
+    await waitFor(() => expect(about).toHaveTextContent('1.0.0'));
+  });
 });

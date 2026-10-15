@@ -155,13 +155,14 @@ export class UsageStore extends EventEmitter<{ changed: [taskId: string] }> {
     return [...this.lastChange].filter(([, at]) => at > iso).map(([t]) => t);
   }
 
-  summarize(taskId: string): TaskUsage {
+  summarize(taskId: string, now = Date.now()): TaskUsage {
     const sessions = new Map<string, SessionSummary>();
     for (const r of this.records(taskId)) {
       const s = sessions.get(r.sessionId) ?? {
         sessionId: r.sessionId,
         tool: r.tool,
         startedAt: r.at,
+        lastAt: r.at,
         models: [],
         requests: 0,
         inputTokens: 0,
@@ -172,6 +173,8 @@ export class UsageStore extends EventEmitter<{ changed: [taskId: string] }> {
         unpricedRequests: 0,
         billable: this.isBillable(taskId, r.sessionId),
       };
+      if (r.at > s.lastAt) s.lastAt = r.at;
+      if (r.at < s.startedAt) s.startedAt = r.at;
       s.requests++;
       if (!s.models.includes(r.model)) s.models.push(r.model);
       s.inputTokens += r.inputTokens;
@@ -205,6 +208,19 @@ export class UsageStore extends EventEmitter<{ changed: [taskId: string] }> {
       }),
     ) as TaskUsage['byTool'];
     const costUsd = round6(billableList.reduce((n, s) => n + s.costUsd, 0));
+    const since = now - 6 * 3600_000;
+    const recent = this.records(taskId)
+      .filter((r) => r.costUsd !== null && sessions.get(r.sessionId)!.billable)
+      .filter((r) => {
+        const t = Date.parse(r.at);
+        return t >= since && t <= now;
+      })
+      .map((r) => ({
+        at: r.at,
+        tool: r.tool,
+        costEur: round6(r.costUsd! * factor),
+      }))
+      .sort((a, b) => a.at.localeCompare(b.at));
     return {
       taskId,
       sessions: list,
@@ -216,6 +232,7 @@ export class UsageStore extends EventEmitter<{ changed: [taskId: string] }> {
       byTool,
       unpricedRequests: list.reduce((n, s) => n + s.unpricedRequests, 0),
       usdToEur: OFFICIAL_USD_TO_EUR,
+      recent,
     };
   }
 

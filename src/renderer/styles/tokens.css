@@ -1,33 +1,46 @@
 :root {
-  --ground: #15171a;
-  --ground-deep: #0c0d0f;
-  --panel: #1b1e23;
-  --panel-2: #181a1f;
-  --panel-raised: #262a31;
-  --border: #2a2e35;
-  --border-strong: #3a3f48;
+  color-scheme: dark;
+  --void: #07080c;
+  --ground: #090b10;
+  --panel: #0c0e14;
+  --panel-raised: #0d1016;
+  --panel-2: #0b0d13;
+  --line: #1d2230;
+  --line-strong: #232a3a;
+  --tick: #39405a;
   --text: #e7e6e2;
-  --text-soft: #c9ccd1;
-  --muted: #a3a9b2;
+  --text-bright: #f3ead8;
+  --muted: #7d8598;
+  --faint: #6c7488;
   --accent: #f0a443;
   --accent-ink: #1a1408;
-  --accent-bg: #2a2416;
-  --term: #0f1113;
+  --accent-bg: #1a160e;
+  --cream: #f6e7c8;
   --green: #8fd6a4;
-  --green-bg: #1b2620;
-  --green-border: #2e4234;
+  --green-bg: #0f1a14;
+  --green-border: #24382b;
   --blue: #7fb2ff;
-  --blue-bg: #1f2a3d;
+  --blue-bg: #111a2a;
   --warn: #f0c27a;
   --warn-text: #f6dcae;
-  --warn-bg: #2a2416;
-  --warn-border: #4a3d22;
+  --warn-bg: #1a160e;
+  --warn-border: #3d3220;
   --red: #f0a0a0;
-  --red-bg: #3a2224;
-  --red-border: #6a3236;
+  --red-bg: #2a1618;
+  --red-border: #5a2a2e;
   --idle: #555b64;
   --font-ui: 'IBM Plex Sans', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
-  --radius: 8px;
-  --radius-lg: 10px;
+  --radius: 4px;
+  --radius-sm: 3px;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
 }

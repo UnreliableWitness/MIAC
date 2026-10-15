@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { renderBranch, taskSlug } from '../../shared/naming';
 import type { MiacConfig, WorkItemRef, WorkItemType } from '../../shared/types';
 import { api, tryInvoke } from '../api';
+import { Label } from '../components/instrument';
 import { WorkItemPicker } from '../components/WorkItemPicker';
 import { useStore } from '../store';
 
@@ -170,7 +171,9 @@ export function NewTaskScreen() {
     <div className="overlay">
       <div role="dialog" aria-labelledby="nt-title" className="dialog newtask">
         <div className="dialog-head">
-          <h2 id="nt-title">New task</h2>
+          <h2 id="nt-title">
+            <Label>New task</Label>
+          </h2>
           <div role="tablist" aria-label="Start from" className="segmented">
             {connection && (
               <button
@@ -313,7 +316,9 @@ export function NewTaskScreen() {
                   if (!e.target.value) setBranchEdited(false);
                 }}
               />
-              <span className="label">Folder</span>
+              <span className="label">
+                <Label>Folder</Label>
+              </span>
               <span className="mono small" style={{ overflowWrap: 'anywhere' }}>
                 {folder}
               </span>

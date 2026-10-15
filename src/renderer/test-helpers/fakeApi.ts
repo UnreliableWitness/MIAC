@@ -11,6 +11,7 @@ export type FakeHandlers = Partial<{
 export const emptyUsage = (taskId: string): TaskUsage => ({
   taskId,
   sessions: [],
+  recent: [],
   unpricedRequests: 0,
   usdToEur: 0.92,
   billable: { costUsd: 0, costEur: 0, tokens: 0 },
@@ -25,7 +26,9 @@ const defaults: FakeHandlers = {
     version: 1,
     receiverPort: 4319,
     hourlySync: true,
+    showSplash: true,
   }),
+  'app:info': () => ({ version: '1.0.0' }),
   'rates:list': () => ({ rates: [], officialAsOf: '2026-10-14' }),
   'usage:task': (taskId) => emptyUsage(taskId),
   'repos:list': () => [],

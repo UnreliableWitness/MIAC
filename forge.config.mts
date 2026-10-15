@@ -29,6 +29,7 @@ const config: ForgeConfig = {
     asar: { unpack: '**/node_modules/node-pty/**' },
     ignore: (file: string) => !keepInPackage(file),
     executableName: 'MIAC',
+    icon: 'assets/icon/miac',
     ...(signing ? { windowsSign: signing } : {}),
   },
   rebuildConfig: {},
@@ -51,6 +52,11 @@ const config: ForgeConfig = {
     new MakerSquirrel({
       name: 'miac',
       setupExe: 'MIAC-Setup.exe',
+      setupIcon: 'assets/icon/miac.ico',
+      // Apps & features icon. Squirrel fetches it at install time, so it must be a URL; this one
+      // resolves once assets/icon/miac.ico is on main.
+      iconUrl:
+        'https://raw.githubusercontent.com/UnreliableWitness/MIAC/main/assets/icon/miac.ico',
       ...(signing ? { windowsSign: signing } : {}),
     }),
     new MakerZIP({}, ['darwin']),
@@ -73,11 +79,20 @@ const config: ForgeConfig = {
           config: 'vite.preload.config.mts',
           target: 'preload',
         },
+        {
+          entry: 'src/splashPreload.ts',
+          config: 'vite.preload.config.mts',
+          target: 'preload',
+        },
       ],
       renderer: [
         {
           name: 'main_window',
           config: 'vite.renderer.config.mts',
+        },
+        {
+          name: 'splash_window',
+          config: 'vite.splash.config.mts',
         },
       ],
     }),

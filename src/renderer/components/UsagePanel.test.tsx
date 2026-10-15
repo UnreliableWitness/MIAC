@@ -1,11 +1,11 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TaskView } from '../../shared/types';
 import type { TaskUsage } from '../../shared/usage';
 import { useStore } from '../store';
 import { emptyUsage, installFakeApi } from '../test-helpers/fakeApi';
-import { UsageScreen } from './UsageScreen';
+import { UsagePanel } from './UsagePanel';
 
 const EURO = String.fromCharCode(0x20ac);
 const task: TaskView = {
@@ -45,6 +45,7 @@ const usage: TaskUsage = {
       sessionId: 's1',
       tool: 'claude-code',
       startedAt: '2026-10-14T09:12:00.000Z',
+      lastAt: '2026-10-14T09:12:00.000Z',
       models: ['claude-opus-5-5'],
       requests: 3,
       inputTokens: 412_000,
@@ -59,6 +60,7 @@ const usage: TaskUsage = {
       sessionId: 's2',
       tool: 'copilot-cli',
       startedAt: '2026-10-14T10:00:00.000Z',
+      lastAt: '2026-10-14T10:00:00.000Z',
       models: ['mystery-1'],
       requests: 1,
       inputTokens: 1000,
@@ -85,7 +87,6 @@ const usage: TaskUsage = {
 
 beforeEach(() => {
   useStore.setState({
-    screen: { kind: 'usage', taskId: 't1' },
     tasks: [task],
     notices: [],
     repos: [
@@ -112,7 +113,7 @@ beforeEach(() => {
   });
 });
 
-describe('UsageScreen', () => {
+describe('UsagePanel', () => {
   it('shows tiles, sessions, unpriced usage, field values and the comment preview', async () => {
     installFakeApi({
       'usage:task': () => usage,
@@ -127,22 +128,18 @@ describe('UsageScreen', () => {
         ],
       }),
     });
-    render(<UsageScreen taskId="t1" />);
-    expect(await screen.findByText('Billable AI cost')).toBeTruthy();
+    render(<UsagePanel taskId="t1" />);
+    expect(await screen.findByRole('img', { name: /Billable/ })).toBeTruthy();
     expect(screen.getAllByText(`${EURO}9.20`).length).toBeGreaterThan(0);
     expect(
-      screen.getByText(/official list prices .* USD to EUR 0.92/),
+      screen.getByText(/Official list prices .* USD\S+EUR 0.92/),
     ).toBeTruthy();
     const rows = screen.getAllByRole('row');
     expect(rows).toHaveLength(3);
     expect(within(rows[1]).getByText('claude-opus-5-5')).toBeTruthy();
     expect(within(rows[1]).getByText(`${EURO}9.20`)).toBeTruthy();
-    const heads = within(rows[0])
-      .getAllByRole('columnheader')
-      .map((h) => h.textContent);
-    expect(heads.indexOf('Cache write')).toBe(heads.indexOf('Cache read') + 1);
-    expect(within(rows[1]).getByText('250k')).toBeTruthy();
-    expect(screen.getByText(/^1 session \S+ 3\.6M tokens$/)).toBeTruthy();
+    expect(within(rows[1]).getByText('3.9M')).toBeTruthy();
+    expect(screen.getByText('3.6M tokens')).toBeTruthy();
     expect(within(rows[2]).getByText('unpriced')).toBeTruthy();
     expect(
       screen.getByText(
@@ -179,7 +176,7 @@ describe('UsageScreen', () => {
       }),
       'usage:exportCsv': () => 'time\r\n',
     });
-    render(<UsageScreen taskId="t1" />);
+    render(<UsagePanel taskId="t1" />);
     const boxes = await screen.findAllByRole('checkbox', { name: /Billable/ });
     await userEvent.click(boxes[0]);
     expect(calls.find((c) => c.channel === 'usage:setBillable')?.args).toEqual([
@@ -187,13 +184,15 @@ describe('UsageScreen', () => {
       's1',
       false,
     ]);
-    await userEvent.click(screen.getByRole('button', { name: 'Sync now' }));
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Write to work item' }),
+    );
     await waitFor(() =>
       expect(
         useStore.getState().notices.some((n) => n.message.includes('boom')),
       ).toBe(true),
     );
-    await userEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
+    await userEvent.click(screen.getByRole('button', { name: 'CSV' }));
     await waitFor(() => expect(createObjectURL).toHaveBeenCalled());
   });
   it('explains an empty task and a task without a connection', async () => {
@@ -210,34 +209,99 @@ describe('UsageScreen', () => {
       ],
     });
     installFakeApi();
-    render(<UsageScreen taskId="t1" />);
+    render(<UsagePanel taskId="t1" />);
     expect(
       await screen.findByText(/No AI usage captured for this task yet/),
     ).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Sync now' })).toHaveProperty(
-      'disabled',
-      true,
-    );
+    expect(
+      screen.getByRole('button', { name: 'Write to work item' }),
+    ).toHaveProperty('disabled', true);
     expect(
       screen.getByText(/Link the repository to an Azure DevOps connection/),
     ).toBeTruthy();
   });
-  it('goes back to the workspace from a done task', async () => {
-    useStore.setState({
-      tasks: [{ ...task, status: 'done', finishedAt: '2026-10-14T12:00:00Z' }],
-    });
-    installFakeApi({ 'usage:task': () => usage });
-    render(<UsageScreen taskId="t1" />);
-    await screen.findByText('Billable AI cost');
-    await userEvent.click(screen.getByText('Back to task'));
-    expect(useStore.getState().screen).toEqual({ kind: 'workspace' });
-  });
-  it('says the task was not found and still offers Back', async () => {
+  it('says the task was not found', () => {
     useStore.setState({ tasks: [] });
     installFakeApi();
-    render(<UsageScreen taskId="gone" />);
+    render(<UsagePanel taskId="gone" />);
     expect(screen.getByText('Task not found')).toBeTruthy();
-    await userEvent.click(screen.getByText('Back to task'));
-    expect(useStore.getState().screen).toEqual({ kind: 'workspace' });
+  });
+  it('splits the billable ring by tool and shows the total', async () => {
+    installFakeApi({ 'usage:task': () => usage });
+    render(<UsagePanel taskId="t1" />);
+    const ring = await screen.findByRole('img', { name: /Billable .*9\.20/ });
+    expect(ring.querySelectorAll('[data-part="segment"]')).toHaveLength(2);
+  });
+  it('marks a session with an event in the last 5 minutes as LIVE', async () => {
+    const now = Date.parse('2026-10-14T10:03:00.000Z');
+    installFakeApi({
+      'usage:task': () => ({
+        ...usage,
+        sessions: usage.sessions.map((s, i) => ({
+          ...s,
+          lastAt: i === 1 ? '2026-10-14T10:00:00.000Z' : s.startedAt,
+        })),
+      }),
+    });
+    render(<UsagePanel taskId="t1" now={() => now} />);
+    const rows = await screen.findAllByRole('row');
+    expect(rows.filter((r) => r.textContent?.includes('LIVE'))).toHaveLength(1);
+  });
+  it('drops LIVE once 5 minutes pass without new usage', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let clock = Date.parse('2026-10-14T10:03:00.000Z');
+      installFakeApi({
+        'usage:task': () => ({
+          ...usage,
+          sessions: [
+            { ...usage.sessions[1], lastAt: '2026-10-14T10:00:00.000Z' },
+          ],
+        }),
+      });
+      render(<UsagePanel taskId="t1" now={() => clock} />);
+      expect(await screen.findByText('LIVE')).toBeInTheDocument();
+      expect(
+        document.querySelector('[data-part="bin"].is-live'),
+      ).not.toBeNull();
+      clock = Date.parse('2026-10-14T10:06:00.000Z');
+      act(() => vi.advanceTimersByTime(30_000));
+      expect(screen.queryByText('LIVE')).toBeNull();
+      expect(document.querySelector('[data-part="bin"].is-live')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('stops its clock on unmount', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      installFakeApi({ 'usage:task': () => usage });
+      const { unmount } = render(<UsagePanel taskId="t1" />);
+      await screen.findByRole('img', { name: /Cost per 15 minutes/ });
+      const before = vi.getTimerCount();
+      unmount();
+      expect(vi.getTimerCount()).toBeLessThan(before);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('mutes and strikes through a non-billable session', async () => {
+    installFakeApi({
+      'usage:task': () => ({
+        ...usage,
+        sessions: [{ ...usage.sessions[0], billable: false }],
+      }),
+    });
+    render(<UsagePanel taskId="t1" />);
+    const row = (await screen.findAllByRole('row'))[1];
+    expect(row).toHaveClass('is-excluded');
+  });
+  it('draws 24 timeline bins', async () => {
+    installFakeApi({ 'usage:task': () => usage });
+    render(<UsagePanel taskId="t1" />);
+    expect(
+      await screen.findByRole('img', { name: /Cost per 15 minutes/ }),
+    ).toBeInTheDocument();
+    expect(document.querySelectorAll('[data-part="bin"]')).toHaveLength(24);
   });
 });

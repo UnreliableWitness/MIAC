@@ -17,7 +17,7 @@ export function formatMs(ms: number | undefined): string {
 
 export function StepList({ steps }: { steps: SetupState['steps'] }) {
   return (
-    <ol className="steps">
+    <ol className="steps steps-rule">
       {steps.map((s, i) => (
         <li
           key={i}

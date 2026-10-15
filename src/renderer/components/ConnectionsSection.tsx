@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Connection } from '../../shared/types';
 import { api, tryInvoke } from '../api';
+import { Label } from './instrument';
 import { statusText } from '../connectionStatus';
 import { useStore } from '../store';
 
@@ -195,7 +196,9 @@ export function ConnectionsSection() {
   return (
     <section id="ado" className="section">
       <div className="section-head">
-        <h2>Azure DevOps</h2>
+        <h2>
+          <Label>Azure DevOps</Label>
+        </h2>
         <button
           type="button"
           className="btn"

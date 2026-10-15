@@ -50,18 +50,21 @@ export const AppSettingsSchema = z.object({
   version: z.literal(1),
   receiverPort: z.number().int().min(1024).max(65535),
   hourlySync: z.boolean(),
+  showSplash: z.boolean().default(true),
 });
 export type AppSettings = z.infer<typeof AppSettingsSchema>;
 export const defaultSettings = (): AppSettings => ({
   version: 1,
   receiverPort: 4319,
   hourlySync: true,
+  showSplash: true,
 });
 
 export type SessionSummary = {
   sessionId: string;
   tool: UsageTool;
   startedAt: string;
+  lastAt: string;
   models: string[];
   requests: number;
   inputTokens: number;
@@ -75,6 +78,9 @@ export type SessionSummary = {
 
 export type ToolTotals = { costUsd: number; sessions: number; tokens: number };
 
+/** One billable, priced request from the last 6 hours, for the usage timeline. */
+export type RecentPoint = { at: string; tool: UsageTool; costEur: number };
+
 export type TaskUsage = {
   taskId: string;
   sessions: SessionSummary[];
@@ -82,6 +88,7 @@ export type TaskUsage = {
   byTool: Record<UsageTool, ToolTotals & { costEur: number }>;
   unpricedRequests: number;
   usdToEur: number;
+  recent: RecentPoint[];
 };
 
 export type ReceiverStatus = {
