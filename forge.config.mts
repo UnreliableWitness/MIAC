@@ -53,6 +53,10 @@ const config: ForgeConfig = {
       name: 'miac',
       setupExe: 'MIAC-Setup.exe',
       setupIcon: 'assets/icon/miac.ico',
+      // Apps & features icon. Squirrel fetches it at install time, so it must be a URL; this one
+      // resolves once assets/icon/miac.ico is on main.
+      iconUrl:
+        'https://raw.githubusercontent.com/UnreliableWitness/MIAC/main/assets/icon/miac.ico',
       ...(signing ? { windowsSign: signing } : {}),
     }),
     new MakerZIP({}, ['darwin']),
