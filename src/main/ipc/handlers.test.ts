@@ -1783,6 +1783,18 @@ describe('handlers: finish with a pull request', () => {
     expect(existsSync(hx.t.worktreePath)).toBe(false);
   });
 
+  it('records the branch as pushed in the Done summary, since the PR pushed it', async () => {
+    const hx = await prHarness();
+    commitFile(hx.t.worktreePath, 'feature.txt', 'a\n', 'Add the feature');
+    await hx.h['tasks:finish'](hx.t.id, finishWithPr);
+    const [view] = await hx.h['tasks:list']();
+    expect(view.summary).toMatchObject({
+      pushed: true,
+      upstream: `origin/${hx.t.branch}`,
+      commitCount: 1,
+    });
+  });
+
   it('links an existing active PR instead of creating another', async () => {
     const hx = await prHarness();
     hx.findActive.mockResolvedValue({

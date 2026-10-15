@@ -714,6 +714,13 @@ export function createHandlers(s: Services): Handlers {
             const connection = c.connection;
             const { project, repo: repoName } = c.availability.target;
             await s.git.push(task.worktreePath, 'origin', task.branch);
+            // The summary was taken before this push; the Done page would otherwise say "local only".
+            if (summary)
+              summary = {
+                ...summary,
+                pushed: true,
+                upstream: `origin/${task.branch}`,
+              };
             const client = s.ado.client(connection.id);
             const repositoryId = await client.repositoryId(project, repoName);
             const existing = await client.findActivePullRequest(
