@@ -19,11 +19,14 @@ import { TaskStore } from '../services/TaskStore';
 import type { Telemetry } from '../telemetry/AppInsightsClient';
 import { TerminalManager } from '../services/TerminalManager';
 import {
+  addOrigin,
   cleanupTempRepos,
   commitFile,
   git,
   makeRepo,
 } from '../test-helpers/gitRepo';
+import { AdoError, CODE_WRITE_DENIED } from '../services/AdoClient';
+import { prTitle } from '../services/azureRepos';
 import {
   echoCmd,
   envRef,
@@ -1661,5 +1664,205 @@ describe('handlers: work item on start', () => {
     const { state } = await createAndWait(hx);
     expect(state?.steps.map((s) => s.def.kind)).not.toContain('work-item');
     expect(update).not.toHaveBeenCalled();
+  });
+});
+
+describe('handlers: finish with a pull request', () => {
+  const PR_URL = 'https://dev.azure.com/contoso/P/_git/R/pullrequest/7';
+  const finishWithPr = {
+    closeTerminals: true,
+    removeWorktree: true,
+    deleteBranch: true,
+    syncUsage: false,
+    createPullRequest: true,
+  };
+
+  async function prHarness(
+    remote = 'https://dev.azure.com/contoso/P/_git/R',
+    over: Partial<CreateTaskInput> = {},
+  ) {
+    const hx = await harness();
+    const bare = addOrigin(hx.repo);
+    const c = await hx.connections.save({
+      organizationUrl: 'https://dev.azure.com/contoso',
+      project: 'P',
+      pat: 'p',
+    });
+    await hx.h['repos:setConnection'](hx.added.id, c.id);
+    vi.spyOn(hx.services.git, 'remoteUrl').mockResolvedValue(remote);
+    const client = hx.services.ado.client(c.id);
+    const repositoryId = vi
+      .spyOn(client, 'repositoryId')
+      .mockResolvedValue('repo-1');
+    const findActive = vi
+      .spyOn(client, 'findActivePullRequest')
+      .mockResolvedValue(null);
+    const create = vi.spyOn(client, 'createPullRequest').mockResolvedValue({
+      pullRequestId: 7,
+      status: 'active',
+      isDraft: true,
+    });
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](
+      hx.input({ baseRef: 'origin/main', openShell: false, ...over }),
+    );
+    await done;
+    return { ...hx, bare, c, client, repositoryId, findActive, create, t };
+  }
+
+  it('reports availability with the target branch', async () => {
+    const hx = await prHarness();
+    expect(await hx.h['tasks:prAvailability'](hx.t.id)).toEqual({
+      available: true,
+      reason: null,
+      target: 'main',
+    });
+    vi.mocked(hx.services.git.remoteUrl).mockResolvedValue(
+      'https://github.com/contoso/R.git',
+    );
+    expect(await hx.h['tasks:prAvailability'](hx.t.id)).toEqual({
+      available: false,
+      reason: 'origin is not an Azure Repos URL',
+      target: null,
+    });
+  });
+
+  it('pushes, creates a draft PR linked to the work item, opens it, then cleans up', async () => {
+    const hx = await prHarness();
+    commitFile(hx.t.worktreePath, 'feature.txt', 'a\n', 'Add the feature');
+    await hx.h['tasks:finish'](hx.t.id, finishWithPr);
+    expect(git(hx.bare, 'branch', '--list', hx.t.branch).trim()).toContain(
+      hx.t.branch,
+    );
+    expect(hx.repositoryId).toHaveBeenCalledWith('P', 'R');
+    expect(hx.findActive).toHaveBeenCalledWith('P', 'repo-1', hx.t.branch);
+    expect(hx.create).toHaveBeenCalledWith(
+      'P',
+      'repo-1',
+      expect.objectContaining({
+        source: hx.t.branch,
+        target: 'main',
+        title: prTitle(hx.t),
+        workItemId: 48231,
+      }),
+    );
+    const description = hx.create.mock.calls[0][2].description;
+    expect(description).toContain('Add the feature');
+    expect(description).toContain('recorded by MIAC');
+    expect(description).toContain('AI cost for this task: ');
+    expect(hx.opened).toEqual([PR_URL]);
+    const [view] = await hx.h['tasks:list']();
+    expect(view.status).toBe('done');
+    expect(view.pullRequest).toEqual({
+      id: 7,
+      url: PR_URL,
+      repositoryId: 'repo-1',
+      project: 'P',
+      repo: 'R',
+      status: 'active',
+      isDraft: true,
+    });
+    expect(existsSync(hx.t.worktreePath)).toBe(false);
+  });
+
+  it('links an existing active PR instead of creating another', async () => {
+    const hx = await prHarness();
+    hx.findActive.mockResolvedValue({
+      pullRequestId: 3,
+      status: 'active',
+      isDraft: false,
+    });
+    await hx.h['tasks:finish'](hx.t.id, finishWithPr);
+    expect(hx.create).not.toHaveBeenCalled();
+    const [view] = await hx.h['tasks:list']();
+    expect(view.pullRequest).toMatchObject({ id: 3, isDraft: false });
+    expect(hx.opened).toEqual([
+      'https://dev.azure.com/contoso/P/_git/R/pullrequest/3',
+    ]);
+  });
+
+  it('stops Finish before cleanup when the push is rejected', async () => {
+    const hx = await prHarness('https://dev.azure.com/contoso/P/_git/R', {
+      openShell: true,
+    });
+    commitFile(hx.t.worktreePath, 'mine.txt', 'a\n', 'Mine');
+    git(hx.t.worktreePath, 'push', '-q', 'origin', hx.t.branch);
+    const other = path.join(path.dirname(hx.bare), 'other');
+    git(
+      path.dirname(hx.bare),
+      'clone',
+      '-q',
+      '-b',
+      hx.t.branch,
+      hx.bare,
+      'other',
+    );
+    git(other, 'config', 'user.email', 'tests@miac.local');
+    git(other, 'config', 'user.name', 'MIAC tests');
+    commitFile(other, 'theirs.txt', 'b\n', 'Theirs');
+    git(other, 'push', '-q', 'origin', hx.t.branch);
+    git(hx.t.worktreePath, 'commit', '-q', '--amend', '-m', 'Mine again');
+    const kill = vi.spyOn(hx.terminals, 'killAllForTask');
+    await expect(hx.h['tasks:finish'](hx.t.id, finishWithPr)).rejects.toThrow(
+      /^Pull request not created: [^]*rejected/,
+    );
+    expect(hx.store.state.tasks[0].status).toBe('ready');
+    expect(hx.store.state.tasks[0].pullRequest).toBeNull();
+    expect(existsSync(hx.t.worktreePath)).toBe(true);
+    expect(kill).not.toHaveBeenCalled();
+    expect(hx.terminals.runningCount(hx.t.id)).toBe(1);
+    expect(hx.create).not.toHaveBeenCalled();
+    expect(hx.opened).toEqual([]);
+    kill.mockRestore();
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
+  it('stops Finish before cleanup when the PR call fails', async () => {
+    const hx = await prHarness();
+    hx.create.mockRejectedValue(
+      new AdoError('unauthorized', '_apis/git', CODE_WRITE_DENIED, 403),
+    );
+    await expect(hx.h['tasks:finish'](hx.t.id, finishWithPr)).rejects.toThrow(
+      'Pull request not created: The token cannot create pull requests (needs Code: Read & write)',
+    );
+    expect(hx.store.state.tasks[0].status).toBe('ready');
+    expect(existsSync(hx.t.worktreePath)).toBe(true);
+  });
+
+  it('refuses a PR when pull requests are unavailable, and cleans up nothing', async () => {
+    const hx = await prHarness('https://github.com/contoso/R.git');
+    const push = vi.spyOn(hx.services.git, 'push');
+    await expect(hx.h['tasks:finish'](hx.t.id, finishWithPr)).rejects.toThrow(
+      'Pull request not created: origin is not an Azure Repos URL',
+    );
+    expect(push).not.toHaveBeenCalled();
+    expect(hx.store.state.tasks[0].status).toBe('ready');
+    expect(existsSync(hx.t.worktreePath)).toBe(true);
+    expect(await new GitClient().branchExists(hx.repo, hx.t.branch)).toBe(true);
+  });
+
+  it('refreshes the PR status, keeping the stored ref when the refresh fails', async () => {
+    const hx = await prHarness();
+    expect(await hx.h['tasks:prStatus'](hx.t.id)).toBeNull();
+    await hx.h['tasks:finish'](hx.t.id, finishWithPr);
+    const refresh = vi.spyOn(hx.client, 'pullRequest').mockResolvedValue({
+      pullRequestId: 7,
+      status: 'completed',
+      isDraft: false,
+    });
+    const next = await hx.h['tasks:prStatus'](hx.t.id);
+    expect(refresh).toHaveBeenCalledWith('P', 'repo-1', 7);
+    expect(next).toMatchObject({ id: 7, status: 'completed', isDraft: false });
+    expect(hx.store.state.tasks[0].pullRequest).toEqual(next);
+    refresh.mockRejectedValue(new Error('offline'));
+    expect(await hx.h['tasks:prStatus'](hx.t.id)).toEqual(next);
+  });
+
+  it('finishChecks still reports unpushed commits as a count', async () => {
+    const hx = await prHarness();
+    commitFile(hx.t.worktreePath, 'feature.txt', 'a\n', 'Add the feature');
+    const checks = await hx.h['tasks:finishChecks'](hx.t.id);
+    expect(checks.unpushed).toBe(1);
+    expect(checks.runningTerminals).toBe(0);
   });
 });

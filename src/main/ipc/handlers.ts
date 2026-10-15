@@ -6,6 +6,7 @@ import { claudePrompt, renderTaskMd, taskSlug } from '../../shared/naming';
 import type {
   Connection,
   MiacConfig,
+  PullRequestRef,
   SetupEvent,
   SetupState,
   Task,
@@ -28,6 +29,13 @@ import {
   TokenUnavailableError,
   type ConnectionStore,
 } from '../services/ConnectionStore';
+import {
+  prAvailability,
+  prDescription,
+  prTitle,
+  prWebUrl,
+  targetBranch,
+} from '../services/azureRepos';
 import type { GitClient } from '../services/GitClient';
 import type { RepoRegistry } from '../services/RepoRegistry';
 import {
@@ -47,6 +55,7 @@ import { telemetryEnv } from '../usage/telemetryEnv';
 import type { UsageReceiver } from '../usage/UsageReceiver';
 import type { UsageStore } from '../usage/UsageStore';
 import { UsageSync } from '../usage/UsageSync';
+import { renderCostLine } from '../../shared/workItemUsage';
 
 export type Services = {
   store: TaskStore;
@@ -248,6 +257,30 @@ export function createHandlers(s: Services): Handlers {
     });
     await tasksChanged();
   };
+
+  /** Where a task's pull request would go: the repo's connection and its `origin` parsed as Azure Repos. */
+  const prContext = async (task: Task) => {
+    const repo = s.repos.get(task.repoId);
+    const connection = repo.connectionId
+      ? s.connections.get(repo.connectionId)
+      : null;
+    const remotes = await s.git.remotes(repo.path).catch(() => [] as string[]);
+    const remoteUrl = remotes.includes('origin')
+      ? await s.git.remoteUrl(repo.path, 'origin')
+      : null;
+    const availability = prAvailability({
+      remoteUrl,
+      connectionOrgUrl: connection?.organizationUrl ?? null,
+    });
+    return {
+      connection,
+      availability,
+      target: targetBranch(task.baseRef, remotes),
+    };
+  };
+
+  const costLineFor = (taskId: string) =>
+    renderCostLine(s.usage.summarize(taskId));
 
   const usageSync = new UsageSync({
     task: taskById,
@@ -665,6 +698,71 @@ export function createHandlers(s: Services): Handlers {
               branch: task.branch,
             })
             .catch(() => null);
+        // Push and open the PR before any cleanup: a failure leaves the task ready with its worktree.
+        if (options.createPullRequest) {
+          let pullRequest: PullRequestRef;
+          try {
+            const c = await prContext(task);
+            if (
+              !c.availability.available ||
+              !c.availability.target ||
+              !c.connection
+            )
+              throw new Error(
+                c.availability.reason ?? 'pull requests are not available',
+              );
+            const connection = c.connection;
+            const { project, repo: repoName } = c.availability.target;
+            await s.git.push(task.worktreePath, 'origin', task.branch);
+            const client = s.ado.client(connection.id);
+            const repositoryId = await client.repositoryId(project, repoName);
+            const existing = await client.findActivePullRequest(
+              project,
+              repositoryId,
+              task.branch,
+            );
+            const raw =
+              existing ??
+              (await client.createPullRequest(project, repositoryId, {
+                source: task.branch,
+                target: c.target,
+                title: prTitle(task),
+                description: prDescription({
+                  heading: task.workItem
+                    ? `${task.workItem.type} ${task.workItem.id}: ${task.workItem.title}`
+                    : task.name,
+                  commits: summary?.commits ?? [],
+                  commitCount: summary?.commitCount ?? 0,
+                  costLine: costLineFor(taskId),
+                }),
+                workItemId: task.workItem ? Number(task.workItem.id) : null,
+              }));
+            pullRequest = {
+              id: raw.pullRequestId,
+              url: prWebUrl(
+                connection.organizationUrl,
+                project,
+                repoName,
+                raw.pullRequestId,
+              ),
+              repositoryId,
+              project,
+              repo: repoName,
+              status: raw.status,
+              isDraft: raw.isDraft,
+            };
+            await patchTask(taskId, { pullRequest });
+            tel.event(existing ? 'pr.linked' : 'pr.created');
+          } catch (e) {
+            await patchTask(taskId, { status: 'ready' });
+            const message = e instanceof Error ? e.message : String(e);
+            tel.event('pr.failed', {
+              kind: e instanceof AdoError ? e.kind : 'git',
+            });
+            throw new Error(`Pull request not created: ${message}`);
+          }
+          void s.openExternal(pullRequest.url).catch(() => undefined);
+        }
         // A terminal running in the folder blocks its removal on Windows (and a terminal without its
         // folder is useless), so removing the worktree closes the terminals even when that was unticked.
         const killTerminals = options.closeTerminals || options.removeWorktree;
@@ -823,11 +921,30 @@ export function createHandlers(s: Services): Handlers {
       s.broadcast('repos:changed', s.repos.list());
       return repo;
     },
-    'tasks:prAvailability': async () => {
-      throw new Error('not implemented');
+    'tasks:prAvailability': async (taskId) => {
+      const c = await prContext(taskById(taskId));
+      return {
+        available: c.availability.available,
+        reason: c.availability.reason,
+        target: c.availability.available ? c.target : null,
+      };
     },
-    'tasks:prStatus': async () => {
-      throw new Error('not implemented');
+    'tasks:prStatus': async (taskId) => {
+      const task = taskById(taskId);
+      const pr = task.pullRequest;
+      if (!pr) return null;
+      const connectionId = s.repos.get(task.repoId).connectionId;
+      if (!connectionId) return pr;
+      try {
+        const raw = await s.ado
+          .client(connectionId)
+          .pullRequest(pr.project, pr.repositoryId, pr.id);
+        const next = { ...pr, status: raw.status, isDraft: raw.isDraft };
+        await patchTask(taskId, { pullRequest: next });
+        return next;
+      } catch {
+        return pr;
+      }
     },
     'workItems:currentIteration': async (connectionId) => {
       const c = s.connections.get(connectionId);
