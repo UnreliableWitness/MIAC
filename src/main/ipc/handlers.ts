@@ -886,11 +886,17 @@ export function createHandlers(s: Services): Handlers {
       const probe = new AdoClient(organizationUrl, async () =>
         input.pat.trim(),
       );
-      const { user } = await probe.verify(input.project.trim());
+      const { user, uniqueName } = await probe.verify(input.project.trim());
       const saved = await s.connections.save(input);
       s.ado.invalidate(saved.id);
       dropTypes(saved.id);
-      const verified = await s.connections.setStatus(saved.id, 'ok', user);
+      // The unique name is what "assign to me" writes on start; without it a new connection never assigns.
+      const verified = await s.connections.setStatus(
+        saved.id,
+        'ok',
+        user,
+        uniqueName,
+      );
       connectionsChanged();
       tel.event('connection.saved', {
         connections: s.connections.list().length,

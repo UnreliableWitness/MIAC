@@ -899,6 +899,24 @@ describe('handlers: connections', () => {
       true,
     );
   });
+  it('keeps the unique name from verification, so a new connection can assign work items', async () => {
+    const { h, server } = await harness();
+    routeHealthyOrg(server);
+    server.route('GET', '/unreliablewitness/_apis/connectionData', {
+      body: {
+        authenticatedUser: {
+          providerDisplayName: 'Dries Hoebeke',
+          properties: { Account: { $value: 'dries@example.com' } },
+        },
+      },
+    });
+    const c = await h['connections:save']({
+      organizationUrl: `${server.url}/unreliablewitness`,
+      project: 'MIAC',
+      pat: 'p',
+    });
+    expect(c.userUniqueName).toBe('dries@example.com');
+  });
   it('does not save when verification fails', async () => {
     const { h, server } = await harness();
     server.route('GET', '/unreliablewitness/_apis/connectionData', {
