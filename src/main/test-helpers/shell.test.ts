@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { which } from '../platform/which';
 import { windowsPlatform } from '../platform/windows';
 import {
@@ -70,18 +70,28 @@ describe('shell test helpers', () => {
   });
 });
 
+/** A cold PowerShell start on a CI runner can take half a minute (28.6 s seen for Windows PowerShell 5.1). */
+const PS_WARM_UP_MS = 180_000;
+/** Per test, once warm (most take one to ten seconds). spawnSync blocks, so it gets its own limit too. */
+const PS_TEST_MS = 60_000;
+
 // The setup-command wrapper on both Windows shells. Windows PowerShell 5.1 wraps native stderr in
 // error records when its output is redirected; that must not fail a command that exits 0.
 describe.runIf(isWindows).each([
   ['Windows PowerShell 5.1', (n: string) => (n === 'pwsh' ? null : which(n))],
   ['PowerShell 7', (n: string) => which(n)],
-])('setup commands under %s', (_name, find) => {
-  const runIn = (cmd: string) => {
+])('setup commands under %s', { timeout: PS_TEST_MS }, (_name, find) => {
+  const runIn = (cmd: string, timeout = PS_TEST_MS) => {
     const { command, args } = windowsPlatform(process.env, {
       which: find,
     }).shellCommand(cmd);
-    return spawnSync(command, args, { encoding: 'utf8' });
+    return spawnSync(command, args, { encoding: 'utf8', timeout });
   };
+
+  // Pay the cold start here, not in the first test.
+  beforeAll(() => {
+    expect(runIn('exit 0', PS_WARM_UP_MS).status).toBe(0);
+  }, PS_WARM_UP_MS + 10_000);
 
   it('uses the intended shell', () => {
     const r = runIn('$PSVersionTable.PSVersion.Major');
