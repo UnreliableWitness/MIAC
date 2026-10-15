@@ -65,7 +65,7 @@ When it is unavailable, the reason shows next to the disabled checkbox:
 
 The PR may target a different project than the connection's, as long as the org is the same.
 
-**Finish page.** Above the existing cleanup checkboxes there is a new checkbox, "Create a draft pull request into `<base>`", on by default when available. While a task is finishing, the existing checks still show. Uncommitted changes keep blocking as today. Unpushed commits are no longer a warning when the PR option is on, because MIAC pushes them.
+**Finish page.** Above the existing cleanup checkboxes there is a new checkbox, "Create a draft pull request into `<base>`". It is unticked on first use, then defaults to the last choice for that repo (kept in renderer localStorage, saved when Finish is clicked). This was the owner's decision on 2026-10-15, because power users may not want a PR every time. While a task is finishing, the existing checks still show. Uncommitted changes keep blocking as today. Unpushed commits are no longer a warning when the PR option is on, because MIAC pushes them.
 
 **Finish sequence** when the PR option is on. Each step shows in the Finish progress:
 1. **Push:** `git push -u origin <branch>`. On a non-fast-forward error, show git's message. MIAC never force-pushes.
