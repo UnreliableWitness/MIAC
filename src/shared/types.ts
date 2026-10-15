@@ -46,6 +46,8 @@ export const TaskSummarySchema = z.object({
   deletions: z.number().int().min(0),
   pushed: z.boolean(),
   upstream: z.string().nullable(),
+  /** False when the branch's starting point could not be found, so commits and changes are unknown. */
+  baseKnown: z.boolean().default(true),
 });
 export type TaskSummary = z.infer<typeof TaskSummarySchema>;
 
@@ -58,6 +60,8 @@ export const TaskSchema = z.object({
   branch: z.string().min(1),
   worktreePath: z.string().min(1),
   baseRef: z.string().min(1),
+  /** The commit the branch started from, recorded when its worktree is made; null for older tasks. */
+  baseSha: z.string().nullable().default(null),
   status: TaskStatusSchema,
   setup: TaskSetupSchema,
   terminals: z.array(TerminalDefSchema),

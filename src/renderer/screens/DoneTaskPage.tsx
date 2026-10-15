@@ -126,7 +126,7 @@ export function DoneTaskPage({ task }: { task: TaskView }) {
             <span className="mono">{task.branch}</span>
             {s && <span className="muted"> {pushState(s, task.branch)}</span>}
           </Fact>
-          {s && (
+          {s && s.baseKnown && (
             <Fact label="Changes">
               {s.filesChanged} {s.filesChanged === 1 ? 'file' : 'files'},{' '}
               <span className="text-green">+{s.insertions}</span>{' '}
@@ -154,9 +154,15 @@ export function DoneTaskPage({ task }: { task: TaskView }) {
         {s ? (
           <section className="done-commits" aria-label="Commits">
             <h2>
-              Commits <span className="muted">{s.commitCount}</span>
+              Commits{' '}
+              {s.baseKnown && <span className="muted">{s.commitCount}</span>}
             </h2>
-            {s.commits.length === 0 ? (
+            {!s.baseKnown ? (
+              <p className="muted">
+                Commits unavailable: MIAC could not find where this branch
+                started.
+              </p>
+            ) : s.commits.length === 0 ? (
               <p className="muted">No commits on this branch.</p>
             ) : (
               <ol>
@@ -176,7 +182,9 @@ export function DoneTaskPage({ task }: { task: TaskView }) {
           </section>
         ) : (
           <p className="done-nosummary muted">
-            Finished before MIAC recorded summaries.
+            {task.baseSha
+              ? 'No summary: git could not read the branch when it finished.'
+              : 'Finished before MIAC recorded summaries.'}
           </p>
         )}
         <UsagePanel taskId={task.id} />

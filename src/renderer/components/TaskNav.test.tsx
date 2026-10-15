@@ -41,6 +41,7 @@ const base = {
   summary: null,
   worktreeMissing: false,
   baseRef: 'origin/main',
+  baseSha: null,
 };
 const tasks: TaskView[] = [
   {

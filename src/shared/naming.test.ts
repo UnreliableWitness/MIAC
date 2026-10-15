@@ -101,6 +101,7 @@ const task: Task = {
   branch: 'feature/48231-show-estimated-delivery-date-on',
   worktreePath: '/src/webshop.worktrees/48231-show-estimated-delivery-date-on',
   baseRef: 'origin/main',
+  baseSha: null,
   status: 'ready',
   setup: {
     copy: true,

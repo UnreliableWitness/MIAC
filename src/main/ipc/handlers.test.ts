@@ -20,6 +20,7 @@ import { TerminalManager } from '../services/TerminalManager';
 import {
   cleanupTempRepos,
   commitFile,
+  git,
   makeRepo,
 } from '../test-helpers/gitRepo';
 import {
@@ -500,6 +501,47 @@ describe('handlers: finish', () => {
     });
   });
 
+  it('records the base commit at setup and measures the summary from it after a merged PR', async () => {
+    const { h, input, setupDone, store, repo } = await harness();
+    const done = setupDone();
+    const t = await h['tasks:create'](input({ openShell: false }));
+    await done;
+    const baseSha = store.state.tasks[0].baseSha;
+    expect(baseSha).toMatch(/^[0-9a-f]{40}$/);
+    commitFile(t.worktreePath, 'feature.txt', 'a\n', 'Add the feature');
+    git(repo, 'merge', '-q', '--no-ff', '-m', 'Merge PR', t.branch);
+    await h['tasks:finish'](t.id, {
+      closeTerminals: true,
+      removeWorktree: true,
+      deleteBranch: false,
+      syncUsage: false,
+    });
+    const [view] = await h['tasks:list']();
+    expect(view.summary).toMatchObject({
+      commitCount: 1,
+      commits: [{ subject: 'Add the feature' }],
+    });
+  });
+
+  it('finishes even when the summary fails', async () => {
+    const { h, input, setupDone, services } = await harness();
+    const done = setupDone();
+    const t = await h['tasks:create'](input({ openShell: false }));
+    await done;
+    services.git.finishSummary = async () => {
+      throw new Error('boom');
+    };
+    await h['tasks:finish'](t.id, {
+      closeTerminals: true,
+      removeWorktree: true,
+      deleteBranch: true,
+      syncUsage: false,
+    });
+    const [view] = await h['tasks:list']();
+    expect(view.status).toBe('done');
+    expect(view.summary).toBeNull();
+  });
+
   it('keeps the task ready when cleanup fails', async () => {
     const { h, input, setupDone, store, terminals, services } = await harness();
     const done = setupDone();
@@ -700,6 +742,7 @@ describe('recoverInterruptedTasks', () => {
       slug: 'x',
       worktreePath: '/w',
       baseRef: 'main',
+      baseSha: null,
       setup: {
         copy: false,
         commands: [],

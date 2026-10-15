@@ -118,6 +118,7 @@ describe('RepoRegistry', () => {
         branch: 'b',
         worktreePath: '/w',
         baseRef: 'main',
+        baseSha: null,
         status: 'ready',
         setup: {
           copy: false,

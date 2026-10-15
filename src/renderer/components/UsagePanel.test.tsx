@@ -22,6 +22,7 @@ const task: TaskView = {
   branch: 'feature/48213-save-delivery-address',
   worktreePath: '/w',
   baseRef: 'origin/main',
+  baseSha: null,
   status: 'ready',
   setup: {
     copy: false,

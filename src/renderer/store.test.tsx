@@ -12,6 +12,7 @@ const task = (id: string, terms: string[]): TaskView => ({
   branch: 'b',
   worktreePath: '/w',
   baseRef: 'main',
+  baseSha: null,
   status: 'ready',
   setup: {
     copy: false,

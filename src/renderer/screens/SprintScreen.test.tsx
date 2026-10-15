@@ -92,6 +92,7 @@ const task = (over: Partial<TaskView>): TaskView => ({
   branch: 'feature/2-estimated-delivery-date',
   worktreePath: '/w/2',
   baseRef: 'origin/main',
+  baseSha: null,
   status: 'ready',
   setup: {
     copy: false,

@@ -126,5 +126,21 @@ it('accepts a task saved before sub-project 3 and defaults the usage fields', as
     usageSyncError: null,
     usageCommentId: null,
     summary: null,
+    baseSha: null,
   });
+});
+
+it('loads a summary saved before baseKnown existed as a known base', async () => {
+  const { TaskSummarySchema } = await import('./types');
+  expect(
+    TaskSummarySchema.parse({
+      commits: [],
+      commitCount: 0,
+      filesChanged: 0,
+      insertions: 0,
+      deletions: 0,
+      pushed: false,
+      upstream: null,
+    }).baseKnown,
+  ).toBe(true);
 });

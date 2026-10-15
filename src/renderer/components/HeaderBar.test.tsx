@@ -20,6 +20,7 @@ const task: TaskView = {
   branch: 'feature/48213-save-delivery-address',
   worktreePath: '/src/webshop.worktrees/48213-save-delivery-address',
   baseRef: 'origin/main',
+  baseSha: null,
   status: 'ready',
   setup: {
     copy: true,

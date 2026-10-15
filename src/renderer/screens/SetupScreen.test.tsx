@@ -20,6 +20,7 @@ const task: TaskView = {
   branch: 'feature/48231-show',
   worktreePath: '/src/webshop.worktrees/48231-show',
   baseRef: 'origin/main',
+  baseSha: null,
   status: 'setting-up',
   setup: {
     copy: true,

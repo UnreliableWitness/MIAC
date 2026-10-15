@@ -20,6 +20,7 @@ const task = (over: Partial<Task> = {}): Task => ({
   branch: 'feature/1-checkout',
   worktreePath: '/w',
   baseRef: 'origin/main',
+  baseSha: null,
   status: 'ready',
   setup: {
     copy: false,

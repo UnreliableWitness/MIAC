@@ -17,6 +17,7 @@ const task: TaskView = {
   branch: 'bugfix/48213-broken-checkout',
   worktreePath: '/w/a',
   baseRef: 'origin/main',
+  baseSha: null,
   status: 'ready',
   setup: {
     copy: false,

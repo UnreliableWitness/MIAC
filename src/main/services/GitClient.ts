@@ -122,7 +122,7 @@ export class GitClient {
   async worktreeAdd(
     cwd: string,
     o: { branch: string; path: string; baseRef: string },
-  ): Promise<void> {
+  ): Promise<string> {
     await this.run(cwd, [
       '-c',
       'core.longpaths=true',
@@ -135,6 +135,7 @@ export class GitClient {
       o.path,
       o.baseRef,
     ]);
+    return (await this.run(o.path, ['rev-parse', 'HEAD'])).trim();
   }
 
   async worktreeRemove(
@@ -218,43 +219,67 @@ export class GitClient {
   }
 
   /**
-   * What the task's branch did since it left `baseRef`: its commits (oldest first, at most 50), the diff stat,
-   * and whether it is pushed. Falls back to the whole history when there is no merge base.
+   * What the task's branch did since it left its base: its commits (the newest 50, oldest first), the diff
+   * stat, and whether it is pushed. The range starts at the recorded `baseSha`, else at the merge base with
+   * `baseRef` (tasks from before MIAC recorded it). With neither, commits and changes are left unknown.
    */
   async finishSummary(
     worktree: string,
-    baseRef: string,
-    branch: string,
+    o: { baseRef: string; baseSha: string | null; branch: string },
   ): Promise<TaskSummary> {
+    const { baseRef, branch } = o;
     let base: string | null = null;
-    try {
-      base = (await this.run(worktree, ['merge-base', baseRef, 'HEAD'])).trim();
-    } catch {
-      base = null;
+    if (o.baseSha) {
+      try {
+        base = (
+          await this.run(worktree, [
+            'rev-parse',
+            '--verify',
+            '--quiet',
+            `${o.baseSha}^{commit}`,
+          ])
+        ).trim();
+      } catch {
+        base = null;
+      }
     }
-    const range = base ? `${base}..HEAD` : 'HEAD';
-    const log = await this.run(worktree, [
-      'log',
-      '--reverse',
-      '--format=%h%x09%s',
-      range,
-    ]);
-    const lines = log.split('\n').filter(Boolean);
-    const commits = lines.slice(0, MAX_SUMMARY_COMMITS).map((l) => {
-      const tab = l.indexOf('\t');
-      return tab < 0
-        ? { sha: l, subject: '' }
-        : { sha: l.slice(0, tab), subject: l.slice(tab + 1) };
-    });
+    if (!base) {
+      try {
+        base = (
+          await this.run(worktree, ['merge-base', baseRef, 'HEAD'])
+        ).trim();
+      } catch {
+        base = null;
+      }
+    }
+    let commits: TaskSummary['commits'] = [];
+    let commitCount = 0;
     let filesChanged = 0;
     let insertions = 0;
     let deletions = 0;
     if (base) {
-      const stat = await this.run(worktree, [
-        'diff',
-        '--shortstat',
-        `${base}..HEAD`,
+      const range = `${base}..HEAD`;
+      commitCount =
+        Number(
+          (await this.run(worktree, ['rev-list', '--count', range])).trim(),
+        ) || 0;
+      const log = await this.run(worktree, [
+        'log',
+        `--max-count=${MAX_SUMMARY_COMMITS}`,
+        '--format=%h%x09%s',
+        range,
       ]);
+      commits = log
+        .split('\n')
+        .filter(Boolean)
+        .reverse()
+        .map((l) => {
+          const tab = l.indexOf('\t');
+          return tab < 0
+            ? { sha: l, subject: '' }
+            : { sha: l.slice(0, tab), subject: l.slice(tab + 1) };
+        });
+      const stat = await this.run(worktree, ['diff', '--shortstat', range]);
       const num = (re: RegExp) => Number(re.exec(stat)?.[1] ?? 0);
       filesChanged = num(/(\d+) files? changed/);
       insertions = num(/(\d+) insertions?\(\+\)/);
@@ -267,12 +292,13 @@ export class GitClient {
     );
     return {
       commits,
-      commitCount: lines.length,
+      commitCount,
       filesChanged,
       insertions,
       deletions,
       pushed,
       upstream,
+      baseKnown: base !== null,
     };
   }
 

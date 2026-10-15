@@ -21,6 +21,7 @@ const task: TaskView = {
   branch: 'feature/1-checkout-allow-saving-a-delivery-address',
   worktreePath: '/w/a',
   baseRef: 'origin/main',
+  baseSha: null,
   status: 'done',
   setup: {
     copy: false,
@@ -49,6 +50,7 @@ const summary: TaskSummary = {
   deletions: 95,
   pushed: true,
   upstream: 'origin/feature/1-checkout-allow-saving-a-delivery-address',
+  baseKnown: true,
 };
 const usage = {
   ...emptyUsage('a'),
@@ -179,5 +181,45 @@ describe('DoneTaskPage', () => {
     );
     expect(fact('Branch')).toHaveTextContent('local only');
     expect(fact('Logged on work item')).toHaveTextContent('No work item');
+  });
+
+  it('says commits are unavailable when the branch start was not found', () => {
+    installFakeApi();
+    render(
+      <DoneTaskPage
+        task={{
+          ...task,
+          summary: {
+            ...summary,
+            baseKnown: false,
+            commits: [],
+            commitCount: 0,
+            filesChanged: 0,
+            insertions: 0,
+            deletions: 0,
+          },
+        }}
+      />,
+    );
+    const commits = screen.getByRole('region', { name: 'Commits' });
+    expect(commits).toHaveTextContent(
+      'Commits unavailable: MIAC could not find where this branch started.',
+    );
+    expect(commits).not.toHaveTextContent('No commits on this branch.');
+    expect(screen.queryByText('Changes', { selector: 'dt' })).toBeNull();
+    expect(fact('Branch')).toHaveTextContent('pushed to origin');
+  });
+
+  it('a task with a recorded base but no summary does not claim to be old', () => {
+    installFakeApi();
+    render(<DoneTaskPage task={{ ...task, baseSha: 'abc123' }} />);
+    expect(
+      screen.queryByText('Finished before MIAC recorded summaries.'),
+    ).toBeNull();
+    expect(
+      screen.getByText(
+        'No summary: git could not read the branch when it finished.',
+      ),
+    ).toBeInTheDocument();
   });
 });

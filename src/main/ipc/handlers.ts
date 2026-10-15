@@ -380,6 +380,9 @@ export function createHandlers(s: Services): Handlers {
           if (e.type === 'finished') finishedEvent = e;
           else s.broadcast('setup', e);
         },
+        onBaseSha: async (baseSha) => {
+          await patchTask(taskId, { baseSha });
+        },
         startTerminals: async () => {
           const defs = initialTerminals(task);
           for (const def of defs)
@@ -476,6 +479,7 @@ export function createHandlers(s: Services): Handlers {
         branch,
         worktreePath,
         baseRef: input.baseRef,
+        baseSha: null,
         status: 'setting-up',
         setup: {
           copy: input.copy,
@@ -563,7 +567,11 @@ export function createHandlers(s: Services): Handlers {
         let summary: TaskSummary | null = null;
         if (await exists(task.worktreePath))
           summary = await s.git
-            .finishSummary(task.worktreePath, task.baseRef, task.branch)
+            .finishSummary(task.worktreePath, {
+              baseRef: task.baseRef,
+              baseSha: task.baseSha,
+              branch: task.branch,
+            })
             .catch(() => null);
         // A terminal running in the folder blocks its removal on Windows (and a terminal without its
         // folder is useless), so removing the worktree closes the terminals even when that was unticked.
