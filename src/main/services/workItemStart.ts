@@ -1,11 +1,8 @@
 /** What starting a task changes on its work item. Pure: the caller reads the item and its states, and writes the plan. */
 
-export type StartSettings = {
-  moveToInProgress: boolean;
-  assignToMe: boolean;
-  /** Work item type -> state name; empty means the type's first In Progress state. */
-  stateOverrides: Record<string, string>;
-};
+import type { StartSettings } from '../../shared/types';
+
+export type { StartSettings };
 export type StartCurrent = {
   type: string;
   state: string;

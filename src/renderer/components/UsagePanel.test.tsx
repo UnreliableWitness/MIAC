@@ -39,6 +39,7 @@ const task: TaskView = {
   usageSyncError: null,
   usageCommentId: null,
   summary: null,
+  pullRequest: null,
 };
 const usage: TaskUsage = {
   ...emptyUsage('t1'),
@@ -99,6 +100,11 @@ beforeEach(() => {
         baseBranch: 'main',
         connectionId: 'c1',
         miacYmlFound: true,
+        workItemOnStart: {
+          moveToInProgress: true,
+          assignToMe: true,
+          stateOverrides: {},
+        },
       },
     ],
     connections: [
@@ -110,6 +116,7 @@ beforeEach(() => {
         user: 'Dries',
         status: 'ok',
         checkedAt: null,
+        userUniqueName: null,
       },
     ],
   });
@@ -207,6 +214,11 @@ describe('UsagePanel', () => {
           baseBranch: 'main',
           connectionId: null,
           miacYmlFound: true,
+          workItemOnStart: {
+            moveToInProgress: true,
+            assignToMe: true,
+            stateOverrides: {},
+          },
         },
       ],
     });

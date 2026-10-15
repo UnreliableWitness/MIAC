@@ -758,6 +758,7 @@ describe('recoverInterruptedTasks', () => {
       usageSyncError: null,
       usageCommentId: null,
       summary: null,
+      pullRequest: null,
     };
     await store.update((s) => {
       s.tasks.push(

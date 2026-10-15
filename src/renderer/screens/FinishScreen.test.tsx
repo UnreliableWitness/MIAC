@@ -39,6 +39,7 @@ const task: TaskView = {
   usageSyncError: null,
   usageCommentId: null,
   summary: null,
+  pullRequest: null,
   worktreeMissing: false,
 };
 const dirty = {
@@ -279,6 +280,11 @@ describe('FinishScreen AI usage', () => {
           baseBranch: 'main',
           connectionId: 'c1',
           miacYmlFound: true,
+          workItemOnStart: {
+            moveToInProgress: true,
+            assignToMe: true,
+            stateOverrides: {},
+          },
         },
       ],
     });
@@ -320,6 +326,11 @@ describe('FinishScreen AI usage', () => {
           baseBranch: 'main',
           connectionId: 'c1',
           miacYmlFound: true,
+          workItemOnStart: {
+            moveToInProgress: true,
+            assignToMe: true,
+            stateOverrides: {},
+          },
         },
       ],
     });
@@ -352,6 +363,11 @@ describe('FinishScreen AI usage', () => {
           baseBranch: 'main',
           connectionId: null,
           miacYmlFound: true,
+          workItemOnStart: {
+            moveToInProgress: true,
+            assignToMe: true,
+            stateOverrides: {},
+          },
         },
       ],
     });

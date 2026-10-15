@@ -176,10 +176,15 @@ export function createHandlers(s: Services): Handlers {
     connectionId: string,
   ): Promise<Connection> => {
     const c = s.connections.get(connectionId);
-    const { user } = await withConnection(connectionId, () =>
+    const { user, uniqueName } = await withConnection(connectionId, () =>
       s.ado.client(connectionId).verify(c.project),
     );
-    const updated = await s.connections.setStatus(connectionId, 'ok', user);
+    const updated = await s.connections.setStatus(
+      connectionId,
+      'ok',
+      user,
+      uniqueName,
+    );
     connectionsChanged();
     return updated;
   };
@@ -532,6 +537,7 @@ export function createHandlers(s: Services): Handlers {
         usageSyncError: null,
         usageCommentId: null,
         summary: null,
+        pullRequest: null,
       };
       inFlight.add(task.id);
       try {
@@ -772,6 +778,17 @@ export function createHandlers(s: Services): Handlers {
       s.broadcast('repos:changed', s.repos.list());
       tel.event('repo.connectionLinked', { linked: connectionId !== null });
       return repo;
+    },
+    'repos:setWorkItemOnStart': async (repoId, settings) => {
+      const repo = await s.repos.setWorkItemOnStart(repoId, settings);
+      s.broadcast('repos:changed', s.repos.list());
+      return repo;
+    },
+    'tasks:prAvailability': async () => {
+      throw new Error('not implemented');
+    },
+    'tasks:prStatus': async () => {
+      throw new Error('not implemented');
     },
     'workItems:currentIteration': async (connectionId) => {
       const c = s.connections.get(connectionId);

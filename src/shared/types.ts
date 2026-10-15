@@ -51,6 +51,25 @@ export const TaskSummarySchema = z.object({
 });
 export type TaskSummary = z.infer<typeof TaskSummarySchema>;
 
+export const StartSettingsSchema = z.object({
+  moveToInProgress: z.boolean().default(true),
+  assignToMe: z.boolean().default(true),
+  /** Work item type -> state name. Empty means the type's first In Progress state. */
+  stateOverrides: z.record(z.string(), z.string()).default({}),
+});
+export type StartSettings = z.infer<typeof StartSettingsSchema>;
+
+export const PullRequestRefSchema = z.object({
+  id: z.number().int(),
+  url: z.string(),
+  repositoryId: z.string(),
+  project: z.string(),
+  repo: z.string(),
+  status: z.enum(['active', 'completed', 'abandoned']),
+  isDraft: z.boolean(),
+});
+export type PullRequestRef = z.infer<typeof PullRequestRefSchema>;
+
 export const TaskSchema = z.object({
   id: z.string().min(1),
   repoId: z.string().min(1),
@@ -72,6 +91,7 @@ export const TaskSchema = z.object({
   usageCommentId: z.number().int().nullable().default(null),
   /** Null for tasks finished before MIAC recorded summaries, and while a task is open. */
   summary: TaskSummarySchema.nullable().default(null),
+  pullRequest: PullRequestRefSchema.nullable().default(null),
 });
 export type Task = z.infer<typeof TaskSchema>;
 
@@ -82,6 +102,11 @@ export const RepoSchema = z.object({
   baseBranch: z.string().min(1),
   connectionId: z.string().nullable(),
   miacYmlFound: z.boolean(),
+  workItemOnStart: StartSettingsSchema.default({
+    moveToInProgress: true,
+    assignToMe: true,
+    stateOverrides: {},
+  }),
 });
 export type Repo = z.infer<typeof RepoSchema>;
 
@@ -121,6 +146,7 @@ export type FinishOptions = {
   removeWorktree: boolean;
   deleteBranch: boolean;
   syncUsage: boolean;
+  createPullRequest?: boolean;
 };
 
 export type GitFile = { status: string; path: string };
@@ -143,14 +169,15 @@ export type SetupStepKind =
   | 'copy'
   | 'task-file'
   | 'command'
-  | 'terminals';
+  | 'terminals'
+  | 'work-item';
 export type SetupStepDef = {
   kind: SetupStepKind;
   label: string;
   detail: string;
   command?: string;
 };
-export type SetupStepStatus = 'todo' | 'running' | 'done' | 'failed';
+export type SetupStepStatus = 'todo' | 'running' | 'done' | 'warn' | 'failed';
 export type SetupEvent =
   | {
       taskId: string;
@@ -197,6 +224,7 @@ export const ConnectionSchema = z.object({
   user: z.string().nullable(),
   status: ConnectionStatusSchema,
   checkedAt: z.string().nullable(),
+  userUniqueName: z.string().nullable().default(null),
 });
 export type Connection = z.infer<typeof ConnectionSchema>;
 

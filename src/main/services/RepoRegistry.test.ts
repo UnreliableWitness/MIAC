@@ -45,9 +45,66 @@ describe('RepoRegistry', () => {
       baseBranch: 'main',
       connectionId: null,
       miacYmlFound: false,
+      workItemOnStart: {
+        moveToInProgress: true,
+        assignToMe: true,
+        stateOverrides: {},
+      },
     });
     expect(reg.list()).toHaveLength(1);
     expect(reg.get(added.id)).toEqual(added);
+  });
+
+  it('loads a repo without workItemOnStart', async () => {
+    const dir = tempDir('miac-reg-old-');
+    const file = path.join(dir, 'state.json');
+    writeFileSync(
+      file,
+      JSON.stringify({
+        version: 1,
+        repos: [
+          {
+            id: 'r1',
+            name: 'old',
+            path: '/src/old',
+            baseBranch: 'main',
+            connectionId: null,
+            miacYmlFound: false,
+          },
+        ],
+        tasks: [],
+      }),
+    );
+    const store = new TaskStore(file);
+    await store.load();
+    const reg = new RepoRegistry(store, new GitClient());
+    expect(reg.get('r1').workItemOnStart).toEqual({
+      moveToInProgress: true,
+      assignToMe: true,
+      stateOverrides: {},
+    });
+  });
+
+  it('setWorkItemOnStart persists', async () => {
+    const dir = tempDir('miac-reg-set-');
+    const file = path.join(dir, 'state.json');
+    const store = new TaskStore(file);
+    await store.load();
+    const reg = new RepoRegistry(store, new GitClient());
+    const added = await reg.add(makeRepo('settings'));
+    const settings = {
+      moveToInProgress: false,
+      assignToMe: true,
+      stateOverrides: { Task: 'Doing' },
+    };
+    const updated = await reg.setWorkItemOnStart(added.id, settings);
+    expect(updated.workItemOnStart).toEqual(settings);
+    const store2 = new TaskStore(file);
+    await store2.load();
+    const reg2 = new RepoRegistry(store2, new GitClient());
+    expect(reg2.get(added.id).workItemOnStart).toEqual(settings);
+    const refreshed = await reg2.refresh(added.id);
+    expect(refreshed.workItemOnStart).toEqual(settings);
   });
 
   it('takes the base branch from .miac.yml', async () => {
@@ -57,6 +114,11 @@ describe('RepoRegistry', () => {
     expect(await reg.add(repo)).toMatchObject({
       baseBranch: 'develop',
       miacYmlFound: true,
+      workItemOnStart: {
+        moveToInProgress: true,
+        assignToMe: true,
+        stateOverrides: {},
+      },
     });
   });
 
@@ -134,6 +196,7 @@ describe('RepoRegistry', () => {
         usageSyncError: null,
         usageCommentId: null,
         summary: null,
+        pullRequest: null,
       });
     });
     await expect(reg.remove(again.id)).rejects.toThrow(/open task/);

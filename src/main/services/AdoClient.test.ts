@@ -69,9 +69,29 @@ describe('AdoClient.verify', () => {
     server.route('GET', '/unreliablewitness/_apis/projects/MIAC', {
       body: { id: 'p', name: 'MIAC' },
     });
-    expect(await client.verify('MIAC')).toEqual({ user: 'Dries Hoebeke' });
+    expect(await client.verify('MIAC')).toEqual({
+      user: 'Dries Hoebeke',
+      uniqueName: null,
+    });
     expect(server.requests[0].auth).toBe(authFor('secret-pat'));
     expect(server.requests[0].path).toContain('api-version=7.1-preview');
+  });
+  it('verify returns the unique name', async () => {
+    server.route('GET', '/unreliablewitness/_apis/connectionData', {
+      body: {
+        authenticatedUser: {
+          providerDisplayName: 'Me',
+          properties: { Account: { $value: 'me@x.com' } },
+        },
+      },
+    });
+    server.route('GET', '/unreliablewitness/_apis/projects/MIAC', {
+      body: { id: 'p', name: 'MIAC' },
+    });
+    expect(await client.verify('MIAC')).toEqual({
+      user: 'Me',
+      uniqueName: 'me@x.com',
+    });
   });
   it('maps 401 to unauthorized', async () => {
     server.route('GET', '/unreliablewitness/_apis/connectionData', {
@@ -146,7 +166,10 @@ describe('AdoClient.verify', () => {
     server.route('GET', '/unreliablewitness/_apis/projects/MIAC', {
       body: { name: 'MIAC' },
     });
-    expect(await client.verify('MIAC')).toEqual({ user: 'D' });
+    expect(await client.verify('MIAC')).toEqual({
+      user: 'D',
+      uniqueName: null,
+    });
     expect(calls).toBe(2);
   });
   it('strips a BOM before parsing JSON', async () => {
@@ -167,7 +190,7 @@ describe('AdoClient.verify', () => {
       async () => 'x',
       fake,
     );
-    expect(await c.verify('MIAC')).toEqual({ user: 'D' });
+    expect(await c.verify('MIAC')).toEqual({ user: 'D', uniqueName: null });
   });
   it('maps a 302 redirect to unauthorized', async () => {
     server.route('GET', '/unreliablewitness/_apis/connectionData', {

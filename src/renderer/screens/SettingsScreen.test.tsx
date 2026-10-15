@@ -16,6 +16,11 @@ const webshop: Repo = {
   baseBranch: 'main',
   connectionId: null,
   miacYmlFound: true,
+  workItemOnStart: {
+    moveToInProgress: true,
+    assignToMe: true,
+    stateOverrides: {},
+  },
 };
 
 beforeEach(() => {
@@ -41,6 +46,11 @@ describe('SettingsScreen', () => {
           path: '/src/api',
           baseBranch: 'develop',
           miacYmlFound: false,
+          workItemOnStart: {
+            moveToInProgress: true,
+            assignToMe: true,
+            stateOverrides: {},
+          },
         },
       ],
     });
@@ -138,6 +148,7 @@ describe('SettingsScreen', () => {
           user: null,
           status: 'ok',
           checkedAt: null,
+          userUniqueName: null,
         },
       ],
     });

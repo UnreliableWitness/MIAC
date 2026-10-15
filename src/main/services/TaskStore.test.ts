@@ -48,6 +48,11 @@ describe('TaskStore', () => {
         baseBranch: 'main',
         connectionId: null,
         miacYmlFound: true,
+        workItemOnStart: {
+          moveToInProgress: true,
+          assignToMe: true,
+          stateOverrides: {},
+        },
       });
     });
     const again = new TaskStore(file);
@@ -55,6 +60,43 @@ describe('TaskStore', () => {
     expect(again.state.repos).toHaveLength(1);
     expect(again.state.repos[0].name).toBe('webshop');
     expect(readdirSync(path.dirname(file))).toEqual(['state.json']);
+  });
+
+  it('loads a task without pullRequest', async () => {
+    const file = tmp();
+    mkdirSync(path.dirname(file), { recursive: true });
+    writeFileSync(
+      file,
+      JSON.stringify({
+        version: 1,
+        repos: [],
+        tasks: [
+          {
+            id: 't1',
+            repoId: 'r1',
+            name: 'Old task',
+            workItem: null,
+            slug: 'old-task',
+            branch: 'task/old-task',
+            worktreePath: '/wt/old-task',
+            baseRef: 'origin/main',
+            status: 'ready',
+            setup: {
+              copy: false,
+              commands: [],
+              startClaude: false,
+              openShell: false,
+            },
+            terminals: [],
+            createdAt: '2026-10-01T00:00:00.000Z',
+            finishedAt: null,
+          },
+        ],
+      }),
+    );
+    const store = new TaskStore(file);
+    await store.load();
+    expect(store.state.tasks[0].pullRequest).toBeNull();
   });
 
   it('does not change state when the mutation produces an invalid state', async () => {
@@ -122,6 +164,11 @@ describe('TaskStore', () => {
             baseBranch: 'main',
             connectionId: null,
             miacYmlFound: false,
+            workItemOnStart: {
+              moveToInProgress: true,
+              assignToMe: true,
+              stateOverrides: {},
+            },
           });
         }),
       ),

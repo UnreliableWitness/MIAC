@@ -109,18 +109,25 @@ export class AdoClient {
     );
   }
 
-  async verify(project: string): Promise<{ user: string }> {
+  async verify(
+    project: string,
+  ): Promise<{ user: string; uniqueName: string | null }> {
     const data = await this.request<Json>(
       '/_apis/connectionData?api-version=7.1-preview',
     );
+    const auth = data.authenticatedUser as Json | undefined;
     const user =
-      ((data.authenticatedUser as Json | undefined)?.providerDisplayName as
-        | string
-        | undefined) ?? 'unknown user';
+      (auth?.providerDisplayName as string | undefined) ?? 'unknown user';
+    const account = (
+      (auth?.properties as Json | undefined)?.Account as Json | undefined
+    )?.$value;
     await this.request<Json>(
       `/_apis/projects/${encodeURIComponent(project)}?${API}`,
     );
-    return { user };
+    return {
+      user,
+      uniqueName: typeof account === 'string' && account ? account : null,
+    };
   }
 
   async currentIteration(project: string): Promise<SprintIteration | null> {

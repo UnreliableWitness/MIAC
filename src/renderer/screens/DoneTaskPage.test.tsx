@@ -37,6 +37,7 @@ const task: TaskView = {
   usageSyncError: null,
   usageCommentId: 77,
   summary: null,
+  pullRequest: null,
   worktreeMissing: false,
 };
 const summary: TaskSummary = {
@@ -71,6 +72,11 @@ beforeEach(() =>
         baseBranch: 'main',
         connectionId: 'c1',
         miacYmlFound: true,
+        workItemOnStart: {
+          moveToInProgress: true,
+          assignToMe: true,
+          stateOverrides: {},
+        },
       },
     ],
     tasks: [task],

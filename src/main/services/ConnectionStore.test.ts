@@ -90,6 +90,7 @@ describe('ConnectionStore', () => {
       user: null,
       status: 'unknown',
       checkedAt: null,
+      userUniqueName: null,
     });
     expect(store.list()).toEqual([c]);
     expect(JSON.stringify(store.list())).not.toContain('secret-pat');
@@ -110,6 +111,44 @@ describe('ConnectionStore', () => {
     await b.load();
     expect(b.list()).toEqual([c]);
     expect(await b.token(c.id)).toBe('tok');
+  });
+
+  it('setStatus stores userUniqueName', async () => {
+    const store = new ConnectionStore(file(), fakeCrypto());
+    await store.load();
+    const c = await store.save({
+      organizationUrl: 'https://dev.azure.com/o',
+      project: 'P',
+      pat: 'tok',
+    });
+    expect(c.userUniqueName).toBeNull();
+    const updated = await store.setStatus(c.id, 'ok', 'Dries', 'd@x.com');
+    expect(updated.userUniqueName).toBe('d@x.com');
+  });
+
+  it('loads an old file without userUniqueName as null', async () => {
+    const f = file();
+    writeFileSync(
+      f,
+      JSON.stringify({
+        version: 1,
+        connections: [
+          {
+            id: 'c1',
+            name: 'o',
+            organizationUrl: 'https://dev.azure.com/o',
+            project: 'P',
+            user: 'Dries',
+            status: 'ok',
+            checkedAt: null,
+            tokenCiphertext: 'x',
+          },
+        ],
+      }),
+    );
+    const store = new ConnectionStore(f, fakeCrypto());
+    await store.load();
+    expect(store.get('c1').userUniqueName).toBeNull();
   });
 
   it('updates an existing connection by id and resets its status', async () => {

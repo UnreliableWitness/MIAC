@@ -39,6 +39,7 @@ beforeEach(() => {
         user: 'D',
         status: 'ok',
         checkedAt: null,
+        userUniqueName: null,
       },
     ],
   });

@@ -24,6 +24,7 @@ const connection: Connection = {
   user: 'D',
   status: 'ok',
   checkedAt: null,
+  userUniqueName: null,
 };
 const repo: Repo = {
   id: 'r1',
@@ -32,6 +33,11 @@ const repo: Repo = {
   baseBranch: 'main',
   connectionId: 'c1',
   miacYmlFound: true,
+  workItemOnStart: {
+    moveToInProgress: true,
+    assignToMe: true,
+    stateOverrides: {},
+  },
 };
 const item = (
   id: number,
@@ -109,6 +115,7 @@ const task = (over: Partial<TaskView>): TaskView => ({
   usageSyncError: null,
   usageCommentId: null,
   summary: null,
+  pullRequest: null,
   ...over,
 });
 

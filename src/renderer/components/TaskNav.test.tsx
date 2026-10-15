@@ -14,6 +14,11 @@ const repos: Repo[] = [
     baseBranch: 'main',
     connectionId: null,
     miacYmlFound: true,
+    workItemOnStart: {
+      moveToInProgress: true,
+      assignToMe: true,
+      stateOverrides: {},
+    },
   },
   {
     id: 'r2',
@@ -22,6 +27,11 @@ const repos: Repo[] = [
     baseBranch: 'develop',
     connectionId: null,
     miacYmlFound: false,
+    workItemOnStart: {
+      moveToInProgress: true,
+      assignToMe: true,
+      stateOverrides: {},
+    },
   },
 ];
 const base = {
@@ -39,6 +49,7 @@ const base = {
   usageSyncError: null,
   usageCommentId: null,
   summary: null,
+  pullRequest: null,
   worktreeMissing: false,
   baseRef: 'origin/main',
   baseSha: null,
@@ -86,6 +97,7 @@ const tasks: TaskView[] = [
     usageSyncError: null,
     usageCommentId: null,
     summary: null,
+    pullRequest: null,
   },
   {
     ...base,
@@ -138,6 +150,7 @@ describe('TaskNav', () => {
           user: 'D',
           status: 'unauthorized',
           checkedAt: null,
+          userUniqueName: null,
         },
       ],
     });
@@ -216,6 +229,7 @@ describe('TaskNav', () => {
       user: 'D',
       status: 'ok' as const,
       checkedAt: null,
+      userUniqueName: null,
     });
     useStore.setState({
       connections: [conn('c1', 'MIAC'), conn('c2', 'DXP')],
@@ -246,6 +260,7 @@ describe('TaskNav', () => {
       user: 'D',
       status: 'ok' as const,
       checkedAt: null,
+      userUniqueName: null,
     });
     useStore.setState({
       connections: [conn('c1', 'MIAC'), conn('c2', 'DXP')],

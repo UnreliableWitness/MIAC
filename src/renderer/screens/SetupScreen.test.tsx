@@ -36,6 +36,7 @@ const task: TaskView = {
   usageSyncError: null,
   usageCommentId: null,
   summary: null,
+  pullRequest: null,
   worktreeMissing: false,
 };
 const state: SetupState = {
@@ -79,6 +80,11 @@ beforeEach(() =>
         baseBranch: 'main',
         connectionId: null,
         miacYmlFound: true,
+        workItemOnStart: {
+          moveToInProgress: true,
+          assignToMe: true,
+          stateOverrides: {},
+        },
       },
     ],
     tasks: [task],

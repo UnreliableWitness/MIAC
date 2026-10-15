@@ -14,6 +14,7 @@ const ok: Connection = {
   user: 'Dries Hoebeke',
   status: 'ok',
   checkedAt: '2026-10-14T10:00:00.000Z',
+  userUniqueName: null,
 };
 
 beforeEach(() =>
@@ -131,6 +132,11 @@ describe('ConnectionsSection', () => {
           baseBranch: 'main',
           connectionId: 'c1',
           miacYmlFound: true,
+          workItemOnStart: {
+            moveToInProgress: true,
+            assignToMe: true,
+            stateOverrides: {},
+          },
         },
       ],
     });

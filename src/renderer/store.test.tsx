@@ -30,6 +30,7 @@ const task = (id: string, terms: string[]): TaskView => ({
   usageSyncError: null,
   usageCommentId: null,
   summary: null,
+  pullRequest: null,
 });
 
 beforeEach(() => {
@@ -130,6 +131,7 @@ describe('activeConnection', () => {
     user: null,
     status: 'ok' as const,
     checkedAt: null,
+    userUniqueName: null,
   });
   const repo = (id: string, connectionId: string | null) => ({
     id,
@@ -138,6 +140,11 @@ describe('activeConnection', () => {
     baseBranch: 'main',
     connectionId,
     miacYmlFound: true,
+    workItemOnStart: {
+      moveToInProgress: true,
+      assignToMe: true,
+      stateOverrides: {},
+    },
   });
   it('prefers the switcher choice, then the selected task, then the first linked repo', () => {
     const s = {
