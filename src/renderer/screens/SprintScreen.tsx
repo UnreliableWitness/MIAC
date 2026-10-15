@@ -57,7 +57,10 @@ export function visibleRows(
   return out;
 }
 
-/** The MIAC task for a work item: an open one first, else the latest finished one. Tasks linked to another project never match. */
+/**
+ * The MIAC task for a work item: an open one first, else the latest finished one. Ids are per organization, so
+ * only tasks whose repo is linked to this sprint's connection match; unlinked repos and other projects never do.
+ */
 function taskFor(
   id: string,
   connectionId: string,
@@ -66,8 +69,7 @@ function taskFor(
 ): TaskView | null {
   const matches = tasks.filter((t) => {
     if (t.workItem?.id !== id) return false;
-    const c = repoConnection.get(t.repoId) ?? null;
-    return c === null || c === connectionId;
+    return (repoConnection.get(t.repoId) ?? null) === connectionId;
   });
   return (
     matches.find((t) => t.status !== 'done') ??

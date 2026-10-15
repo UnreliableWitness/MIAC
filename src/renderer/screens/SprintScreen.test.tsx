@@ -210,6 +210,25 @@ describe('Sprint page', () => {
     expect(useStore.getState().selectedTaskId).toBe('t1');
   });
 
+  it('does not match a task whose repo is unlinked or on another connection', async () => {
+    fake();
+    useStore.setState({
+      repos: [
+        repo,
+        { ...repo, id: 'r0', name: 'unlinked', connectionId: null },
+        { ...repo, id: 'r2', name: 'other org', connectionId: 'other' },
+      ],
+      tasks: [
+        task({ id: 't0', repoId: 'r0' }),
+        task({ id: 't2', repoId: 'r2' }),
+      ],
+    });
+    render(<Shell />);
+    const table = await grid();
+    const r = within(table).getAllByRole('row')[3];
+    expect(within(r).queryByText('Open')).toBeNull();
+  });
+
   it('opens the Done page for a finished task', async () => {
     fake();
     useStore.setState({
