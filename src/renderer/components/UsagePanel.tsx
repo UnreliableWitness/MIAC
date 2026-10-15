@@ -5,6 +5,7 @@ import { isLive, timeline, tokenMix, type Bin } from '../../shared/usageViews';
 import { aiFieldValues, renderUsageComment } from '../../shared/workItemUsage';
 import { api, tryInvoke } from '../api';
 import { ago, compact, eur } from '../format';
+import { useClock } from '../hooks/useClock';
 import { useTaskUsage } from '../hooks/useTaskUsage';
 import { useStore } from '../store';
 import { Bracketed, Label, RingGauge } from './instrument';
@@ -74,6 +75,8 @@ export function UsagePanel({
   const repo = useStore((s) => s.repos.find((r) => r.id === task?.repoId));
   const notify = useStore((s) => s.notify);
   const usage = useTaskUsage(taskId);
+  // LIVE, the pulsing bin and the 6 h window must move on even when no new usage arrives.
+  useClock(30_000);
   const [fields, setFields] = useState<FieldsStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const connectionId = repo?.connectionId ?? null;

@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TaskView } from '../../shared/types';
@@ -246,6 +246,44 @@ describe('UsagePanel', () => {
     render(<UsagePanel taskId="t1" now={() => now} />);
     const rows = await screen.findAllByRole('row');
     expect(rows.filter((r) => r.textContent?.includes('LIVE'))).toHaveLength(1);
+  });
+  it('drops LIVE once 5 minutes pass without new usage', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let clock = Date.parse('2026-10-14T10:03:00.000Z');
+      installFakeApi({
+        'usage:task': () => ({
+          ...usage,
+          sessions: [
+            { ...usage.sessions[1], lastAt: '2026-10-14T10:00:00.000Z' },
+          ],
+        }),
+      });
+      render(<UsagePanel taskId="t1" now={() => clock} />);
+      expect(await screen.findByText('LIVE')).toBeInTheDocument();
+      expect(
+        document.querySelector('[data-part="bin"].is-live'),
+      ).not.toBeNull();
+      clock = Date.parse('2026-10-14T10:06:00.000Z');
+      act(() => vi.advanceTimersByTime(30_000));
+      expect(screen.queryByText('LIVE')).toBeNull();
+      expect(document.querySelector('[data-part="bin"].is-live')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('stops its clock on unmount', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      installFakeApi({ 'usage:task': () => usage });
+      const { unmount } = render(<UsagePanel taskId="t1" />);
+      await screen.findByRole('img', { name: /Cost per 15 minutes/ });
+      const before = vi.getTimerCount();
+      unmount();
+      expect(vi.getTimerCount()).toBeLessThan(before);
+    } finally {
+      vi.useRealTimers();
+    }
   });
   it('mutes and strikes through a non-billable session', async () => {
     installFakeApi({
