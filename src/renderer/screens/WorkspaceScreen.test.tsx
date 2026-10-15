@@ -359,6 +359,61 @@ describe('tabs and focus', () => {
     );
   });
 
+  it('switches by physical key on AZERTY layouts (Mod+à is Digit0, Mod+é is Digit2)', async () => {
+    setup();
+    render(<WorkspaceScreen />);
+    const term = await screen.findByTestId('term-c1');
+    const ev = createEvent.keyDown(term, {
+      key: '\u00e0',
+      code: 'Digit0',
+      ctrlKey: true,
+      metaKey: true,
+    });
+    fireEvent(term, ev);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(screen.getByRole('region', { name: 'AI usage' })).toBeVisible();
+    fireEvent.keyDown(term, {
+      key: '\u00e9',
+      code: 'Digit2',
+      ctrlKey: true,
+      metaKey: true,
+    });
+    expect(screen.getByTestId('term-s1')).toHaveAttribute(
+      'data-active',
+      'true',
+    );
+  });
+
+  it('switches with the numpad digits', async () => {
+    setup();
+    render(<WorkspaceScreen />);
+    const term = await screen.findByTestId('term-c1');
+    fireEvent.keyDown(term, {
+      key: '2',
+      code: 'Numpad2',
+      ctrlKey: true,
+      metaKey: true,
+    });
+    expect(screen.getByTestId('term-s1')).toHaveAttribute(
+      'data-active',
+      'true',
+    );
+  });
+
+  it('does not treat a digit character on another physical key as a tab shortcut', async () => {
+    setup();
+    render(<WorkspaceScreen />);
+    const term = await screen.findByTestId('term-c1');
+    const ev = createEvent.keyDown(term, {
+      key: '1',
+      code: 'KeyQ',
+      ctrlKey: true,
+      metaKey: true,
+    });
+    fireEvent(term, ev);
+    expect(ev.defaultPrevented).toBe(false);
+  });
+
   it('leaves other keys alone', async () => {
     setup();
     render(<WorkspaceScreen />);
