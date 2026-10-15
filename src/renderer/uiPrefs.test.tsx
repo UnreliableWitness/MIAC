@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { readPrefs, writePref } from './uiPrefs';
+import { readPrChoice, readPrefs, writePrChoice, writePref } from './uiPrefs';
 
 beforeEach(() => localStorage.clear());
 
@@ -29,5 +29,28 @@ describe('uiPrefs', () => {
     } as unknown as Storage;
     expect(readPrefs(broken)).toEqual({ navCollapsed: false, focus: false });
     expect(() => writePref('focus', true, broken)).not.toThrow();
+  });
+});
+
+describe('pull request choice', () => {
+  it('defaults to false and is kept per repo', () => {
+    expect(readPrChoice('r1')).toBe(false);
+    writePrChoice('r1', true);
+    expect(readPrChoice('r1')).toBe(true);
+    expect(readPrChoice('r2')).toBe(false);
+    writePrChoice('r1', false);
+    expect(readPrChoice('r1')).toBe(false);
+  });
+  it('survives a storage that throws', () => {
+    const broken = {
+      getItem: () => {
+        throw new Error('denied');
+      },
+      setItem: () => {
+        throw new Error('denied');
+      },
+    } as unknown as Storage;
+    expect(readPrChoice('r1', broken)).toBe(false);
+    expect(() => writePrChoice('r1', true, broken)).not.toThrow();
   });
 });

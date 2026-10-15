@@ -29,3 +29,29 @@ export function writePref<K extends keyof UiPrefs>(
     /* preferences are best effort */
   }
 }
+
+const prKey = (repoId: string) => `miac.ui.pr.${repoId}`;
+
+/** Whether the last Finish of this repo asked for a pull request; false until then. */
+export function readPrChoice(
+  repoId: string,
+  storage: Storage | undefined = local(),
+): boolean {
+  try {
+    return storage?.getItem(prKey(repoId)) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+export function writePrChoice(
+  repoId: string,
+  value: boolean,
+  storage: Storage | undefined = local(),
+): void {
+  try {
+    storage?.setItem(prKey(repoId), String(value));
+  } catch {
+    /* preferences are best effort */
+  }
+}

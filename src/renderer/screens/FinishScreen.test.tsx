@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { TaskView } from '../../shared/types';
+import { readPrChoice, writePrChoice } from '../uiPrefs';
 import { useStore } from '../store';
 import { emptyUsage, installFakeApi } from '../test-helpers/fakeApi';
 import { FinishScreen } from './FinishScreen';
@@ -52,7 +53,8 @@ const dirty = {
 };
 const clean = { uncommitted: [], unpushed: 0, runningTerminals: 0 };
 
-beforeEach(() =>
+beforeEach(() => {
+  localStorage.clear();
   useStore.setState({
     repos: [],
     tasks: [task],
@@ -60,8 +62,8 @@ beforeEach(() =>
     notices: [],
     screen: { kind: 'finish', taskId: 'a' },
     selectedTaskId: 'a',
-  }),
-);
+  });
+});
 
 describe('FinishScreen', () => {
   it('shows the safety checks and the cleanup options', async () => {
@@ -113,6 +115,7 @@ describe('FinishScreen', () => {
           removeWorktree: true,
           deleteBranch: false,
           syncUsage: false,
+          createPullRequest: false,
         },
       ]),
     );
@@ -385,6 +388,121 @@ describe('FinishScreen AI usage', () => {
       expect(
         calls.find((c) => c.channel === 'tasks:finish')?.args[1],
       ).toMatchObject({ syncUsage: false }),
+    );
+  });
+});
+
+describe('FinishScreen pull request', () => {
+  const available = {
+    'tasks:prAvailability': () => ({
+      available: true,
+      reason: null,
+      target: 'main',
+    }),
+  };
+  const label = 'Create a draft pull request into main';
+  const finishArgs = (calls: { channel: string; args: unknown[] }[]) =>
+    calls.filter((c) => c.channel === 'tasks:finish').map((c) => c.args[1]);
+
+  it('starts unchecked on first use; ticking it sends true and remembers it', async () => {
+    const { calls } = installFakeApi({
+      ...available,
+      'tasks:finishChecks': () => clean,
+      'tasks:finish': () => undefined,
+    });
+    render(<FinishScreen taskId="a" />);
+    const box = await screen.findByLabelText(label);
+    await waitFor(() => expect(box).toBeEnabled());
+    expect(box).not.toBeChecked();
+    await userEvent.click(box);
+    expect(localStorage.length).toBe(0);
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Finish and clean up' }),
+    );
+    await waitFor(() =>
+      expect(finishArgs(calls)[0]).toMatchObject({ createPullRequest: true }),
+    );
+    expect(readPrChoice('r1')).toBe(true);
+  });
+
+  it('starts checked when the last choice for the repo was yes', async () => {
+    writePrChoice('r1', true);
+    installFakeApi({ ...available, 'tasks:finishChecks': () => clean });
+    render(<FinishScreen taskId="a" />);
+    await waitFor(() => expect(screen.getByLabelText(label)).toBeChecked());
+  });
+
+  it('is disabled and unchecked with the reason when unavailable, and saves nothing', async () => {
+    writePrChoice('r1', true);
+    const { calls } = installFakeApi({
+      'tasks:prAvailability': () => ({
+        available: false,
+        reason: 'origin is not an Azure Repos URL',
+        target: null,
+      }),
+      'tasks:finishChecks': () => clean,
+      'tasks:finish': () => undefined,
+    });
+    render(<FinishScreen taskId="a" />);
+    const box = await screen.findByLabelText(/^Create a draft pull request/);
+    expect(box).toBeDisabled();
+    expect(box).not.toBeChecked();
+    expect(
+      await screen.findByText('origin is not an Azure Repos URL'),
+    ).toBeInTheDocument();
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Finish and clean up' }),
+    );
+    await waitFor(() =>
+      expect(finishArgs(calls)[0]).toMatchObject({ createPullRequest: false }),
+    );
+    expect(readPrChoice('r1')).toBe(true);
+  });
+
+  it('hides the unpushed warning only while the box is checked', async () => {
+    installFakeApi({
+      ...available,
+      'tasks:finishChecks': () => ({ ...clean, unpushed: 2 }),
+    });
+    render(<FinishScreen taskId="a" />);
+    const box = await screen.findByLabelText(label);
+    expect(await screen.findByText('2 commits not pushed')).toBeInTheDocument();
+    await userEvent.click(box);
+    expect(screen.queryByText('2 commits not pushed')).toBeNull();
+    await userEvent.click(box);
+    expect(screen.getByText('2 commits not pushed')).toBeInTheDocument();
+  });
+
+  it('shows the failure with Retry and Finish without PR, staying on the page', async () => {
+    const message =
+      'Pull request not created: The token cannot create pull requests (needs Code: Read & write)';
+    let n = 0;
+    const { calls } = installFakeApi({
+      ...available,
+      'tasks:finishChecks': () => clean,
+      'tasks:finish': () => {
+        if (n++ < 2) throw new Error(message);
+        return undefined;
+      },
+    });
+    render(<FinishScreen taskId="a" />);
+    await userEvent.click(await screen.findByLabelText(label));
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Finish and clean up' }),
+    );
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(useStore.getState().screen).toEqual({ kind: 'finish', taskId: 'a' });
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(finishArgs(calls)).toHaveLength(2));
+    expect(finishArgs(calls)[1]).toEqual(finishArgs(calls)[0]);
+    await screen.findByText(message);
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Finish without PR' }),
+    );
+    await waitFor(() => expect(finishArgs(calls)).toHaveLength(3));
+    expect(finishArgs(calls)[2]).toMatchObject({ createPullRequest: false });
+    await waitFor(() =>
+      expect(useStore.getState().screen).toEqual({ kind: 'task' }),
     );
   });
 });

@@ -1,4 +1,5 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { TaskSummary, TaskView } from '../../shared/types';
 import { useStore } from '../store';
@@ -227,5 +228,44 @@ describe('DoneTaskPage', () => {
         'No summary: git could not read the branch when it finished.',
       ),
     ).toBeInTheDocument();
+  });
+
+  describe('pull request', () => {
+    const pr = {
+      id: 7,
+      url: 'https://dev.azure.com/contoso/P/_git/R/pullrequest/7',
+      repositoryId: 'rid',
+      project: 'P',
+      repo: 'R',
+      status: 'active' as const,
+      isDraft: true,
+    };
+    it('shows the PR, opens it, and updates with the live status', async () => {
+      const { calls } = installFakeApi({
+        'usage:task': () => usage,
+        'tasks:prStatus': () => ({
+          ...pr,
+          status: 'completed' as const,
+          isDraft: false,
+        }),
+      });
+      render(<DoneTaskPage task={{ ...task, pullRequest: pr }} />);
+      expect(fact('Pull request')).toHaveTextContent('PR 7 · Draft');
+      await waitFor(() =>
+        expect(fact('Pull request')).toHaveTextContent('PR 7 · Completed'),
+      );
+      await userEvent.click(within(fact('Pull request')).getByRole('button'));
+      expect(
+        calls.find((c) => c.channel === 'shell:openExternal')?.args,
+      ).toEqual([pr.url]);
+      expect(calls.filter((c) => c.channel === 'tasks:prStatus')).toHaveLength(
+        1,
+      );
+    });
+    it('has no PR fact without a pull request', () => {
+      installFakeApi({ 'usage:task': () => usage });
+      render(<DoneTaskPage task={task} />);
+      expect(screen.queryByText('Pull request', { selector: 'dt' })).toBeNull();
+    });
   });
 });
