@@ -236,6 +236,52 @@ describe('TaskNav', () => {
     expect(screen.getByText('unreliablewitness: DXP')).toBeInTheDocument();
   });
 
+  it('the project switcher is a keyboard menu: focus moves in, arrows move, Escape and outside clicks close', async () => {
+    installFakeApi();
+    const conn = (id: string, project: string) => ({
+      id,
+      name: 'unreliablewitness',
+      organizationUrl: 'https://dev.azure.com/unreliablewitness',
+      project,
+      user: 'D',
+      status: 'ok' as const,
+      checkedAt: null,
+    });
+    useStore.setState({
+      connections: [conn('c1', 'MIAC'), conn('c2', 'DXP')],
+      connectionId: 'c1',
+      selectedTaskId: null,
+    });
+    render(<TaskNav />);
+    const trigger = screen.getByRole('button', {
+      name: 'Project MIAC, switch project',
+    });
+    expect(trigger).toHaveAttribute('aria-haspopup', 'menu');
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    trigger.focus();
+    await userEvent.keyboard('{Enter}');
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    const items = within(
+      screen.getByRole('menu', { name: 'Projects' }),
+    ).getAllByRole('menuitemradio');
+    // Focus lands on the current project.
+    expect(items[0]).toHaveFocus();
+    await userEvent.keyboard('{ArrowDown}');
+    expect(items[1]).toHaveFocus();
+    await userEvent.keyboard('{ArrowDown}');
+    expect(items[0]).toHaveFocus();
+    await userEvent.keyboard('{ArrowUp}');
+    expect(items[1]).toHaveFocus();
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(trigger).toHaveFocus();
+    await userEvent.click(trigger);
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    await userEvent.click(document.body);
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(useStore.getState().connectionId).toBe('c1');
+  });
+
   it('shows the billable EUR total per task', async () => {
     installFakeApi({
       'repos:list': () => repos,

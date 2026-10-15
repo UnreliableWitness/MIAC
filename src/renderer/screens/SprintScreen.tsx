@@ -41,6 +41,8 @@ const TASK_STATUS: Record<TaskStatus, { label: string; color: string }> = {
   done: { label: 'Done', color: 'var(--muted)' },
 };
 
+const NO_REPO = 'Link a repo to this project in Settings to start a task';
+
 /** Hides the rows under a collapsed parent. */
 export function visibleRows(
   rows: SprintRow[],
@@ -182,15 +184,14 @@ function Row({
           <button
             type="button"
             className="btn btn-subtle sprint-start"
-            disabled={!repoId}
-            title={
-              repoId
-                ? undefined
-                : 'Link a repo to this project in Settings to start a task'
-            }
+            // aria-disabled, not disabled: the button stays focusable so keyboard users hear why.
+            aria-disabled={!repoId || undefined}
+            title={repoId ? undefined : NO_REPO}
             aria-label={`Start a task for ${w.type} ${w.id} ${w.title}`}
+            aria-description={repoId ? undefined : NO_REPO}
             onClick={(e) => {
               e.stopPropagation();
+              if (!repoId) return;
               go({
                 kind: 'new-task',
                 workItem: {
@@ -199,7 +200,7 @@ function Row({
                   title: w.title,
                   url: w.url,
                 },
-                repoId: repoId ?? undefined,
+                repoId,
               });
             }}
           >

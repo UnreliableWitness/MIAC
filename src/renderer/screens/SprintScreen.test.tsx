@@ -287,11 +287,19 @@ describe('Sprint page', () => {
     useStore.setState({ repos: [{ ...repo, connectionId: null }] });
     render(<Shell />);
     const table = await grid();
-    expect(
-      within(table).getByRole('button', {
-        name: 'Start a task for Issue 2 Estimated delivery date',
-      }),
-    ).toBeDisabled();
+    const start = within(table).getByRole('button', {
+      name: 'Start a task for Issue 2 Estimated delivery date',
+    });
+    // Unavailable but still focusable, so keyboard users can learn why.
+    expect(start).toHaveAttribute('aria-disabled', 'true');
+    expect(start).not.toBeDisabled();
+    expect(start).toHaveAccessibleDescription(
+      'Link a repo to this project in Settings to start a task',
+    );
+    start.focus();
+    expect(start).toHaveFocus();
+    await userEvent.click(start);
+    expect(useStore.getState().screen).toEqual({ kind: 'sprint' });
   });
 
   it('asks to connect Azure DevOps when there is no connection', async () => {

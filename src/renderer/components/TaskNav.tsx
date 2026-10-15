@@ -7,7 +7,13 @@ import {
   PanelLeftExpand20Regular,
   Settings20Regular,
 } from '@fluentui/react-icons';
-import { type ReactNode, useState } from 'react';
+import {
+  type KeyboardEvent,
+  type ReactNode,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import type { Repo, TaskStatus, TaskView } from '../../shared/types';
 import { statusText } from '../connectionStatus';
 import { eur } from '../format';
@@ -147,6 +153,50 @@ function ProjectTile({ rail }: { rail: boolean }) {
   const setConnectionId = useStore((s) => s.setConnectionId);
   const go = useStore((s) => s.go);
   const [open, setOpen] = useState(false);
+  const wrap = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  const close = (refocus: boolean) => {
+    setOpen(false);
+    if (refocus) trigger.current?.focus();
+  };
+  // On open, focus the current project; a click outside closes the menu.
+  useEffect(() => {
+    if (!open) return;
+    const items = [
+      ...(menu.current?.querySelectorAll<HTMLElement>(
+        '[role="menuitemradio"]',
+      ) ?? []),
+    ];
+    (
+      items.find((i) => i.getAttribute('aria-checked') === 'true') ?? items[0]
+    )?.focus();
+    const onDown = (e: MouseEvent) => {
+      if (!wrap.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+  const onMenuKey = (e: KeyboardEvent) => {
+    const items = [
+      ...(menu.current?.querySelectorAll<HTMLElement>(
+        '[role="menuitemradio"]',
+      ) ?? []),
+    ];
+    const at = items.indexOf(document.activeElement as HTMLElement);
+    const move = (to: number) => {
+      e.preventDefault();
+      items[(to + items.length) % items.length]?.focus();
+    };
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      close(true);
+    } else if (e.key === 'ArrowDown') move(at + 1);
+    else if (e.key === 'ArrowUp') move(at < 0 ? -1 : at - 1);
+    else if (e.key === 'Home') move(0);
+    else if (e.key === 'End') move(-1);
+    else if (e.key === 'Tab') setOpen(false);
+  };
   const name = connection?.project ?? 'No project';
   const avatar = (
     <span
@@ -167,8 +217,9 @@ function ProjectTile({ rail }: { rail: boolean }) {
       </div>
     );
   return (
-    <div className="projecttile-wrap">
+    <div className="projecttile-wrap" ref={wrap}>
       <button
+        ref={trigger}
         type="button"
         className="projecttile"
         aria-haspopup="menu"
@@ -183,21 +234,18 @@ function ProjectTile({ rail }: { rail: boolean }) {
       </button>
       {open && (
         <div
+          ref={menu}
           role="menu"
           aria-label="Projects"
           className="menu"
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') {
-              e.preventDefault();
-              setOpen(false);
-            }
-          }}
+          onKeyDown={onMenuKey}
         >
           {connections.map((c) => (
             <button
               key={c.id}
               type="button"
               role="menuitemradio"
+              tabIndex={-1}
               aria-checked={c.id === connection?.id}
               className="menu-item"
               onClick={() => {
