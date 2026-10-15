@@ -262,4 +262,55 @@ describe('GitClient', () => {
       ['-c', 'core.longpaths=true', 'worktree', 'prune'],
     ]);
   });
+
+  it('summarises a finished branch: commits since the merge base, diff stat, local', async () => {
+    const repo = makeRepo();
+    const wt = path.join(path.dirname(repo), 'wt-sum');
+    await client.worktreeAdd(repo, {
+      branch: 'feature/sum',
+      path: wt,
+      baseRef: 'main',
+    });
+    // main moves on after the branch left it; that must not count.
+    commitFile(repo, 'later.txt', 'later\n');
+    commitFile(wt, 'a.txt', 'one\ntwo\n', 'Add a');
+    writeFileSync(path.join(wt, 'README.md'), 'changed\n');
+    git(wt, 'commit', '-q', '-am', 'Change the readme');
+    const s = await client.finishSummary(wt, 'main');
+    expect(s.commitCount).toBe(2);
+    expect(s.commits.map((c) => c.subject)).toEqual([
+      'Add a',
+      'Change the readme',
+    ]);
+    expect(s.commits[0].sha).toMatch(/^[0-9a-f]{7,}$/);
+    expect(s).toMatchObject({
+      filesChanged: 2,
+      insertions: 3,
+      deletions: 1,
+      pushed: false,
+      upstream: null,
+    });
+  });
+
+  it('reports a pushed branch with its upstream, and caps the list at 50 commits', async () => {
+    const repo = makeRepo();
+    addOrigin(repo);
+    git(repo, 'checkout', '-q', '-b', 'feature/many');
+    for (let i = 1; i <= 52; i++)
+      git(repo, 'commit', '-q', '--allow-empty', '-m', `Step ${i}`);
+    git(repo, 'push', '-q', '-u', 'origin', 'feature/many');
+    const s = await client.finishSummary(repo, 'origin/main');
+    expect(s.commitCount).toBe(52);
+    expect(s.commits).toHaveLength(50);
+    expect(s.commits[0].subject).toBe('Step 1');
+    expect(s).toMatchObject({
+      filesChanged: 0,
+      pushed: true,
+      upstream: 'origin/feature/many',
+    });
+    git(repo, 'commit', '-q', '--allow-empty', '-m', 'Not pushed');
+    expect((await client.finishSummary(repo, 'origin/main')).pushed).toBe(
+      false,
+    );
+  });
 });

@@ -125,5 +125,6 @@ it('accepts a task saved before sub-project 3 and defaults the usage fields', as
     usageSyncedAt: null,
     usageSyncError: null,
     usageCommentId: null,
+    summary: null,
   });
 });

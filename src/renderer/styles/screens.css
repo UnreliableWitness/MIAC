@@ -508,6 +508,26 @@
   font-size: 16px;
   font-weight: 600;
 }
+
+/* Done task page: facts, commits, then the usage panel, in one scroll. */
+.done-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+.done-body .usagepanel {
+  flex: none;
+  overflow: visible;
+}
+.pagehead-state {
+  margin-left: 8px;
+  font-size: 14px;
+}
+.done-commits {
+  padding: 16px 32px 0;
+}
 .done-commits h2 {
   font-size: 16px;
   font-weight: 600;

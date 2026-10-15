@@ -17,7 +17,11 @@ import { RepoRegistry } from '../services/RepoRegistry';
 import { SetupRunner } from '../services/SetupRunner';
 import { TaskStore } from '../services/TaskStore';
 import { TerminalManager } from '../services/TerminalManager';
-import { cleanupTempRepos, makeRepo } from '../test-helpers/gitRepo';
+import {
+  cleanupTempRepos,
+  commitFile,
+  makeRepo,
+} from '../test-helpers/gitRepo';
 import {
   echoCmd,
   envRef,
@@ -472,6 +476,30 @@ describe('handlers: finish', () => {
     expect(await new GitClient().branchExists(repo, t.branch)).toBe(false);
   });
 
+  it('records what the branch did before the worktree goes', async () => {
+    const { h, input, setupDone } = await harness();
+    const done = setupDone();
+    const t = await h['tasks:create'](input({ openShell: false }));
+    await done;
+    commitFile(t.worktreePath, 'feature.txt', 'a\nb\n', 'Add the feature');
+    await h['tasks:finish'](t.id, {
+      closeTerminals: true,
+      removeWorktree: true,
+      deleteBranch: true,
+      syncUsage: false,
+    });
+    const [view] = await h['tasks:list']();
+    expect(view.summary).toMatchObject({
+      commitCount: 1,
+      commits: [{ subject: 'Add the feature' }],
+      filesChanged: 1,
+      insertions: 2,
+      deletions: 0,
+      pushed: false,
+      upstream: null,
+    });
+  });
+
   it('keeps the task ready when cleanup fails', async () => {
     const { h, input, setupDone, store, terminals, services } = await harness();
     const done = setupDone();
@@ -685,6 +713,7 @@ describe('recoverInterruptedTasks', () => {
       usageSyncedAt: null,
       usageSyncError: null,
       usageCommentId: null,
+      summary: null,
     };
     await store.update((s) => {
       s.tasks.push(
@@ -1048,6 +1077,22 @@ describe('handlers: sprint, types and live work items', () => {
     const before = hx.server.requests.length;
     expect(await hx.h['workItems:types'](c.id)).toEqual(types);
     expect(hx.server.requests.length).toBe(before);
+  });
+  it('gets one work item live, or null when it is gone', async () => {
+    const hx = await harness();
+    const c = await save(hx);
+    expect(await hx.h['workItems:get'](c.id, '5')).toMatchObject({
+      id: '5',
+      state: 'To Do',
+    });
+    expect(await hx.h['workItems:get'](c.id, '5')).not.toHaveProperty(
+      'remainingWork',
+    );
+    hx.server.route('GET', '/unreliablewitness/_apis/wit/workitems', {
+      body: { value: [null] },
+    });
+    expect(await hx.h['workItems:get'](c.id, '5')).toBeNull();
+    expect(await hx.h['workItems:get'](c.id, 'x')).toBeNull();
   });
 });
 

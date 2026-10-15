@@ -132,6 +132,7 @@ describe('RepoRegistry', () => {
         usageSyncedAt: null,
         usageSyncError: null,
         usageCommentId: null,
+        summary: null,
       });
     });
     await expect(reg.remove(again.id)).rejects.toThrow(/open task/);

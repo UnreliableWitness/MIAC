@@ -37,6 +37,18 @@ export const TaskSetupSchema = z.object({
   openCopilot: z.boolean().default(false),
 });
 
+/** What a finished task did, captured from git just before its worktree is removed. */
+export const TaskSummarySchema = z.object({
+  commits: z.array(z.object({ sha: z.string(), subject: z.string() })),
+  commitCount: z.number().int().min(0),
+  filesChanged: z.number().int().min(0),
+  insertions: z.number().int().min(0),
+  deletions: z.number().int().min(0),
+  pushed: z.boolean(),
+  upstream: z.string().nullable(),
+});
+export type TaskSummary = z.infer<typeof TaskSummarySchema>;
+
 export const TaskSchema = z.object({
   id: z.string().min(1),
   repoId: z.string().min(1),
@@ -54,6 +66,8 @@ export const TaskSchema = z.object({
   usageSyncedAt: z.string().nullable().default(null),
   usageSyncError: z.string().nullable().default(null),
   usageCommentId: z.number().int().nullable().default(null),
+  /** Null for tasks finished before MIAC recorded summaries, and while a task is open. */
+  summary: TaskSummarySchema.nullable().default(null),
 });
 export type Task = z.infer<typeof TaskSchema>;
 

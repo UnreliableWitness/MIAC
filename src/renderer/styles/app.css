@@ -53,6 +53,9 @@ h3 {
 .text-red {
   color: var(--red);
 }
+.text-green {
+  color: var(--green);
+}
 .text-warn {
   color: var(--warn);
 }

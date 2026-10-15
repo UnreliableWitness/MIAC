@@ -62,6 +62,11 @@ export type Channels = {
     args: [connectionId: string];
     result: WorkItemTypeMeta[];
   };
+  /** One work item, live; null when it is gone or unreadable. */
+  'workItems:get': {
+    args: [connectionId: string, id: string];
+    result: WorkItemSummary | null;
+  };
   'shell:openExternal': { args: [url: string]; result: void };
   'tasks:list': { args: []; result: TaskView[] };
   'tasks:create': { args: [input: CreateTaskInput]; result: Task };

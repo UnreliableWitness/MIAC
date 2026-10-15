@@ -38,6 +38,7 @@ const base = {
   usageSyncedAt: null,
   usageSyncError: null,
   usageCommentId: null,
+  summary: null,
   worktreeMissing: false,
   baseRef: 'origin/main',
 };
@@ -83,6 +84,7 @@ const tasks: TaskView[] = [
     usageSyncedAt: null,
     usageSyncError: null,
     usageCommentId: null,
+    summary: null,
   },
   {
     ...base,

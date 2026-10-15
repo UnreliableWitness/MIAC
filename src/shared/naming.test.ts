@@ -115,6 +115,7 @@ const task: Task = {
   usageSyncedAt: null,
   usageSyncError: null,
   usageCommentId: null,
+  summary: null,
 };
 
 describe('renderTaskMd', () => {

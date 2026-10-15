@@ -52,3 +52,16 @@ export const sprintDates = (
   const b = day(finish);
   return a && b ? `${a} ${String.fromCharCode(0x2013)} ${b}` : null;
 };
+
+/** How long a task ran, such as "45 min", "3 h 5 min" or "2 d 3 h". */
+export const duration = (fromIso: string, toIso: string): string | null => {
+  const ms = Date.parse(toIso) - Date.parse(fromIso);
+  if (Number.isNaN(ms) || ms < 0) return null;
+  const min = Math.round(ms / 60_000);
+  if (min < 1) return 'under 1 min';
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return min % 60 ? `${h} h ${min % 60} min` : `${h} h`;
+  const d = Math.floor(h / 24);
+  return h % 24 ? `${d} d ${h % 24} h` : `${d} d`;
+};

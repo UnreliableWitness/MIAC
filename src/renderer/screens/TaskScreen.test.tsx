@@ -59,6 +59,7 @@ const task: TaskView = {
   usageSyncedAt: null,
   usageSyncError: null,
   usageCommentId: null,
+  summary: null,
   worktreeMissing: false,
 };
 const config = {

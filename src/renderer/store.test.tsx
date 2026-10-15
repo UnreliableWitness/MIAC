@@ -27,6 +27,7 @@ const task = (id: string, terms: string[]): TaskView => ({
   usageSyncedAt: null,
   usageSyncError: null,
   usageCommentId: null,
+  summary: null,
 });
 
 beforeEach(() => {

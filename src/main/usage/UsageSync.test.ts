@@ -34,6 +34,7 @@ const task = (over: Partial<Task> = {}): Task => ({
   usageSyncedAt: null,
   usageSyncError: null,
   usageCommentId: null,
+  summary: null,
   ...over,
 });
 const usage: TaskUsage = {

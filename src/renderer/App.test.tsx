@@ -32,6 +32,7 @@ const task: TaskView = {
   usageSyncedAt: null,
   usageSyncError: null,
   usageCommentId: null,
+  summary: null,
 };
 const repo = {
   id: 'r1',

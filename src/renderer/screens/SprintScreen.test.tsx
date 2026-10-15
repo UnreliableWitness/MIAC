@@ -107,6 +107,7 @@ const task = (over: Partial<TaskView>): TaskView => ({
   usageSyncedAt: null,
   usageSyncError: null,
   usageCommentId: null,
+  summary: null,
   ...over,
 });
 
@@ -225,12 +226,8 @@ describe('Sprint page', () => {
         name: 'Open the task for Issue 2 Estimated delivery date',
       }),
     );
-    expect(useStore.getState().screen).toEqual({ kind: 'task' });
     expect(
-      await screen.findByRole('heading', {
-        level: 1,
-        name: 'Estimated delivery date',
-      }),
+      await screen.findByText('Finished before MIAC recorded summaries.'),
     ).toBeInTheDocument();
   });
 

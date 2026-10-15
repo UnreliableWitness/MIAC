@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import type { GitSummary } from '../../shared/types';
+import type { GitSummary, TaskSummary } from '../../shared/types';
 import { realWait, withRetry, type Wait } from '../fsRetry';
 import { nativePath } from '../paths';
 
@@ -31,6 +31,9 @@ const FOLDER_IN_USE =
  * before a child that handles CTRL_CLOSE (a dev server) has let go of the folder.
  */
 const REMOVE_WAITS = [50, 100, 200, 400, 800, 1600, 1850];
+
+/** A Done page lists at most this many commits; `commitCount` has the full number. */
+const MAX_SUMMARY_COMMITS = 50;
 
 /** Thin wrapper over the git CLI. Every method takes the directory to run in. */
 export class GitClient {
@@ -210,5 +213,86 @@ export class GitClient {
         path: l.slice(3),
       }));
     return { branch, ahead, behind, hasUpstream: Boolean(upstream), files };
+  }
+
+  /**
+   * What the task's branch did since it left `baseRef`: its commits (oldest first, at most 50), the diff stat,
+   * and whether it is pushed. Falls back to the whole history when there is no merge base.
+   */
+  async finishSummary(worktree: string, baseRef: string): Promise<TaskSummary> {
+    let base: string | null = null;
+    try {
+      base = (await this.run(worktree, ['merge-base', baseRef, 'HEAD'])).trim();
+    } catch {
+      base = null;
+    }
+    const range = base ? `${base}..HEAD` : 'HEAD';
+    const log = await this.run(worktree, [
+      'log',
+      '--reverse',
+      '--format=%h%x09%s',
+      range,
+    ]);
+    const lines = log.split('\n').filter(Boolean);
+    const commits = lines.slice(0, MAX_SUMMARY_COMMITS).map((l) => {
+      const tab = l.indexOf('\t');
+      return tab < 0
+        ? { sha: l, subject: '' }
+        : { sha: l.slice(0, tab), subject: l.slice(tab + 1) };
+    });
+    let filesChanged = 0;
+    let insertions = 0;
+    let deletions = 0;
+    if (base) {
+      const stat = await this.run(worktree, [
+        'diff',
+        '--shortstat',
+        `${base}..HEAD`,
+      ]);
+      const num = (re: RegExp) => Number(re.exec(stat)?.[1] ?? 0);
+      filesChanged = num(/(\d+) files? changed/);
+      insertions = num(/(\d+) insertions?\(\+\)/);
+      deletions = num(/(\d+) deletions?\(-\)/);
+    }
+    let upstream: string | null = null;
+    try {
+      upstream =
+        (
+          await this.run(worktree, [
+            'rev-parse',
+            '--abbrev-ref',
+            '--symbolic-full-name',
+            '@{u}',
+          ])
+        ).trim() || null;
+    } catch {
+      upstream = null;
+    }
+    let pushed = false;
+    if (upstream) {
+      try {
+        pushed =
+          Number(
+            (
+              await this.run(worktree, [
+                'rev-list',
+                '--count',
+                `${upstream}..HEAD`,
+              ])
+            ).trim(),
+          ) === 0;
+      } catch {
+        pushed = false;
+      }
+    }
+    return {
+      commits,
+      commitCount: lines.length,
+      filesChanged,
+      insertions,
+      deletions,
+      pushed,
+      upstream,
+    };
   }
 }

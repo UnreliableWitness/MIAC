@@ -10,6 +10,7 @@ import type {
   SetupState,
   Task,
   TaskStatus,
+  TaskSummary,
   TaskView,
   TerminalDef,
   WorkItemTypeMeta,
@@ -489,6 +490,7 @@ export function createHandlers(s: Services): Handlers {
         usageSyncedAt: null,
         usageSyncError: null,
         usageCommentId: null,
+        summary: null,
       };
       inFlight.add(task.id);
       try {
@@ -557,6 +559,12 @@ export function createHandlers(s: Services): Handlers {
         const task = taskById(taskId);
         const repo = s.repos.get(task.repoId);
         await patchTask(taskId, { status: 'finishing' });
+        // Record what the branch did while the worktree still exists; a summary must never block Finish.
+        let summary: TaskSummary | null = null;
+        if (await exists(task.worktreePath))
+          summary = await s.git
+            .finishSummary(task.worktreePath, task.baseRef)
+            .catch(() => null);
         // A terminal running in the folder blocks its removal on Windows (and a terminal without its
         // folder is useless), so removing the worktree closes the terminals even when that was unticked.
         const killTerminals = options.closeTerminals || options.removeWorktree;
@@ -580,6 +588,7 @@ export function createHandlers(s: Services): Handlers {
         await patchTask(taskId, {
           status: 'done',
           finishedAt: new Date().toISOString(),
+          summary,
         });
         if (options.syncUsage) {
           try {
@@ -739,6 +748,17 @@ export function createHandlers(s: Services): Handlers {
         });
       }
       return hit;
+    },
+    'workItems:get': async (connectionId, id) => {
+      const c = s.connections.get(connectionId);
+      const n = Number(id);
+      if (!Number.isInteger(n) || n < 1) return null;
+      const [item] = await withConnection(connectionId, () =>
+        s.ado.client(connectionId).workItems(c.project, [n]),
+      );
+      if (!item) return null;
+      const { remainingWork: _, ...summary } = item;
+      return summary;
     },
     'shell:openExternal': async (url) => {
       if (!allowedExternal(url))
