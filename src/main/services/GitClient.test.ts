@@ -253,6 +253,7 @@ describe('GitClient', () => {
         'core.longpaths=true',
         'worktree',
         'add',
+        '--no-track',
         '-b',
         'feature/lp',
         wt,
@@ -276,7 +277,7 @@ describe('GitClient', () => {
     commitFile(wt, 'a.txt', 'one\ntwo\n', 'Add a');
     writeFileSync(path.join(wt, 'README.md'), 'changed\n');
     git(wt, 'commit', '-q', '-am', 'Change the readme');
-    const s = await client.finishSummary(wt, 'main');
+    const s = await client.finishSummary(wt, 'main', 'feature/sum');
     expect(s.commitCount).toBe(2);
     expect(s.commits.map((c) => c.subject)).toEqual([
       'Add a',
@@ -292,6 +293,46 @@ describe('GitClient', () => {
     });
   });
 
+  it('does not make the base the upstream of a worktree branch made from origin/<base>', async () => {
+    const repo = makeRepo();
+    addOrigin(repo);
+    const wt = path.join(path.dirname(repo), 'wt-notrack');
+    await client.worktreeAdd(repo, {
+      branch: 'feature/notrack',
+      path: wt,
+      baseRef: 'origin/main',
+    });
+    expect(() => git(wt, 'rev-parse', '--abbrev-ref', '@{u}')).toThrow();
+    commitFile(wt, 'a.txt', 'a\n');
+    const s = await client.finishSummary(wt, 'origin/main', 'feature/notrack');
+    expect(s).toMatchObject({ pushed: false, upstream: null });
+    expect((await client.summary(wt, 'origin/main')).ahead).toBe(1);
+  });
+
+  it('counts a branch pushed without -u as pushed, by looking at origin/<branch>', async () => {
+    const repo = makeRepo();
+    addOrigin(repo);
+    const wt = path.join(path.dirname(repo), 'wt-pushed');
+    await client.worktreeAdd(repo, {
+      branch: 'feature/pushed',
+      path: wt,
+      baseRef: 'origin/main',
+    });
+    // An upstream set to the base (old tasks, or a user's own config) must not decide the answer.
+    git(wt, 'branch', '--set-upstream-to=origin/main');
+    commitFile(wt, 'a.txt', 'a\n');
+    git(wt, 'push', '-q', 'origin', 'feature/pushed');
+    const s = await client.finishSummary(wt, 'origin/main', 'feature/pushed');
+    expect(s).toMatchObject({
+      pushed: true,
+      upstream: 'origin/feature/pushed',
+    });
+    commitFile(wt, 'b.txt', 'b\n');
+    expect(
+      await client.finishSummary(wt, 'origin/main', 'feature/pushed'),
+    ).toMatchObject({ pushed: false, upstream: 'origin/feature/pushed' });
+  });
+
   it('reports a pushed branch with its upstream, and caps the list at 50 commits', async () => {
     const repo = makeRepo();
     addOrigin(repo);
@@ -299,7 +340,7 @@ describe('GitClient', () => {
     for (let i = 1; i <= 52; i++)
       git(repo, 'commit', '-q', '--allow-empty', '-m', `Step ${i}`);
     git(repo, 'push', '-q', '-u', 'origin', 'feature/many');
-    const s = await client.finishSummary(repo, 'origin/main');
+    const s = await client.finishSummary(repo, 'origin/main', 'feature/many');
     expect(s.commitCount).toBe(52);
     expect(s.commits).toHaveLength(50);
     expect(s.commits[0].subject).toBe('Step 1');
@@ -309,8 +350,8 @@ describe('GitClient', () => {
       upstream: 'origin/feature/many',
     });
     git(repo, 'commit', '-q', '--allow-empty', '-m', 'Not pushed');
-    expect((await client.finishSummary(repo, 'origin/main')).pushed).toBe(
-      false,
-    );
+    expect(
+      (await client.finishSummary(repo, 'origin/main', 'feature/many')).pushed,
+    ).toBe(false);
   });
 });

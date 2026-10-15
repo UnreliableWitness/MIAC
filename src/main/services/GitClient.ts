@@ -128,6 +128,8 @@ export class GitClient {
       'core.longpaths=true',
       'worktree',
       'add',
+      // Without this, a branch made from origin/main tracks origin/main and looks "not pushed" forever.
+      '--no-track',
       '-b',
       o.branch,
       o.path,
@@ -219,7 +221,11 @@ export class GitClient {
    * What the task's branch did since it left `baseRef`: its commits (oldest first, at most 50), the diff stat,
    * and whether it is pushed. Falls back to the whole history when there is no merge base.
    */
-  async finishSummary(worktree: string, baseRef: string): Promise<TaskSummary> {
+  async finishSummary(
+    worktree: string,
+    baseRef: string,
+    branch: string,
+  ): Promise<TaskSummary> {
     let base: string | null = null;
     try {
       base = (await this.run(worktree, ['merge-base', baseRef, 'HEAD'])).trim();
@@ -254,37 +260,11 @@ export class GitClient {
       insertions = num(/(\d+) insertions?\(\+\)/);
       deletions = num(/(\d+) deletions?\(-\)/);
     }
-    let upstream: string | null = null;
-    try {
-      upstream =
-        (
-          await this.run(worktree, [
-            'rev-parse',
-            '--abbrev-ref',
-            '--symbolic-full-name',
-            '@{u}',
-          ])
-        ).trim() || null;
-    } catch {
-      upstream = null;
-    }
-    let pushed = false;
-    if (upstream) {
-      try {
-        pushed =
-          Number(
-            (
-              await this.run(worktree, [
-                'rev-list',
-                '--count',
-                `${upstream}..HEAD`,
-              ])
-            ).trim(),
-          ) === 0;
-      } catch {
-        pushed = false;
-      }
-    }
+    const { upstream, pushed } = await this.pushState(
+      worktree,
+      baseRef,
+      branch,
+    );
     return {
       commits,
       commitCount: lines.length,
@@ -294,5 +274,52 @@ export class GitClient {
       pushed,
       upstream,
     };
+  }
+
+  /**
+   * Whether `branch` is on its remote: `<remote>/<branch>` exists and contains HEAD. The remote is the base's
+   * remote, else `origin`. The configured upstream is ignored, since `git push origin <branch>` does not set it.
+   */
+  private async pushState(
+    worktree: string,
+    baseRef: string,
+    branch: string,
+  ): Promise<{ upstream: string | null; pushed: boolean }> {
+    let remotes: string[];
+    try {
+      remotes = await this.remotes(worktree);
+    } catch {
+      return { upstream: null, pushed: false };
+    }
+    const slash = baseRef.indexOf('/');
+    const baseRemote = slash > 0 ? baseRef.slice(0, slash) : '';
+    const remote = remotes.includes(baseRemote)
+      ? baseRemote
+      : remotes.includes('origin')
+        ? 'origin'
+        : null;
+    if (!remote) return { upstream: null, pushed: false };
+    try {
+      await this.run(worktree, [
+        'rev-parse',
+        '--verify',
+        '--quiet',
+        `refs/remotes/${remote}/${branch}`,
+      ]);
+    } catch {
+      return { upstream: null, pushed: false };
+    }
+    const upstream = `${remote}/${branch}`;
+    try {
+      await this.run(worktree, [
+        'merge-base',
+        '--is-ancestor',
+        'HEAD',
+        `refs/remotes/${upstream}`,
+      ]);
+      return { upstream, pushed: true };
+    } catch {
+      return { upstream, pushed: false };
+    }
   }
 }

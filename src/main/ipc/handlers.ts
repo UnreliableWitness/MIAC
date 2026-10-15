@@ -563,7 +563,7 @@ export function createHandlers(s: Services): Handlers {
         let summary: TaskSummary | null = null;
         if (await exists(task.worktreePath))
           summary = await s.git
-            .finishSummary(task.worktreePath, task.baseRef)
+            .finishSummary(task.worktreePath, task.baseRef, task.branch)
             .catch(() => null);
         // A terminal running in the folder blocks its removal on Windows (and a terminal without its
         // folder is useless), so removing the worktree closes the terminals even when that was unticked.
