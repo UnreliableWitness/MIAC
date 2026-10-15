@@ -37,6 +37,7 @@ import {
 } from '../services/SetupRunner';
 import type { TaskStore } from '../services/TaskStore';
 import type { TerminalManager } from '../services/TerminalManager';
+import { planStartUpdate } from '../services/workItemStart';
 import type { CopilotFileTailer } from '../usage/CopilotFileTailer';
 import { usageCsv } from '../usage/csv';
 import type { SettingsStore } from '../usage/SettingsStore';
@@ -364,6 +365,12 @@ export function createHandlers(s: Services): Handlers {
       taskMd: renderTaskMd(task),
       startTerminalsLabel:
         defs.length > 0 ? defs.map((d) => d.label).join(', ') : null,
+      updateWorkItem: Boolean(
+        task.workItem &&
+        repo.connectionId &&
+        (repo.workItemOnStart.moveToInProgress ||
+          repo.workItemOnStart.assignToMe),
+      ),
     };
   };
 
@@ -425,6 +432,38 @@ export function createHandlers(s: Services): Handlers {
             tel.event('terminal.opened', { kind: def.kind, initial: true });
           }
           await updateTerminals(taskId, (list) => [...list, ...defs]);
+        },
+        updateWorkItem: async () => {
+          try {
+            const repo = s.repos.get(task.repoId);
+            const connection = s.connections.get(repo.connectionId!);
+            const client = s.ado.client(connection.id);
+            const id = Number(task.workItem!.id);
+            const current = await client.workItemForStart(id);
+            const states = await client.typeStates(
+              connection.project,
+              current.type,
+            );
+            const plan = planStartUpdate(
+              current,
+              states,
+              repo.workItemOnStart,
+              connection.userUniqueName,
+            );
+            if (plan.state || plan.assignTo)
+              await client.updateWorkItem(id, {
+                ...(plan.state ? { state: plan.state } : {}),
+                ...(plan.assignTo ? { assignedTo: plan.assignTo } : {}),
+              });
+            tel.event('workitem.startUpdated', {
+              moved: Boolean(plan.state),
+              assigned: Boolean(plan.assignTo),
+            });
+            return { detail: plan.detail, warn: false };
+          } catch (e) {
+            tel.event('workitem.startUpdated', { failed: true });
+            throw e;
+          }
         },
       });
       await patchTask(taskId, { status: result.ok ? 'ready' : 'setup-failed' });

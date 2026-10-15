@@ -29,4 +29,23 @@ describe('StepList', () => {
     ]);
     expect(screen.getByRole('list')).toHaveClass('steps', 'steps-rule');
   });
+
+  it('renders a warn step with the warn icon', () => {
+    render(
+      <StepList
+        steps={[
+          {
+            def: { kind: 'work-item', label: 'Update work item', detail: '' },
+            status: 'warn',
+            detail: 'Could not update the work item',
+          },
+        ]}
+      />,
+    );
+    const item = screen.getByRole('listitem');
+    expect(item).toHaveAttribute('data-status', 'warn');
+    expect(item.querySelector('.step-icon')).toHaveTextContent(
+      String.fromCharCode(0x26a0),
+    );
+  });
 });

@@ -1562,3 +1562,104 @@ describe('handlers: telemetry', () => {
     ]);
   });
 });
+
+describe('handlers: work item on start', () => {
+  async function connected(hx: Awaited<ReturnType<typeof harness>>) {
+    routeHealthyOrg(hx.server);
+    const c = await hx.h['connections:save']({
+      organizationUrl: `${hx.server.url}/unreliablewitness`,
+      project: 'MIAC',
+      pat: 'p',
+    });
+    await hx.connections.setStatus(c.id, 'ok', 'Dries Hoebeke', 'me@x.com');
+    await hx.h['repos:setConnection'](hx.added.id, c.id);
+    const client = hx.services.ado.client(c.id);
+    vi.spyOn(client, 'workItemForStart').mockResolvedValue({
+      type: 'Task',
+      state: 'To Do',
+      assignedTo: null,
+    });
+    vi.spyOn(client, 'typeStates').mockResolvedValue([
+      { name: 'To Do', category: 'Proposed' },
+      { name: 'Doing', category: 'InProgress' },
+      { name: 'Done', category: 'Completed' },
+    ]);
+    const update = vi.spyOn(client, 'updateWorkItem').mockResolvedValue();
+    return { c, client, update };
+  }
+
+  async function createAndWait(
+    hx: Awaited<ReturnType<typeof harness>>,
+    over: Partial<CreateTaskInput> = {},
+  ) {
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](
+      hx.input({ openShell: false, ...over }),
+    );
+    const finished = await done;
+    const state = await hx.h['tasks:setupState'](t.id);
+    return { t, finished, state };
+  }
+
+  it('moves the work item to In Progress and assigns it to the user', async () => {
+    const hx = await harness();
+    const { update } = await connected(hx);
+    const { finished, state } = await createAndWait(hx);
+    expect(finished.ok).toBe(true);
+    expect(update).toHaveBeenCalledWith(48231, {
+      state: 'Doing',
+      assignedTo: 'me@x.com',
+    });
+    const step = state?.steps.find((s) => s.def.kind === 'work-item');
+    expect(state?.steps.map((s) => s.def.kind).slice(0, 3)).toEqual([
+      'fetch',
+      'worktree',
+      'work-item',
+    ]);
+    expect(step?.status).toBe('done');
+  });
+
+  it('warns but finishes the setup when the update fails', async () => {
+    const hx = await harness();
+    const { update } = await connected(hx);
+    update.mockRejectedValue(new Error('Azure DevOps is unreachable'));
+    const { finished, state } = await createAndWait(hx);
+    expect(finished.ok).toBe(true);
+    expect(state?.steps.find((s) => s.def.kind === 'work-item')).toMatchObject({
+      status: 'warn',
+      detail: 'Azure DevOps is unreachable',
+    });
+    expect((await hx.h['tasks:list']())[0].status).toBe('ready');
+  });
+
+  it('has no work item step for a blank task', async () => {
+    const hx = await harness();
+    const { update } = await connected(hx);
+    const { state } = await createAndWait(hx, {
+      workItem: null,
+      name: 'Spike',
+      branch: 'spike',
+    });
+    expect(state?.steps.map((s) => s.def.kind)).not.toContain('work-item');
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('has no work item step on a repo without a connection', async () => {
+    const hx = await harness();
+    const { state } = await createAndWait(hx);
+    expect(state?.steps.map((s) => s.def.kind)).not.toContain('work-item');
+  });
+
+  it('has no work item step when both start options are off', async () => {
+    const hx = await harness();
+    const { update } = await connected(hx);
+    await hx.services.repos.setWorkItemOnStart(hx.added.id, {
+      moveToInProgress: false,
+      assignToMe: false,
+      stateOverrides: {},
+    });
+    const { state } = await createAndWait(hx);
+    expect(state?.steps.map((s) => s.def.kind)).not.toContain('work-item');
+    expect(update).not.toHaveBeenCalled();
+  });
+});

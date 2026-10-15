@@ -15,6 +15,7 @@ export type SetupPlan = {
   commands: string[];
   taskMd: string;
   startTerminalsLabel: string | null;
+  updateWorkItem: boolean;
 };
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
@@ -26,6 +27,8 @@ export type SetupHooks = {
   startTerminals(): Promise<void>;
   /** The commit a freshly made worktree's branch starts from. */
   onBaseSha?(sha: string): Promise<void>;
+  /** Moves the task's work item and assigns it; a thrown error becomes a warning. */
+  updateWorkItem?: () => Promise<{ detail: string; warn: boolean }>;
   fromStep?: number;
 };
 
@@ -38,6 +41,12 @@ export function planSteps(plan: SetupPlan): SetupStepDef[] {
       detail: plan.branch,
     },
   ];
+  if (plan.updateWorkItem)
+    steps.push({
+      kind: 'work-item',
+      label: 'Update work item',
+      detail: 'Move to In Progress',
+    });
   if (plan.copy.length > 0)
     steps.push({
       kind: 'copy',
@@ -142,8 +151,14 @@ export class SetupRunner {
       emit({ type: 'step', index, status: 'running' });
       const started = Date.now();
       try {
-        await this.execute(steps[index], plan, hooks, log);
-        emit({ type: 'step', index, status: 'done', ms: Date.now() - started });
+        const out = await this.execute(steps[index], plan, hooks, log);
+        emit({
+          type: 'step',
+          index,
+          status: out && out.warn ? 'warn' : 'done',
+          ...(out && out.detail ? { detail: out.detail } : {}),
+          ms: Date.now() - started,
+        });
       } catch (e) {
         const detail = e instanceof Error ? e.message : String(e);
         log(detail);
@@ -167,7 +182,7 @@ export class SetupRunner {
     plan: SetupPlan,
     hooks: SetupHooks,
     log: (l: string) => void,
-  ): Promise<void> {
+  ): Promise<{ detail?: string; warn?: boolean } | void> {
     switch (step.kind) {
       case 'fetch': {
         log(`$ git fetch ${plan.baseRef}`);
@@ -195,6 +210,18 @@ export class SetupRunner {
           await hooks.onBaseSha?.(sha);
         }
         return;
+      case 'work-item': {
+        if (!hooks.updateWorkItem) return { detail: 'Skipped' };
+        try {
+          const r = await hooks.updateWorkItem();
+          log(r.detail);
+          return r;
+        } catch (e) {
+          const detail = e instanceof Error ? e.message : String(e);
+          log(detail);
+          return { detail, warn: true };
+        }
+      }
       case 'copy':
         for (const rel of plan.copy) {
           const src = insideDir(plan.repoPath, rel);
