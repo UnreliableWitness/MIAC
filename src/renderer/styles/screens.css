@@ -269,6 +269,8 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
+  /* The Usage panel stacks on this width, not the viewport's (see instrument.css). */
+  container-type: inline-size;
 }
 .termhost {
   flex: 1;

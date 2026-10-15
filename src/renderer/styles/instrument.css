@@ -281,7 +281,14 @@
   font-size: 10.5px;
   color: var(--muted);
 }
+.tasknav-foot-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .tasknav-foot .linkbtn {
+  flex: none;
   margin-left: auto;
   font-family: var(--font-mono);
   color: var(--muted);
@@ -299,7 +306,8 @@
   gap: 16px;
   align-content: start;
 }
-@media (max-width: 900px) {
+/* The window is at least 960 px wide, so this measures the task area: about 790 px next to the full nav. */
+@container (max-width: 900px) {
   .usagepanel {
     grid-template-columns: 1fr;
   }

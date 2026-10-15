@@ -173,7 +173,9 @@ export function TaskNav() {
           style={{ background: footer.color }}
           title={footer.text}
         />
-        {!navCollapsed && footer.text}
+        {!navCollapsed && (
+          <span className="tasknav-foot-text">{footer.text}</span>
+        )}
         <button
           type="button"
           className="linkbtn"
