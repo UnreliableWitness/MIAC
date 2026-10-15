@@ -76,6 +76,7 @@ export function WorkspaceScreen() {
           ) : (
             <div className="empty empty-art">
               <ArtSlot
+                key={hasTasks ? 'empty-no-selection' : 'empty-no-tasks'}
                 name={hasTasks ? 'empty-no-selection' : 'empty-no-tasks'}
               />
               <p>No task selected. Create one with New task.</p>

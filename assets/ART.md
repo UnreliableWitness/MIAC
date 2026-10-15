@@ -7,7 +7,7 @@ Generated with `tools/art/generate.mjs` (see `tools/art/README.md`). Rejected ca
 ## splash-nebula.jpg
 
 - Candidate: `splash-nebula-2026-10-14-19-03-48.png`
-- Pick: the owner chose candidate B (no reason given). Note: The bright spiral nebula and the mid-left ship give the splash backdrop depth behind the dial.
+- Pick: the owner chose candidate B (no reason given). Controller note: The bright spiral nebula and the mid-left ship (the prompt asked for lower left) give the splash backdrop depth behind the dial.
 - Post-processing: `sips -Z 1600`, JPEG quality 80, 184 KB.
 - Prompt (style block, then subject):
 
@@ -18,7 +18,7 @@ Generated with `tools/art/generate.mjs` (see `tools/art/README.md`). Rejected ca
 ## empty-no-tasks.jpg
 
 - Candidate: `empty-no-tasks-2026-10-14-19-03-54.png`
-- Pick: the owner chose candidate B (no reason given). Note: Full-frame hangar mouth, no letterboxing and no off-palette lights.
+- Pick: the owner chose candidate B (no reason given). Controller note: Full-frame hangar mouth, no letterboxing and no off-palette lights.
 - Post-processing: `sips -Z 1600`, JPEG quality 80, 243 KB.
 - Prompt (style block, then subject):
 
@@ -29,7 +29,7 @@ Generated with `tools/art/generate.mjs` (see `tools/art/README.md`). Rejected ca
 ## empty-no-selection.jpg
 
 - Candidate: `empty-no-selection-2026-10-14-19-04-01.png`
-- Pick: the owner chose candidate B (no reason given). Note: The large dark arc leaves the centre empty for the empty-state text.
+- Pick: the owner chose candidate B (no reason given). Controller note: The large dark arc leaves the centre empty for the empty-state text.
 - Post-processing: `sips -Z 1600`, JPEG quality 80, 186 KB.
 - Prompt (style block, then subject):
 
@@ -40,7 +40,7 @@ Generated with `tools/art/generate.mjs` (see `tools/art/README.md`). Rejected ca
 ## empty-done.jpg
 
 - Candidate: `empty-done-2026-10-14-19-04-10.png`
-- Pick: the owner chose candidate B (no reason given). Note: Angular ship with an amber trail over a dark planet.
+- Pick: the owner chose candidate B (no reason given). Controller note: Angular ship with an amber trail over a dark planet; thin radial lines and blue-white tones in the sky.
 - Post-processing: `sips -Z 1600`, JPEG quality 80, 178 KB.
 - Prompt (style block, then subject):
 
@@ -51,7 +51,7 @@ Generated with `tools/art/generate.mjs` (see `tools/art/README.md`). Rejected ca
 ## about-registry.jpg
 
 - Candidate: `about-registry-2026-10-14-19-04-16.png`
-- Pick: the owner chose candidate B (no reason given). Note: Clean concentric dial with no drawn text; the only candidate without artefacts.
+- Pick: the owner chose candidate B (no reason given). Controller note: Clean concentric dial with no drawn text; the only candidate without artefacts.
 - Post-processing: `sips -Z 1600`, JPEG quality 70, 358 KB.
 - Prompt (style block, then subject):
 

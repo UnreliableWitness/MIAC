@@ -6,7 +6,7 @@ The same loop as the Adem app's `tools/art`, in Node.
    `GEMINI_API_KEY`. It is sent only to generativelanguage.googleapis.com, as a header, and never printed.
 2. `node tools/art/generate.mjs generate` asks the image model (`gemini-2.5-flash-image`, or `GEMINI_IMAGE_MODEL`)
    for every image in `prompts.md` and saves timestamped candidates in `tools/art/incoming/` (git-ignored).
-3. Not happy with one? Edit its line in `prompts.md` and re-run with only its name: `... generate appicon-tally`.
+3. Not happy with one? Edit its line in `prompts.md` and re-run with only its name: `... generate empty-done`.
 4. `... list` prints the names in the pack.
 
 Pick one candidate per name, then post-process it into `assets/art/` (`cwebp` is not on the owner's Mac, so JPEG):

@@ -436,9 +436,13 @@ rect.is-live {
   background: var(--void);
 }
 .done-banner {
-  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 16px;
   font-size: 12px;
   color: var(--muted);
+  background: var(--panel-2);
   border-bottom: 1px solid var(--line);
 }
 .done-banner p {
@@ -572,14 +576,6 @@ rect.is-live {
 .empty-art .art {
   width: min(560px, 80%);
   aspect-ratio: 16 / 9;
-}
-.done-banner {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 10px 16px;
-  background: var(--panel-2);
-  border-bottom: 1px solid var(--line);
 }
 .done-banner .art {
   width: 160px;
