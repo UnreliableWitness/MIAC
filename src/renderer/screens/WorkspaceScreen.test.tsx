@@ -511,7 +511,8 @@ describe('tabs and focus', () => {
     expect(
       within(tabs).queryByRole('button', { name: 'Exit focus' }),
     ).toBeNull();
-    expect(within(tabs).getByRole('button', { name: 'Focus' })).toBeVisible();
+    // Focus does nothing for a task that is not ready, so no button offers it.
+    expect(within(tabs).queryByRole('button', { name: 'Focus' })).toBeNull();
   });
 
   it('shows the Focus chrome in the tab row for a ready task', async () => {

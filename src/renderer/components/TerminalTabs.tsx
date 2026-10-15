@@ -19,7 +19,8 @@ export function TerminalTabs({ task }: { task: TaskView }) {
   const active = useStore((s) => s.activeTab(task.id));
   const setTab = useStore((s) => s.setTab);
   // Same rule as WorkspaceScreen: Focus chrome only for a ready task.
-  const inFocus = useStore((s) => s.focus) && task.status === 'ready';
+  const ready = task.status === 'ready';
+  const inFocus = useStore((s) => s.focus) && ready;
   const toggleFocus = useStore((s) => s.toggleFocus);
   const [unseen, setUnseen] = useState(false);
 
@@ -60,7 +61,7 @@ export function TerminalTabs({ task }: { task: TaskView }) {
         aria-label="Terminals"
         className="tabrow"
         onDoubleClick={(e) => {
-          if (e.target === e.currentTarget) toggleFocus();
+          if (ready && e.target === e.currentTarget) toggleFocus();
         }}
       >
         {inFocus && (
@@ -143,13 +144,15 @@ export function TerminalTabs({ task }: { task: TaskView }) {
             </>
           )}
           {inFocus && <CostPill taskId={task.id} />}
-          <IconButton
-            label={inFocus ? 'Exit focus' : 'Focus'}
-            shortcut={`${modKey}+Shift+F`}
-            onClick={toggleFocus}
-          >
-            {inFocus ? COLLAPSE : EXPAND}
-          </IconButton>
+          {ready && (
+            <IconButton
+              label={inFocus ? 'Exit focus' : 'Focus'}
+              shortcut={`${modKey}+Shift+F`}
+              onClick={toggleFocus}
+            >
+              {inFocus ? COLLAPSE : EXPAND}
+            </IconButton>
+          )}
         </div>
       </div>
       <div className="termhost">
