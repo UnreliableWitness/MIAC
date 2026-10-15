@@ -39,6 +39,8 @@ export function FinishScreen({ taskId }: { taskId: string }) {
     readPrChoice(task?.repoId ?? ''),
   );
   const [finishError, setFinishError] = useState<string | null>(null);
+  // Finish waits for the PR availability, else a stored yes would be sent as no.
+  const [prLoaded, setPrLoaded] = useState(false);
   const ready = task?.status === 'ready';
   const usage = useTaskUsage(ready ? taskId : null);
   const repo = useStore((s) => s.repos.find((r) => r.id === task?.repoId));
@@ -74,7 +76,9 @@ export function FinishScreen({ taskId }: { taskId: string }) {
       () => api().invoke('tasks:prAvailability', taskId),
       notify,
     ).then((a) => {
-      if (live && a) setPr(a);
+      if (!live) return;
+      if (a) setPr(a);
+      setPrLoaded(true);
     });
     return () => {
       live = false;
@@ -411,7 +415,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
           <button
             type="button"
             className={dirty ? 'btn btn-danger' : 'btn btn-primary'}
-            disabled={busy || (!checks && !checksFailed)}
+            disabled={busy || !prLoaded || (!checks && !checksFailed)}
             onClick={() => finish()}
           >
             {checksFailed

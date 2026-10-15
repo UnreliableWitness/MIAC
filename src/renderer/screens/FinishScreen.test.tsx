@@ -612,4 +612,47 @@ describe('FinishScreen pull request failure with unpushed commits', () => {
     ).toHaveClass('btn-danger');
     expect(finishArgs(calls)).toHaveLength(1);
   });
+
+  it('keeps Finish disabled until pull request availability has loaded', async () => {
+    writePrChoice('r1', true);
+    let resolve: (v: {
+      available: boolean;
+      reason: string | null;
+      target: string | null;
+    }) => void = () => {};
+    const { calls } = installFakeApi({
+      'tasks:prAvailability': () =>
+        new Promise((r) => {
+          resolve = r;
+        }),
+      'tasks:finishChecks': () => clean,
+      'tasks:finish': () => undefined,
+    });
+    render(<FinishScreen taskId="a" />);
+    const btn = await screen.findByRole('button', {
+      name: 'Finish and clean up',
+    });
+    await screen.findByText('Nothing to push');
+    expect(btn).toBeDisabled();
+    resolve({ available: true, reason: null, target: 'main' });
+    await waitFor(() => expect(btn).toBeEnabled());
+    await userEvent.click(btn);
+    await waitFor(() =>
+      expect(finishArgs(calls)[0]).toMatchObject({ createPullRequest: true }),
+    );
+  });
+
+  it('enables Finish when pull request availability fails to load', async () => {
+    installFakeApi({
+      'tasks:prAvailability': () => {
+        throw new Error('boom');
+      },
+      'tasks:finishChecks': () => clean,
+    });
+    render(<FinishScreen taskId="a" />);
+    const btn = await screen.findByRole('button', {
+      name: 'Finish and clean up',
+    });
+    await waitFor(() => expect(btn).toBeEnabled());
+  });
 });
