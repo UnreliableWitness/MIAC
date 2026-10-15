@@ -60,12 +60,12 @@ beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
 describe('SplashReporter', () => {
-  it('done waits for the 2.2 s minimum after the window shows', async () => {
+  it('done waits for the 1.2 s minimum after the window shows', async () => {
     const s = stub();
     const r = new SplashReporter(s.win);
     const d = r.done();
     s.show();
-    await vi.advanceTimersByTimeAsync(2199);
+    await vi.advanceTimersByTimeAsync(1199);
     expect(await settled(d)).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
     expect(await settled(d)).toBe(true);
@@ -77,7 +77,7 @@ describe('SplashReporter', () => {
     await vi.advanceTimersByTimeAsync(5000);
     expect(await settled(d)).toBe(false);
     s.show();
-    await vi.advanceTimersByTimeAsync(2200);
+    await vi.advanceTimersByTimeAsync(1200);
     expect(await settled(d)).toBe(true);
   });
   it('skip resolves early', async () => {
