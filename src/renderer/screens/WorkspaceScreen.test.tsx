@@ -501,6 +501,30 @@ describe('tabs and focus', () => {
     },
   );
 
+  it('keeps the tab row out of Focus chrome for a finishing task', async () => {
+    setup({ status: 'finishing' });
+    useStore.setState({ focus: true });
+    render(<WorkspaceScreen />);
+    const tabs = await screen.findByRole('tablist', { name: 'Terminals' });
+    expect(document.querySelector('header.strip')).not.toBeNull();
+    expect(tabs.querySelector('.tabrow-brand')).toBeNull();
+    expect(
+      within(tabs).queryByRole('button', { name: 'Exit focus' }),
+    ).toBeNull();
+    expect(within(tabs).getByRole('button', { name: 'Focus' })).toBeVisible();
+  });
+
+  it('shows the Focus chrome in the tab row for a ready task', async () => {
+    setup();
+    useStore.setState({ focus: true });
+    render(<WorkspaceScreen />);
+    const tabs = await screen.findByRole('tablist', { name: 'Terminals' });
+    expect(tabs.querySelector('.tabrow-brand')).not.toBeNull();
+    expect(
+      within(tabs).getByRole('button', { name: 'Exit focus' }),
+    ).toBeVisible();
+  });
+
   it('toggles Focus with the shortcut when no task is selected', () => {
     setup();
     useStore.setState({ tasks: [], selectedTaskId: null });

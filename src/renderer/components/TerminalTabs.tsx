@@ -18,7 +18,8 @@ export function TerminalTabs({ task }: { task: TaskView }) {
   const config = useRepoConfig(task.repoId);
   const active = useStore((s) => s.activeTab(task.id));
   const setTab = useStore((s) => s.setTab);
-  const focus = useStore((s) => s.focus);
+  // Same rule as WorkspaceScreen: Focus chrome only for a ready task.
+  const inFocus = useStore((s) => s.focus) && task.status === 'ready';
   const toggleFocus = useStore((s) => s.toggleFocus);
   const [unseen, setUnseen] = useState(false);
 
@@ -62,7 +63,7 @@ export function TerminalTabs({ task }: { task: TaskView }) {
           if (e.target === e.currentTarget) toggleFocus();
         }}
       >
-        {focus && (
+        {inFocus && (
           <span className="tabrow-brand">
             <MindMark size={14} />
             <span className="mono">{task.workItem?.id ?? task.name}</span>
@@ -141,13 +142,13 @@ export function TerminalTabs({ task }: { task: TaskView }) {
               ))}
             </>
           )}
-          {focus && <CostPill taskId={task.id} />}
+          {inFocus && <CostPill taskId={task.id} />}
           <IconButton
-            label={focus ? 'Exit focus' : 'Focus'}
+            label={inFocus ? 'Exit focus' : 'Focus'}
             shortcut={`${modKey}+Shift+F`}
             onClick={toggleFocus}
           >
-            {focus ? COLLAPSE : EXPAND}
+            {inFocus ? COLLAPSE : EXPAND}
           </IconButton>
         </div>
       </div>
