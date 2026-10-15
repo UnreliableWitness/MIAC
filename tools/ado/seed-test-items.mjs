@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // node tools/ado/seed-test-items.mjs <organizationUrl> <project> <keychain-service>
-// Creates three Issues and one Task in the project's current sprint. Idempotent: skips titles that already exist.
+// Creates three Issues, one Task and one child Task (under the first Issue, with remaining work) in the
+// project's current sprint. Idempotent: skips titles that already exist.
 import { execFileSync } from 'node:child_process';
 
 const [orgUrl, project, service] = process.argv.slice(2);
@@ -43,6 +44,13 @@ const wanted = [
   ['Issue', 'Show estimated delivery date on product page'],
   ['Issue', "Coupon field ignores O'Brien style names"],
   ['Task', 'Upgrade payment SDK to v5'],
+  // A child, so the sprint page shows nesting: [type, title, parent title, remaining work].
+  [
+    'Task',
+    'Store the address on the customer profile',
+    'Checkout: allow saving a delivery address',
+    3,
+  ],
 ];
 const existing = await api(`/${p}/_apis/wit/wiql?api-version=7.1`, {
   method: 'POST',
@@ -53,14 +61,14 @@ const existing = await api(`/${p}/_apis/wit/wiql?api-version=7.1`, {
   }),
 });
 const ids = (existing.workItems ?? []).map((w) => w.id);
-const titles = new Set();
+const titles = new Map();
 if (ids.length) {
   const got = await api(
     `/_apis/wit/workitems?ids=${ids.slice(0, 200).join(',')}&fields=System.Title&api-version=7.1`,
   );
-  for (const w of got.value ?? []) titles.add(w.fields['System.Title']);
+  for (const w of got.value ?? []) titles.set(w.fields['System.Title'], w);
 }
-for (const [type, title] of wanted) {
+for (const [type, title, parentTitle, remaining] of wanted) {
   if (titles.has(title)) {
     console.log(`skip  ${type}: ${title}`);
     continue;
@@ -72,6 +80,22 @@ for (const [type, title] of wanted) {
       path: '/fields/System.IterationPath',
       value: sprint,
     });
+  const parent = parentTitle ? titles.get(parentTitle) : null;
+  if (parent)
+    ops.push({
+      op: 'add',
+      path: '/relations/-',
+      value: {
+        rel: 'System.LinkTypes.Hierarchy-Reverse',
+        url: `${orgUrl}/_apis/wit/workItems/${parent.id}`,
+      },
+    });
+  if (remaining !== undefined)
+    ops.push({
+      op: 'add',
+      path: '/fields/Microsoft.VSTS.Scheduling.RemainingWork',
+      value: remaining,
+    });
   const created = await api(
     `/${p}/_apis/wit/workitems/$${encodeURIComponent(type)}?api-version=7.1`,
     {
@@ -80,5 +104,6 @@ for (const [type, title] of wanted) {
       body: JSON.stringify(ops),
     },
   );
+  titles.set(title, created);
   console.log(`made  ${type} ${created.id}: ${title}`);
 }

@@ -22,6 +22,7 @@ const task: TaskView = {
   branch: 'feature/48213-save-delivery-address',
   worktreePath: '/w',
   baseRef: 'origin/main',
+  baseSha: null,
   status: 'ready',
   setup: {
     copy: false,
@@ -37,6 +38,7 @@ const task: TaskView = {
   usageSyncedAt: null,
   usageSyncError: null,
   usageCommentId: null,
+  summary: null,
 };
 const usage: TaskUsage = {
   ...emptyUsage('t1'),

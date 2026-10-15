@@ -20,6 +20,7 @@ const task = (over: Partial<Task> = {}): Task => ({
   branch: 'feature/1-checkout',
   worktreePath: '/w',
   baseRef: 'origin/main',
+  baseSha: null,
   status: 'ready',
   setup: {
     copy: false,
@@ -34,6 +35,7 @@ const task = (over: Partial<Task> = {}): Task => ({
   usageSyncedAt: null,
   usageSyncError: null,
   usageCommentId: null,
+  summary: null,
   ...over,
 });
 const usage: TaskUsage = {

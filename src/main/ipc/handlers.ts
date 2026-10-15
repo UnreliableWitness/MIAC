@@ -10,8 +10,10 @@ import type {
   SetupState,
   Task,
   TaskStatus,
+  TaskSummary,
   TaskView,
   TerminalDef,
+  WorkItemTypeMeta,
 } from '../../shared/types';
 import { worktreeRoot } from '../paths';
 import type { Command, Platform } from '../platform/Platform';
@@ -124,6 +126,10 @@ export function createHandlers(s: Services): Handlers {
   const tel = s.telemetry ?? NoopTelemetry;
   const connectionsChanged = () =>
     s.broadcast('connections:changed', s.connections.list());
+
+  /** Work item types per connection, with icons, for the session. A failed load is not kept, so the next call retries. */
+  const typesCache = new Map<string, Promise<WorkItemTypeMeta[]>>();
+  const dropTypes = (connectionId: string) => typesCache.delete(connectionId);
 
   /** Runs an Azure DevOps call for a connection; a rejected token flips the status so Settings and the footer turn red. */
   const withConnection = async <T>(
@@ -402,6 +408,9 @@ export function createHandlers(s: Services): Handlers {
           if (e.type === 'finished') finishedEvent = e;
           else s.broadcast('setup', e);
         },
+        onBaseSha: async (baseSha) => {
+          await patchTask(taskId, { baseSha });
+        },
         startTerminals: async () => {
           const defs = initialTerminals(task);
           for (const def of defs) {
@@ -505,6 +514,7 @@ export function createHandlers(s: Services): Handlers {
         branch,
         worktreePath,
         baseRef: input.baseRef,
+        baseSha: null,
         status: 'setting-up',
         setup: {
           copy: input.copy,
@@ -519,6 +529,7 @@ export function createHandlers(s: Services): Handlers {
         usageSyncedAt: null,
         usageSyncError: null,
         usageCommentId: null,
+        summary: null,
       };
       inFlight.add(task.id);
       try {
@@ -597,6 +608,16 @@ export function createHandlers(s: Services): Handlers {
         const task = taskById(taskId);
         const repo = s.repos.get(task.repoId);
         await patchTask(taskId, { status: 'finishing' });
+        // Record what the branch did while the worktree still exists; a summary must never block Finish.
+        let summary: TaskSummary | null = null;
+        if (await exists(task.worktreePath))
+          summary = await s.git
+            .finishSummary(task.worktreePath, {
+              baseRef: task.baseRef,
+              baseSha: task.baseSha,
+              branch: task.branch,
+            })
+            .catch(() => null);
         // A terminal running in the folder blocks its removal on Windows (and a terminal without its
         // folder is useless), so removing the worktree closes the terminals even when that was unticked.
         const killTerminals = options.closeTerminals || options.removeWorktree;
@@ -620,6 +641,7 @@ export function createHandlers(s: Services): Handlers {
         await patchTask(taskId, {
           status: 'done',
           finishedAt: new Date().toISOString(),
+          summary,
         });
         tel.event(
           'task.finished',
@@ -722,6 +744,7 @@ export function createHandlers(s: Services): Handlers {
       const { user } = await probe.verify(input.project.trim());
       const saved = await s.connections.save(input);
       s.ado.invalidate(saved.id);
+      dropTypes(saved.id);
       const verified = await s.connections.setStatus(saved.id, 'ok', user);
       connectionsChanged();
       tel.event('connection.saved', {
@@ -735,6 +758,7 @@ export function createHandlers(s: Services): Handlers {
         if (r.connectionId === id) await s.repos.setConnection(r.id, null);
       await s.connections.remove(id);
       s.ado.invalidate(id);
+      dropTypes(id);
       connectionsChanged();
       s.broadcast('repos:changed', s.repos.list());
       tel.event('connection.removed');
@@ -773,6 +797,45 @@ export function createHandlers(s: Services): Handlers {
           iterationPath: iteration?.path ?? null,
         });
       });
+    },
+    'workItems:sprint': async (connectionId) => {
+      const c = s.connections.get(connectionId);
+      return withConnection(connectionId, () =>
+        s.ado.client(connectionId).sprint(c.project),
+      );
+    },
+    'workItems:types': async (connectionId) => {
+      const c = s.connections.get(connectionId);
+      let hit = typesCache.get(connectionId);
+      if (!hit) {
+        const client = s.ado.client(connectionId);
+        hit = withConnection(connectionId, () =>
+          client.workItemTypes(c.project),
+        ).then((types) =>
+          Promise.all(
+            types.map(async ({ iconUrl, ...t }) => ({
+              ...t,
+              icon: iconUrl ? await client.iconDataUrl(iconUrl) : null,
+            })),
+          ),
+        );
+        typesCache.set(connectionId, hit);
+        hit.catch(() => {
+          if (typesCache.get(connectionId) === hit) dropTypes(connectionId);
+        });
+      }
+      return hit;
+    },
+    'workItems:get': async (connectionId, id) => {
+      const c = s.connections.get(connectionId);
+      const n = Number(id);
+      if (!Number.isInteger(n) || n < 1) return null;
+      const [item] = await withConnection(connectionId, () =>
+        s.ado.client(connectionId).workItems(c.project, [n]),
+      );
+      if (!item) return null;
+      const { remainingWork: _, ...summary } = item;
+      return summary;
     },
     'shell:openExternal': async (url) => {
       if (!allowedExternal(url))

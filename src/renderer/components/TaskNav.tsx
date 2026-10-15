@@ -1,16 +1,25 @@
-import { useState } from 'react';
+import {
+  ArrowSprint20Regular,
+  ChevronDown12Regular,
+  ChevronRight12Regular,
+  Document16Regular,
+  PanelLeftContract20Regular,
+  PanelLeftExpand20Regular,
+  Settings20Regular,
+} from '@fluentui/react-icons';
+import {
+  type KeyboardEvent,
+  type ReactNode,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import type { Repo, TaskStatus, TaskView } from '../../shared/types';
 import { statusText } from '../connectionStatus';
 import { eur } from '../format';
 import { useTaskUsage } from '../hooks/useTaskUsage';
-import { useStore } from '../store';
-import { Bracketed, Label, RingGauge } from './instrument';
-
-const DOWN = String.fromCharCode(0x25be);
-const RIGHT = String.fromCharCode(0x25b8);
-const DOT = String.fromCharCode(0xb7);
-const LEFT_GUILLEMET = String.fromCharCode(0xab);
-const RIGHT_GUILLEMET = String.fromCharCode(0xbb);
+import { activeConnection, useStore, useTaskConnectionId } from '../store';
+import { WorkItemTypeIcon } from './ui';
 
 export function groupTasks(tasks: TaskView[], repos: Repo[]) {
   const open = repos
@@ -23,69 +32,76 @@ export function groupTasks(tasks: TaskView[], repos: Repo[]) {
   return { open, done };
 }
 
-const STATE: Record<TaskStatus, { color: string; label: string }> = {
-  'setting-up': { color: 'var(--accent)', label: 'Setting up' },
-  ready: { color: 'var(--idle)', label: 'Ready' },
-  'setup-failed': { color: 'var(--red)', label: 'Setup failed' },
-  finishing: { color: 'var(--accent)', label: 'Finishing' },
-  done: { color: 'var(--idle)', label: 'Done' },
-};
-
-function usePick(task: TaskView) {
-  const select = useStore((s) => s.select);
-  const go = useStore((s) => s.go);
-  return () => {
-    select(task.id);
-    if (task.status === 'setting-up' || task.status === 'setup-failed')
-      go({ kind: 'setup', taskId: task.id });
-    else go({ kind: 'workspace' });
+/** Only a task that is not ready gets a status dot. */
+const NOT_READY: Partial<Record<TaskStatus, { color: string; label: string }>> =
+  {
+    'setting-up': { color: 'var(--accent)', label: 'Setting up' },
+    'setup-failed': { color: 'var(--red)', label: 'Setup failed' },
+    finishing: { color: 'var(--accent)', label: 'Finishing' },
   };
+
+const AVATAR = ['#0078d4', '#8764b8', '#038387', '#ca5010', '#498205'];
+const avatarColor = (name: string) =>
+  AVATAR[[...name].reduce((n, ch) => n + ch.charCodeAt(0), 0) % AVATAR.length];
+
+/** The nav highlights a task only while one of its pages is open. */
+function useIsCurrent(taskId: string) {
+  return useStore((s) =>
+    s.screen.kind === 'task'
+      ? s.selectedTaskId === taskId
+      : (s.screen.kind === 'setup' || s.screen.kind === 'finish') &&
+        s.screen.taskId === taskId,
+  );
+}
+
+function TypeIcon({ task, size = 16 }: { task: TaskView; size?: number }) {
+  const connectionId = useTaskConnectionId(task);
+  return task.workItem ? (
+    <WorkItemTypeIcon
+      type={task.workItem.type}
+      connectionId={connectionId}
+      size={size}
+    />
+  ) : (
+    <Document16Regular className="navrow-blank" aria-label="Blank task" />
+  );
 }
 
 function Row({ task }: { task: TaskView }) {
-  const selected = useStore((s) => s.selectedTaskId === task.id);
+  const current = useIsCurrent(task.id);
+  const openTask = useStore((s) => s.openTask);
   const usage = useTaskUsage(task.id);
-  const state = STATE[task.status];
-  const pick = usePick(task);
+  const state = task.worktreeMissing
+    ? { color: 'var(--red)', label: 'Worktree folder missing' }
+    : NOT_READY[task.status];
   return (
     <button
       type="button"
-      className="taskrow"
-      aria-current={selected ? 'true' : undefined}
-      onClick={pick}
+      className="navrow"
+      aria-current={current ? 'true' : undefined}
+      onClick={() => openTask(task.id)}
     >
-      <Bracketed active={selected} className="taskrow-frame">
+      <TypeIcon task={task} />
+      {task.workItem && <span className="navrow-id">{task.workItem.id}</span>}
+      <span className="navrow-title">{task.workItem?.title ?? task.name}</span>
+      {state && (
         <span
           className="dot"
-          aria-label={
-            task.worktreeMissing ? 'Worktree folder missing' : state.label
-          }
-          style={{
-            background: task.worktreeMissing ? 'var(--red)' : state.color,
-          }}
+          aria-label={state.label}
+          title={state.label}
+          style={{ background: state.color }}
         />
-        {task.workItem && (
-          <span className="taskrow-id">{task.workItem.id}</span>
-        )}
-        <span className="taskrow-title">
-          {task.workItem?.title ?? task.name}
-        </span>
-        <span className="taskrow-cost">
-          {usage && usage.billable.costEur > 0 ? (
-            eur(usage.billable.costEur)
-          ) : (
-            <>&mdash;</>
-          )}
-        </span>
-      </Bracketed>
+      )}
+      <span className="navrow-cost">
+        {usage && usage.billable.costEur > 0 ? eur(usage.billable.costEur) : ''}
+      </span>
     </button>
   );
 }
 
 function RailRow({ task }: { task: TaskView }) {
-  const selected = useStore((s) => s.selectedTaskId === task.id);
-  const usage = useTaskUsage(task.id);
-  const pick = usePick(task);
+  const current = useIsCurrent(task.id);
+  const openTask = useStore((s) => s.openTask);
   const name =
     `${task.workItem?.id ?? ''} ${task.workItem?.title ?? task.name}`.trim();
   return (
@@ -94,32 +110,173 @@ function RailRow({ task }: { task: TaskView }) {
       className="railrow"
       aria-label={name}
       title={name}
-      aria-current={selected ? 'true' : undefined}
-      onClick={pick}
+      aria-current={current ? 'true' : undefined}
+      onClick={() => openTask(task.id)}
     >
-      <Bracketed active={selected}>
-        <RingGauge value={usage?.billable.costEur ?? 0} size={20} />
-      </Bracketed>
+      <TypeIcon task={task} />
     </button>
+  );
+}
+
+function NavItem({
+  icon,
+  label,
+  current,
+  rail,
+  onClick,
+}: {
+  icon: ReactNode;
+  label: string;
+  current: boolean;
+  rail: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="navitem"
+      aria-current={current ? 'page' : undefined}
+      aria-label={rail ? label : undefined}
+      title={rail ? label : undefined}
+      onClick={onClick}
+    >
+      {icon}
+      {!rail && <span>{label}</span>}
+    </button>
+  );
+}
+
+/** The project tile; with more than one connection it opens a project switcher. */
+function ProjectTile({ rail }: { rail: boolean }) {
+  const connections = useStore((s) => s.connections);
+  const connection = useStore(activeConnection);
+  const setConnectionId = useStore((s) => s.setConnectionId);
+  const go = useStore((s) => s.go);
+  const [open, setOpen] = useState(false);
+  const wrap = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  const close = (refocus: boolean) => {
+    setOpen(false);
+    if (refocus) trigger.current?.focus();
+  };
+  // On open, focus the current project; a click outside closes the menu.
+  useEffect(() => {
+    if (!open) return;
+    const items = [
+      ...(menu.current?.querySelectorAll<HTMLElement>(
+        '[role="menuitemradio"]',
+      ) ?? []),
+    ];
+    (
+      items.find((i) => i.getAttribute('aria-checked') === 'true') ?? items[0]
+    )?.focus();
+    const onDown = (e: MouseEvent) => {
+      if (!wrap.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+  const onMenuKey = (e: KeyboardEvent) => {
+    const items = [
+      ...(menu.current?.querySelectorAll<HTMLElement>(
+        '[role="menuitemradio"]',
+      ) ?? []),
+    ];
+    const at = items.indexOf(document.activeElement as HTMLElement);
+    const move = (to: number) => {
+      e.preventDefault();
+      items[(to + items.length) % items.length]?.focus();
+    };
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      close(true);
+    } else if (e.key === 'ArrowDown') move(at + 1);
+    else if (e.key === 'ArrowUp') move(at < 0 ? -1 : at - 1);
+    else if (e.key === 'Home') move(0);
+    else if (e.key === 'End') move(-1);
+    else if (e.key === 'Tab') setOpen(false);
+  };
+  const name = connection?.project ?? 'No project';
+  const avatar = (
+    <span
+      className="avatar"
+      aria-hidden="true"
+      style={{
+        background: connection ? avatarColor(name) : 'var(--bg-selected)',
+      }}
+    >
+      {connection ? name.charAt(0).toUpperCase() : '?'}
+    </span>
+  );
+  if (connections.length < 2)
+    return (
+      <div className="projecttile" title={name}>
+        {avatar}
+        {!rail && <span className="projecttile-name">{name}</span>}
+      </div>
+    );
+  return (
+    <div className="projecttile-wrap" ref={wrap}>
+      <button
+        ref={trigger}
+        type="button"
+        className="projecttile"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`Project ${name}, switch project`}
+        title={name}
+        onClick={() => setOpen(!open)}
+      >
+        {avatar}
+        {!rail && <span className="projecttile-name">{name}</span>}
+        {!rail && <ChevronDown12Regular aria-hidden="true" />}
+      </button>
+      {open && (
+        <div
+          ref={menu}
+          role="menu"
+          aria-label="Projects"
+          className="menu"
+          onKeyDown={onMenuKey}
+        >
+          {connections.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              role="menuitemradio"
+              tabIndex={-1}
+              aria-checked={c.id === connection?.id}
+              className="menu-item"
+              onClick={() => {
+                setConnectionId(c.id);
+                setOpen(false);
+                go({ kind: 'sprint' });
+              }}
+            >
+              <span className="menu-title">{c.project}</span>
+              <span className="small muted">{c.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
 export function TaskNav() {
   const tasks = useStore((s) => s.tasks);
   const repos = useStore((s) => s.repos);
-  const connections = useStore((s) => s.connections);
-  const selectedTaskId = useStore((s) => s.selectedTaskId);
+  const screenKind = useStore((s) => s.screen.kind);
+  const go = useStore((s) => s.go);
+  const connection = useStore(activeConnection);
   const navCollapsed = useStore((s) => s.navCollapsed);
   const setNavCollapsed = useStore((s) => s.setNavCollapsed);
   const [showDone, setShowDone] = useState(false);
   const { open, done } = groupTasks(tasks, repos);
-  const selected = tasks.find((t) => t.id === selectedTaskId) ?? null;
-  const repo = repos.find((r) => r.id === selected?.repoId) ?? repos[0] ?? null;
-  const connection = repo?.connectionId
-    ? (connections.find((c) => c.id === repo.connectionId) ?? null)
-    : null;
+  const rail = navCollapsed;
   const footer = !connection
-    ? { color: 'var(--idle)', text: 'Azure DevOps: not connected' }
+    ? { color: 'var(--disabled)', text: 'Azure DevOps: not connected' }
     : connection.status === 'ok'
       ? {
           color: 'var(--green)',
@@ -130,59 +287,71 @@ export function TaskNav() {
           text: `${connection.name}: ${statusText(connection, true).text}`,
         };
   return (
-    <nav
-      aria-label="Tasks"
-      className={navCollapsed ? 'tasknav is-rail' : 'tasknav'}
-    >
-      {open.map(({ repo, tasks: list }) => (
-        <div key={repo.id} className="tasknav-group">
-          {!navCollapsed && (
-            <Label>
-              {repo.name} {DOT} {list.length}
-            </Label>
-          )}
-          {list.map((t) =>
-            navCollapsed ? (
-              <RailRow key={t.id} task={t} />
-            ) : (
-              <Row key={t.id} task={t} />
-            ),
-          )}
-        </div>
-      ))}
-      {open.length === 0 && !navCollapsed && (
-        <div className="muted small" style={{ padding: 8 }}>
-          No open tasks. Create one with New task.
-        </div>
-      )}
-      {done.length > 0 && !navCollapsed && (
-        <div className="tasknav-group">
-          <button
-            type="button"
-            className="linkbtn"
-            onClick={() => setShowDone(!showDone)}
-          >
-            {showDone ? DOWN : RIGHT} Done ({done.length})
-          </button>
-          {showDone && done.map((t) => <Row key={t.id} task={t} />)}
-        </div>
-      )}
-      <div className="tasknav-foot">
-        <span
-          className="dot"
-          style={{ background: footer.color }}
-          title={footer.text}
-        />
-        {!navCollapsed && (
-          <span className="tasknav-foot-text">{footer.text}</span>
+    <nav aria-label="Tasks" className={rail ? 'leftnav is-rail' : 'leftnav'}>
+      <ProjectTile rail={rail} />
+      <NavItem
+        icon={<ArrowSprint20Regular aria-hidden="true" />}
+        label="Sprint"
+        rail={rail}
+        current={screenKind === 'sprint'}
+        onClick={() => go({ kind: 'sprint' })}
+      />
+      <div className="leftnav-scroll">
+        {!rail && <div className="nav-section">Tasks</div>}
+        {open.map(({ repo, tasks: list }) => (
+          <div key={repo.id} role="group" aria-label={repo.name}>
+            {!rail && <div className="nav-subhead">{repo.name}</div>}
+            {list.map((t) =>
+              rail ? (
+                <RailRow key={t.id} task={t} />
+              ) : (
+                <Row key={t.id} task={t} />
+              ),
+            )}
+          </div>
+        ))}
+        {open.length === 0 && !rail && (
+          <div className="nav-empty">No open tasks.</div>
         )}
+        {done.length > 0 && !rail && (
+          <>
+            <button
+              type="button"
+              className="nav-section nav-section-toggle"
+              aria-expanded={showDone}
+              onClick={() => setShowDone(!showDone)}
+            >
+              {showDone ? (
+                <ChevronDown12Regular aria-hidden="true" />
+              ) : (
+                <ChevronRight12Regular aria-hidden="true" />
+              )}
+              Done ({done.length})
+            </button>
+            {showDone && done.map((t) => <Row key={t.id} task={t} />)}
+          </>
+        )}
+      </div>
+      <div className="leftnav-foot">
+        <NavItem
+          icon={<Settings20Regular aria-hidden="true" />}
+          label="Settings"
+          rail={rail}
+          current={screenKind === 'settings'}
+          onClick={() => go({ kind: 'settings' })}
+        />
+        <div className="nav-status" title={footer.text}>
+          <span className="dot" style={{ background: footer.color }} />
+          {!rail && <span className="nav-status-text">{footer.text}</span>}
+        </div>
         <button
           type="button"
-          className="linkbtn"
-          aria-label={navCollapsed ? 'Expand task list' : 'Collapse task list'}
-          onClick={() => setNavCollapsed(!navCollapsed)}
+          className="ibtn nav-collapse"
+          aria-label={rail ? 'Expand task list' : 'Collapse task list'}
+          title={rail ? 'Expand navigation' : 'Collapse navigation'}
+          onClick={() => setNavCollapsed(!rail)}
         >
-          {navCollapsed ? RIGHT_GUILLEMET : LEFT_GUILLEMET}
+          {rail ? <PanelLeftExpand20Regular /> : <PanelLeftContract20Regular />}
         </button>
       </div>
     </nav>

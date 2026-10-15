@@ -1,5 +1,7 @@
 # Art log
 
+Retired from the UI on 2026-10-15 (#12). The files stay in git; no screen or the splash uses them.
+
 Generated with `tools/art/generate.mjs` (see `tools/art/README.md`). Rejected candidates stay local in
 `tools/art/incoming/`. All images: generated 2026-10-14, picked by the owner 2026-10-15, model
 `gemini-2.5-flash-image`, resized with `sips -Z 1600` (longest side 1600 px) and saved as JPEG.

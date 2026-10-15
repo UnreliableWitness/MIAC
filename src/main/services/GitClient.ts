@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import type { GitSummary } from '../../shared/types';
+import type { GitSummary, TaskSummary } from '../../shared/types';
 import { realWait, withRetry, type Wait } from '../fsRetry';
 import { nativePath } from '../paths';
 
@@ -31,6 +31,9 @@ const FOLDER_IN_USE =
  * before a child that handles CTRL_CLOSE (a dev server) has let go of the folder.
  */
 const REMOVE_WAITS = [50, 100, 200, 400, 800, 1600, 1850];
+
+/** A Done page lists at most this many commits; `commitCount` has the full number. */
+const MAX_SUMMARY_COMMITS = 50;
 
 /** Thin wrapper over the git CLI. Every method takes the directory to run in. */
 export class GitClient {
@@ -119,17 +122,20 @@ export class GitClient {
   async worktreeAdd(
     cwd: string,
     o: { branch: string; path: string; baseRef: string },
-  ): Promise<void> {
+  ): Promise<string> {
     await this.run(cwd, [
       '-c',
       'core.longpaths=true',
       'worktree',
       'add',
+      // Without this, a branch made from origin/main tracks origin/main and looks "not pushed" forever.
+      '--no-track',
       '-b',
       o.branch,
       o.path,
       o.baseRef,
     ]);
+    return (await this.run(o.path, ['rev-parse', 'HEAD'])).trim();
   }
 
   async worktreeRemove(
@@ -210,5 +216,136 @@ export class GitClient {
         path: l.slice(3),
       }));
     return { branch, ahead, behind, hasUpstream: Boolean(upstream), files };
+  }
+
+  /**
+   * What the task's branch did since it left its base: its commits (the newest 50, oldest first), the diff
+   * stat, and whether it is pushed. The range starts at the recorded `baseSha`, else at the merge base with
+   * `baseRef` (tasks from before MIAC recorded it). With neither, commits and changes are left unknown.
+   */
+  async finishSummary(
+    worktree: string,
+    o: { baseRef: string; baseSha: string | null; branch: string },
+  ): Promise<TaskSummary> {
+    const { baseRef, branch } = o;
+    let base: string | null = null;
+    if (o.baseSha) {
+      try {
+        base = (
+          await this.run(worktree, [
+            'rev-parse',
+            '--verify',
+            '--quiet',
+            `${o.baseSha}^{commit}`,
+          ])
+        ).trim();
+      } catch {
+        base = null;
+      }
+    }
+    if (!base) {
+      try {
+        base = (
+          await this.run(worktree, ['merge-base', baseRef, 'HEAD'])
+        ).trim();
+      } catch {
+        base = null;
+      }
+    }
+    let commits: TaskSummary['commits'] = [];
+    let commitCount = 0;
+    let filesChanged = 0;
+    let insertions = 0;
+    let deletions = 0;
+    if (base) {
+      const range = `${base}..HEAD`;
+      commitCount =
+        Number(
+          (await this.run(worktree, ['rev-list', '--count', range])).trim(),
+        ) || 0;
+      const log = await this.run(worktree, [
+        'log',
+        `--max-count=${MAX_SUMMARY_COMMITS}`,
+        '--format=%h%x09%s',
+        range,
+      ]);
+      commits = log
+        .split('\n')
+        .filter(Boolean)
+        .reverse()
+        .map((l) => {
+          const tab = l.indexOf('\t');
+          return tab < 0
+            ? { sha: l, subject: '' }
+            : { sha: l.slice(0, tab), subject: l.slice(tab + 1) };
+        });
+      const stat = await this.run(worktree, ['diff', '--shortstat', range]);
+      const num = (re: RegExp) => Number(re.exec(stat)?.[1] ?? 0);
+      filesChanged = num(/(\d+) files? changed/);
+      insertions = num(/(\d+) insertions?\(\+\)/);
+      deletions = num(/(\d+) deletions?\(-\)/);
+    }
+    const { upstream, pushed } = await this.pushState(
+      worktree,
+      baseRef,
+      branch,
+    );
+    return {
+      commits,
+      commitCount,
+      filesChanged,
+      insertions,
+      deletions,
+      pushed,
+      upstream,
+      baseKnown: base !== null,
+    };
+  }
+
+  /**
+   * Whether `branch` is on its remote: `<remote>/<branch>` exists and contains HEAD. The remote is the base's
+   * remote, else `origin`. The configured upstream is ignored, since `git push origin <branch>` does not set it.
+   */
+  private async pushState(
+    worktree: string,
+    baseRef: string,
+    branch: string,
+  ): Promise<{ upstream: string | null; pushed: boolean }> {
+    let remotes: string[];
+    try {
+      remotes = await this.remotes(worktree);
+    } catch {
+      return { upstream: null, pushed: false };
+    }
+    const slash = baseRef.indexOf('/');
+    const baseRemote = slash > 0 ? baseRef.slice(0, slash) : '';
+    const remote = remotes.includes(baseRemote)
+      ? baseRemote
+      : remotes.includes('origin')
+        ? 'origin'
+        : null;
+    if (!remote) return { upstream: null, pushed: false };
+    try {
+      await this.run(worktree, [
+        'rev-parse',
+        '--verify',
+        '--quiet',
+        `refs/remotes/${remote}/${branch}`,
+      ]);
+    } catch {
+      return { upstream: null, pushed: false };
+    }
+    const upstream = `${remote}/${branch}`;
+    try {
+      await this.run(worktree, [
+        'merge-base',
+        '--is-ancestor',
+        'HEAD',
+        `refs/remotes/${upstream}`,
+      ]);
+      return { upstream, pushed: true };
+    } catch {
+      return { upstream, pushed: false };
+    }
   }
 }

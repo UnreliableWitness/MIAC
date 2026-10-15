@@ -24,6 +24,8 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
 export type SetupHooks = {
   onEvent(e: SetupEvent): void;
   startTerminals(): Promise<void>;
+  /** The commit a freshly made worktree's branch starts from. */
+  onBaseSha?(sha: string): Promise<void>;
   fromStep?: number;
 };
 
@@ -184,11 +186,14 @@ export class SetupRunner {
         log(
           `$ git worktree add -b ${plan.branch} ${plan.worktreePath} ${plan.baseRef}`,
         );
-        await this.git.worktreeAdd(plan.repoPath, {
-          branch: plan.branch,
-          path: plan.worktreePath,
-          baseRef: plan.baseRef,
-        });
+        {
+          const sha = await this.git.worktreeAdd(plan.repoPath, {
+            branch: plan.branch,
+            path: plan.worktreePath,
+            baseRef: plan.baseRef,
+          });
+          await hooks.onBaseSha?.(sha);
+        }
         return;
       case 'copy':
         for (const rel of plan.copy) {

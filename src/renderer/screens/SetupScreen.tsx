@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import type { SetupEvent, SetupState } from '../../shared/types';
 import { api, tryInvoke } from '../api';
 import { StepList } from '../components/StepList';
-import { CrumbStrip } from '../components/TaskStrip';
+import { TaskTypeIcon } from '../components/TaskTypeIcon';
+import { PageHeader } from '../components/ui';
 import { useStore } from '../store';
 
 export function applySetupEvent(state: SetupState, e: SetupEvent): SetupState {
@@ -66,7 +67,6 @@ function replayPending(
 
 export function SetupScreen({ taskId }: { taskId: string }) {
   const task = useStore((s) => s.tasks.find((t) => t.id === taskId));
-  const repo = useStore((s) => s.repos.find((r) => r.id === task?.repoId));
   const go = useStore((s) => s.go);
   const select = useStore((s) => s.select);
   const notify = useStore((s) => s.notify);
@@ -86,7 +86,7 @@ export function SetupScreen({ taskId }: { taskId: string }) {
       setState((prev) => (prev ? applySetupEvent(prev, e) : prev));
       if (e.type === 'finished' && e.ok) {
         select(taskId);
-        go({ kind: 'workspace' });
+        go({ kind: 'task' });
       }
     });
     void tryInvoke(() => api().invoke('tasks:setupState', taskId), notify).then(
@@ -98,7 +98,7 @@ export function SetupScreen({ taskId }: { taskId: string }) {
         setState(next);
         if (next.finished && next.ok) {
           select(taskId);
-          go({ kind: 'workspace' });
+          go({ kind: 'task' });
         }
       },
     );
@@ -135,46 +135,33 @@ export function SetupScreen({ taskId }: { taskId: string }) {
       await api().invoke('tasks:cancelSetup', taskId);
       return true;
     }, notify);
-    if (ok) go({ kind: 'workspace' });
+    if (ok) go({ kind: 'sprint' });
   };
 
   if (!task) return <div className="empty">Task not found.</div>;
+  const back = () => go({ kind: 'sprint' });
 
   return (
-    <>
-      <CrumbStrip
-        crumb={`${repo?.name ?? ''} / ${task.workItem?.id ?? task.name} / setup`}
-        back={{
-          label: 'Back to tasks',
-          onClick: () => go({ kind: 'workspace' }),
-        }}
+    <div className="page">
+      <PageHeader
+        before={<TaskTypeIcon task={task} />}
+        title={task.workItem?.title ?? task.name}
+        after={
+          <span className="muted">
+            {task.workItem
+              ? `${task.workItem.type} ${task.workItem.id}`
+              : 'Blank task'}
+          </span>
+        }
       />
       <div className="setup">
         <section className="setup-left">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {task.workItem ? (
-              <span
-                className="mono strip-id"
-                style={{ alignSelf: 'flex-start' }}
-              >
-                {task.workItem.type} {task.workItem.id}
-              </span>
-            ) : (
-              <span
-                className="mono strip-id"
-                style={{ alignSelf: 'flex-start' }}
-              >
-                Blank task
-              </span>
-            )}
-            <h1>{task.workItem?.title ?? task.name}</h1>
-            <div className="muted">
-              {task.status === 'setup-failed'
-                ? 'Setup failed. Fix the cause, then retry, or remove the task.'
-                : task.status === 'ready'
-                  ? 'Setup finished.'
-                  : 'Setting up your task. You can go back to the task list; it keeps going in the background.'}
-            </div>
+          <div className="muted">
+            {task.status === 'setup-failed'
+              ? 'Setup failed. Fix the cause, then retry, or remove the task.'
+              : task.status === 'ready'
+                ? 'Setup finished.'
+                : 'Setting up your task. You can leave this page; it keeps going in the background.'}
           </div>
           {state ? (
             <StepList steps={state.steps} />
@@ -182,12 +169,8 @@ export function SetupScreen({ taskId }: { taskId: string }) {
             <div className="muted">Loading...</div>
           )}
           <div className="actions" style={{ justifyContent: 'flex-start' }}>
-            <button
-              type="button"
-              className="btn"
-              onClick={() => go({ kind: 'workspace' })}
-            >
-              Back to tasks
+            <button type="button" className="btn" onClick={back}>
+              Back to Sprint
             </button>
             {task.status === 'setup-failed' && (
               <button type="button" className="btn btn-primary" onClick={retry}>
@@ -227,6 +210,6 @@ export function SetupScreen({ taskId }: { taskId: string }) {
           </div>
         </section>
       </div>
-    </>
+    </div>
   );
 }

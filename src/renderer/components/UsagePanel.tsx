@@ -8,7 +8,7 @@ import { ago, compact, eur } from '../format';
 import { useClock } from '../hooks/useClock';
 import { useTaskUsage } from '../hooks/useTaskUsage';
 import { useStore } from '../store';
-import { Bracketed, Label, RingGauge } from './instrument';
+import { RingGauge } from './ui';
 
 const TOOL: Record<UsageTool, string> = {
   'claude-code': 'Claude Code',
@@ -43,9 +43,9 @@ function Timeline({ bins, live }: { bins: Bin[]; live: boolean }) {
         const h = maxBin > 0 ? Math.max(2, (52 * b.costEur) / maxBin) : 2;
         const fill =
           b.dominant === 'claude-code'
-            ? 'var(--accent)'
+            ? 'var(--chart-claude)'
             : b.dominant === 'copilot-cli'
-              ? 'var(--blue)'
+              ? 'var(--chart-copilot)'
               : 'var(--line-strong)';
         return (
           <rect
@@ -153,16 +153,16 @@ export function UsagePanel({
   return (
     <section className="usagepanel" aria-label="AI usage">
       <div className="up-col up-instrument">
-        <Bracketed className="up-box up-billable">
-          <Label>Billable</Label>
+        <div className="card up-box up-billable">
+          <h3>Billable</h3>
           <RingGauge
             size={150}
             value={total}
             max={Math.max(total, 0.0001)}
             label={`Billable ${eur(total)}`}
             segments={[
-              { value: claude, color: 'var(--accent)' },
-              { value: copilot, color: 'var(--blue)' },
+              { value: claude, color: 'var(--chart-claude)' },
+              { value: copilot, color: 'var(--chart-copilot)' },
             ]}
           />
           <div className="up-total mono">{eur(total)}</div>
@@ -171,17 +171,23 @@ export function UsagePanel({
           </div>
           <div className="up-split">
             <span>
-              <i className="dot" style={{ background: 'var(--accent)' }} />{' '}
+              <i
+                className="dot"
+                style={{ background: 'var(--chart-claude)' }}
+              />{' '}
               Claude <b className="mono">{eur(claude)}</b>
             </span>
             <span>
-              <i className="dot" style={{ background: 'var(--blue)' }} />{' '}
+              <i
+                className="dot"
+                style={{ background: 'var(--chart-copilot)' }}
+              />{' '}
               Copilot <b className="mono">{eur(copilot)}</b>
             </span>
           </div>
-        </Bracketed>
-        <Bracketed className="up-box">
-          <Label>Tokens</Label>
+        </div>
+        <div className="card up-box">
+          <h3>Tokens</h3>
           {mixRows.map(([label, v]) => (
             <div key={label} className="up-mixrow">
               <span className="small muted">{label}</span>
@@ -191,21 +197,21 @@ export function UsagePanel({
               </div>
             </div>
           ))}
-        </Bracketed>
+        </div>
         {usage && (
           <div className="up-caption mono">{`Official list prices ${DOT} USD${ARROW}EUR ${usage.usdToEur}`}</div>
         )}
       </div>
       <div className="up-col up-main">
-        <Bracketed className="up-box">
-          <Label>Last 6 hours</Label>
+        <div className="card up-box">
+          <h3>Last 6 hours</h3>
           <Timeline bins={timeline(usage?.recent ?? [], t)} live={anyLive} />
-        </Bracketed>
+        </div>
         {usage && usage.unpricedRequests > 0 && (
           <div className="check check-warn">{`${usage.unpricedRequests} ${usage.unpricedRequests === 1 ? 'request uses a model' : 'requests use models'} that ${usage.unpricedRequests === 1 ? 'is' : 'are'} not in MIAC's official price list yet, so ${usage.unpricedRequests === 1 ? 'it is' : 'they are'} not in the totals. A MIAC update will add ${usage.unpricedRequests === 1 ? 'it' : 'them'}.`}</div>
         )}
-        <Bracketed className="up-box up-sessions">
-          <Label>{`Sessions ${DOT} ${usage?.sessions.length ?? 0}`}</Label>
+        <div className="card up-box up-sessions">
+          <h3>{`Sessions ${DOT} ${usage?.sessions.length ?? 0}`}</h3>
           {usage && usage.sessions.length === 0 ? (
             <div className="empty">
               No AI usage captured for this task yet. Claude Code and Copilot
@@ -270,9 +276,9 @@ export function UsagePanel({
               </table>
             )
           )}
-        </Bracketed>
-        <Bracketed className="up-box up-workitem">
-          <Label>On the work item</Label>
+        </div>
+        <div className="card up-box up-workitem">
+          <h3>On the work item</h3>
           <span className="small muted">
             {task.usageSyncError
               ? `sync failed: ${task.usageSyncError}`
@@ -331,7 +337,7 @@ export function UsagePanel({
               Write to work item
             </button>
           </div>
-        </Bracketed>
+        </div>
       </div>
     </section>
   );

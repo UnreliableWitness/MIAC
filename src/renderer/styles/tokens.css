@@ -1,39 +1,36 @@
+/* Azure DevOps dark theme (spec 2026-10-15, section 1). */
 :root {
   color-scheme: dark;
-  --void: #07080c;
-  --ground: #090b10;
-  --panel: #0c0e14;
-  --panel-raised: #0d1016;
-  --panel-2: #0b0d13;
-  --line: #1d2230;
-  --line-strong: #232a3a;
-  --tick: #39405a;
-  --text: #e7e6e2;
-  --text-bright: #f3ead8;
-  --muted: #7d8598;
-  --faint: #6c7488;
-  --accent: #f0a443;
-  --accent-ink: #1a1408;
-  --accent-bg: #1a160e;
-  --cream: #f6e7c8;
-  --green: #8fd6a4;
-  --green-bg: #0f1a14;
-  --green-border: #24382b;
-  --blue: #7fb2ff;
-  --blue-bg: #111a2a;
-  --warn: #f0c27a;
-  --warn-text: #f6dcae;
-  --warn-bg: #1a160e;
-  --warn-border: #3d3220;
-  --red: #f0a0a0;
-  --red-bg: #2a1618;
-  --red-border: #5a2a2e;
-  --idle: #555b64;
-  --font-ui: 'IBM Plex Sans', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
-  --radius: 4px;
-  --radius-sm: 3px;
-  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --bg-page: #201f1e;
+  --bg-chrome: #1b1a19;
+  --bg-card: #252423;
+  --bg-hover: rgba(255, 255, 255, 0.04);
+  --bg-selected: rgba(255, 255, 255, 0.08);
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.16);
+  --text: rgba(255, 255, 255, 0.9);
+  --muted: rgba(255, 255, 255, 0.55);
+  --disabled: rgba(255, 255, 255, 0.38);
+  --accent: #0078d4;
+  --accent-hover: #106ebe;
+  --accent-bg: rgba(0, 120, 212, 0.12);
+  --link: #5ca9f2;
+  --green: #6ccb5f;
+  --green-bg: rgba(108, 203, 95, 0.12);
+  --red: #f1707b;
+  --red-bg: rgba(241, 112, 123, 0.12);
+  --warn: #f7b955;
+  --warn-bg: rgba(247, 185, 85, 0.12);
+  /* Usage charts: Claude Code in the accent blue, Copilot CLI in purple. */
+  --chart-claude: #2b88d8;
+  --chart-copilot: #a083e0;
+  --font-ui:
+    'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, 'Helvetica Neue',
+    sans-serif;
+  --font-code:
+    'Cascadia Mono', 'Cascadia Code', Consolas, 'SF Mono', Menlo, monospace;
+  --radius: 2px;
+  --radius-card: 4px;
 }
 
 @media (prefers-reduced-motion: reduce) {

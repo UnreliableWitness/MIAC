@@ -114,7 +114,7 @@ function createWindow(): BrowserWindow {
     minWidth: 960,
     minHeight: 600,
     show: false,
-    backgroundColor: '#090b10',
+    backgroundColor: '#201f1e',
     title: 'MIAC',
     ...(windowIcon ? { icon: windowIcon } : {}),
     webPreferences: {

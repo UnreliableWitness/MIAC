@@ -34,6 +34,7 @@ const defaults: FakeHandlers = {
   'rates:list': () => ({ rates: [], officialAsOf: '2026-10-14' }),
   'usage:task': (taskId) => emptyUsage(taskId),
   'repos:list': () => [],
+  'workItems:types': () => [],
   'connections:list': () => [],
   'tasks:list': () => [],
   'tasks:setupState': () => null,

@@ -37,6 +37,20 @@ export const TaskSetupSchema = z.object({
   openCopilot: z.boolean().default(false),
 });
 
+/** What a finished task did, captured from git just before its worktree is removed. */
+export const TaskSummarySchema = z.object({
+  commits: z.array(z.object({ sha: z.string(), subject: z.string() })),
+  commitCount: z.number().int().min(0),
+  filesChanged: z.number().int().min(0),
+  insertions: z.number().int().min(0),
+  deletions: z.number().int().min(0),
+  pushed: z.boolean(),
+  upstream: z.string().nullable(),
+  /** False when the branch's starting point could not be found, so commits and changes are unknown. */
+  baseKnown: z.boolean().default(true),
+});
+export type TaskSummary = z.infer<typeof TaskSummarySchema>;
+
 export const TaskSchema = z.object({
   id: z.string().min(1),
   repoId: z.string().min(1),
@@ -46,6 +60,8 @@ export const TaskSchema = z.object({
   branch: z.string().min(1),
   worktreePath: z.string().min(1),
   baseRef: z.string().min(1),
+  /** The commit the branch started from, recorded when its worktree is made; null for older tasks. */
+  baseSha: z.string().nullable().default(null),
   status: TaskStatusSchema,
   setup: TaskSetupSchema,
   terminals: z.array(TerminalDefSchema),
@@ -54,6 +70,8 @@ export const TaskSchema = z.object({
   usageSyncedAt: z.string().nullable().default(null),
   usageSyncError: z.string().nullable().default(null),
   usageCommentId: z.number().int().nullable().default(null),
+  /** Null for tasks finished before MIAC recorded summaries, and while a task is open. */
+  summary: TaskSummarySchema.nullable().default(null),
 });
 export type Task = z.infer<typeof TaskSchema>;
 
@@ -200,6 +218,12 @@ export type ConnectionInput = {
 };
 
 export type Iteration = { path: string; name: string };
+/** The current sprint as the sprint page needs it; ADO leaves the dates null until someone sets them. */
+export type SprintIteration = Iteration & {
+  id: string;
+  startDate: string | null;
+  finishDate: string | null;
+};
 
 export type WorkItemSummary = {
   id: string;
@@ -213,3 +237,28 @@ export type WorkItemSummary = {
 };
 
 export type WorkItemSearch = { scope: 'sprint' | 'mine'; text: string };
+
+/** A sprint backlog item: the picker's fields plus remaining work (hours, null when unset). */
+export type SprintItem = WorkItemSummary & { remainingWork: number | null };
+/** One grid row of the sprint page, in ADO's backlog order; children follow their parent. */
+export type SprintRow = {
+  item: SprintItem;
+  depth: number;
+  parentId: string | null;
+  hasChildren: boolean;
+};
+export type Sprint = { iteration: SprintIteration | null; rows: SprintRow[] };
+
+/** A state of a work item type, with ADO's color (`#rrggbb`) and state category (Proposed, InProgress, Completed, Removed...). */
+export type WorkItemStateMeta = {
+  name: string;
+  color: string | null;
+  category: string | null;
+};
+/** A work item type of the project: its color, its real ADO icon as a data URL (null when it could not be fetched) and its states. */
+export type WorkItemTypeMeta = {
+  name: string;
+  color: string | null;
+  icon: string | null;
+  states: WorkItemStateMeta[];
+};

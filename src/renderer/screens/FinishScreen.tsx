@@ -3,7 +3,8 @@ import type { FinishChecks } from '../../shared/types';
 import { api, tryInvoke } from '../api';
 import { eur } from '../format';
 import { useTaskUsage } from '../hooks/useTaskUsage';
-import { Label } from '../components/instrument';
+import { PageHeader } from '../components/ui';
+import { useEscape } from '../hooks/useEscape';
 import { useStore } from '../store';
 
 const ELLIPSIS = String.fromCharCode(0x2026);
@@ -17,6 +18,8 @@ const G = {
 export function FinishScreen({ taskId }: { taskId: string }) {
   const task = useStore((s) => s.tasks.find((t) => t.id === taskId));
   const go = useStore((s) => s.go);
+  const back = useStore((s) => s.back);
+  const select = useStore((s) => s.select);
   const notify = useStore((s) => s.notify);
   const [checks, setChecks] = useState<FinishChecks | null>(null);
   const [closeTerminals, setCloseTerminals] = useState(true);
@@ -51,20 +54,23 @@ export function FinishScreen({ taskId }: { taskId: string }) {
     };
   }, [taskId, notify, ready]);
 
+  useEscape(back);
+
+  const stillHere = () => {
+    const now = useStore.getState().screen;
+    return now.kind === 'finish' && now.taskId === taskId;
+  };
+
   if (!task) return null;
 
   if (!ready) {
     return (
-      <div className="overlay" style={{ paddingTop: 72 }}>
-        <div role="dialog" aria-labelledby="fn-title" className="dialog finish">
-          <h2 id="fn-title">Finish task {task.workItem?.id ?? task.name}</h2>
+      <div className="page">
+        <PageHeader title="Finish task" />
+        <div className="page-body finish">
           <div className="muted">{`This task is ${task.status}. Finish it once setup has succeeded; use the Setup screen to retry or remove it.`}</div>
           <div className="finish-foot">
-            <button
-              type="button"
-              className="btn"
-              onClick={() => go({ kind: 'workspace' })}
-            >
+            <button type="button" className="btn" onClick={back}>
               Keep task
             </button>
           </div>
@@ -79,7 +85,10 @@ export function FinishScreen({ taskId }: { taskId: string }) {
         api().invoke('terminals:open', taskId, { kind: 'run', label, command }),
       notify,
     );
-    if (opened) go({ kind: 'workspace' });
+    if (opened && stillHere()) {
+      select(taskId);
+      go({ kind: 'task' });
+    }
   };
 
   const finish = async () => {
@@ -94,7 +103,11 @@ export function FinishScreen({ taskId }: { taskId: string }) {
       return true;
     }, notify);
     setBusy(false);
-    if (ok) go({ kind: 'workspace' });
+    // Only when the user is still here: Escape or the nav may have taken them elsewhere meanwhile.
+    if (ok && stillHere()) {
+      select(taskId);
+      go({ kind: 'task' });
+    }
   };
 
   const dirty = checksFailed
@@ -106,17 +119,18 @@ export function FinishScreen({ taskId }: { taskId: string }) {
   const terminalLabels = task.terminals.map((t) => t.label).join(', ');
 
   return (
-    <div className="overlay" style={{ paddingTop: 72 }}>
-      <div role="dialog" aria-labelledby="fn-title" className="dialog finish">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <h2 id="fn-title">Finish task {task.workItem?.id ?? task.name}</h2>
-          <div className="muted">{task.workItem?.title ?? task.branch}</div>
+    <div className="page">
+      <PageHeader title="Finish task" />
+      <div className="page-body finish">
+        <div className="muted">
+          {task.workItem
+            ? `${task.workItem.type} ${task.workItem.id} ${task.workItem.title}`
+            : task.name}{' '}
+          <span className="mono small">{task.branch}</span>
         </div>
 
         <div className="finish-section">
-          <div className="label">
-            <Label>Safety checks</Label>
-          </div>
+          <h2>Safety checks</h2>
           {!checks && !checksFailed && (
             <div className="muted">Checking{ELLIPSIS}</div>
           )}
@@ -199,9 +213,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
         </div>
 
         <div className="finish-section">
-          <div className="label">
-            <Label>AI usage</Label>
-          </div>
+          <h2>AI usage</h2>
           {usage && usage.sessions.length > 0 ? (
             <div>
               <div className="amount-line">{`${eur(usage.billable.costEur)} billable`}</div>
@@ -230,9 +242,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
         </div>
 
         <div className="finish-section">
-          <div className="label">
-            <Label>Clean up</Label>
-          </div>
+          <h2>Clean up</h2>
           <label className="checkbox">
             <input
               type="checkbox"
@@ -273,16 +283,12 @@ export function FinishScreen({ taskId }: { taskId: string }) {
         </div>
 
         <div className="finish-foot">
-          <button
-            type="button"
-            className="btn"
-            onClick={() => go({ kind: 'workspace' })}
-          >
+          <button type="button" className="btn" onClick={back}>
             Keep task
           </button>
           <button
             type="button"
-            className={dirty ? 'btn btn-danger' : 'btn btn-green'}
+            className={dirty ? 'btn btn-danger' : 'btn btn-primary'}
             disabled={busy || (!checks && !checksFailed)}
             onClick={finish}
           >

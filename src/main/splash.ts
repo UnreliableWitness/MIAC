@@ -1,9 +1,9 @@
 import path from 'node:path';
 import { app, BrowserWindow, type NativeImage } from 'electron';
 
-export const SPLASH_MIN_MS = 2200;
+export const SPLASH_MIN_MS = 1200;
 export const SPLASH_FADE_MS = 200;
-/** Each step stays on screen at least this long: boot is faster than the animation, so steps are queued and paced. */
+/** Each step stays on screen at least this long: boot is faster than reading, so steps are queued and paced. */
 export const SPLASH_STEP_MS = 350;
 /** Longest the handoff waits for the splash to show at all, so a splash that never paints cannot block boot. */
 export const SPLASH_CAP_MS = 8000;
@@ -127,14 +127,14 @@ const ERR_ABORTED = -3;
 /** `icon` is set on Windows and Linux only (macOS takes the app bundle icon). */
 export function createSplashWindow(icon?: NativeImage): BrowserWindow {
   const win = new BrowserWindow({
-    width: 640,
-    height: 400,
+    width: 480,
+    height: 300,
     frame: false,
     resizable: false,
     center: true,
     show: false,
     alwaysOnTop: false,
-    backgroundColor: '#050609',
+    backgroundColor: '#1b1a19',
     title: 'MIAC',
     ...(icon ? { icon } : {}),
     skipTaskbar: false,

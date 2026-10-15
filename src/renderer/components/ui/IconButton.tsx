@@ -6,17 +6,16 @@ export const modKey: 'Cmd' | 'Ctrl' =
     ? 'Cmd'
     : 'Ctrl';
 
+/** A subtle square button holding one Fluent icon; the label is its accessible name and tooltip. */
 export function IconButton({
   label,
   shortcut,
-  tone = 'default',
   onClick,
   disabled,
   children,
 }: {
   label: string;
   shortcut?: string;
-  tone?: 'default' | 'accent' | 'green';
   onClick?: () => void;
   disabled?: boolean;
   children: ReactNode;
@@ -24,7 +23,7 @@ export function IconButton({
   return (
     <button
       type="button"
-      className={`ibtn ibtn-${tone}`}
+      className="ibtn"
       aria-label={label}
       title={shortcut ? `${label} (${shortcut})` : label}
       onClick={onClick}

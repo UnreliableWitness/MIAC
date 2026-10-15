@@ -253,13 +253,193 @@ describe('GitClient', () => {
         'core.longpaths=true',
         'worktree',
         'add',
+        '--no-track',
         '-b',
         'feature/lp',
         wt,
         'main',
       ],
+      ['rev-parse', 'HEAD'],
       ['-c', 'core.longpaths=true', 'worktree', 'remove', '--force', wt],
       ['-c', 'core.longpaths=true', 'worktree', 'prune'],
     ]);
+  });
+
+  it('summarises a finished branch: commits since the merge base, diff stat, local', async () => {
+    const repo = makeRepo();
+    const wt = path.join(path.dirname(repo), 'wt-sum');
+    await client.worktreeAdd(repo, {
+      branch: 'feature/sum',
+      path: wt,
+      baseRef: 'main',
+    });
+    // main moves on after the branch left it; that must not count.
+    commitFile(repo, 'later.txt', 'later\n');
+    commitFile(wt, 'a.txt', 'one\ntwo\n', 'Add a');
+    writeFileSync(path.join(wt, 'README.md'), 'changed\n');
+    git(wt, 'commit', '-q', '-am', 'Change the readme');
+    const s = await client.finishSummary(wt, {
+      baseRef: 'main',
+      baseSha: null,
+      branch: 'feature/sum',
+    });
+    expect(s.commitCount).toBe(2);
+    expect(s.commits.map((c) => c.subject)).toEqual([
+      'Add a',
+      'Change the readme',
+    ]);
+    expect(s.commits[0].sha).toMatch(/^[0-9a-f]{7,}$/);
+    expect(s).toMatchObject({
+      filesChanged: 2,
+      insertions: 3,
+      deletions: 1,
+      pushed: false,
+      upstream: null,
+    });
+  });
+
+  it('worktreeAdd returns the commit the branch starts from', async () => {
+    const repo = makeRepo();
+    const wt = path.join(path.dirname(repo), 'wt-sha');
+    const sha = await client.worktreeAdd(repo, {
+      branch: 'feature/sha',
+      path: wt,
+      baseRef: 'main',
+    });
+    expect(sha).toBe(git(repo, 'rev-parse', 'main').trim());
+  });
+
+  it('measures from the recorded base commit, so a merged and fetched PR still lists its commits', async () => {
+    const repo = makeRepo();
+    const wt = path.join(path.dirname(repo), 'wt-merged');
+    const baseSha = await client.worktreeAdd(repo, {
+      branch: 'feature/merged',
+      path: wt,
+      baseRef: 'main',
+    });
+    commitFile(wt, 'a.txt', 'one\n', 'Add a');
+    // The PR completes with a merge commit, and main is pulled: HEAD is now an ancestor of the base.
+    git(repo, 'merge', '-q', '--no-ff', '-m', 'Merge PR', 'feature/merged');
+    const fallback = await client.finishSummary(wt, {
+      baseRef: 'main',
+      baseSha: null,
+      branch: 'feature/merged',
+    });
+    expect(fallback.commitCount).toBe(0);
+    const s = await client.finishSummary(wt, {
+      baseRef: 'main',
+      baseSha,
+      branch: 'feature/merged',
+    });
+    expect(s).toMatchObject({
+      baseKnown: true,
+      commitCount: 1,
+      commits: [{ subject: 'Add a' }],
+      filesChanged: 1,
+      insertions: 1,
+    });
+  });
+
+  it('lists no commits when neither the recorded base nor the base ref resolves', async () => {
+    const repo = makeRepo();
+    for (let i = 0; i < 3; i++)
+      git(repo, 'commit', '-q', '--allow-empty', '-m', `Old ${i}`);
+    const s = await client.finishSummary(repo, {
+      baseRef: 'origin/gone',
+      baseSha: '0123456789abcdef0123456789abcdef01234567',
+      branch: 'main',
+    });
+    expect(s).toMatchObject({
+      baseKnown: false,
+      commits: [],
+      commitCount: 0,
+      filesChanged: 0,
+    });
+  });
+
+  it('does not make the base the upstream of a worktree branch made from origin/<base>', async () => {
+    const repo = makeRepo();
+    addOrigin(repo);
+    const wt = path.join(path.dirname(repo), 'wt-notrack');
+    await client.worktreeAdd(repo, {
+      branch: 'feature/notrack',
+      path: wt,
+      baseRef: 'origin/main',
+    });
+    expect(() => git(wt, 'rev-parse', '--abbrev-ref', '@{u}')).toThrow();
+    commitFile(wt, 'a.txt', 'a\n');
+    const s = await client.finishSummary(wt, {
+      baseRef: 'origin/main',
+      baseSha: null,
+      branch: 'feature/notrack',
+    });
+    expect(s).toMatchObject({ pushed: false, upstream: null });
+    expect((await client.summary(wt, 'origin/main')).ahead).toBe(1);
+  });
+
+  it('counts a branch pushed without -u as pushed, by looking at origin/<branch>', async () => {
+    const repo = makeRepo();
+    addOrigin(repo);
+    const wt = path.join(path.dirname(repo), 'wt-pushed');
+    await client.worktreeAdd(repo, {
+      branch: 'feature/pushed',
+      path: wt,
+      baseRef: 'origin/main',
+    });
+    // An upstream set to the base (old tasks, or a user's own config) must not decide the answer.
+    git(wt, 'branch', '--set-upstream-to=origin/main');
+    commitFile(wt, 'a.txt', 'a\n');
+    git(wt, 'push', '-q', 'origin', 'feature/pushed');
+    const s = await client.finishSummary(wt, {
+      baseRef: 'origin/main',
+      baseSha: null,
+      branch: 'feature/pushed',
+    });
+    expect(s).toMatchObject({
+      pushed: true,
+      upstream: 'origin/feature/pushed',
+    });
+    commitFile(wt, 'b.txt', 'b\n');
+    expect(
+      await client.finishSummary(wt, {
+        baseRef: 'origin/main',
+        baseSha: null,
+        branch: 'feature/pushed',
+      }),
+    ).toMatchObject({ pushed: false, upstream: 'origin/feature/pushed' });
+  });
+
+  it('reports a pushed branch with its upstream, and caps the list at 50 commits', async () => {
+    const repo = makeRepo();
+    addOrigin(repo);
+    git(repo, 'checkout', '-q', '-b', 'feature/many');
+    for (let i = 1; i <= 52; i++)
+      git(repo, 'commit', '-q', '--allow-empty', '-m', `Step ${i}`);
+    git(repo, 'push', '-q', '-u', 'origin', 'feature/many');
+    const s = await client.finishSummary(repo, {
+      baseRef: 'origin/main',
+      baseSha: null,
+      branch: 'feature/many',
+    });
+    expect(s.commitCount).toBe(52);
+    expect(s.commits).toHaveLength(50);
+    // The newest 50, shown oldest first.
+    expect(s.commits[0].subject).toBe('Step 3');
+    expect(s.commits[49].subject).toBe('Step 52');
+    expect(s).toMatchObject({
+      filesChanged: 0,
+      pushed: true,
+      upstream: 'origin/feature/many',
+    });
+    git(repo, 'commit', '-q', '--allow-empty', '-m', 'Not pushed');
+    expect(
+      (
+        await client.finishSummary(repo, {
+          baseRef: 'origin/main',
+          baseSha: null,
+          branch: 'feature/many',
+        })
+      ).pushed,
+    ).toBe(false);
   });
 });

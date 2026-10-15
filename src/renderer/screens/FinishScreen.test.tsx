@@ -20,6 +20,7 @@ const task: TaskView = {
   branch: 'feature/48213-save-delivery-address',
   worktreePath: '/w/a',
   baseRef: 'origin/main',
+  baseSha: null,
   status: 'ready',
   setup: {
     copy: true,
@@ -37,6 +38,7 @@ const task: TaskView = {
   usageSyncedAt: null,
   usageSyncError: null,
   usageCommentId: null,
+  summary: null,
   worktreeMissing: false,
 };
 const dirty = {
@@ -92,7 +94,7 @@ describe('FinishScreen', () => {
     ).toBeInTheDocument();
   });
 
-  it('finishes with the chosen options and returns to the workspace', async () => {
+  it('finishes with the chosen options and shows the Done page', async () => {
     const { calls } = installFakeApi({
       'tasks:finishChecks': () => clean,
       'tasks:finish': () => undefined,
@@ -113,7 +115,32 @@ describe('FinishScreen', () => {
         },
       ]),
     );
-    expect(useStore.getState().screen).toEqual({ kind: 'workspace' });
+    expect(useStore.getState().screen).toEqual({ kind: 'task' });
+    expect(useStore.getState().selectedTaskId).toBe('a');
+  });
+
+  it('does not move the user to the Done page when they left the Finish page while it ran', async () => {
+    let resolve: () => void = () => {};
+    installFakeApi({
+      'tasks:finishChecks': () => clean,
+      'tasks:finish': () =>
+        new Promise<void>((r) => {
+          resolve = r;
+        }),
+    });
+    useStore.setState({
+      screen: { kind: 'finish', taskId: 'a' },
+      previous: { kind: 'sprint' },
+    });
+    render(<FinishScreen taskId="a" />);
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Finish and clean up' }),
+    );
+    await userEvent.keyboard('{Escape}');
+    useStore.getState().go({ kind: 'new-task' });
+    resolve();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(useStore.getState().screen).toEqual({ kind: 'new-task' });
   });
 
   it('opens commit and push in a terminal tab', async () => {
@@ -142,7 +169,8 @@ describe('FinishScreen', () => {
         },
       ]),
     );
-    expect(useStore.getState().screen).toEqual({ kind: 'workspace' });
+    expect(useStore.getState().screen).toEqual({ kind: 'task' });
+    expect(useStore.getState().selectedTaskId).toBe('a');
   });
 
   it('stays open and shows the error when finishing fails', async () => {

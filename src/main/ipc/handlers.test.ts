@@ -18,7 +18,12 @@ import { SetupRunner } from '../services/SetupRunner';
 import { TaskStore } from '../services/TaskStore';
 import type { Telemetry } from '../telemetry/AppInsightsClient';
 import { TerminalManager } from '../services/TerminalManager';
-import { cleanupTempRepos, makeRepo } from '../test-helpers/gitRepo';
+import {
+  cleanupTempRepos,
+  commitFile,
+  git,
+  makeRepo,
+} from '../test-helpers/gitRepo';
 import {
   echoCmd,
   envRef,
@@ -473,6 +478,71 @@ describe('handlers: finish', () => {
     expect(await new GitClient().branchExists(repo, t.branch)).toBe(false);
   });
 
+  it('records what the branch did before the worktree goes', async () => {
+    const { h, input, setupDone } = await harness();
+    const done = setupDone();
+    const t = await h['tasks:create'](input({ openShell: false }));
+    await done;
+    commitFile(t.worktreePath, 'feature.txt', 'a\nb\n', 'Add the feature');
+    await h['tasks:finish'](t.id, {
+      closeTerminals: true,
+      removeWorktree: true,
+      deleteBranch: true,
+      syncUsage: false,
+    });
+    const [view] = await h['tasks:list']();
+    expect(view.summary).toMatchObject({
+      commitCount: 1,
+      commits: [{ subject: 'Add the feature' }],
+      filesChanged: 1,
+      insertions: 2,
+      deletions: 0,
+      pushed: false,
+      upstream: null,
+    });
+  });
+
+  it('records the base commit at setup and measures the summary from it after a merged PR', async () => {
+    const { h, input, setupDone, store, repo } = await harness();
+    const done = setupDone();
+    const t = await h['tasks:create'](input({ openShell: false }));
+    await done;
+    const baseSha = store.state.tasks[0].baseSha;
+    expect(baseSha).toMatch(/^[0-9a-f]{40}$/);
+    commitFile(t.worktreePath, 'feature.txt', 'a\n', 'Add the feature');
+    git(repo, 'merge', '-q', '--no-ff', '-m', 'Merge PR', t.branch);
+    await h['tasks:finish'](t.id, {
+      closeTerminals: true,
+      removeWorktree: true,
+      deleteBranch: false,
+      syncUsage: false,
+    });
+    const [view] = await h['tasks:list']();
+    expect(view.summary).toMatchObject({
+      commitCount: 1,
+      commits: [{ subject: 'Add the feature' }],
+    });
+  });
+
+  it('finishes even when the summary fails', async () => {
+    const { h, input, setupDone, services } = await harness();
+    const done = setupDone();
+    const t = await h['tasks:create'](input({ openShell: false }));
+    await done;
+    services.git.finishSummary = async () => {
+      throw new Error('boom');
+    };
+    await h['tasks:finish'](t.id, {
+      closeTerminals: true,
+      removeWorktree: true,
+      deleteBranch: true,
+      syncUsage: false,
+    });
+    const [view] = await h['tasks:list']();
+    expect(view.status).toBe('done');
+    expect(view.summary).toBeNull();
+  });
+
   it('keeps the task ready when cleanup fails', async () => {
     const { h, input, setupDone, store, terminals, services } = await harness();
     const done = setupDone();
@@ -673,6 +743,7 @@ describe('recoverInterruptedTasks', () => {
       slug: 'x',
       worktreePath: '/w',
       baseRef: 'main',
+      baseSha: null,
       setup: {
         copy: false,
         commands: [],
@@ -686,6 +757,7 @@ describe('recoverInterruptedTasks', () => {
       usageSyncedAt: null,
       usageSyncError: null,
       usageCommentId: null,
+      summary: null,
     };
     await store.update((s) => {
       s.tasks.push(
@@ -714,6 +786,7 @@ function routeHealthyOrg(server: AdoServer, org = 'unreliablewitness') {
     body: {
       value: [
         {
+          id: 'it-1',
           name: 'Sprint 1',
           path: 'MIAC\\Sprint 1',
           attributes: { timeFrame: 'current' },
@@ -721,6 +794,15 @@ function routeHealthyOrg(server: AdoServer, org = 'unreliablewitness') {
       ],
     },
   });
+  server.route(
+    'GET',
+    `/${org}/MIAC/_apis/work/teamsettings/iterations/it-1/workitems`,
+    {
+      body: {
+        workItemRelations: [{ rel: null, source: null, target: { id: 5 } }],
+      },
+    },
+  );
   server.route('POST', `/${org}/MIAC/_apis/wit/wiql`, {
     body: { workItems: [{ id: 5 }] },
   });
@@ -926,8 +1008,11 @@ describe('handlers: work items', () => {
       pat: 'p',
     });
     expect(await h['workItems:currentIteration'](c.id)).toEqual({
+      id: 'it-1',
       path: 'MIAC\\Sprint 1',
       name: 'Sprint 1',
+      startDate: null,
+      finishDate: null,
     });
     const items = await h['workItems:search'](c.id, {
       scope: 'sprint',
@@ -959,6 +1044,99 @@ describe('handlers: work items', () => {
     expect(broadcasts.some((b) => b.event === 'connections:changed')).toBe(
       true,
     );
+  });
+});
+
+describe('handlers: sprint, types and live work items', () => {
+  const save = async (hx: Awaited<ReturnType<typeof harness>>) => {
+    routeHealthyOrg(hx.server);
+    return hx.h['connections:save']({
+      organizationUrl: `${hx.server.url}/unreliablewitness`,
+      project: 'MIAC',
+      pat: 'p',
+    });
+  };
+  it('returns the sprint rows through the connection', async () => {
+    const hx = await harness();
+    const c = await save(hx);
+    const sprint = await hx.h['workItems:sprint'](c.id);
+    expect(sprint.iteration?.name).toBe('Sprint 1');
+    expect(sprint.rows.map((r) => [r.item.id, r.item.title, r.depth])).toEqual([
+      ['5', 'Five', 0],
+    ]);
+  });
+  it('a 401 on the sprint marks the connection unauthorized', async () => {
+    const hx = await harness();
+    const c = await save(hx);
+    hx.server.route(
+      'GET',
+      '/unreliablewitness/MIAC/_apis/work/teamsettings/iterations',
+      { status: 401, body: {} },
+    );
+    await expect(hx.h['workItems:sprint'](c.id)).rejects.toThrow(
+      /rejected the token/,
+    );
+    expect((await hx.h['connections:list']())[0].status).toBe('unauthorized');
+  });
+  it('loads the types with icons as data URLs once per connection, and retries after a failure', async () => {
+    const hx = await harness();
+    const c = await save(hx);
+    hx.server.route('GET', '/unreliablewitness/MIAC/_apis/wit/workitemtypes', {
+      status: 500,
+      body: {},
+    });
+    await expect(hx.h['workItems:types'](c.id)).rejects.toThrow();
+    hx.server.route('GET', '/unreliablewitness/MIAC/_apis/wit/workitemtypes', {
+      body: {
+        value: [
+          {
+            name: 'Task',
+            color: 'A4880A',
+            icon: {
+              url: `${hx.server.url}/unreliablewitness/_apis/wit/workItemIcons/icon_check_box`,
+            },
+            states: [{ name: 'Done', color: '339933', category: 'Completed' }],
+          },
+        ],
+      },
+    });
+    hx.server.route('GET', '/unreliablewitness/_apis/wit/workItemIcons/', {
+      raw: '<svg/>',
+      headers: { 'content-type': 'image/svg+xml' },
+    });
+    const types = await hx.h['workItems:types'](c.id);
+    expect(types).toEqual([
+      {
+        name: 'Task',
+        color: '#a4880a',
+        icon: `data:image/svg+xml;base64,${Buffer.from('<svg/>').toString('base64')}`,
+        states: [{ name: 'Done', color: '#339933', category: 'Completed' }],
+      },
+    ]);
+    // The icon came from under the organization itself, so it carried the PAT.
+    const icon = hx.server.requests.find((r) =>
+      r.path.startsWith('/unreliablewitness/_apis/wit/workItemIcons/'),
+    );
+    expect(icon!.auth).toBe(`Basic ${Buffer.from(':p').toString('base64')}`);
+    const before = hx.server.requests.length;
+    expect(await hx.h['workItems:types'](c.id)).toEqual(types);
+    expect(hx.server.requests.length).toBe(before);
+  });
+  it('gets one work item live, or null when it is gone', async () => {
+    const hx = await harness();
+    const c = await save(hx);
+    expect(await hx.h['workItems:get'](c.id, '5')).toMatchObject({
+      id: '5',
+      state: 'To Do',
+    });
+    expect(await hx.h['workItems:get'](c.id, '5')).not.toHaveProperty(
+      'remainingWork',
+    );
+    hx.server.route('GET', '/unreliablewitness/_apis/wit/workitems', {
+      body: { value: [null] },
+    });
+    expect(await hx.h['workItems:get'](c.id, '5')).toBeNull();
+    expect(await hx.h['workItems:get'](c.id, 'x')).toBeNull();
   });
 });
 

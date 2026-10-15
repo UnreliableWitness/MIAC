@@ -2,19 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import type { WorkItemRef, WorkItemSummary } from '../../shared/types';
 import { api } from '../api';
 import { useStore } from '../store';
+import { StateDot, WorkItemTypeIcon } from './ui';
 
 const DEBOUNCE_MS = 300;
-
-function typeClass(type: string): string {
-  if (type === 'Bug') return 'wi-type wi-type-bug';
-  if (
-    type === 'User Story' ||
-    type === 'Product Backlog Item' ||
-    type === 'Issue'
-  )
-    return 'wi-type wi-type-story';
-  return 'wi-type';
-}
 
 export function WorkItemPicker({
   connectionId,
@@ -99,9 +89,10 @@ export function WorkItemPicker({
           value={text}
           onChange={(e) => setText(e.target.value)}
         />
-        <div className="segmented">
+        <div className="pivots" role="group" aria-label="Scope">
           <button
             type="button"
+            className="pivot"
             aria-pressed={scope === 'sprint'}
             disabled={sprint === null}
             onClick={() => setScope('sprint')}
@@ -110,50 +101,66 @@ export function WorkItemPicker({
           </button>
           <button
             type="button"
+            className="pivot"
             aria-pressed={scope === 'mine'}
             onClick={() => setScope('mine')}
           >
             Assigned to me
           </button>
         </div>
+        {sprint && scope === 'sprint' && (
+          <span className="small muted">{sprint}</span>
+        )}
       </div>
       {noSprintHint && (
         <div className="small muted">
           No current sprint in this project; showing work assigned to you.
         </div>
       )}
-      {sprint && scope === 'sprint' && (
-        <div className="small muted">{sprint}</div>
-      )}
-      <div className="picker-list" aria-busy={loading}>
-        {failed && (
-          <div className="empty">
-            Could not load work items. Check the connection in Settings.
-          </div>
-        )}
-        {sprint === undefined && <div className="small muted">Loading...</div>}
-        {sprint !== undefined && !failed && !loading && items.length === 0 && (
-          <div className="empty">No open work items match.</div>
-        )}
-        {items.map((w) => (
-          <button
-            key={w.id}
-            type="button"
-            className="wi-row"
-            aria-pressed={selectedId === w.id}
-            onClick={() =>
-              onPick({ id: w.id, type: w.type, title: w.title, url: w.url })
-            }
-          >
-            <span className={typeClass(w.type)}>{w.type}</span>
-            <span className="wi-text">
-              <span className="wi-title">{w.title}</span>
-              <span className="small muted">
-                {w.id} &middot; {w.state} &middot; {w.areaPath}
-              </span>
-            </span>
-          </button>
-        ))}
+      <div className="grid picker-grid" aria-busy={loading}>
+        <div className="grid-head" aria-hidden="true">
+          <span />
+          <span>ID</span>
+          <span>Title</span>
+          <span>State</span>
+          <span>Assigned to</span>
+        </div>
+        <div className="grid-body">
+          {failed && (
+            <div className="empty">
+              Could not load work items. Check the connection in Settings.
+            </div>
+          )}
+          {sprint === undefined && <div className="empty">Loading...</div>}
+          {sprint !== undefined &&
+            !failed &&
+            !loading &&
+            items.length === 0 && (
+              <div className="empty">No open work items match.</div>
+            )}
+          {items.map((w) => (
+            <button
+              key={w.id}
+              type="button"
+              className="grid-row"
+              aria-pressed={selectedId === w.id}
+              title={w.areaPath}
+              onClick={() =>
+                onPick({ id: w.id, type: w.type, title: w.title, url: w.url })
+              }
+            >
+              <WorkItemTypeIcon type={w.type} connectionId={connectionId} />
+              <span className="grid-id">{w.id}</span>
+              <span className="grid-title">{w.title}</span>
+              <StateDot
+                state={w.state}
+                type={w.type}
+                connectionId={connectionId}
+              />
+              <span className="grid-muted">{w.assignedTo ?? 'Unassigned'}</span>
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Repo, TaskView } from '../../shared/types';
@@ -38,8 +38,10 @@ const base = {
   usageSyncedAt: null,
   usageSyncError: null,
   usageCommentId: null,
+  summary: null,
   worktreeMissing: false,
   baseRef: 'origin/main',
+  baseSha: null,
 };
 const tasks: TaskView[] = [
   {
@@ -83,6 +85,7 @@ const tasks: TaskView[] = [
     usageSyncedAt: null,
     usageSyncError: null,
     usageCommentId: null,
+    summary: null,
   },
   {
     ...base,
@@ -105,7 +108,8 @@ beforeEach(() => {
     tasks,
     connections: [],
     notices: [],
-    screen: { kind: 'workspace' },
+    screen: { kind: 'task' },
+    connectionId: null,
     selectedTaskId: 'a',
   });
 });
@@ -149,6 +153,12 @@ describe('TaskNav', () => {
     expect(screen.getByText('spike-new-search')).toBeInTheDocument();
     expect(screen.getByLabelText('Setting up')).toBeInTheDocument();
     expect(screen.getByLabelText('Setup failed')).toBeInTheDocument();
+    // A ready task gets no status dot.
+    expect(
+      screen
+        .getByRole('button', { name: /Checkout: save address/ })
+        .querySelector('.dot'),
+    ).toBeNull();
     expect(
       screen.getByRole('button', { name: /Checkout: save address/ }),
     ).toHaveAttribute('aria-current', 'true');
@@ -163,6 +173,113 @@ describe('TaskNav', () => {
     expect(screen.queryByText('47988')).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /Done \(1\)/ }));
     expect(screen.getByText('47988')).toBeInTheDocument();
+  });
+
+  it('draws Done as a section header aligned with Tasks, with a chevron (#11)', async () => {
+    installFakeApi();
+    render(<TaskNav />);
+    const tasksHeader = screen.getByText('Tasks');
+    const done = screen.getByRole('button', { name: 'Done (1)' });
+    expect(done).toHaveClass('nav-section');
+    expect(tasksHeader).toHaveClass('nav-section');
+    expect(done.parentElement).toBe(tasksHeader.parentElement);
+    expect(done).toHaveAttribute('aria-expanded', 'false');
+    expect(done.querySelector('svg')).not.toBeNull();
+    await userEvent.click(done);
+    expect(done).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('has the Sprint hub and Settings items', async () => {
+    installFakeApi();
+    render(<TaskNav />);
+    await userEvent.click(screen.getByRole('button', { name: 'Sprint' }));
+    expect(useStore.getState().screen).toEqual({ kind: 'sprint' });
+    expect(screen.getByRole('button', { name: 'Sprint' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    // On Sprint no task row is highlighted.
+    expect(
+      screen.getByRole('button', { name: /Checkout: save address/ }),
+    ).not.toHaveAttribute('aria-current');
+    await userEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    expect(useStore.getState().screen).toEqual({ kind: 'settings' });
+  });
+
+  it('switches project when there is more than one connection', async () => {
+    installFakeApi();
+    const conn = (id: string, project: string) => ({
+      id,
+      name: 'unreliablewitness',
+      organizationUrl: 'https://dev.azure.com/unreliablewitness',
+      project,
+      user: 'D',
+      status: 'ok' as const,
+      checkedAt: null,
+    });
+    useStore.setState({
+      connections: [conn('c1', 'MIAC'), conn('c2', 'DXP')],
+      selectedTaskId: null,
+    });
+    render(<TaskNav />);
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Project MIAC, switch project' }),
+    );
+    const menu = screen.getByRole('menu', { name: 'Projects' });
+    await userEvent.click(
+      within(menu).getByRole('menuitemradio', { name: /DXP/ }),
+    );
+    expect(useStore.getState().connectionId).toBe('c2');
+    expect(
+      screen.getByRole('button', { name: 'Project DXP, switch project' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('unreliablewitness: DXP')).toBeInTheDocument();
+  });
+
+  it('the project switcher is a keyboard menu: focus moves in, arrows move, Escape and outside clicks close', async () => {
+    installFakeApi();
+    const conn = (id: string, project: string) => ({
+      id,
+      name: 'unreliablewitness',
+      organizationUrl: 'https://dev.azure.com/unreliablewitness',
+      project,
+      user: 'D',
+      status: 'ok' as const,
+      checkedAt: null,
+    });
+    useStore.setState({
+      connections: [conn('c1', 'MIAC'), conn('c2', 'DXP')],
+      connectionId: 'c1',
+      selectedTaskId: null,
+    });
+    render(<TaskNav />);
+    const trigger = screen.getByRole('button', {
+      name: 'Project MIAC, switch project',
+    });
+    expect(trigger).toHaveAttribute('aria-haspopup', 'menu');
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    trigger.focus();
+    await userEvent.keyboard('{Enter}');
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    const items = within(
+      screen.getByRole('menu', { name: 'Projects' }),
+    ).getAllByRole('menuitemradio');
+    // Focus lands on the current project.
+    expect(items[0]).toHaveFocus();
+    await userEvent.keyboard('{ArrowDown}');
+    expect(items[1]).toHaveFocus();
+    await userEvent.keyboard('{ArrowDown}');
+    expect(items[0]).toHaveFocus();
+    await userEvent.keyboard('{ArrowUp}');
+    expect(items[1]).toHaveFocus();
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(trigger).toHaveFocus();
+    await userEvent.click(trigger);
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    await userEvent.click(document.body);
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(useStore.getState().connectionId).toBe('c1');
   });
 
   it('shows the billable EUR total per task', async () => {
@@ -181,7 +298,7 @@ describe('TaskNav', () => {
     ).toBeInTheDocument();
   });
 
-  it('collapses to a rail of cost rings and back, and remembers it', async () => {
+  it('collapses to a rail of type icons and back, and remembers it', async () => {
     installFakeApi();
     render(<TaskNav />);
     await userEvent.click(
@@ -191,8 +308,13 @@ describe('TaskNav', () => {
       'is-rail',
     );
     expect(localStorage.getItem('miac.ui.navCollapsed')).toBe('true');
+    const rail = screen.getByRole('button', { name: /48213 Checkout/ });
     expect(
-      screen.getByRole('button', { name: /48213 Checkout/ }),
+      within(rail).getByRole('img', { name: 'User Story' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sprint' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Settings' }),
     ).toBeInTheDocument();
     await userEvent.click(
       screen.getByRole('button', { name: 'Expand task list' }),

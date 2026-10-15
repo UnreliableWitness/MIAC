@@ -118,6 +118,7 @@ describe('RepoRegistry', () => {
         branch: 'b',
         worktreePath: '/w',
         baseRef: 'main',
+        baseSha: null,
         status: 'ready',
         setup: {
           copy: false,
@@ -132,6 +133,7 @@ describe('RepoRegistry', () => {
         usageSyncedAt: null,
         usageSyncError: null,
         usageCommentId: null,
+        summary: null,
       });
     });
     await expect(reg.remove(again.id)).rejects.toThrow(/open task/);

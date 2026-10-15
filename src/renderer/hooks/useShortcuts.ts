@@ -16,14 +16,14 @@ export function useShortcuts(): void {
     const onKey = (e: KeyboardEvent) => {
       const mod = isMac ? e.metaKey : e.ctrlKey;
       if (!mod || e.altKey) return;
-      const { setTab, toggleFocus, tasks, selectedTaskId } =
+      const { setTab, toggleFocus, tasks, selectedTaskId, screen } =
         useStore.getState();
       const digit = /^(?:Digit|Numpad)([0-9])$/.exec(e.code);
       if (e.shiftKey && e.code === 'KeyF') {
         toggleFocus();
       } else if (!e.shiftKey && digit) {
         const task = tasks.find((t) => t.id === selectedTaskId);
-        if (!task || task.status !== 'ready') return;
+        if (screen.kind !== 'task' || !task || task.status !== 'ready') return;
         const n = Number(digit[1]);
         const target = n === 0 ? USAGE_TAB : task.terminals[n - 1]?.id;
         if (!target) return;

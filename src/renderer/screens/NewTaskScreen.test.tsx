@@ -74,7 +74,7 @@ describe('NewTaskScreen', () => {
   it('uses the task name for a blank task', async () => {
     installFakeApi({ 'repos:config': () => config });
     render(<NewTaskScreen />);
-    await userEvent.click(screen.getByRole('tab', { name: 'Blank task' }));
+    await userEvent.click(screen.getByRole('tab', { name: 'Blank' }));
     await userEvent.type(
       screen.getByLabelText('Task name'),
       'Spike new search',
@@ -175,6 +175,65 @@ describe('NewTaskScreen', () => {
     expect(screen.getByRole('button', { name: 'Create task' })).toBeDisabled();
     await userEvent.type(screen.getByLabelText('Work item id'), '48231');
     expect(screen.getByRole('button', { name: 'Create task' })).toBeEnabled();
+  });
+
+  it('preselects the work item and repo it was opened with', async () => {
+    const { calls } = installFakeApi({
+      'repos:config': () => config,
+      'workItems:currentIteration': () => ({
+        path: 'MIAC\\Sprint 1',
+        name: 'Sprint 1',
+      }),
+      'workItems:search': () => [],
+      'tasks:create': () => ({ id: 't9' }) as never,
+    });
+    const linked = { ...webshop, id: 'r2', name: 'api', connectionId: 'c1' };
+    useStore.setState({
+      repos: [webshop, linked],
+      connections: [
+        {
+          id: 'c1',
+          name: 'uw',
+          organizationUrl: 'https://dev.azure.com/unreliablewitness',
+          project: 'MIAC',
+          user: 'D',
+          status: 'ok',
+          checkedAt: null,
+        },
+      ],
+    });
+    const workItem = {
+      id: '12',
+      type: 'Bug',
+      title: 'Broken checkout',
+      url: 'https://dev.azure.com/unreliablewitness/MIAC/_workitems/edit/12',
+    };
+    render(<NewTaskScreen initial={{ workItem, repoId: 'r2' }} />);
+    expect(screen.getByLabelText('Repo')).toHaveValue('r2');
+    expect(screen.getByRole('tab', { name: 'Work item' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText('Branch')).toHaveValue(
+        'bugfix/12-broken-checkout',
+      ),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    await waitFor(() =>
+      expect(
+        calls.find((c) => c.channel === 'tasks:create')?.args[0],
+      ).toMatchObject({ repoId: 'r2', workItem }),
+    );
+  });
+
+  it('returns to the previous page on Cancel', async () => {
+    installFakeApi({ 'repos:config': () => config });
+    useStore.setState({ screen: { kind: 'settings' }, previous: null });
+    useStore.getState().go({ kind: 'new-task' });
+    render(<NewTaskScreen />);
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(useStore.getState().screen).toEqual({ kind: 'settings' });
   });
 
   it('creates a task from a picked work item when the repo has a connection', async () => {
