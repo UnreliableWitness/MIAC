@@ -104,7 +104,11 @@ export type Channels = {
   'usage:fieldsStatus': { args: [connectionId: string]; result: FieldsStatus };
   'usage:receiverStatus': { args: []; result: ReceiverStatus };
   'rates:list': { args: []; result: { rates: Rate[]; officialAsOf: string } };
-  'app:info': { args: []; result: { version: string } };
+  'app:info': {
+    args: [];
+    /** windowsBuild: the OS build number on Windows (for xterm's ConPTY handling), else null. */
+    result: { version: string; windowsBuild: number | null };
+  };
   'settings:get': { args: []; result: AppSettings };
   'settings:save': { args: [settings: AppSettings]; result: AppSettings };
 };

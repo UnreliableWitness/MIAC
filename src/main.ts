@@ -262,6 +262,10 @@ async function boot(): Promise<void> {
     );
     const handlers = createHandlers({
       appVersion: app.getVersion(),
+      windowsBuild:
+        process.platform === 'win32'
+          ? Number(os.release().split('.')[2]) || null
+          : null,
       usage,
       settings,
       receiver,

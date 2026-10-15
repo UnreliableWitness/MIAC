@@ -4,7 +4,12 @@ import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { api, tryInvoke } from '../api';
 import { useStore } from '../store';
-import { TERMINAL_THEME } from '../terminalTheme';
+import {
+  loadRenderer,
+  terminalFontReady,
+  terminalOptions,
+  windowsBuild,
+} from '../terminalSetup';
 
 export function TerminalView({
   terminalId,
@@ -22,19 +27,12 @@ export function TerminalView({
   useEffect(() => {
     const el = host.current;
     if (!el) return;
-    const t = new Terminal({
-      fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-      fontSize: 13,
-      theme: TERMINAL_THEME,
-      cursorBlink: true,
-      scrollback: 5000,
-      allowProposedApi: true,
-    });
+    const t = new Terminal(terminalOptions(null));
     const f = new FitAddon();
     t.loadAddon(f);
-    t.open(el);
     term.current = t;
     fit.current = f;
+    let live = true;
 
     const sendSize = () => {
       try {
@@ -58,7 +56,6 @@ export function TerminalView({
     const offExit = api().on('terminal:exit', (e) => {
       if (e.id === terminalId) setExitCode(e.exitCode);
     });
-    let live = true;
     void api()
       .invoke('terminals:buffer', terminalId)
       .catch(() => '')
@@ -87,8 +84,18 @@ export function TerminalView({
     const observer = new ResizeObserver(() => {
       if (el.offsetParent !== null) sendSize();
     });
-    observer.observe(el);
-    sendSize();
+    // Open once the font is loaded (cell size is measured at open) and the ConPTY build is known.
+    // Output written before that is buffered by xterm.
+    void Promise.all([terminalFontReady(), windowsBuild()]).then(
+      ([, build]) => {
+        if (!live) return;
+        if (build) t.options.windowsPty = terminalOptions(build).windowsPty;
+        t.open(el);
+        loadRenderer(t);
+        observer.observe(el);
+        sendSize();
+      },
+    );
 
     return () => {
       live = false;

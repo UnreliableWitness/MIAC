@@ -1296,7 +1296,10 @@ describe('handlers: usage', () => {
 
   it('reports the app version', async () => {
     const hx = await harness();
-    expect(await hx.h['app:info']()).toEqual({ version: '9.9.9' });
+    expect(await hx.h['app:info']()).toEqual({
+      version: '9.9.9',
+      windowsBuild: null,
+    });
   });
 
   it('saves settings, moves the receiver and reports a busy port', async () => {

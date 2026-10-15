@@ -64,6 +64,8 @@ export type Services = {
   usage: UsageStore;
   settings: SettingsStore;
   appVersion: string;
+  /** Windows OS build number (e.g. 22631), null elsewhere. */
+  windowsBuild?: number | null;
   receiver: Pick<UsageReceiver, 'start' | 'status'>;
   copilot: Pick<CopilotFileTailer, 'stats' | 'poll'>;
   usageDir: string;
@@ -875,7 +877,10 @@ export function createHandlers(s: Services): Handlers {
       rates: OFFICIAL_RATES,
       officialAsOf: OFFICIAL_RATES_AS_OF,
     }),
-    'app:info': async () => ({ version: s.appVersion }),
+    'app:info': async () => ({
+      version: s.appVersion,
+      windowsBuild: s.windowsBuild ?? null,
+    }),
     'settings:get': async () => s.settings.get(),
     'settings:save': async (next) => {
       const before = s.settings.get();
