@@ -1,4 +1,10 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TaskView } from '../shared/types';
@@ -142,6 +148,36 @@ describe('full pages', () => {
     expect(within(content).getByRole('tab', { name: 'Typed' })).toBeVisible();
     await userEvent.keyboard('{Escape}');
     expect(useStore.getState().screen).toEqual({ kind: 'settings' });
+  });
+
+  it('New task ignores Escape during an IME composition and inside a select', async () => {
+    installFakeApi({
+      'repos:config': () => ({
+        worktreeRoot: '/src/webshop.worktrees',
+        config: {
+          base: 'main',
+          branch: '{type}/{id}-{slug}',
+          copy: [],
+          setup: [],
+          run: {},
+          found: true,
+        },
+      }),
+    });
+    useStore.setState({ repos: [repo] });
+    useStore.getState().go({ kind: 'new-task' });
+    render(<Shell />);
+    const content = expectFullPage();
+    const input = within(content).getAllByRole('textbox')[0];
+    fireEvent.keyDown(input, { key: 'Escape', isComposing: true });
+    expect(useStore.getState().screen.kind).toBe('new-task');
+    fireEvent.keyDown(input, { key: 'Escape', keyCode: 229 });
+    expect(useStore.getState().screen.kind).toBe('new-task');
+    const select = within(content).getAllByRole('combobox')[0];
+    fireEvent.keyDown(select, { key: 'Escape' });
+    expect(useStore.getState().screen.kind).toBe('new-task');
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(useStore.getState().screen.kind).not.toBe('new-task');
   });
 
   it('renders Finish as a page and Keep task returns to the task', async () => {
