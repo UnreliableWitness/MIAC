@@ -1,6 +1,8 @@
 import { Copy16Regular } from '@fluentui/react-icons';
 import {
   useEffect,
+  useMemo,
+  useRef,
   useState,
   type ComponentProps,
   type ReactNode,
@@ -33,6 +35,14 @@ const schema = {
 };
 const isWeb = (href: string) => /^https?:\/\//i.test(href);
 const hasScheme = (href: string) => /^[a-z][a-z0-9+.-]*:/i.test(href);
+
+function decodeAnchor(a: string): string {
+  try {
+    return decodeURIComponent(a);
+  } catch {
+    return a;
+  }
+}
 
 function textOf(node: ReactNode): string {
   if (typeof node === 'string' || typeof node === 'number') return String(node);
@@ -84,75 +94,85 @@ export function MarkdownView({
   onOpenDoc(path: string, anchor?: string): void;
   onOpenFile(path: string): void;
 }) {
-  const components: Components = {
-    a: ({ href = '', children, node: _n, ...rest }) => (
-      <a
-        {...rest}
-        href={href}
-        onClick={(e) => {
-          e.preventDefault();
-          if (href.startsWith('#')) {
-            document
-              .getElementById(decodeURIComponent(href.slice(1)))
-              ?.scrollIntoView?.({ block: 'start' });
-          } else if (isWeb(href)) {
-            void api().invoke('links:open', new URL(href).toString());
-          } else if (!hasScheme(href)) {
-            const target = resolveRelative(path, href);
-            if (!target) return;
-            const anchor = href.includes('#') ? href.split('#')[1] : undefined;
-            if (/\.(md|markdown)$/i.test(target)) onOpenDoc(target, anchor);
-            else onOpenFile(target);
-          }
-        }}
-      >
-        {children}
-      </a>
-    ),
-    img: ({ src = '', alt = '' }) => {
-      const s = String(src);
-      if (isWeb(s) || hasScheme(s))
-        return (
-          <a
-            href={s}
-            onClick={(e) => {
-              e.preventDefault();
-              if (isWeb(s))
-                void api().invoke('links:open', new URL(s).toString());
-            }}
-          >
-            {alt || s}
-          </a>
+  const cb = useRef({ onOpenDoc, onOpenFile });
+  cb.current = { onOpenDoc, onOpenFile };
+  // Stable element types: new component functions would remount every MermaidBlock and LocalImage.
+  const components = useMemo<Components>(
+    () => ({
+      a: ({ href = '', children, node: _n, ...rest }) => (
+        <a
+          {...rest}
+          href={href}
+          onClick={(e) => {
+            e.preventDefault();
+            if (!href) return;
+            if (href.startsWith('#')) {
+              document
+                .getElementById(decodeAnchor(href.slice(1)))
+                ?.scrollIntoView?.({ block: 'start' });
+            } else if (isWeb(href)) {
+              void api().invoke('links:open', new URL(href).toString());
+            } else if (!hasScheme(href)) {
+              const target = resolveRelative(path, href);
+              if (!target) return;
+              const raw = href.includes('#') ? href.split('#')[1] : undefined;
+              const anchor = raw === undefined ? undefined : decodeAnchor(raw);
+              if (/\.(md|markdown)$/i.test(target))
+                cb.current.onOpenDoc(target, anchor);
+              else cb.current.onOpenFile(target);
+            }
+          }}
+        >
+          {children}
+        </a>
+      ),
+      img: ({ src = '', alt = '' }) => {
+        const s = String(src);
+        if (isWeb(s) || hasScheme(s))
+          return (
+            <a
+              href={s}
+              onClick={(e) => {
+                e.preventDefault();
+                if (isWeb(s))
+                  void api().invoke('links:open', new URL(s).toString());
+              }}
+            >
+              {alt || s}
+            </a>
+          );
+        const target = resolveRelative(path, s);
+        return target ? (
+          <LocalImage taskId={taskId} path={target} alt={alt} />
+        ) : (
+          <span className="muted">{alt}</span>
         );
-      const target = resolveRelative(path, s);
-      return target ? (
-        <LocalImage taskId={taskId} path={target} alt={alt} />
-      ) : (
-        <span className="muted">{alt}</span>
-      );
-    },
-    input: (props: ComponentProps<'input'>) => <input {...props} disabled />,
-    pre: ({ children, node: _n, ...rest }) => {
-      const child = Array.isArray(children) ? children[0] : children;
-      const cls =
-        (child as { props?: { className?: string } })?.props?.className ?? '';
-      const code = textOf(child).replace(/\n$/, '');
-      if (/\blanguage-mermaid\b/.test(cls)) return <MermaidBlock code={code} />;
-      return (
-        <div className="doc-code">
-          <button
-            type="button"
-            className="btn btn-subtle btn-sm doc-copy"
-            aria-label="Copy code"
-            onClick={() => void navigator.clipboard?.writeText(code)}
-          >
-            <Copy16Regular />
-          </button>
-          <pre {...rest}>{children}</pre>
-        </div>
-      );
-    },
-  };
+      },
+      input: (props: ComponentProps<'input'>) => <input {...props} disabled />,
+      pre: ({ children, node: _n, ...rest }) => {
+        const child = Array.isArray(children) ? children[0] : children;
+        const cls =
+          (child as { props?: { className?: string } })?.props?.className ?? '';
+        const code = textOf(child).replace(/\n$/, '');
+        if (/\blanguage-mermaid\b/.test(cls))
+          return <MermaidBlock code={code} />;
+        return (
+          <div className="doc-code">
+            <button
+              type="button"
+              className="btn btn-subtle btn-sm doc-copy"
+              aria-label="Copy code"
+              onClick={() => void navigator.clipboard?.writeText(code)}
+            >
+              <Copy16Regular />
+            </button>
+            <pre {...rest}>{children}</pre>
+          </div>
+        );
+      },
+    }),
+    [path, taskId],
+  );
   return (
     <article className="doc-md">
       <Markdown

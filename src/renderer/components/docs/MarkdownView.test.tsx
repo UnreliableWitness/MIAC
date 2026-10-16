@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { installFakeApi } from '../../test-helpers/fakeApi';
+import mermaid from 'mermaid';
 import { MarkdownView } from './MarkdownView';
 
 vi.mock('mermaid', () => ({
@@ -106,5 +107,43 @@ describe('MarkdownView', () => {
     expect(ps).toHaveLength(2);
     expect(ps[1].getAttribute('data-line-start')).toBe('3');
     expect(ps[1].getAttribute('data-line-end')).toBe('3');
+  });
+  it('does not refetch images or re-render mermaid when only callbacks change', async () => {
+    const api = installFakeApi({
+      'docs:asset': () => 'data:image/png;base64,AA==',
+    });
+    const text = '![local](img/a.png)\n\n```mermaid\ngraph TD; A-->B\n```\n';
+    const mk = (f: () => void) => (
+      <MarkdownView
+        taskId="t"
+        path="docs/a.md"
+        text={text}
+        onOpenDoc={f}
+        onOpenFile={f}
+      />
+    );
+    vi.mocked(mermaid.render).mockClear();
+    const { rerender } = render(mk(() => {}));
+    await screen.findByTestId('diagram');
+    await waitFor(() =>
+      expect((screen.getByAltText('local') as HTMLImageElement).src).toMatch(
+        /^data:/,
+      ),
+    );
+    rerender(mk(() => {}));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(api.calls.filter((c) => c.channel === 'docs:asset')).toHaveLength(1);
+    expect(mermaid.render).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('diagram')).toBeTruthy();
+  });
+  it('ignores empty hrefs and malformed anchors', async () => {
+    const { onOpenDoc, onOpenFile } = view(
+      '[a](javascript:alert(1)) [b](#%E0%A4%A) [c](x.md#%E0%A4%A)',
+    );
+    await userEvent.click(screen.getByText('a'));
+    await userEvent.click(screen.getByText('b'));
+    await userEvent.click(screen.getByText('c'));
+    expect(onOpenFile).not.toHaveBeenCalled();
+    expect(onOpenDoc).toHaveBeenCalledWith('docs/x.md', '%E0%A4%25A');
   });
 });

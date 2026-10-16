@@ -20,6 +20,7 @@ export function MermaidBlock({ code }: { code: string }) {
   useEffect(() => {
     let live = true;
     setError(null);
+    setSvg(null);
     load()
       .then((m) => m.render(id, code))
       .then(({ svg }) => live && setSvg(svg))
