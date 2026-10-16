@@ -50,7 +50,8 @@ export function DocsTab({ task }: { task: TaskView }) {
   const token = useRef(0);
   const mtime = useRef<number | null>(null);
   const pending = useRef<{ scroll?: number; anchor?: string }>({});
-  const saved = useRef({ path: null as string | null, view, scroll: 0 });
+  // Start from what is stored so an early persist cannot erase the remembered file.
+  const saved = useRef(readDocState(task.id));
   const timers = useRef<{ hl?: number; chip?: number; save?: number }>({});
   const currentRef = useRef(current);
   currentRef.current = current;

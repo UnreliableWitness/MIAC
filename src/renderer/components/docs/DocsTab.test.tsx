@@ -218,4 +218,18 @@ describe('DocsTab', () => {
       vi.useRealTimers();
     }
   });
+  it('reopens the remembered file and view after a remount', async () => {
+    const first = mount();
+    await userEvent.click(
+      await screen.findByRole('button', { name: /plan\.md/ }),
+    );
+    await userEvent.click(screen.getByRole('tab', { name: 'Source' }));
+    expect(document.querySelectorAll('.src-line')).toHaveLength(3);
+    first.view.unmount();
+    mount();
+    await waitFor(() =>
+      expect(document.querySelectorAll('.src-line')).toHaveLength(3),
+    );
+    expect(screen.queryByRole('heading', { name: 'Task file' })).toBeNull();
+  });
 });
