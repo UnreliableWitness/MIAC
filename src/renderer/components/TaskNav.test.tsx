@@ -50,6 +50,8 @@ const base = {
   usageCommentId: null,
   summary: null,
   pullRequest: null,
+  closedTerminals: [],
+  reopen: null,
   worktreeMissing: false,
   baseRef: 'origin/main',
   baseSha: null,
@@ -98,6 +100,8 @@ const tasks: TaskView[] = [
     usageCommentId: null,
     summary: null,
     pullRequest: null,
+    closedTerminals: [],
+    reopen: null,
   },
   {
     ...base,

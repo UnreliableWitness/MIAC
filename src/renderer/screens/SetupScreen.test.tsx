@@ -37,6 +37,8 @@ const task: TaskView = {
   usageCommentId: null,
   summary: null,
   pullRequest: null,
+  closedTerminals: [],
+  reopen: null,
   worktreeMissing: false,
 };
 const state: SetupState = {
@@ -178,6 +180,28 @@ describe('SetupScreen', () => {
       expect(calls.some((c) => c.channel === 'tasks:cancelSetup')).toBe(true),
     );
     expect(useStore.getState().screen).toEqual({ kind: 'sprint' });
+  });
+
+  it('for a failed reopen, cancelling puts the task back on its Done page', async () => {
+    useStore.setState({
+      tasks: [{ ...task, status: 'setup-failed', reopen: { from: null } }],
+    });
+    const { calls } = installFakeApi({
+      'tasks:setupState': () => ({ ...state, finished: true, ok: false }),
+      'tasks:cancelSetup': () => undefined,
+    });
+    render(<SetupScreen taskId="t1" />);
+    expect(
+      await screen.findByText(/Reopening failed\..*goes back to Done/),
+    ).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Cancel reopen' }),
+    );
+    await waitFor(() =>
+      expect(calls.some((c) => c.channel === 'tasks:cancelSetup')).toBe(true),
+    );
+    expect(useStore.getState().screen).toEqual({ kind: 'task' });
+    expect(useStore.getState().selectedTaskId).toBe('t1');
   });
 
   it('jumps to the task page when setup finishes successfully', async () => {

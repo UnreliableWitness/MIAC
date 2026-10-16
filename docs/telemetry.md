@@ -39,6 +39,8 @@ This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 
 | `pr.failed` | Finish stopped because the push or pull request failed; `kind` (`git`, or the Azure DevOps error kind: `unauthorized`, `not-found`, `unreachable`, `http`) |
 | `setup.finished` | ok; retry; kind of the failed step (`fetch`, `worktree`, `copy`, `task-file`, `command`, `terminals`); duration; step count |
 | `setup.retried`, `setup.cancelled` | none |
+| `task.reopened` | where the branch came from (`folder`: worktree kept, `branch`, `origin`, `commit`, `base`) |
+| `task.reopenCancelled` | none |
 | `terminal.opened` | kind (`claude`, `copilot`, `opencode`, `shell`, `run`); opened by setup or by hand |
 | `terminal.closed` | kind |
 | `terminal.restarted` | kind; after an app relaunch or not (a Claude Code restart resumes its session) |

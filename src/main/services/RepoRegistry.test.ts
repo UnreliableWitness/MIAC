@@ -197,6 +197,8 @@ describe('RepoRegistry', () => {
         usageCommentId: null,
         summary: null,
         pullRequest: null,
+        closedTerminals: [],
+        reopen: null,
       });
     });
     await expect(reg.remove(again.id)).rejects.toThrow(/open task/);

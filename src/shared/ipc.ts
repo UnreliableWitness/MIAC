@@ -112,6 +112,8 @@ export type Channels = {
   'tasks:cancelSetup': { args: [taskId: string]; result: void };
   'tasks:gitSummary': { args: [taskId: string]; result: GitSummary };
   'tasks:finishChecks': { args: [taskId: string]; result: FinishChecks };
+  /** Brings a finished task back: `setup` is true when its worktree is being made again (Setup page). */
+  'tasks:reopen': { args: [taskId: string]; result: { setup: boolean } };
   'tasks:finish': {
     args: [taskId: string, options: FinishOptions];
     result: void;

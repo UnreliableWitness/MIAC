@@ -41,6 +41,8 @@ const task: TaskView = {
   usageCommentId: null,
   summary: null,
   pullRequest: null,
+  closedTerminals: [],
+  reopen: null,
 };
 const repo = {
   id: 'r1',

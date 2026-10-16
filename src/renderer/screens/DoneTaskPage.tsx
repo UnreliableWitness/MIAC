@@ -1,3 +1,4 @@
+import { ArrowUndo16Regular } from '@fluentui/react-icons';
 import { type ReactNode, useEffect, useState } from 'react';
 import type {
   PullRequestRef,
@@ -87,6 +88,23 @@ function pushState(s: TaskSummary, branch: string): string {
 /** A finished task: what it was, how long it took, what it changed and pushed, what the AI cost, and its usage. */
 export function DoneTaskPage({ task }: { task: TaskView }) {
   const notify = useStore((s) => s.notify);
+  const go = useStore((s) => s.go);
+  const select = useStore((s) => s.select);
+  const openTask = useStore((s) => s.openTask);
+  const [reopening, setReopening] = useState(false);
+  const reopen = async () => {
+    setReopening(true);
+    const r = await tryInvoke(
+      () => api().invoke('tasks:reopen', task.id),
+      notify,
+    );
+    setReopening(false);
+    if (!r) return;
+    if (r.setup) {
+      select(task.id);
+      go({ kind: 'setup', taskId: task.id });
+    } else openTask(task.id);
+  };
   const connectionId = useTaskConnectionId(task);
   const usage = useTaskUsage(task.id);
   const wi = task.workItem;
@@ -136,6 +154,18 @@ export function DoneTaskPage({ task }: { task: TaskView }) {
           )
         }
         title={wi?.title ?? task.name}
+        commands={
+          <button
+            type="button"
+            className="btn"
+            disabled={reopening}
+            title="Back to work on this task: its worktree, terminals and Claude sessions"
+            onClick={() => void reopen()}
+          >
+            <ArrowUndo16Regular aria-hidden="true" />
+            {reopening ? 'Reopening' : 'Reopen'}
+          </button>
+        }
         after={
           live &&
           wi && (

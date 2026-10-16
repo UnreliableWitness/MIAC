@@ -3,7 +3,10 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { Events, Handlers, PendingUpdate } from '../../shared/ipc';
 import { claudeContext, renderTaskMd, taskSlug } from '../../shared/naming';
-import { claudeSessionExists } from '../services/claudeSessions';
+import {
+  claudeHasSessionsIn,
+  claudeSessionExists,
+} from '../services/claudeSessions';
 import type {
   Connection,
   MiacConfig,
@@ -96,6 +99,8 @@ export type Services = {
   rememberSensitive?: (values: string[]) => void;
   /** Whether Claude Code saved a session with this id (default: looks in ~/.claude/projects). */
   claudeSessionExists?: (sessionId: string) => boolean;
+  /** Whether Claude Code saved any session for this folder (default: looks in ~/.claude/projects). */
+  claudeHasSessionsIn?: (cwd: string) => boolean;
   /** Windows auto-update: the downloaded update and how to apply it. Absent in dev, on macOS and in tests. */
   update?: {
     pending(): PendingUpdate | null;
@@ -154,6 +159,7 @@ export async function pruneDanglingConnectionLinks(
 export function createHandlers(s: Services): Handlers {
   const tel = s.telemetry ?? NoopTelemetry;
   const sessionExists = s.claudeSessionExists ?? claudeSessionExists;
+  const hasSessionsIn = s.claudeHasSessionsIn ?? claudeHasSessionsIn;
   const connectionsChanged = () =>
     s.broadcast('connections:changed', s.connections.list());
 
@@ -416,6 +422,35 @@ export function createHandlers(s: Services): Handlers {
     return defs;
   };
 
+  /**
+   * The tabs a reopened task gets back: those it had at Finish, or for tasks finished before that was kept, the
+   * ones setup opens. A Claude tab without a session id continues the folder's latest session when there is one.
+   */
+  const restoredTerminals = (task: Task): TerminalDef[] => {
+    const defs =
+      task.closedTerminals.length > 0
+        ? task.closedTerminals
+        : initialTerminals(task).map((d): TerminalDef => {
+            const { sessionId: _, ...rest } = d as TerminalDef;
+            return rest;
+          });
+    return defs.map((d) =>
+      d.kind === 'claude' && !d.sessionId && !hasSessionsIn(task.worktreePath)
+        ? { ...d, sessionId: randomUUID() }
+        : d,
+    );
+  };
+
+  /** Starts a reopened task's tabs: Claude resumes, the rest start as before; running ones are left alone. */
+  const startRestored = (task: Task, defs: TerminalDef[]) => {
+    for (const def of defs) {
+      if (s.terminals.isRunning(def.id)) continue;
+      if (s.terminals.has(def.id)) void s.terminals.kill(def.id);
+      spawnTerminal({ ...task, terminals: defs }, def, true);
+      tel.event('terminal.opened', { kind: def.kind, initial: true });
+    }
+  };
+
   const applySetupEvent = (state: SetupState, e: SetupEvent) => {
     if (e.type === 'log') state.log.push(e.line);
     else if (e.type === 'step') {
@@ -435,7 +470,7 @@ export function createHandlers(s: Services): Handlers {
   const buildPlan = async (task: Task): Promise<SetupPlan> => {
     const repo = s.repos.get(task.repoId);
     const config = await s.loadConfig(repo.path);
-    const defs = initialTerminals(task);
+    const defs = task.reopen ? restoredTerminals(task) : initialTerminals(task);
     return {
       taskId: task.id,
       repoPath: repo.path,
@@ -447,12 +482,16 @@ export function createHandlers(s: Services): Handlers {
       taskMd: renderTaskMd(task),
       startTerminalsLabel:
         defs.length > 0 ? defs.map((d) => d.label).join(', ') : null,
-      updateWorkItem: Boolean(
-        task.workItem &&
-        repo.connectionId &&
-        (repo.workItemOnStart.moveToInProgress ||
-          repo.workItemOnStart.assignToMe),
-      ),
+      // A reopened task leaves its work item alone.
+      updateWorkItem:
+        !task.reopen &&
+        Boolean(
+          task.workItem &&
+          repo.connectionId &&
+          (repo.workItemOnStart.moveToInProgress ||
+            repo.workItemOnStart.assignToMe),
+        ),
+      ...(task.reopen ? { restore: { from: task.reopen.from } } : {}),
     };
   };
 
@@ -508,6 +547,12 @@ export function createHandlers(s: Services): Handlers {
           await patchTask(taskId, { baseSha });
         },
         startTerminals: async () => {
+          if (task.reopen) {
+            const defs = restoredTerminals(task);
+            startRestored(task, defs);
+            await updateTerminals(taskId, () => defs);
+            return;
+          }
           const defs = initialTerminals(task);
           for (const def of defs) {
             spawnTerminal({ ...task, terminals: defs }, def);
@@ -554,7 +599,17 @@ export function createHandlers(s: Services): Handlers {
           }
         },
       });
-      await patchTask(taskId, { status: result.ok ? 'ready' : 'setup-failed' });
+      await patchTask(
+        taskId,
+        result.ok
+          ? {
+              status: 'ready',
+              ...(task.reopen
+                ? { reopen: null, finishedAt: null, closedTerminals: [] }
+                : {}),
+            }
+          : { status: 'setup-failed' },
+      );
       report(result.ok, result.ok ? null : current.failedStep);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
@@ -683,6 +738,8 @@ export function createHandlers(s: Services): Handlers {
         usageCommentId: null,
         summary: null,
         pullRequest: null,
+        closedTerminals: [],
+        reopen: null,
       };
       inFlight.add(task.id);
       try {
@@ -731,6 +788,17 @@ export function createHandlers(s: Services): Handlers {
         if (await exists(task.worktreePath))
           await s.git.worktreeRemove(repo.path, task.worktreePath, true);
         await s.git.worktreePrune(repo.path);
+        if (task.reopen) {
+          // A failed reopen goes back to Done; the task, its branch and its history stay.
+          setupStates.delete(taskId);
+          await patchTask(taskId, {
+            status: 'done',
+            reopen: null,
+            terminals: [],
+          });
+          tel.event('task.reopenCancelled');
+          return;
+        }
         if (await s.git.branchExists(repo.path, task.branch))
           await s.git.deleteBranch(repo.path, task.branch);
         setupStates.delete(taskId);
@@ -755,6 +823,67 @@ export function createHandlers(s: Services): Handlers {
         unpushed: summary.ahead,
         runningTerminals: s.terminals.runningCount(taskId),
       };
+    },
+    'tasks:reopen': async (taskId) => {
+      claim(taskId, ['done'], 'reopen');
+      let setup = false;
+      try {
+        const task = taskById(taskId);
+        const repo = s.repos.get(task.repoId);
+        const hasBranch = await s.git.branchExists(repo.path, task.branch);
+        if (await exists(task.worktreePath)) {
+          if (!hasBranch)
+            throw new Error(
+              `${task.worktreePath} exists but branch ${task.branch} is gone`,
+            );
+          // The worktree was kept: back to ready with the tabs it had.
+          const defs =
+            task.terminals.length > 0
+              ? task.terminals
+              : restoredTerminals(task);
+          await patchTask(taskId, {
+            status: 'ready',
+            finishedAt: null,
+            terminals: defs,
+            closedTerminals: [],
+          });
+          startRestored(taskById(taskId), defs);
+          tel.event('task.reopened', { from: 'folder' });
+          return { setup: false };
+        }
+        let from: string | null = null;
+        let via = 'branch';
+        if (!hasBranch) {
+          const remote = `origin/${task.branch}`;
+          await s.git.fetch(repo.path, remote).catch(() => false);
+          const head = task.summary?.commits[0]?.sha;
+          if (await s.git.commitExists(repo.path, `refs/remotes/${remote}`)) {
+            from = remote;
+            via = 'origin';
+          } else if (head && (await s.git.commitExists(repo.path, head))) {
+            from = head;
+            via = 'commit';
+          } else if (task.summary && task.summary.commitCount === 0) {
+            from = task.baseSha ?? task.baseRef;
+            via = 'base';
+          } else
+            throw new Error(
+              `Branch ${task.branch} cannot be restored: it was deleted and is not on origin`,
+            );
+        }
+        await patchTask(taskId, {
+          status: 'setting-up',
+          reopen: { from },
+          terminals: [],
+        });
+        setup = true;
+        startSetupInBackground(taskId);
+        tel.event('task.reopened', { from: via });
+        return { setup: true };
+      } finally {
+        // The setup releases the task when it ends.
+        if (!setup) release(taskId);
+      }
     },
     'tasks:finish': async (taskId, options) => {
       claim(taskId, ['ready'], 'finish');
@@ -851,7 +980,10 @@ export function createHandlers(s: Services): Handlers {
           if (killTerminals) {
             docsWatcher.stopTask(taskId);
             await s.terminals.killAllForTask(taskId);
-            await patchTask(taskId, { terminals: [] });
+            await patchTask(taskId, {
+              closedTerminals: taskById(taskId).terminals,
+              terminals: [],
+            });
           }
           if (options.removeWorktree && (await exists(task.worktreePath)))
             await s.git.worktreeRemove(repo.path, task.worktreePath, true);

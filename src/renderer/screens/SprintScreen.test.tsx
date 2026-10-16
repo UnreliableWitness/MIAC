@@ -116,6 +116,8 @@ const task = (over: Partial<TaskView>): TaskView => ({
   usageCommentId: null,
   summary: null,
   pullRequest: null,
+  closedTerminals: [],
+  reopen: null,
   ...over,
 });
 

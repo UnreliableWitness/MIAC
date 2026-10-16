@@ -12,6 +12,25 @@ export function claudeProjectsDir(
   );
 }
 
+/** Claude Code's folder for a cwd: every character that is not a letter or digit becomes "-". */
+export function claudeProjectFolder(cwd: string): string {
+  return cwd.replace(/[^a-zA-Z0-9]/g, '-');
+}
+
+/** Whether Claude Code saved any conversation in this folder (tasks from before session ids). */
+export function claudeHasSessionsIn(
+  cwd: string,
+  projectsDir: string = claudeProjectsDir(),
+): boolean {
+  try {
+    return readdirSync(path.join(projectsDir, claudeProjectFolder(cwd))).some(
+      (f) => f.endsWith('.jsonl'),
+    );
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Whether Claude Code saved a conversation with this id. A session is only written once the user sends a
  * message, so a tab started with --session-id but never used has none and must start again, not resume.

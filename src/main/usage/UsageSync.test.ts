@@ -37,6 +37,8 @@ const task = (over: Partial<Task> = {}): Task => ({
   usageCommentId: null,
   summary: null,
   pullRequest: null,
+  closedTerminals: [],
+  reopen: null,
   ...over,
 });
 const usage: TaskUsage = {
