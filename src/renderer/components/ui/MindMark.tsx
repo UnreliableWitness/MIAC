@@ -1,35 +1,30 @@
-import { useId } from 'react';
-
-// The app icon (assets/icon/miac-small.svg at 1/8 scale): four fused stripes struck through by a swoosh.
-const STRIPES = ['#003a6c', '#005ba1', '#0f6cbd', '#2b88d8'];
-const SWOOSH = 'M0 42.5 Q31.25 36.25 64 10 L64 16.5 Q33.75 48.75 0 59.4 Z';
+// The app icon's ship without its tile (assets/icon/miac-small.svg): a trimaran heading up and right, each hull
+// with a lit and a shaded face.
+const FACES: [points: string, fill: string][] = [
+  ['230,226 230,322 160,390 160,292', '#005ba1'],
+  ['282,226 282,322 352,390 352,292', '#003a6c'],
+  ['160,160 128,240 136,428 160,428', '#2b88d8'],
+  ['160,160 192,240 184,428 160,428', '#0f6cbd'],
+  ['352,160 320,240 328,428 352,428', '#0f6cbd'],
+  ['352,160 384,240 376,428 352,428', '#004e8c'],
+  ['256,16 216,150 224,474 256,474', '#cfe6fb'],
+  ['256,16 296,150 288,474 256,474', '#2b88d8'],
+];
 
 export function MindMark({ size = 16 }: { size?: number }) {
-  const id = useId();
   return (
     <svg
       width={size}
       height={size}
-      viewBox="0 0 64 64"
+      viewBox="0 0 512 512"
       aria-hidden="true"
       className="mindmark"
     >
-      <defs>
-        <clipPath id={`${id}b`}>
-          <rect x="8" y="8" width="48" height="48" />
-        </clipPath>
-      </defs>
-      {STRIPES.map((color, i) => (
-        <rect
-          key={color}
-          x={8 + 12 * i}
-          y="8"
-          width="12"
-          height="48"
-          fill={color}
-        />
-      ))}
-      <path clipPath={`url(#${id}b)`} d={SWOOSH} fill="#fff" />
+      <g transform="rotate(35 256 256) translate(256 256) scale(1.04) translate(-256 -250)">
+        {FACES.map(([points, fill]) => (
+          <polygon key={points} points={points} fill={fill} />
+        ))}
+      </g>
     </svg>
   );
 }
