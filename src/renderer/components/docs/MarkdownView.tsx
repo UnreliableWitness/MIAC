@@ -1,0 +1,172 @@
+import { Copy16Regular } from '@fluentui/react-icons';
+import {
+  useEffect,
+  useState,
+  type ComponentProps,
+  type ReactNode,
+} from 'react';
+import Markdown, { type Components } from 'react-markdown';
+import rehypeHighlight from 'rehype-highlight';
+import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
+import rehypeSlug from 'rehype-slug';
+import remarkGfm from 'remark-gfm';
+import { api } from '../../api';
+import { resolveRelative } from '../../docs/linkify';
+import { rehypeLines } from '../../docs/rehypeLines';
+import { MermaidBlock } from './MermaidBlock';
+
+const schema = {
+  ...defaultSchema,
+  clobberPrefix: '',
+  attributes: {
+    ...defaultSchema.attributes,
+    '*': [
+      ...(defaultSchema.attributes?.['*'] ?? []),
+      'dataLineStart',
+      'dataLineEnd',
+    ],
+    code: [
+      ...(defaultSchema.attributes?.code ?? []),
+      ['className', /^language-./],
+    ],
+  },
+};
+const isWeb = (href: string) => /^https?:\/\//i.test(href);
+const hasScheme = (href: string) => /^[a-z][a-z0-9+.-]*:/i.test(href);
+
+function textOf(node: ReactNode): string {
+  if (typeof node === 'string' || typeof node === 'number') return String(node);
+  if (Array.isArray(node)) return node.map(textOf).join('');
+  if (node && typeof node === 'object' && 'props' in node)
+    return textOf((node as { props: { children?: ReactNode } }).props.children);
+  return '';
+}
+
+function LocalImage({
+  taskId,
+  path,
+  alt,
+}: {
+  taskId: string;
+  path: string;
+  alt: string;
+}) {
+  const [src, setSrc] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    api()
+      .invoke('docs:asset', taskId, path)
+      .then(
+        (s) => live && setSrc(s),
+        () => live && setSrc(null),
+      );
+    return () => {
+      live = false;
+    };
+  }, [taskId, path]);
+  return src ? (
+    <img src={src} alt={alt} />
+  ) : (
+    <span className="muted">{alt}</span>
+  );
+}
+
+export function MarkdownView({
+  taskId,
+  path,
+  text,
+  onOpenDoc,
+  onOpenFile,
+}: {
+  taskId: string;
+  path: string;
+  text: string;
+  onOpenDoc(path: string, anchor?: string): void;
+  onOpenFile(path: string): void;
+}) {
+  const components: Components = {
+    a: ({ href = '', children, node: _n, ...rest }) => (
+      <a
+        {...rest}
+        href={href}
+        onClick={(e) => {
+          e.preventDefault();
+          if (href.startsWith('#')) {
+            document
+              .getElementById(decodeURIComponent(href.slice(1)))
+              ?.scrollIntoView?.({ block: 'start' });
+          } else if (isWeb(href)) {
+            void api().invoke('links:open', new URL(href).toString());
+          } else if (!hasScheme(href)) {
+            const target = resolveRelative(path, href);
+            if (!target) return;
+            const anchor = href.includes('#') ? href.split('#')[1] : undefined;
+            if (/\.(md|markdown)$/i.test(target)) onOpenDoc(target, anchor);
+            else onOpenFile(target);
+          }
+        }}
+      >
+        {children}
+      </a>
+    ),
+    img: ({ src = '', alt = '' }) => {
+      const s = String(src);
+      if (isWeb(s) || hasScheme(s))
+        return (
+          <a
+            href={s}
+            onClick={(e) => {
+              e.preventDefault();
+              if (isWeb(s))
+                void api().invoke('links:open', new URL(s).toString());
+            }}
+          >
+            {alt || s}
+          </a>
+        );
+      const target = resolveRelative(path, s);
+      return target ? (
+        <LocalImage taskId={taskId} path={target} alt={alt} />
+      ) : (
+        <span className="muted">{alt}</span>
+      );
+    },
+    input: (props: ComponentProps<'input'>) => <input {...props} disabled />,
+    pre: ({ children, node: _n, ...rest }) => {
+      const child = Array.isArray(children) ? children[0] : children;
+      const cls =
+        (child as { props?: { className?: string } })?.props?.className ?? '';
+      const code = textOf(child).replace(/\n$/, '');
+      if (/\blanguage-mermaid\b/.test(cls)) return <MermaidBlock code={code} />;
+      return (
+        <div className="doc-code">
+          <button
+            type="button"
+            className="btn btn-subtle btn-sm doc-copy"
+            aria-label="Copy code"
+            onClick={() => void navigator.clipboard?.writeText(code)}
+          >
+            <Copy16Regular />
+          </button>
+          <pre {...rest}>{children}</pre>
+        </div>
+      );
+    },
+  };
+  return (
+    <article className="doc-md">
+      <Markdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[
+          rehypeLines,
+          [rehypeSanitize, schema],
+          rehypeSlug,
+          [rehypeHighlight, { detect: false, plainText: ['mermaid'] }],
+        ]}
+        components={components}
+      >
+        {text}
+      </Markdown>
+    </article>
+  );
+}

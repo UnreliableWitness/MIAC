@@ -1,0 +1,110 @@
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it, vi } from 'vitest';
+import { installFakeApi } from '../../test-helpers/fakeApi';
+import { MarkdownView } from './MarkdownView';
+
+vi.mock('mermaid', () => ({
+  default: {
+    initialize: vi.fn(),
+    render: vi.fn(async (_id: string, code: string) => {
+      if (code.includes('bad')) throw new Error('Parse error on line 1');
+      return { svg: '<svg data-testid="diagram"></svg>' };
+    }),
+  },
+}));
+
+const view = (text: string, over = {}) => {
+  const onOpenDoc = vi.fn();
+  const onOpenFile = vi.fn();
+  const api = installFakeApi({
+    'docs:asset': () => 'data:image/png;base64,AA==',
+    'links:open': () => undefined,
+    ...over,
+  });
+  render(
+    <MarkdownView
+      taskId="t"
+      path="docs/a.md"
+      text={text}
+      onOpenDoc={onOpenDoc}
+      onOpenFile={onOpenFile}
+    />,
+  );
+  return { onOpenDoc, onOpenFile, api };
+};
+
+describe('MarkdownView', () => {
+  it('renders GFM tables and task lists', () => {
+    view('| a | b |\n|---|---|\n| 1 | 2 |\n\n- [x] done\n- [ ] todo\n');
+    expect(screen.getByRole('table')).toBeTruthy();
+    const boxes = screen.getAllByRole('checkbox') as HTMLInputElement[];
+    expect(boxes.map((b) => b.checked)).toEqual([true, false]);
+    expect(boxes.every((b) => b.disabled)).toBe(true);
+  });
+  it('does not render raw HTML', () => {
+    const { container } = render(
+      <MarkdownView
+        taskId="t"
+        path="a.md"
+        text={'<img src=x onerror=alert(1)><script>x</script>'}
+        onOpenDoc={() => {}}
+        onOpenFile={() => {}}
+      />,
+    );
+    expect(container.querySelector('script')).toBeNull();
+    expect(container.querySelector('img')).toBeNull();
+  });
+  it('highlights code and copies it', async () => {
+    const writeText = vi.fn(async () => undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    view('```ts\nconst a = 1;\n```\n');
+    expect(
+      document.querySelector('code.hljs, code .hljs-keyword'),
+    ).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Copy code' }));
+    expect(writeText).toHaveBeenCalledWith('const a = 1;');
+  });
+  it('routes links: md in the viewer, other files to the editor, web to links:open', async () => {
+    const { onOpenDoc, onOpenFile, api } = view(
+      '[p](../plans/b.md#x) [c](src/x.ts) [w](https://x.dev)',
+    );
+    await userEvent.click(screen.getByText('p'));
+    expect(onOpenDoc).toHaveBeenCalledWith('plans/b.md', 'x');
+    await userEvent.click(screen.getByText('c'));
+    expect(onOpenFile).toHaveBeenCalledWith('docs/src/x.ts');
+    await userEvent.click(screen.getByText('w'));
+    expect(
+      api.calls.some(
+        (c) => c.channel === 'links:open' && c.args[0] === 'https://x.dev/',
+      ),
+    ).toBe(true);
+  });
+  it('loads relative images through docs:asset and does not load remote ones', async () => {
+    view('![local](img/a.png) ![remote](https://x.dev/a.png)');
+    await waitFor(() =>
+      expect((screen.getByAltText('local') as HTMLImageElement).src).toMatch(
+        /^data:image\/png/,
+      ),
+    );
+    expect(screen.queryByAltText('remote')).toBeNull();
+    expect(screen.getByRole('link', { name: /remote/ })).toBeTruthy();
+  });
+  it('renders mermaid diagrams and shows the error and source for a bad one', async () => {
+    view('```mermaid\ngraph TD; A-->B\n```\n\n```mermaid\nbad\n```\n');
+    expect(await screen.findByTestId('diagram')).toBeTruthy();
+    expect(await screen.findByText(/Parse error on line 1/)).toBeTruthy();
+    expect(screen.getByText('bad')).toBeTruthy();
+  });
+  it('gives headings GitHub-style ids', () => {
+    view('## Send to Claude\n');
+    expect(document.getElementById('send-to-claude')).toBeTruthy();
+  });
+  it('keeps source line attributes through sanitize', () => {
+    view('first\n\nsecond\n');
+    const ps = document.querySelectorAll('p[data-line-start]');
+    expect(ps).toHaveLength(2);
+    expect(ps[1].getAttribute('data-line-start')).toBe('3');
+    expect(ps[1].getAttribute('data-line-end')).toBe('3');
+  });
+});
