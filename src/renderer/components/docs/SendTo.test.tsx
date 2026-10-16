@@ -5,7 +5,7 @@ import type { TaskView } from '../../../shared/types';
 import { useStore } from '../../store';
 import { installFakeApi } from '../../test-helpers/fakeApi';
 import { registerTerminal } from '../../terminalRegistry';
-import { SendTo } from './SendTo';
+import { SendTo, selectionLines } from './SendTo';
 
 const task = {
   id: 't1',
@@ -182,5 +182,25 @@ describe('SendTo', () => {
     );
     expect(plain).toHaveBeenCalledTimes(1);
     expect(plain.mock.calls[0][0]).not.toMatch(/[\n\r]/);
+  });
+});
+
+describe('selectionLines', () => {
+  it('ignores the next block when a triple click ends at its offset 0', () => {
+    const { getByTestId } = render(<Doc />);
+    const [p1, p2] = Array.from(getByTestId('doc').children);
+    const r = document.createRange();
+    r.setStart(p1.firstChild!, 0);
+    r.setEnd(p2.firstChild!, 0);
+    expect(selectionLines(r)).toEqual({ start: 3, end: 4 });
+  });
+
+  it('also handles an element end container at offset 0', () => {
+    const { getByTestId } = render(<Doc />);
+    const [p1, p2] = Array.from(getByTestId('doc').children);
+    const r = document.createRange();
+    r.setStart(p1.firstChild!, 0);
+    r.setEnd(p2, 0);
+    expect(selectionLines(r)).toEqual({ start: 3, end: 4 });
   });
 });

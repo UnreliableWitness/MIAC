@@ -9,6 +9,31 @@ import { useStore } from '../../store';
 import { focusTerminal, pasteInto } from '../../terminalRegistry';
 import { track } from '../../telemetry';
 
+/**
+ * A triple click ends at offset 0 of the next block; that block is not part of the selection,
+ * so use the last text node that lies before the end point instead.
+ */
+function endNode(range: Range): Node {
+  if (range.endOffset > 0) return range.endContainer;
+  const walker = document.createTreeWalker(
+    range.commonAncestorContainer,
+    NodeFilter.SHOW_TEXT,
+  );
+  let last: Node | null = null;
+  while (walker.nextNode()) {
+    const n = walker.currentNode;
+    if (
+      n.textContent?.trim() &&
+      range.comparePoint(n, 0) >= 0 &&
+      n.compareDocumentPosition(range.endContainer) &
+        Node.DOCUMENT_POSITION_FOLLOWING &&
+      !n.contains(range.endContainer)
+    )
+      last = n;
+  }
+  return last ?? range.endContainer;
+}
+
 export function selectionLines(
   range: Range,
 ): { start: number; end: number } | null {
@@ -17,7 +42,7 @@ export function selectionLines(
   const block = (n: Node) =>
     el(n)?.closest('[data-line],[data-line-start]') as HTMLElement | null;
   const a = block(range.startContainer);
-  const b = block(range.endContainer);
+  const b = block(endNode(range));
   if (!a || !b) return null;
   const s = (x: HTMLElement) => Number(x.dataset.line ?? x.dataset.lineStart);
   const e = (x: HTMLElement) => Number(x.dataset.line ?? x.dataset.lineEnd);
