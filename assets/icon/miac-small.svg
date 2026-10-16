@@ -1,11 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- For 16-32 px: bars are 64 units (2 px at 16 px) on the pixel grid, with square ends. -->
   <defs>
-    <radialGradient id="space" cx="35%" cy="25%" r="90%"><stop offset="0" stop-color="#232838"/><stop offset=".55" stop-color="#11131b"/><stop offset="1" stop-color="#07080c"/></radialGradient>
-    <radialGradient id="glow" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#ffd08a"/><stop offset=".35" stop-color="#f0a443" stop-opacity=".75"/><stop offset="1" stop-color="#f0a443" stop-opacity="0"/></radialGradient>
+    <linearGradient id="slash" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#50e6ff"/><stop offset="1" stop-color="#0078d4"/></linearGradient>
+    <mask id="gap" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512">
+      <rect width="512" height="512" fill="#fff"/>
+      <path d="M40 384 L472 128" stroke="#000" stroke-width="150" stroke-linecap="round"/>
+    </mask>
   </defs>
-  <rect width="512" height="512" rx="114" fill="url(#space)"/>
-  <circle cx="256" cy="256" r="172" fill="none" stroke="#596079" stroke-width="34"/>
-  <path d="M256 84 A172 172 0 0 1 428 256" fill="none" stroke="#f0a443" stroke-width="56" stroke-linecap="round"/>
-  <circle cx="256" cy="256" r="128" fill="url(#glow)"/>
-  <circle cx="256" cy="256" r="80" fill="#f6e7c8"/>
+  <g mask="url(#gap)">
+    <rect x="32" y="64" width="64" height="384" fill="#0063b1"/>
+    <rect x="160" y="64" width="64" height="384" fill="#0f6cbd"/>
+    <rect x="288" y="64" width="64" height="384" fill="#1a7fd0"/>
+    <rect x="416" y="64" width="64" height="384" fill="#2b88d8"/>
+  </g>
+  <path d="M40 384 L472 128" stroke="url(#slash)" stroke-width="72" stroke-linecap="round"/>
 </svg>
