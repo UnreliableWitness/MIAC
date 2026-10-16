@@ -526,4 +526,53 @@ describe('filterRows', () => {
     expect(ids('address store')).toEqual(['1', '2', '31']);
     expect(ids('nothing like this')).toEqual([]);
   });
+
+  it('shows the Spent / est. column with local time against the estimate', async () => {
+    fake({
+      'workItems:sprint': () => ({
+        ...sprint,
+        rows: [
+          row(
+            item(2, 'Issue', 'Estimated delivery date', {
+              originalEstimate: 5,
+            }),
+          ),
+          row(item(4, 'Task', 'Upgrade payment SDK')),
+        ],
+      }),
+      'time:sprint': () => ({
+        '2': {
+          spentSeconds: 11400,
+          measuredSeconds: 11400,
+          agentSeconds: 6000,
+          booked: false,
+          baselineHours: null,
+        },
+      }),
+    });
+    render(<Shell />);
+    const table = await grid();
+    expect(
+      within(table).getByRole('columnheader', { name: 'Spent / est.' }),
+    ).toBeInTheDocument();
+    expect(await within(table).findByText('3h 10m / 5h')).toBeInTheDocument();
+    expect(within(table).getByText('–')).toBeInTheDocument();
+  });
+
+  it('renders a pre-feature done task without time', async () => {
+    useStore.setState({
+      tasks: [
+        task({
+          status: 'done',
+          time: null,
+          openPeriods: [],
+          finishedAt: '2026-10-15T10:00:00.000Z',
+        }),
+      ],
+    });
+    fake({ 'time:sprint': () => ({}) });
+    render(<Shell />);
+    const table = await grid();
+    expect(within(table).getAllByText('–').length).toBeGreaterThan(0);
+  });
 });

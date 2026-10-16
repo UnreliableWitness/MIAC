@@ -37,6 +37,7 @@ export const emptyTime = (taskId: string): TaskTime => ({
 const defaults: FakeHandlers = {
   'time:focus': () => undefined,
   'time:task': (taskId) => emptyTime(taskId),
+  'time:sprint': () => ({}),
   'docs:list': () => ({ files: [] }),
   'docs:watch': () => ({ live: true }),
   'docs:resolve': () => null,

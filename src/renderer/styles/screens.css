@@ -440,7 +440,7 @@
 }
 .grid.sprint-grid {
   flex: 1;
-  --grid-cols: 24px minmax(0, 1fr) 140px 180px 120px 180px;
+  --grid-cols: 24px minmax(0, 1fr) 140px 180px 120px 150px 180px;
 }
 .sprint-grid .grid-head,
 .sprint-grid .grid-row {
@@ -677,6 +677,15 @@
 }
 .time-bar.over i {
   background: var(--warn);
+}
+.sprint-time {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.sprint-time.over > span {
+  color: var(--warn);
 }
 .time-agents {
   display: flex;
