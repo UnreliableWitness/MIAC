@@ -135,11 +135,17 @@ export function SetupScreen({ taskId }: { taskId: string }) {
       await api().invoke('tasks:cancelSetup', taskId);
       return true;
     }, notify);
-    if (ok) go({ kind: 'sprint' });
+    // A cancelled reopen leaves the task on its Done page; a cancelled new task is gone.
+    // The task page shows the Done page once the task is done again.
+    if (ok && reopening) {
+      select(taskId);
+      go({ kind: 'task' });
+    } else if (ok) go({ kind: 'sprint' });
   };
 
   if (!task) return <div className="empty">Task not found.</div>;
   const back = () => go({ kind: 'sprint' });
+  const reopening = task.reopen !== null;
 
   return (
     <div className="page">
@@ -157,11 +163,15 @@ export function SetupScreen({ taskId }: { taskId: string }) {
       <div className="setup">
         <section className="setup-left">
           <div className="muted">
-            {task.status === 'setup-failed'
-              ? 'Setup failed. Fix the cause, then retry, or remove the task.'
-              : task.status === 'ready'
-                ? 'Setup finished.'
-                : 'Setting up your task. You can leave this page; it keeps going in the background.'}
+            {reopening
+              ? task.status === 'setup-failed'
+                ? 'Reopening failed. Fix the cause, then retry, or cancel: the task goes back to Done.'
+                : 'Restoring the worktree and terminals of this task. You can leave this page; it keeps going in the background.'
+              : task.status === 'setup-failed'
+                ? 'Setup failed. Fix the cause, then retry, or remove the task.'
+                : task.status === 'ready'
+                  ? 'Setup finished.'
+                  : 'Setting up your task. You can leave this page; it keeps going in the background.'}
           </div>
           {state ? (
             <StepList steps={state.steps} />
@@ -183,7 +193,7 @@ export function SetupScreen({ taskId }: { taskId: string }) {
               disabled={task.status === 'setting-up'}
               onClick={cancel}
             >
-              Cancel and remove
+              {reopening ? 'Cancel reopen' : 'Cancel and remove'}
             </button>
           </div>
         </section>

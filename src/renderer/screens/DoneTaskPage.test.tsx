@@ -39,6 +39,8 @@ const task: TaskView = {
   usageCommentId: 77,
   summary: null,
   pullRequest: null,
+  closedTerminals: [],
+  reopen: null,
   worktreeMissing: false,
 };
 const summary: TaskSummary = {
@@ -172,6 +174,54 @@ describe('DoneTaskPage', () => {
       expect(calls.some((c) => c.channel === 'workItems:get')).toBe(true),
     );
     expect(screen.queryByLabelText(/^State /)).toBeNull();
+  });
+
+  it('Reopen goes to the task when the worktree was kept, and to Setup when it is made again', async () => {
+    let setup = false;
+    const { calls } = installFakeApi({
+      'workItems:get': () => null,
+      'tasks:reopen': () => ({ setup }),
+    });
+    useStore.setState({ tasks: [task], screen: { kind: 'task' } });
+    const { unmount } = render(<DoneTaskPage task={task} />);
+    await userEvent.click(screen.getByRole('button', { name: /Reopen/ }));
+    await waitFor(() =>
+      expect(useStore.getState().screen).toEqual({ kind: 'task' }),
+    );
+    expect(calls.find((c) => c.channel === 'tasks:reopen')?.args).toEqual([
+      task.id,
+    ]);
+    unmount();
+    setup = true;
+    render(<DoneTaskPage task={task} />);
+    await userEvent.click(screen.getByRole('button', { name: /Reopen/ }));
+    await waitFor(() =>
+      expect(useStore.getState().screen).toEqual({
+        kind: 'setup',
+        taskId: task.id,
+      }),
+    );
+    expect(useStore.getState().selectedTaskId).toBe(task.id);
+  });
+
+  it('shows why Reopen failed and stays on the Done page', async () => {
+    installFakeApi({
+      'workItems:get': () => null,
+      'tasks:reopen': () => {
+        throw new Error('Branch x cannot be restored');
+      },
+    });
+    useStore.setState({ screen: { kind: 'task' } });
+    render(<DoneTaskPage task={task} />);
+    await userEvent.click(screen.getByRole('button', { name: /Reopen/ }));
+    await waitFor(() =>
+      expect(
+        useStore
+          .getState()
+          .notices.some((n) => n.message === 'Branch x cannot be restored'),
+      ).toBe(true),
+    );
+    expect(screen.getByRole('button', { name: /Reopen/ })).toBeEnabled();
   });
 
   it('marks a local branch and a task without a work item', () => {

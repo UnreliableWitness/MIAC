@@ -31,6 +31,8 @@ const task = (id: string, terms: string[]): TaskView => ({
   usageCommentId: null,
   summary: null,
   pullRequest: null,
+  closedTerminals: [],
+  reopen: null,
 });
 
 beforeEach(() => {

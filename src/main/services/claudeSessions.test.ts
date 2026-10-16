@@ -2,7 +2,12 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { claudeProjectsDir, claudeSessionExists } from './claudeSessions';
+import {
+  claudeHasSessionsIn,
+  claudeProjectFolder,
+  claudeProjectsDir,
+  claudeSessionExists,
+} from './claudeSessions';
 
 describe('claudeSessionExists', () => {
   it('finds a session file in any project folder', () => {
@@ -26,5 +31,24 @@ describe('claudeSessionExists', () => {
     expect(claudeProjectsDir({ CLAUDE_CONFIG_DIR: '/cfg' })).toBe(
       path.join('/cfg', 'projects'),
     );
+  });
+});
+
+describe('claudeHasSessionsIn', () => {
+  it('names the folder the way Claude Code does', () => {
+    expect(claudeProjectFolder('/Users/d/src/web.worktrees/48231-x')).toBe(
+      '-Users-d-src-web-worktrees-48231-x',
+    );
+    expect(claudeProjectFolder('C:\\Projects\\x_y')).toBe('C--Projects-x-y');
+  });
+
+  it('is true when that folder holds a session', () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'miac-claude-'));
+    const cwd = '/src/web.worktrees/1-a';
+    expect(claudeHasSessionsIn(cwd, dir)).toBe(false);
+    mkdirSync(path.join(dir, claudeProjectFolder(cwd)));
+    expect(claudeHasSessionsIn(cwd, dir)).toBe(false);
+    writeFileSync(path.join(dir, claudeProjectFolder(cwd), 's.jsonl'), '{}\n');
+    expect(claudeHasSessionsIn(cwd, dir)).toBe(true);
   });
 });

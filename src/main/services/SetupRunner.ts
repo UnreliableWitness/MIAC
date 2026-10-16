@@ -16,6 +16,8 @@ export type SetupPlan = {
   taskMd: string;
   startTerminalsLabel: string | null;
   updateWorkItem: boolean;
+  /** Reopening a finished task: the worktree is made again for its branch (see Task.reopen). */
+  restore?: { from: string | null };
 };
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
@@ -33,14 +35,24 @@ export type SetupHooks = {
 };
 
 export function planSteps(plan: SetupPlan): SetupStepDef[] {
-  const steps: SetupStepDef[] = [
-    { kind: 'fetch', label: 'Fetch base', detail: plan.baseRef },
-    {
-      kind: 'worktree',
-      label: 'Create branch and worktree',
-      detail: plan.branch,
-    },
-  ];
+  const steps: SetupStepDef[] = plan.restore
+    ? [
+        {
+          kind: 'worktree',
+          label: 'Restore worktree',
+          detail: plan.restore.from
+            ? `${plan.branch} from ${plan.restore.from}`
+            : plan.branch,
+        },
+      ]
+    : [
+        { kind: 'fetch', label: 'Fetch base', detail: plan.baseRef },
+        {
+          kind: 'worktree',
+          label: 'Create branch and worktree',
+          detail: plan.branch,
+        },
+      ];
   if (plan.updateWorkItem)
     steps.push({
       kind: 'work-item',
@@ -68,7 +80,7 @@ export function planSteps(plan: SetupPlan): SetupStepDef[] {
   if (plan.startTerminalsLabel)
     steps.push({
       kind: 'terminals',
-      label: 'Start terminals',
+      label: plan.restore ? 'Restore terminals' : 'Start terminals',
       detail: plan.startTerminalsLabel,
     });
   return steps;
@@ -196,6 +208,26 @@ export class SetupRunner {
           (await this.git.branchExists(plan.repoPath, plan.branch))
         ) {
           log(`worktree ${plan.worktreePath} already exists, reusing it`);
+          return;
+        }
+        if (plan.restore) {
+          // The branch keeps its original base: no onBaseSha.
+          if (plan.restore.from === null) {
+            log(`$ git worktree add ${plan.worktreePath} ${plan.branch}`);
+            await this.git.worktreeAddExisting(plan.repoPath, {
+              branch: plan.branch,
+              path: plan.worktreePath,
+            });
+          } else {
+            log(
+              `$ git worktree add -b ${plan.branch} ${plan.worktreePath} ${plan.restore.from}`,
+            );
+            await this.git.worktreeAdd(plan.repoPath, {
+              branch: plan.branch,
+              path: plan.worktreePath,
+              baseRef: plan.restore.from,
+            });
+          }
           return;
         }
         log(

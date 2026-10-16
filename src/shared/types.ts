@@ -94,6 +94,13 @@ export const TaskSchema = z.object({
   /** Null for tasks finished before MIAC recorded summaries, and while a task is open. */
   summary: TaskSummarySchema.nullable().default(null),
   pullRequest: PullRequestRefSchema.nullable().default(null),
+  /** The terminal tabs when the task was finished, so Reopen can bring them (and Claude's sessions) back. */
+  closedTerminals: z.array(TerminalDefSchema).default([]),
+  /**
+   * Set while a finished task's worktree is being made again. `from` is where the branch comes back from:
+   * null when the local branch still exists, else a ref or commit to make it from.
+   */
+  reopen: z.object({ from: z.string().nullable() }).nullable().default(null),
 });
 export type Task = z.infer<typeof TaskSchema>;
 

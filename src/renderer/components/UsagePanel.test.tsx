@@ -40,6 +40,8 @@ const task: TaskView = {
   usageCommentId: null,
   summary: null,
   pullRequest: null,
+  closedTerminals: [],
+  reopen: null,
 };
 const usage: TaskUsage = {
   ...emptyUsage('t1'),

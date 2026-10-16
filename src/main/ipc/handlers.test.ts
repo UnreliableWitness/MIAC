@@ -37,6 +37,7 @@ import { prTitle } from '../services/azureRepos';
 import {
   echoCmd,
   envRef,
+  failCmd,
   isWindows,
   sleepCmd,
   testPlatform,
@@ -904,6 +905,181 @@ describe('handlers: terminals opened from the + menu', () => {
   });
 });
 
+describe('handlers: reopen a finished task', () => {
+  const finishWith = (o: {
+    removeWorktree: boolean;
+    deleteBranch: boolean;
+  }) => ({
+    closeTerminals: true,
+    syncUsage: false,
+    ...o,
+  });
+  const recording = () => {
+    const base = testPlatform();
+    const calls: { context: string | null; flags: string[] }[] = [];
+    const platform = {
+      ...base,
+      claudeCommand: (context: string | null, flags: string[] = []) => {
+        calls.push({ context, flags });
+        return base.runCommand(`${echoCmd('claude')}; ${sleepCmd(5)}`);
+      },
+    };
+    return { platform, calls };
+  };
+  async function finished(
+    o: { removeWorktree: boolean; deleteBranch: boolean },
+    over: Partial<Services> = {},
+  ) {
+    const rec = recording();
+    const hx = await harness(fakeCrypto(), {
+      platform: rec.platform,
+      claudeSessionExists: () => true,
+      ...over,
+    });
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](hx.input({ startClaude: true }));
+    await done;
+    commitFile(t.worktreePath, 'feature.txt', 'a\n', 'Add the feature');
+    const before = hx.store.state.tasks[0].terminals;
+    await hx.h['tasks:finish'](t.id, finishWith(o));
+    return { ...hx, ...rec, t, before };
+  }
+  const reopenSetup = async (hx: Awaited<ReturnType<typeof finished>>) => {
+    const done = hx.setupDone();
+    expect(await hx.h['tasks:reopen'](hx.t.id)).toEqual({ setup: true });
+    return done;
+  };
+
+  it('Finish keeps the tabs it closed, so Reopen can bring them back', async () => {
+    const hx = await finished({ removeWorktree: true, deleteBranch: false });
+    expect(hx.store.state.tasks[0]).toMatchObject({
+      status: 'done',
+      terminals: [],
+      closedTerminals: hx.before,
+    });
+    expect(hx.before.map((d) => d.kind)).toEqual(['claude', 'shell']);
+  });
+
+  it('reopens a task whose worktree was kept, without setup, resuming Claude', async () => {
+    const hx = await finished({ removeWorktree: false, deleteBranch: false });
+    expect(await hx.h['tasks:reopen'](hx.t.id)).toEqual({ setup: false });
+    const task = hx.store.state.tasks[0];
+    expect(task).toMatchObject({
+      status: 'ready',
+      finishedAt: null,
+      closedTerminals: [],
+    });
+    expect(task.terminals.map((d) => d.id)).toEqual(hx.before.map((d) => d.id));
+    const claude = hx.before.find((d) => d.kind === 'claude')!;
+    expect(hx.calls.at(-1)).toEqual({
+      context: null,
+      flags: ['--resume', claude.sessionId],
+    });
+    expect(hx.terminals.runningCount(hx.t.id)).toBe(2);
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
+  it('makes the worktree again from the local branch and runs the setup again', async () => {
+    const hx = await finished({ removeWorktree: true, deleteBranch: false });
+    expect(existsSync(hx.t.worktreePath)).toBe(false);
+    const result = await reopenSetup(hx);
+    expect(result.ok).toBe(true);
+    expect(existsSync(path.join(hx.t.worktreePath, 'feature.txt'))).toBe(true);
+    expect(existsSync(path.join(hx.t.worktreePath, 'ok.txt'))).toBe(true);
+    expect(hx.store.state.tasks[0]).toMatchObject({
+      status: 'ready',
+      reopen: null,
+      finishedAt: null,
+      baseSha: hx.t.baseSha ?? hx.store.state.tasks[0].baseSha,
+    });
+    expect(hx.store.state.tasks[0].terminals.map((d) => d.kind)).toEqual([
+      'claude',
+      'shell',
+    ]);
+    expect(hx.calls.at(-1)?.flags[0]).toBe('--resume');
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
+  it('brings a deleted branch back from origin', async () => {
+    const rec = recording();
+    const hx = await harness(fakeCrypto(), { platform: rec.platform });
+    addOrigin(hx.repo);
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](hx.input({ openShell: false }));
+    await done;
+    commitFile(t.worktreePath, 'pushed.txt', 'a\n', 'Pushed work');
+    git(t.worktreePath, 'push', '-q', 'origin', t.branch);
+    await hx.h['tasks:finish'](
+      t.id,
+      finishWith({ removeWorktree: true, deleteBranch: true }),
+    );
+    const finishedDone = hx.setupDone();
+    expect(await hx.h['tasks:reopen'](t.id)).toEqual({ setup: true });
+    expect(hx.store.state.tasks[0].reopen).toEqual({
+      from: `origin/${t.branch}`,
+    });
+    expect((await finishedDone).ok).toBe(true);
+    expect(existsSync(path.join(t.worktreePath, 'pushed.txt'))).toBe(true);
+  });
+
+  it('brings a deleted, unpushed branch back from its last commit', async () => {
+    const hx = await finished({ removeWorktree: true, deleteBranch: true });
+    expect(await new GitClient().branchExists(hx.repo, hx.t.branch)).toBe(
+      false,
+    );
+    const result = await reopenSetup(hx);
+    expect(result.ok).toBe(true);
+    expect(existsSync(path.join(hx.t.worktreePath, 'feature.txt'))).toBe(true);
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
+  it('refuses when the branch is gone for good, and the task stays done', async () => {
+    const hx = await finished({ removeWorktree: true, deleteBranch: true });
+    await hx.store.update((st) => {
+      st.tasks[0].summary!.commits = [{ sha: 'f'.repeat(40), subject: 'x' }];
+    });
+    await expect(hx.h['tasks:reopen'](hx.t.id)).rejects.toThrow(
+      `Branch ${hx.t.branch} cannot be restored`,
+    );
+    expect(hx.store.state.tasks[0].status).toBe('done');
+    // Not left busy: a second try gives the same answer, not "Task is busy".
+    await expect(hx.h['tasks:reopen'](hx.t.id)).rejects.toThrow(
+      'cannot be restored',
+    );
+  });
+
+  it('cancelling a failed reopen puts the task back to done and keeps it', async () => {
+    const hx = await finished({ removeWorktree: true, deleteBranch: false });
+    await hx.store.update((st) => {
+      st.tasks[0].setup.commands = [failCmd(3)];
+    });
+    const result = await reopenSetup(hx);
+    expect(result.ok).toBe(false);
+    expect(hx.store.state.tasks[0].status).toBe('setup-failed');
+    await hx.h['tasks:cancelSetup'](hx.t.id);
+    expect(hx.store.state.tasks).toHaveLength(1);
+    expect(hx.store.state.tasks[0]).toMatchObject({
+      status: 'done',
+      reopen: null,
+    });
+    expect(existsSync(hx.t.worktreePath)).toBe(false);
+    expect(await new GitClient().branchExists(hx.repo, hx.t.branch)).toBe(true);
+  });
+
+  it('continues the latest Claude session in the folder for a task finished before tabs were kept', async () => {
+    const hx = await finished(
+      { removeWorktree: false, deleteBranch: false },
+      { claudeHasSessionsIn: () => true },
+    );
+    await hx.store.update((st) => {
+      st.tasks[0].closedTerminals = [];
+    });
+    await hx.h['tasks:reopen'](hx.t.id);
+    expect(hx.calls.at(-1)).toEqual({ context: null, flags: ['--continue'] });
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+});
+
 describe('handlers: run terminal command', () => {
   it('starts a run terminal with runCommand, not the setup wrapper', async () => {
     const base = testPlatform();
@@ -983,6 +1159,8 @@ describe('recoverInterruptedTasks', () => {
       usageCommentId: null,
       summary: null,
       pullRequest: null,
+      closedTerminals: [],
+      reopen: null,
     };
     await store.update((s) => {
       s.tasks.push(

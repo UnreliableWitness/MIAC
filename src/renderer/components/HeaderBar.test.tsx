@@ -40,6 +40,8 @@ const task: TaskView = {
   usageCommentId: null,
   summary: null,
   pullRequest: null,
+  closedTerminals: [],
+  reopen: null,
   worktreeMissing: false,
 };
 const git: GitSummary = {

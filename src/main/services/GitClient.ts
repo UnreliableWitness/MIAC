@@ -113,6 +113,21 @@ export class GitClient {
     }
   }
 
+  /** Whether a ref (e.g. refs/remotes/origin/x) or commit sha resolves to a commit. */
+  async commitExists(cwd: string, ref: string): Promise<boolean> {
+    try {
+      await this.run(cwd, [
+        'rev-parse',
+        '--verify',
+        '--quiet',
+        `${ref}^{commit}`,
+      ]);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async validBranchName(cwd: string, branch: string): Promise<boolean> {
     if (branch.length === 0 || branch.startsWith('-')) return false;
     try {
@@ -158,6 +173,21 @@ export class GitClient {
       o.baseRef,
     ]);
     return (await this.run(o.path, ['rev-parse', 'HEAD'])).trim();
+  }
+
+  /** A worktree for a branch that already exists (reopening a finished task). */
+  async worktreeAddExisting(
+    cwd: string,
+    o: { branch: string; path: string },
+  ): Promise<void> {
+    await this.run(cwd, [
+      '-c',
+      'core.longpaths=true',
+      'worktree',
+      'add',
+      o.path,
+      o.branch,
+    ]);
   }
 
   async worktreeRemove(

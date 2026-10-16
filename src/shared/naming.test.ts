@@ -118,6 +118,8 @@ const task: Task = {
   usageCommentId: null,
   summary: null,
   pullRequest: null,
+  closedTerminals: [],
+  reopen: null,
 };
 
 describe('renderTaskMd', () => {
