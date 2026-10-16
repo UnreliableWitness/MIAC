@@ -1,13 +1,8 @@
 import { useId } from 'react';
 
-// The app icon's tally (assets/icon/miac-small.svg at 1/8 scale): bars sit on the pixel grid at 16px.
-const BARS = [
-  [4, '#0063b1'],
-  [20, '#0f6cbd'],
-  [36, '#1a7fd0'],
-  [52, '#2b88d8'],
-] as const;
-const SLASH = 'M5 48 L59 16';
+// The app icon (assets/icon/miac-small.svg at 1/8 scale): four fused stripes struck through by a swoosh.
+const STRIPES = ['#003a6c', '#005ba1', '#0f6cbd', '#2b88d8'];
+const SWOOSH = 'M0 42.5 Q31.25 36.25 64 10 L64 16.5 Q33.75 48.75 0 59.4 Z';
 
 export function MindMark({ size = 16 }: { size?: number }) {
   const id = useId();
@@ -20,39 +15,21 @@ export function MindMark({ size = 16 }: { size?: number }) {
       className="mindmark"
     >
       <defs>
-        <linearGradient id={`${id}s`} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#50e6ff" />
-          <stop offset="1" stopColor="#0078d4" />
-        </linearGradient>
-        <mask
-          id={`${id}m`}
-          maskUnits="userSpaceOnUse"
-          x="0"
-          y="0"
-          width="64"
-          height="64"
-        >
-          <rect width="64" height="64" fill="#fff" />
-          <path
-            d={SLASH}
-            stroke="#000"
-            strokeWidth="19"
-            strokeLinecap="round"
-          />
-        </mask>
+        <clipPath id={`${id}b`}>
+          <rect x="8" y="8" width="48" height="48" />
+        </clipPath>
       </defs>
-      <g mask={`url(#${id}m)`}>
-        {BARS.map(([x, color]) => (
-          <rect key={x} x={x} y="8" width="8" height="48" fill={color} />
-        ))}
-      </g>
-      <path
-        d={SLASH}
-        fill="none"
-        stroke={`url(#${id}s)`}
-        strokeWidth="9"
-        strokeLinecap="round"
-      />
+      {STRIPES.map((color, i) => (
+        <rect
+          key={color}
+          x={8 + 12 * i}
+          y="8"
+          width="12"
+          height="48"
+          fill={color}
+        />
+      ))}
+      <path clipPath={`url(#${id}b)`} d={SWOOSH} fill="#fff" />
     </svg>
   );
 }

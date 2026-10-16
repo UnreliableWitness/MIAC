@@ -1,17 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- A tally: four fused stripes struck through by a swoosh that widens toward the bottom left. -->
   <defs>
-    <linearGradient id="slash" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#50e6ff"/><stop offset="1" stop-color="#0078d4"/></linearGradient>
-    <!-- Cuts a gap around the slash so bars and slash stay apart at small sizes. -->
-    <mask id="gap" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512">
-      <rect width="512" height="512" fill="#fff"/>
-      <path d="M64 372 L448 140" stroke="#000" stroke-width="104" stroke-linecap="round"/>
-    </mask>
+    <clipPath id="block"><rect x="64" y="64" width="384" height="384"/></clipPath>
   </defs>
-  <g mask="url(#gap)" stroke-linecap="round" stroke-width="56">
-    <path d="M120 104 V408" stroke="#003a6c"/>
-    <path d="M211 104 V408" stroke="#005ba1"/>
-    <path d="M302 104 V408" stroke="#0f6cbd"/>
-    <path d="M393 104 V408" stroke="#2b88d8"/>
-  </g>
-  <path d="M64 372 L448 140" stroke="url(#slash)" stroke-width="56" stroke-linecap="round"/>
+  <rect x="64" y="64" width="96" height="384" fill="#003a6c"/>
+  <rect x="160" y="64" width="96" height="384" fill="#005ba1"/>
+  <rect x="256" y="64" width="96" height="384" fill="#0f6cbd"/>
+  <rect x="352" y="64" width="96" height="384" fill="#2b88d8"/>
+  <path clip-path="url(#block)" d="M0 345 Q250 300 512 92 L512 118 Q270 380 0 470 Z" fill="#fff"/>
 </svg>
