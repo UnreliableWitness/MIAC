@@ -2643,6 +2643,7 @@ describe('handlers: finish every workspace of a task', () => {
     over: Partial<CreateTaskInput> = {},
   ) {
     const hx = await harness();
+    commitFile(hx.repo, '.gitignore', '.env\n');
     addOrigin(hx.repo);
     const c = await hx.connections.save({
       organizationUrl: 'https://dev.azure.com/contoso',
@@ -2655,8 +2656,7 @@ describe('handlers: finish every workspace of a task', () => {
       hx.input({
         baseRef: 'origin/main',
         openShell: false,
-        // No copied or generated files: the home worktree is clean, as a real one with a .gitignore is.
-        copy: false,
+        // The copied .env is ignored, as in a real repo; no generated files.
         commands: [],
         ...over,
       }),
@@ -2777,6 +2777,8 @@ describe('handlers: finish every workspace of a task', () => {
   it('drops the home without a push and opens a PR for the repo with changes', async () => {
     const hx = await multiHarness([{ name: 'api' }]);
     commitFile(hx.repos[0].wt, 'api.txt', 'a\n', 'API change');
+    // The copied .env is gitignored, so the home still counts as unchanged.
+    expect(existsSync(path.join(hx.t.worktreePath, '.env'))).toBe(true);
     await hx.h['tasks:finish'](hx.t.id, {
       ...opts,
       deleteBranch: false,
@@ -3019,6 +3021,62 @@ describe('handlers: finish every workspace of a task', () => {
       commitCount: 1,
       pushed: true,
     });
+  });
+
+  it('a PR stored by an earlier Finish (before a Reopen) is looked up again, not kept', async () => {
+    const hx = await multiHarness([{ name: 'api' }]);
+    commitFile(hx.repos[0].wt, 'api.txt', 'a\n', 'API change');
+    await hx.store.update((st) => {
+      st.tasks[0].extraWorkspaces[0].pullRequest = {
+        id: 3,
+        url: 'https://dev.azure.com/contoso/P/_git/api/pullrequest/3',
+        repositoryId: 'id-api',
+        project: 'P',
+        repo: 'api',
+        status: 'completed',
+        isDraft: false,
+      };
+    });
+    const findActive = vi.mocked(
+      hx.clients.get(hx.c.id)!.findActivePullRequest,
+    );
+    await hx.h['tasks:finish'](hx.t.id, {
+      ...opts,
+      workspaces: [
+        { workspaceId: 'home', action: 'drop' },
+        { workspaceId: hx.ids[0], action: 'pr' },
+      ],
+    });
+    expect(findActive.mock.calls.map((c) => c[1])).toEqual(['id-api']);
+    expect(hx.created.map((x) => x.repo)).toEqual(['api']);
+    expect(ws(hx, hx.ids[0]).pullRequest).toMatchObject({
+      id: 100,
+      status: 'active',
+    });
+  });
+
+  it('a branch whose base cannot be found is never "no changes", and is not dropped', async () => {
+    const hx = await multiHarness([{ name: 'api' }]);
+    await hx.store.update((st) => {
+      st.tasks[0].extraWorkspaces[0].baseRef = 'no-such-base';
+      st.tasks[0].extraWorkspaces[0].baseSha = null;
+    });
+    const checks = await hx.h['tasks:finishChecks'](hx.t.id);
+    expect(checks.workspaces[0].baseKnown).toBe(true);
+    expect(checks.workspaces[1]).toMatchObject({
+      baseKnown: false,
+      uncommitted: [],
+    });
+    await expect(
+      hx.h['tasks:finish'](hx.t.id, {
+        ...opts,
+        workspaces: [
+          { workspaceId: 'home', action: 'keep' },
+          { workspaceId: hx.ids[0], action: 'drop' },
+        ],
+      }),
+    ).rejects.toThrow('api has changes now; reload Finish');
+    expect(existsSync(hx.repos[0].wt)).toBe(true);
   });
 
   it('a scan error does not break the Finish checks', async () => {

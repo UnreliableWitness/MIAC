@@ -231,6 +231,8 @@ export type WorkspaceCheck = {
   unpushed: number;
   /** Commits on the branch since it left its base. */
   commits: number;
+  /** False when the branch's starting point could not be found: changes are unknown, so never "no changes". */
+  baseKnown: boolean;
   pr: {
     available: boolean;
     reason: string | null;

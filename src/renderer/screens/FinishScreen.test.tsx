@@ -755,6 +755,7 @@ describe('FinishScreen with several repos', () => {
     uncommitted: [],
     unpushed: 0,
     commits: 0,
+    baseKnown: true,
     pr: {
       available: true,
       reason: null,
@@ -1045,6 +1046,31 @@ describe('FinishScreen with several repos', () => {
       ).toEqual(['a', '/src/other']),
     );
     await waitFor(() => expect(n).toBe(2));
+  });
+
+  it('a row whose base is unknown is not offered as "no changes"', async () => {
+    installFakeApi({
+      'tasks:finishChecks': () => ({
+        ...clean,
+        workspaces: [
+          row('home', 'r1', 'webshop'),
+          row('w2', 'r2', 'api', { baseKnown: false }),
+        ],
+      }),
+    });
+    render(<FinishScreen taskId="a" />);
+    await screen.findByRole('group', { name: 'api' });
+    expect(
+      within(group('api')).queryByLabelText('Remove, no changes (no push)'),
+    ).toBeNull();
+    expect(
+      within(group('api')).getByLabelText(
+        'Create a draft pull request into main',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(group('api')).getByText('Changes unknown'),
+    ).toBeInTheDocument();
   });
 
   it('removes a repo from the task, but not the home', async () => {

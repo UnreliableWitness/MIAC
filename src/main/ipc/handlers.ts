@@ -758,26 +758,28 @@ export function createHandlers(s: Services): Handlers {
     if (!(await exists(w.worktreePath)))
       return {
         ...base,
+        baseKnown: true,
         missing: true,
         uncommitted: [],
         unpushed: 0,
         commits: 0,
       };
     const summary = await s.git.summary(w.worktreePath, w.baseRef);
-    const commits = await s.git
+    const since = await s.git
       .finishSummary(w.worktreePath, {
         baseRef: w.baseRef,
         baseSha: w.baseSha,
         branch: w.branch,
       })
-      .then((f) => (f.baseKnown ? f.commitCount : summary.ahead))
-      .catch(() => summary.ahead);
+      .catch(() => null);
+    const baseKnown = since?.baseKnown ?? false;
     return {
       ...base,
       missing: false,
       uncommitted: summary.files,
       unpushed: summary.ahead,
-      commits,
+      commits: since && baseKnown ? since.commitCount : summary.ahead,
+      baseKnown,
     };
   };
 
@@ -949,6 +951,12 @@ export function createHandlers(s: Services): Handlers {
     wanted: { workspaceId: string; action: WorkspaceAction }[],
   ) => {
     claim(taskId, ['ready'], 'finish');
+    // PRs the previous attempt of this Finish made or linked; a retry keeps those instead of looking again.
+    const madeBefore = new Map(
+      (finishResults.get(taskId) ?? [])
+        .filter((r) => r.ok && r.pullRequest)
+        .map((r) => [r.workspaceId, r.pullRequest!.id]),
+    );
     finishResults.delete(taskId);
     try {
       const task = taskById(taskId);
@@ -1035,8 +1043,8 @@ export function createHandlers(s: Services): Handlers {
           } else if (r.action === 'pr') {
             try {
               const stored = r.w.pullRequest;
-              if (stored) {
-                // An earlier attempt made or linked it: keep it, even if it was completed or abandoned since.
+              if (stored && madeBefore.get(r.w.id) === stored.id) {
+                // The attempt just before this retry made or linked it: keep it, even if completed or abandoned since.
                 if (!onOrigin(r.summary, r.w.branch)) {
                   await s.git.push(r.w.worktreePath, 'origin', r.w.branch);
                   r.summary = markPushed(r.summary, r.w.branch);
@@ -1126,6 +1134,8 @@ export function createHandlers(s: Services): Handlers {
             dropped: rows.filter((r) => r.action === 'drop').length,
           },
         );
+        // A later Finish (after Reopen) is a new one, not a retry of this.
+        finishResults.delete(taskId);
         await syncUsageOnFinish(taskId, options, killTerminals);
       } catch (e) {
         if (taskById(taskId).status === 'finishing')

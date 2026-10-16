@@ -27,7 +27,7 @@ type Choices = Record<string, boolean>;
 
 /** No commits and a clean worktree: the wrong first guess, removed without a push by default. */
 const noChanges = (c: WorkspaceCheck) =>
-  c.commits === 0 && c.uncommitted.length === 0;
+  c.baseKnown && c.commits === 0 && c.uncommitted.length === 0;
 
 /** The row's checkbox: as the user set it, else its default (remove, or the last PR or push choice for the repo). */
 const choiceOf = (c: WorkspaceCheck, choices: Choices): boolean =>
@@ -402,6 +402,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
                 onToggle={(on) => setRow(c.workspaceId, on)}
                 openGit={openGit}
                 result={results?.find((r) => r.workspaceId === c.workspaceId)}
+                busy={busy}
                 onRemove={
                   c.workspaceId === HOME_ID
                     ? undefined
@@ -669,6 +670,7 @@ function WorkspaceRow({
   onToggle,
   openGit,
   result,
+  busy,
   onRemove,
 }: {
   check: WorkspaceCheck;
@@ -678,6 +680,7 @@ function WorkspaceRow({
   openGit: (label: string, command: string, workspaceId?: string) => void;
   /** What the last Finish did with this row, when it stopped before cleanup. */
   result?: FinishRowResult;
+  busy: boolean;
   /** Absent for the home workspace, which stays in the task. */
   onRemove?: () => void;
 }) {
@@ -695,13 +698,18 @@ function WorkspaceRow({
         <span className="mono small">{c.branch}</span>{' '}
         {!c.missing && (
           <span className="muted small">
-            {c.commits > 0 ? plural(c.commits, 'commit') : 'No commits'}
+            {c.commits > 0
+              ? plural(c.commits, 'commit')
+              : c.baseKnown
+                ? 'No commits'
+                : 'Changes unknown'}
           </span>
         )}
         {onRemove && (
           <button
             type="button"
             className="btn btn-subtle btn-sm"
+            disabled={busy}
             onClick={onRemove}
           >
             Remove from task
