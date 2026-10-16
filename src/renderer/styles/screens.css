@@ -449,6 +449,21 @@
 .sprint-row {
   cursor: pointer;
 }
+.sprint-search {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.sprint-search svg {
+  position: absolute;
+  left: 8px;
+  color: var(--muted);
+  pointer-events: none;
+}
+.sprint-search .field {
+  width: 240px;
+  padding-left: 28px;
+}
 .sprint-chevron {
   display: flex;
   justify-content: center;
