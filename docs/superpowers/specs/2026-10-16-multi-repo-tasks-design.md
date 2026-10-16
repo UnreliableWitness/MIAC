@@ -141,6 +141,7 @@ Finish rescans first, then shows one row per workspace (home first):
 - **No changes** (no commits on the branch beyond `baseSha` and a clean worktree): default action "Remove worktree and branch, no PR". This is the wrong-first-repo case, including the home workspace.
 - **Changes:** checkbox "Create a draft pull request into <base>" when the repo has an Azure DevOps connection and an Azure Repos `origin` (today's `prAvailability`), else "Push the branch" checkbox. Defaults per repo as today (`miac.ui.pr.<repoId>`).
 - Uncommitted-changes warnings per row, as today for the single worktree.
+- **Not this task's branch** (a worktree joined by hand or from a log, such as a long-lived `dev`): the row says "Not this task's branch (<branch>): kept as is" and offers no remove; push or PR only when the user ticks it (unticked by default). Finish never removes its worktree or deletes its branch, whatever the cleanup options, and main refuses a drop for it.
 - "Add a worktree…" and per-row "Remove from task".
 
 On Finish, per workspace in order (home first): summary (`finishSummary`), push, PR (find active or create, linked to the task's work item; description with that repo's commits and the **task's** total AI cost line when `writeCostToAdo` is on, marked as the whole task's cost across N repos). PRs open in the browser as today.
