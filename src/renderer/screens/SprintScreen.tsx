@@ -46,13 +46,14 @@ function TimeCell({
       ? formatDuration(spent ?? 0)
       : `${spent === null ? '–' : formatDuration(spent)} / ${formatDuration(est * 3600)}`;
   const parts: string[] = [];
-  if (local)
+  // A local task with no time yet still shows ADO Completed Work (sprintTime), so the hover says where it is from.
+  if (cell?.source === 'ado') parts.push('from Azure DevOps');
+  else if (local)
     parts.push(
       `Measured ${formatDuration(local.measuredSeconds)}`,
       `agent ${formatDuration(local.agentSeconds)}`,
       local.booked ? 'booked' : 'not booked yet',
     );
-  else if (cell?.source === 'ado') parts.push('from Azure DevOps');
   if (cell?.rolledUp) parts.push('includes child items');
   const pct =
     spent !== null && est !== null && est > 0

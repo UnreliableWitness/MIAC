@@ -14,9 +14,9 @@ const add = (a: number | null, b: number | null): number | null =>
   a === null ? b : b === null ? a : a + b;
 
 /**
- * Spent and estimate per sprint row. An item's own spent is its local time, else ADO Completed Work (never both);
- * its estimate is Original Estimate, else the recorded baseline, else Remaining + Completed. Parents add their
- * descendants (found through `parentId`) to their own figures.
+ * Spent and estimate per sprint row. An item's own spent is its local time (when there is any), else ADO Completed
+ * Work (never both); its estimate is Original Estimate, else the recorded baseline, else Remaining + Completed.
+ * Parents add their descendants (found through `parentId`) to their own figures.
  */
 export function sprintTime(
   rows: SprintRow[],
@@ -25,8 +25,11 @@ export function sprintTime(
   const cells = new Map<string, SprintTimeCell>();
   for (const { item } of rows) {
     const l = local[item.id];
-    const spentSeconds = l
-      ? l.spentSeconds
+    // A local task with nothing measured or booked yet (just started, or from before time tracking) has no
+    // spent figure of its own, so ADO Completed Work still shows; its baseline still counts for the estimate.
+    const own = l && (l.spentSeconds > 0 || l.booked) ? l : undefined;
+    const spentSeconds = own
+      ? own.spentSeconds
       : item.completedWork !== null
         ? item.completedWork * 3600
         : null;
@@ -39,7 +42,7 @@ export function sprintTime(
     cells.set(item.id, {
       spentSeconds,
       estimateHours,
-      source: l ? 'local' : item.completedWork !== null ? 'ado' : null,
+      source: own ? 'local' : item.completedWork !== null ? 'ado' : null,
       rolledUp: false,
     });
   }

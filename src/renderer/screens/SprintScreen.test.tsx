@@ -559,6 +559,38 @@ describe('filterRows', () => {
     expect(within(table).getByText('–')).toBeInTheDocument();
   });
 
+  it('shows ADO Completed Work for an item whose local task has no time yet', async () => {
+    fake({
+      'workItems:sprint': () => ({
+        ...sprint,
+        rows: [
+          row(
+            item(2, 'Task', 'Estimated delivery date', {
+              completedWork: 2,
+              remainingWork: 3,
+            }),
+          ),
+        ],
+      }),
+      'time:sprint': () => ({
+        '2': {
+          spentSeconds: 0,
+          measuredSeconds: 0,
+          agentSeconds: 0,
+          booked: false,
+          baselineHours: 4,
+        },
+      }),
+    });
+    render(<Shell />);
+    const table = await grid();
+    const cell = await within(table).findByText('2h / 4h');
+    expect(cell.closest('.sprint-time')).toHaveAttribute(
+      'title',
+      'from Azure DevOps',
+    );
+  });
+
   it('renders a pre-feature done task without time', async () => {
     useStore.setState({
       tasks: [

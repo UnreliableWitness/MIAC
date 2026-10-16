@@ -72,6 +72,36 @@ describe('sprintTime', () => {
     });
   });
 
+  it('treats a local task with no time yet as missing: ADO Completed Work, else nothing', () => {
+    const m = sprintTime(
+      [
+        row(item('1', { completedWork: 2, remainingWork: 3 })),
+        row(item('2', { remainingWork: 3 })),
+      ],
+      {
+        '1': local({ baselineHours: 4 }),
+        '2': local({ baselineHours: 6 }),
+      },
+    );
+    expect(m.get('1')).toMatchObject({
+      spentSeconds: 7200,
+      estimateHours: 4,
+      source: 'ado',
+    });
+    expect(m.get('2')).toMatchObject({
+      spentSeconds: null,
+      estimateHours: 6,
+      source: null,
+    });
+  });
+
+  it('keeps a booked zero as local time', () => {
+    const m = sprintTime([row(item('1', { completedWork: 2 }))], {
+      '1': local({ booked: true }),
+    });
+    expect(m.get('1')).toMatchObject({ spentSeconds: 0, source: 'local' });
+  });
+
   it('never adds local and ADO for one item', () => {
     const m = sprintTime([row(item('1', { completedWork: 9 }))], {
       '1': local({ spentSeconds: 3600 }),
