@@ -48,11 +48,11 @@ describe('TimeStore', () => {
     const total = () =>
       s.agentIntervals('t')['claude-code'].reduce((n, [a, b]) => n + b - a, 0);
     await add(100_000, 5);
-    expect(total()).toBe(0); // first value only sets the reference
-    await add(200_000, 8);
-    expect(total()).toBe(3000);
-    await add(300_000, 2);
     expect(total()).toBe(5000);
+    await add(200_000, 8);
+    expect(total()).toBe(8000);
+    await add(300_000, 2);
+    expect(total()).toBe(10_000);
   });
 
   it('first baseline wins', async () => {

@@ -79,9 +79,9 @@ export class TimeStore extends EventEmitter<{ changed: [taskId: string] }> {
       if (p.cumulative) {
         const last = v.claudeLast[p.sessionId];
         v.claudeLast[p.sessionId] = p.value;
-        // The first value only sets the reference; a drop is a counter reset.
-        seconds =
-          last === undefined ? 0 : p.value >= last ? p.value - last : p.value;
+        // A new session's counter starts at 0; a drop is a counter reset.
+        const prev = last ?? 0;
+        seconds = p.value >= prev ? p.value - prev : p.value;
       }
       if (seconds > 0)
         addAgentTo(v, p.taskId, 'claude-code', [
