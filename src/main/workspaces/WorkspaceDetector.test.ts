@@ -7,7 +7,7 @@ import {
 } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import {
   TaskSchema,
   type Connection,
@@ -329,6 +329,67 @@ describe('WorkspaceDetector.scan', () => {
     expect(env.taskNow().detachedPaths).toEqual([cWt]);
     expect((await env.detector.scan('t1')).added).toEqual([]);
     expect(env.events.at(-1)).toEqual({ name: 'workspace.removed' });
+  });
+});
+
+describe('WorkspaceDetector: only a ready task joins', () => {
+  it('joins nothing while the task is finishing or setting up, and add refuses', async () => {
+    for (const status of ['finishing', 'setting-up'] as const) {
+      const env = await setup({ terminals: [] });
+      const c = makeRepo('c');
+      await env.repos.add(c);
+      const cWt = worktree(c, BRANCH);
+      await env.store.update((s) => {
+        s.tasks[0].status = status;
+      });
+      expect((await env.detector.scan('t1')).added).toEqual([]);
+      await expect(env.detector.add('t1', cWt)).rejects.toThrow(
+        `Cannot add a worktree to a task that is ${status}`,
+      );
+      expect(env.taskNow().extraWorkspaces).toEqual([]);
+    }
+  });
+
+  it('does not join when the task leaves ready while the join is under way', async () => {
+    const env = await setup({ terminals: [] });
+    const c = makeRepo('c');
+    await env.repos.add(c);
+    worktree(c, BRANCH);
+    const real = env.repos.addDiscovered.bind(env.repos);
+    vi.spyOn(env.repos, 'addDiscovered').mockImplementation(async (...a) => {
+      await env.store.update((s) => {
+        s.tasks[0].status = 'finishing';
+      });
+      return real(...a);
+    });
+    expect((await env.detector.scan('t1')).added).toEqual([]);
+    expect(env.taskNow().extraWorkspaces).toEqual([]);
+    expect(env.notices).toEqual([]);
+  });
+});
+
+describe('WorkspaceDetector: a failing candidate', () => {
+  it('is skipped with a warning; the other candidates still join', async () => {
+    const env = await setup();
+    const b = repoB();
+    const bWt = worktree(b, 'x');
+    env.log(toolLine(env.homeWt, 'Edit', { file_path: path.join(bWt, 'a') }));
+    const c = makeRepo('c');
+    await env.repos.add(c);
+    const cWt = worktree(c, BRANCH);
+    const real = env.repos.addDiscovered.bind(env.repos);
+    vi.spyOn(env.repos, 'addDiscovered').mockImplementation(
+      async (repoPath, ...rest) => {
+        if (realpathSync.native(repoPath) === realpathSync.native(b))
+          throw new Error('bare repo');
+        return real(repoPath, ...rest);
+      },
+    );
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { added } = await env.detector.scan('t1');
+    expect(added.map((w) => w.worktreePath)).toEqual([cWt]);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 });
 

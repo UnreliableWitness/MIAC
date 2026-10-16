@@ -58,9 +58,11 @@ export class WorkspaceDetector {
 
   /** Joins the worktree containing `folder` by hand; a path removed before may come back this way. */
   async add(taskId: string, folder: string): Promise<Workspace> {
+    const task = this.task(taskId);
+    if (task.status !== 'ready')
+      throw new Error(`Cannot add a worktree to a task that is ${task.status}`);
     const c = await resolveCandidate(this.d.git, folder);
     if (!c) throw new Error(`${folder} is not in a git repository`);
-    const task = this.task(taskId);
     const verdict = joinVerdict(
       { ...task, detachedPaths: [] },
       this.d.store.state.tasks,
@@ -113,7 +115,8 @@ export class WorkspaceDetector {
 
   private async runScan(taskId: string): Promise<{ added: Workspace[] }> {
     const task = this.task(taskId);
-    if (task.status === 'done') return { added: [] };
+    // Finish, setup and Reopen work from the task's workspace list; it must not change under them.
+    if (task.status !== 'ready') return { added: [] };
     const found: { c: Candidate; source: Source }[] = [];
     const seen = (p: string) =>
       found.some((f) => samePath(f.c.worktreePath, p));
@@ -125,15 +128,20 @@ export class WorkspaceDetector {
 
     const added: Workspace[] = [];
     for (const { c, source } of found) {
-      const verdict = joinVerdict(
-        this.task(taskId),
-        this.d.store.state.tasks,
-        c,
-      );
-      if (verdict === 'main-checkout') await this.noteMainCheckout(taskId, c);
-      else if (verdict === 'join') {
-        const w = await this.join(taskId, c, source);
-        if (w) added.push(w);
+      // One odd candidate (a bare repo, a git error) must not cost the others their turn.
+      try {
+        const verdict = joinVerdict(
+          this.task(taskId),
+          this.d.store.state.tasks,
+          c,
+        );
+        if (verdict === 'main-checkout') await this.noteMainCheckout(taskId, c);
+        else if (verdict === 'join') {
+          const w = await this.join(taskId, c, source);
+          if (w) added.push(w);
+        }
+      } catch (e) {
+        console.warn('[workspaces] skipped a candidate', e);
       }
     }
     return { added };
@@ -157,9 +165,13 @@ export class WorkspaceDetector {
             paths.push(hit.path);
     const out: Candidate[] = [];
     for (const p of paths) {
-      const c = await resolveCandidate(this.d.git, p);
-      if (c && !out.some((o) => samePath(o.worktreePath, c.worktreePath)))
-        out.push(c);
+      try {
+        const c = await resolveCandidate(this.d.git, p);
+        if (c && !out.some((o) => samePath(o.worktreePath, c.worktreePath)))
+          out.push(c);
+      } catch (e) {
+        console.warn('[workspaces] skipped a path from a session log', e);
+      }
     }
     return out;
   }
@@ -235,7 +247,8 @@ export class WorkspaceDetector {
     let joined = false;
     await this.d.store.update((s) => {
       const t = s.tasks.find((x) => x.id === taskId);
-      if (!t) return;
+      // Finish or setup may have started while git ran.
+      if (!t || t.status !== 'ready') return;
       // Adding by hand overrides an earlier remove.
       const detachedPaths =
         source === 'manual'

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { promises as fs } from 'node:fs';
+import { existsSync, promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { Events, Handlers, PendingUpdate } from '../../shared/ipc';
 import { claudeContext, renderTaskMd, taskSlug } from '../../shared/naming';
@@ -287,7 +287,8 @@ export function createHandlers(s: Services): Handlers {
         worktreeMissing:
           t.status !== 'done' &&
           t.status !== 'setting-up' &&
-          !(await exists(t.worktreePath)),
+          // The task's working folder: the home unless Finish dropped it, then the repo that took over.
+          !(await exists(activeHome(t).worktreePath)),
       })),
     );
 
@@ -400,17 +401,17 @@ export function createHandlers(s: Services): Handlers {
     await tasksChanged();
   };
 
-  /**
-   * Claude Code starts with the task in its system prompt and waits for the user. Resuming continues the tab's own
-   * session, starts it again when the user never sent a message (nothing was saved), or continues the latest
-   * session in the worktree for tabs from before session ids.
-   */
   /** The workspace a terminal runs in; a removed or dropped one falls back to the active home. */
   const terminalWorkspace = (task: Task, def: TerminalDef) => {
     const w = taskWorkspaces(task).find((x) => x.id === def.workspaceId);
     return w && !w.dropped ? w : activeHome(task);
   };
 
+  /**
+   * Claude Code starts with the task in its system prompt and waits for the user. Resuming continues the tab's own
+   * session, starts it again when the user never sent a message (nothing was saved), or continues the latest
+   * session in the worktree for tabs from before session ids.
+   */
   const terminalCommand = (
     task: Task,
     def: TerminalDef,
@@ -419,7 +420,8 @@ export function createHandlers(s: Services): Handlers {
     if (def.kind === 'claude') {
       const cwd = terminalWorkspace(task, def).worktreePath;
       const dirs = activeWorkspaces(task)
-        .filter((w) => w.worktreePath !== cwd)
+        // A folder removed by hand would make Claude refuse to start.
+        .filter((w) => w.worktreePath !== cwd && existsSync(w.worktreePath))
         .flatMap((w) => ['--add-dir', w.worktreePath]);
       if (resume && !def.sessionId)
         return s.platform.claudeCommand(null, ['--continue', ...dirs]);
@@ -561,7 +563,10 @@ export function createHandlers(s: Services): Handlers {
    */
   const restoreSource = async (
     repoPath: string,
-    ws: Pick<WorkspaceView, 'branch' | 'summary' | 'baseSha' | 'baseRef'>,
+    ws: Pick<
+      WorkspaceView,
+      'id' | 'repoId' | 'branch' | 'summary' | 'baseSha' | 'baseRef'
+    >,
   ): Promise<{
     from: string | null;
     via: 'branch' | 'origin' | 'commit' | 'base';
@@ -577,15 +582,21 @@ export function createHandlers(s: Services): Handlers {
       return { from: head, via: 'commit' };
     if (ws.summary && ws.summary.commitCount === 0)
       return { from: ws.baseSha ?? ws.baseRef, via: 'base' };
+    // The home keeps the message it had before #48; another repo's names that repo.
+    const what =
+      ws.id === HOME_ID
+        ? `Branch ${ws.branch}`
+        : `${s.repos.list().find((r) => r.id === ws.repoId)?.name ?? path.basename(repoPath)}: branch ${ws.branch}`;
     throw new Error(
-      `Branch ${ws.branch} cannot be restored: it was deleted and is not on origin`,
+      `${what} cannot be restored: it was deleted and is not on origin`,
     );
   };
 
   const buildPlan = async (task: Task): Promise<SetupPlan> => {
     const repo = s.repos.get(task.repoId);
     const config = await s.loadConfig(repo.path);
-    const defs = task.reopen ? restoredTerminals(task) : initialTerminals(task);
+    const reopening = isReopening(task);
+    const defs = reopening ? restoredTerminals(task) : initialTerminals(task);
     return {
       taskId: task.id,
       repoPath: repo.path,
@@ -610,7 +621,7 @@ export function createHandlers(s: Services): Handlers {
         defs.length > 0 ? defs.map((d) => d.label).join(', ') : null,
       // A reopened task leaves its work item alone.
       updateWorkItem:
-        !task.reopen &&
+        !reopening &&
         Boolean(
           task.workItem &&
           taskConnectionId(task, [repo]) &&
@@ -618,7 +629,7 @@ export function createHandlers(s: Services): Handlers {
             repo.workItemOnStart.assignToMe),
         ),
       ...(task.reopen ? { restore: { from: task.reopen.from } } : {}),
-      ...(isReopening(task)
+      ...(reopening
         ? {
             // Only workspaces Reopen marked are made again; the home's mark is absent when dropped or kept.
             skipHome: task.reopen === null,
@@ -850,6 +861,9 @@ export function createHandlers(s: Services): Handlers {
     };
   };
 
+  /** Whether Finish may clean up a workspace: only one on the task's own branch. */
+  const ownBranch = (task: Task, w: WorkspaceView) => w.branch === task.branch;
+
   /** Each row's outcome of the last Finish with workspaces, so the page can show them after a failure. */
   const finishResults = new Map<string, FinishRowResult[]>();
 
@@ -1027,6 +1041,15 @@ export function createHandlers(s: Services): Handlers {
     finishResults.delete(taskId);
     try {
       const task = taskById(taskId);
+      // A worktree on another branch (a long-lived `dev` joined by hand) is not the task's to remove.
+      for (const r of wanted) {
+        if (r.action !== 'drop') continue;
+        const w = taskWorkspaces(task).find((x) => x.id === r.workspaceId);
+        if (w && !ownBranch(task, w))
+          throw new Error(
+            `${s.repos.list().find((x) => x.id === w.repoId)?.name ?? w.repoId} is not on this task's branch (${w.branch}): it is kept as is`,
+          );
+      }
       await patchTask(taskId, { status: 'finishing' });
       type Row = {
         w: WorkspaceView;
@@ -1168,6 +1191,8 @@ export function createHandlers(s: Services): Handlers {
           options.closeTerminals || options.removeWorktree || dropping;
         if (killTerminals) await closeTaskTerminals(taskId);
         for (const r of rows) {
+          // Never cleaned up: neither its worktree nor its branch belongs to this task.
+          if (!ownBranch(task, r.w)) continue;
           const drop = r.action === 'drop';
           if (
             (options.removeWorktree || drop) &&
@@ -1741,6 +1766,8 @@ export function createHandlers(s: Services): Handlers {
       return repo;
     },
     'tasks:scanWorkspaces': async (taskId) => {
+      // Finish, setup and Reopen work from the task's workspace list; it must not change under them.
+      if (taskById(taskId).status !== 'ready') return [];
       const before = JSON.stringify(taskById(taskId).mainCheckoutEdits);
       const { added } = await workspaces.scan(taskId);
       if (added.length > 0) s.broadcast('repos:changed', s.repos.list());

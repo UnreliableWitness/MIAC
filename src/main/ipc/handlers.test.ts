@@ -264,6 +264,30 @@ describe('handlers: workspaces', () => {
   });
 });
 
+describe('handlers: scans only a ready task', () => {
+  it('a scan during finishing or setup joins nothing and does not reach the detector', async () => {
+    const scan = vi.fn(async () => ({ added: [] }));
+    const hx = await harness(fakeCrypto(), {
+      workspaces: { scan } as unknown as WorkspaceDetector,
+    });
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](hx.input());
+    await done;
+    for (const status of ['finishing', 'setting-up'] as const) {
+      await hx.store.update((st) => {
+        st.tasks[0].status = status;
+      });
+      expect(await hx.h['tasks:scanWorkspaces'](t.id)).toEqual([]);
+    }
+    expect(scan).not.toHaveBeenCalled();
+    await hx.store.update((st) => {
+      st.tasks[0].status = 'ready';
+    });
+    await hx.h['tasks:scanWorkspaces'](t.id);
+    expect(scan).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('handlers: open in editor', () => {
   it('opens the home worktree, or the chosen workspace', async () => {
     const launched: { command: string; args: string[] }[] = [];
@@ -1079,6 +1103,22 @@ describe('handlers: reopen a finished task', () => {
     await hx.terminals.killAllForTask(id);
   });
 
+  it('Claude gets no --add-dir for a workspace whose folder is gone', async () => {
+    const hx = await finished({ removeWorktree: false, deleteBranch: false });
+    const extra = await withExtra(hx);
+    await hx.h['tasks:reopen'](hx.t.id);
+    rmSync(extra, { recursive: true, force: true });
+    await hx.h['terminals:open'](hx.t.id, {
+      kind: 'claude',
+      label: 'Claude Code',
+    });
+    expect(hx.calls.at(-1)?.flags).toEqual([
+      '--session-id',
+      expect.any(String),
+    ]);
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
   it('opens a shell in the workspace asked for, else in the active home', async () => {
     const hx = await finished({ removeWorktree: false, deleteBranch: false });
     const extra = await withExtra(hx);
@@ -1275,6 +1315,8 @@ describe('handlers: reopen a finished task', () => {
       home?: 'keep' | 'drop';
       extra?: 'keep' | 'drop';
       apiSetup?: string[];
+      /** Created without tabs; one Claude tab is opened by hand before Finish. */
+      noInitialTabs?: boolean;
     } = {},
   ) {
     const rec = recording();
@@ -1293,9 +1335,15 @@ describe('handlers: reopen a finished task', () => {
     commitFile(hx.repo, '.gitignore', '.env\n');
     const done = hx.setupDone();
     const t = await hx.h['tasks:create'](
-      hx.input({ startClaude: true, openShell: false, commands: [] }),
+      hx.input({
+        startClaude: !o.noInitialTabs,
+        openShell: false,
+        commands: [],
+      }),
     );
     await done;
+    if (o.noInitialTabs)
+      await hx.h['terminals:open'](t.id, { kind: 'claude', label: 'Claude' });
     const added = await hx.h['repos:add'](api);
     const wt = path.join(path.dirname(api), 'api-wt');
     git(api, 'worktree', 'add', '-q', '-b', t.branch, wt, 'main');
@@ -1411,6 +1459,50 @@ describe('handlers: reopen a finished task', () => {
       hx.before[0].sessionId,
     ]);
     await hx.terminals.killAllForTask(hx.t.id);
+  });
+
+  it('a task whose home was dropped is not "folder missing" once reopened', async () => {
+    const hx = await finishedMulti({ home: 'drop' });
+    const done = hx.setupDone();
+    await hx.h['tasks:reopen'](hx.t.id);
+    expect((await done).ok).toBe(true);
+    expect(existsSync(hx.t.worktreePath)).toBe(false);
+    const [view] = await hx.h['tasks:list']();
+    expect(view.worktreeMissing).toBe(false);
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
+  it('a dropped-home reopen of a task created without tabs brings back the tabs it had at Finish', async () => {
+    const hx = await finishedMulti({ home: 'drop', noInitialTabs: true });
+    expect(hx.before.map((d) => d.kind)).toEqual(['claude']);
+    const done = hx.setupDone();
+    await hx.h['tasks:reopen'](hx.t.id);
+    expect((await done).ok).toBe(true);
+    const state = await hx.h['tasks:setupState'](hx.t.id);
+    expect(state!.steps.at(-1)!.def).toMatchObject({
+      label: 'Restore terminals',
+      detail: 'Claude',
+    });
+    // A reopen never touches the work item.
+    expect(state!.steps.map((x) => x.def.kind)).not.toContain('workitem');
+    expect(hx.store.state.tasks[0].terminals).toEqual(hx.before);
+    expect(hx.calls.at(-1)?.flags).toEqual([
+      '--resume',
+      hx.before[0].sessionId,
+    ]);
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
+  it('names the repo whose branch cannot be restored', async () => {
+    const hx = await finishedMulti();
+    git(hx.api, 'branch', '-D', hx.t.branch);
+    await hx.store.update((st) => {
+      st.tasks[0].extraWorkspaces[0].summary = null;
+    });
+    await expect(hx.h['tasks:reopen'](hx.t.id)).rejects.toThrow(
+      `api: branch ${hx.t.branch} cannot be restored`,
+    );
+    expect(hx.store.state.tasks[0].status).toBe('done');
   });
 
   it('a failing restore of a repo fails setup at its step, and Retry resumes there', async () => {
@@ -3137,6 +3229,36 @@ describe('handlers: finish every workspace of a task', () => {
     expect(hx.opened).toEqual([
       'https://dev.azure.com/contoso/P/_git/api/pullrequest/100',
     ]);
+  });
+
+  it("never removes a worktree that is not on the task's branch, nor deletes its branch", async () => {
+    const hx = await multiHarness([{ name: 'api' }]);
+    const tools = makeRepo('tools');
+    const toolsWt = path.join(path.dirname(tools), 'tools-dev');
+    git(tools, 'worktree', 'add', '-q', '-b', 'dev', toolsWt);
+    const dev = await hx.h['tasks:addWorkspace'](hx.t.id, toolsWt);
+    expect(dev.branch).toBe('dev');
+    const rows = (action: 'drop' | 'keep') => ({
+      ...opts,
+      workspaces: [
+        { workspaceId: 'home', action: 'keep' as const },
+        { workspaceId: hx.ids[0], action: 'keep' as const },
+        { workspaceId: dev.id, action },
+      ],
+    });
+    await expect(hx.h['tasks:finish'](hx.t.id, rows('drop'))).rejects.toThrow(
+      "tools is not on this task's branch (dev): it is kept as is",
+    );
+    expect(hx.store.state.tasks[0].status).toBe('ready');
+    expect(existsSync(toolsWt)).toBe(true);
+
+    // Remove worktrees and delete branches is on: the task's own go, `dev` stays.
+    await hx.h['tasks:finish'](hx.t.id, rows('keep'));
+    expect(hx.store.state.tasks[0].status).toBe('done');
+    expect(existsSync(hx.t.worktreePath)).toBe(false);
+    expect(existsSync(hx.repos[0].wt)).toBe(false);
+    expect(existsSync(toolsWt)).toBe(true);
+    expect(await new GitClient().branchExists(tools, 'dev')).toBe(true);
   });
 
   it('marks the cost line as the whole task when several repos have changes', async () => {
