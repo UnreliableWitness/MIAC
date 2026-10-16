@@ -28,6 +28,13 @@ const errorText = (e: unknown) =>
     '',
   );
 
+/** A change that can alter the file list: a Markdown file, or a path without an extension (a folder). */
+export const affectsList = (paths: string[]): boolean =>
+  paths.some((p) => {
+    const name = p.split('/').pop() ?? '';
+    return /\.(md|markdown)$/i.test(name) || !name.includes('.');
+  });
+
 /** Targets already acted on, so returning to the tab does not replay an old terminal link. */
 const handledTargets = new Map<string, number>();
 export const resetDocTargetsForTests = () => handledTargets.clear();
@@ -41,7 +48,13 @@ export function DocsTab({ task }: { task: TaskView }) {
   const [current, setCurrent] = useState<string | null>(null);
   const [doc, setDoc] = useState<Doc | null>(null);
   const [view, setView] = useState<DocView>(() => readDocState(task.id).view);
-  const [highlight, setHighlight] = useState<number | null>(null);
+  const [highlight, setHighlight] = useState<{
+    line: number;
+    n: number;
+  } | null>(null);
+  // The line a terminal link asked for, kept after the highlight fades, for Open in VS Code.
+  const targetLine = useRef<{ path: string; line: number } | null>(null);
+  const listing = useRef({ busy: false, again: false });
   const [updated, setUpdated] = useState(false);
   const [slow, setSlow] = useState(false);
   const [live, setLive] = useState<boolean | null>(null);
@@ -52,7 +65,7 @@ export function DocsTab({ task }: { task: TaskView }) {
   const pending = useRef<{ scroll?: number; anchor?: string }>({});
   // Start from what is stored so an early persist cannot erase the remembered file.
   const saved = useRef(readDocState(task.id));
-  const timers = useRef<{ hl?: number; chip?: number; save?: number }>({});
+  const timers = useRef<{ chip?: number; save?: number }>({});
   const currentRef = useRef(current);
   currentRef.current = current;
   const docRef = useRef(doc);
@@ -63,12 +76,26 @@ export function DocsTab({ task }: { task: TaskView }) {
     writeDocState(task.id, { path: s.path, view: s.view, scroll: s.scroll });
   }, [task.id]);
 
+  /** Loads the file list; a call while one is in flight runs once more after it instead of overlapping. */
   const loadFiles = useCallback(async () => {
+    const l = listing.current;
+    if (l.busy) {
+      l.again = true;
+      return;
+    }
+    l.busy = true;
     try {
-      setFiles((await api().invoke('docs:list', task.id)).files);
-    } catch (e) {
-      notify('error', errorText(e));
-      setFiles((f) => f ?? []);
+      do {
+        l.again = false;
+        try {
+          setFiles((await api().invoke('docs:list', task.id)).files);
+        } catch (e) {
+          notify('error', errorText(e));
+          setFiles((f) => f ?? []);
+        }
+      } while (l.again);
+    } finally {
+      l.busy = false;
     }
   }, [task.id, notify]);
 
@@ -135,11 +162,9 @@ export function DocsTab({ task }: { task: TaskView }) {
         view: nextView ?? saved.current.view,
         from: opts.from,
       });
-      window.clearTimeout(timers.current.hl);
-      if (opts.line) {
-        setHighlight(opts.line);
-        timers.current.hl = window.setTimeout(() => setHighlight(null), 2000);
-      } else setHighlight(null);
+      const line = opts.line;
+      targetLine.current = line ? { path, line } : null;
+      setHighlight((h) => (line ? { line, n: (h?.n ?? 0) + 1 } : null));
       if (path === currentRef.current) {
         scrollToAnchor(scrollRef.current, opts.anchor);
         return;
@@ -157,7 +182,7 @@ export function DocsTab({ task }: { task: TaskView }) {
     void loadFiles();
     return api().on('docs:changed', (p) => {
       if (p.taskId !== task.id) return;
-      void loadFiles();
+      if (affectsList(p.paths)) void loadFiles();
       const open = currentRef.current;
       if (open && p.paths.includes(open)) void read(open, false);
     });
@@ -241,6 +266,13 @@ export function DocsTab({ task }: { task: TaskView }) {
     pending.current = {};
   }, [doc, current]);
 
+  // The highlight fades 2 s after the text it marks has rendered (a slow read must not eat it).
+  useEffect(() => {
+    if (!highlight || !doc || doc.text === null || doc.path !== current) return;
+    const id = window.setTimeout(() => setHighlight(null), 2000);
+    return () => window.clearTimeout(id);
+  }, [highlight, doc, current]);
+
   // Without a live watcher, poll the open file.
   useEffect(() => {
     if (live !== false || !current) return;
@@ -263,7 +295,6 @@ export function DocsTab({ task }: { task: TaskView }) {
   useEffect(
     () => () => {
       const t = timers.current;
-      window.clearTimeout(t.hl);
       window.clearTimeout(t.chip);
       if (t.save !== undefined) {
         window.clearTimeout(t.save);
@@ -344,7 +375,13 @@ export function DocsTab({ task }: { task: TaskView }) {
             className="btn btn-subtle btn-sm"
             disabled={!current}
             onClick={() =>
-              current && void openInEditor(current, highlight ?? undefined)
+              current &&
+              void openInEditor(
+                current,
+                targetLine.current?.path === current
+                  ? targetLine.current.line
+                  : undefined,
+              )
             }
           >
             <Code16Regular aria-hidden="true" />
@@ -383,7 +420,7 @@ export function DocsTab({ task }: { task: TaskView }) {
             current={current}
             slow={slow}
             view={view}
-            highlight={highlight}
+            highlight={highlight?.line ?? null}
             onRetry={(path) => void read(path, true)}
             onOpenDoc={(p, anchor) =>
               openPath(p, { from: 'link', view: 'rendered', anchor })

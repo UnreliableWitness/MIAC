@@ -232,4 +232,114 @@ describe('DocsTab', () => {
     );
     expect(screen.queryByRole('heading', { name: 'Task file' })).toBeNull();
   });
+
+  it('keeps passing the target line to VS Code after the highlight fades', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const api = mount();
+      act(() =>
+        useStore.setState({
+          docTarget: { t1: { path: 'docs/plan.md', line: 3, nonce: 3 } },
+        }),
+      );
+      await waitFor(() =>
+        expect(document.querySelector('.src-line.is-hl')).not.toBeNull(),
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2500);
+      });
+      expect(document.querySelector('.src-line.is-hl')).toBeNull();
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Open in VS Code' }),
+      );
+      expect(
+        api.calls.find((c) => c.channel === 'docs:openInEditor')?.args,
+      ).toEqual(['t1', 'docs/plan.md', 3]);
+      // Another file has no target line.
+      await userEvent.click(screen.getByRole('button', { name: /README\.md/ }));
+      await screen.findByText('# Readme');
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Open in VS Code' }),
+      );
+      expect(
+        api.calls.filter((c) => c.channel === 'docs:openInEditor').at(-1)?.args,
+      ).toEqual(['t1', 'README.md']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('starts the highlight timer once the text has rendered', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let release: () => void = () => undefined;
+      mount({
+        'docs:read': async (_t: string, p: string) => {
+          if (p === 'docs/plan.md')
+            await new Promise<void>((r) => (release = r));
+          return { text: texts[p], mtimeMs: 1 };
+        },
+      });
+      await screen.findByRole('heading', { name: 'Task file' });
+      act(() =>
+        useStore.setState({
+          docTarget: { t1: { path: 'docs/plan.md', line: 3, nonce: 4 } },
+        }),
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2500);
+      });
+      await act(async () => {
+        release();
+        await vi.advanceTimersByTimeAsync(10);
+      });
+      await waitFor(() =>
+        expect(
+          document.querySelector('.src-line.is-hl')?.getAttribute('data-line'),
+        ).toBe('3'),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('reloads the list only for Markdown or extensionless paths', async () => {
+    const api = mount();
+    await screen.findByRole('heading', { name: 'Task file' });
+    const lists = () =>
+      api.calls.filter((c) => c.channel === 'docs:list').length;
+    const before = lists();
+    act(() =>
+      api.emit('docs:changed', {
+        taskId: 't1',
+        paths: ['src/a.ts', 'dist/b.js', 'x.json'],
+      }),
+    );
+    await Promise.resolve();
+    expect(lists()).toBe(before);
+    act(() => api.emit('docs:changed', { taskId: 't1', paths: ['docs/c.MD'] }));
+    await waitFor(() => expect(lists()).toBe(before + 1));
+    act(() => api.emit('docs:changed', { taskId: 't1', paths: ['docs/new'] }));
+    await waitFor(() => expect(lists()).toBe(before + 2));
+  });
+  it('coalesces list reloads while one is in flight', async () => {
+    let held: (() => void)[] = [];
+    const api = mount({
+      'docs:list': async () => {
+        await new Promise<void>((r) => held.push(r));
+        return { files };
+      },
+    });
+    await waitFor(() => expect(held).toHaveLength(1));
+    const releaseAll = () => {
+      const h = held;
+      held = [];
+      for (const r of h) r();
+    };
+    for (let i = 0; i < 5; i++)
+      act(() => api.emit('docs:changed', { taskId: 't1', paths: ['a.md'] }));
+    await act(async () => releaseAll());
+    await waitFor(() => expect(held).toHaveLength(1));
+    await act(async () => releaseAll());
+    await screen.findByRole('heading', { name: 'Task file' });
+    expect(api.calls.filter((c) => c.channel === 'docs:list')).toHaveLength(2);
+  });
 });
