@@ -19,27 +19,24 @@ const root = path.resolve(
   '../..',
 );
 const dir = path.join(root, 'assets/icon');
-const big = readFileSync(path.join(dir, 'miac.svg'), 'utf8');
-const small = readFileSync(path.join(dir, 'miac-small.svg'), 'utf8');
+const read = (name) => readFileSync(path.join(dir, name), 'utf8');
+const windows = { big: read('miac.svg'), small: read('miac-small.svg') };
+const mac = { big: read('miac-mac.svg'), small: read('miac-mac-small.svg') };
 const SIZES = [16, 24, 32, 48, 64, 128, 256, 512, 1024];
 
-// The SVGs draw the mark in the 384-unit block at 64,64. Windows icons fill their square, so the PNGs and .ico crop
-// to the block (stripes stay on the pixel grid: 4 px at 16 px). macOS icons sit on Apple's grid (824 of 1024), so
-// the .icns keeps a margin from 48 px up; its 16 and 32 px keep the SVG's own margin (3 px stripes at 16 px).
-const WINDOWS = '64 64 384 384';
-const MAC = '18 18 476 476';
-const render = (size, viewBox) => {
-  const svg = (size <= 32 ? small : big).replace(
-    /viewBox="[^"]*"/,
-    `viewBox="${viewBox ?? '0 0 512 512'}"`,
+// Each SVG draws its platform's whole icon: Windows on a near-full-bleed tile, macOS on Apple's grid (a tile of
+// 824 of 1024, centred). 16-32 px use the -small drawings: thicker hulls, no stars.
+const render = (set, size) =>
+  Buffer.from(
+    new Resvg(size <= 32 ? set.small : set.big, {
+      fitTo: { mode: 'width', value: size },
+    })
+      .render()
+      .asPng(),
   );
-  return Buffer.from(
-    new Resvg(svg, { fitTo: { mode: 'width', value: size } }).render().asPng(),
-  );
-};
 
 mkdirSync(path.join(dir, 'png'), { recursive: true });
-const pngs = new Map(SIZES.map((s) => [s, render(s, WINDOWS)]));
+const pngs = new Map(SIZES.map((s) => [s, render(windows, s)]));
 for (const [s, png] of pngs)
   writeFileSync(path.join(dir, 'png', `${s}.png`), png);
 writeFileSync(
@@ -74,10 +71,7 @@ for (const [name, size] of [
   ['512x512', 512],
   ['512x512@2x', 1024],
 ])
-  writeFileSync(
-    path.join(set, `icon_${name}.png`),
-    render(size, size <= 32 ? null : MAC),
-  );
+  writeFileSync(path.join(set, `icon_${name}.png`), render(mac, size));
 execFileSync('iconutil', [
   '-c',
   'icns',

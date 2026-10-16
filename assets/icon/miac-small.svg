@@ -1,11 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <!-- For 16-32 px: stripes are 96 units (3 px at 16 px) on the pixel grid; the swoosh tip is thicker. -->
+  <!-- Windows, 16-32 px: the same trimaran with thicker hulls and wings, on the tile without stars. -->
   <defs>
-    <clipPath id="block"><rect x="64" y="64" width="384" height="384"/></clipPath>
+    <linearGradient id="deep" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#164475"/>
+      <stop offset="1" stop-color="#071a31"/>
+    </linearGradient>
   </defs>
-  <rect x="64" y="64" width="96" height="384" fill="#003a6c"/>
-  <rect x="160" y="64" width="96" height="384" fill="#005ba1"/>
-  <rect x="256" y="64" width="96" height="384" fill="#0f6cbd"/>
-  <rect x="352" y="64" width="96" height="384" fill="#2b88d8"/>
-  <path clip-path="url(#block)" d="M0 340 Q250 290 512 80 L512 132 Q270 390 0 475 Z" fill="#fff"/>
+  <rect x="0" y="0" width="512" height="512" rx="88" fill="url(#deep)"/>
+  <g transform="rotate(35 256 256) translate(256 256) scale(.9) translate(-256 -250)">
+    <polygon points="230,226 230,322 160,390 160,292" fill="#005ba1"/>
+    <polygon points="282,226 282,322 352,390 352,292" fill="#003a6c"/>
+    <polygon points="160,160 128,240 136,428 160,428" fill="#2b88d8"/>
+    <polygon points="160,160 192,240 184,428 160,428" fill="#0f6cbd"/>
+    <polygon points="352,160 320,240 328,428 352,428" fill="#0f6cbd"/>
+    <polygon points="352,160 384,240 376,428 352,428" fill="#004e8c"/>
+    <polygon points="256,16 216,150 224,474 256,474" fill="#cfe6fb"/>
+    <polygon points="256,16 296,150 288,474 256,474" fill="#2b88d8"/>
+  </g>
 </svg>
