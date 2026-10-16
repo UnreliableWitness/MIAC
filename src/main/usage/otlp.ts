@@ -112,3 +112,57 @@ export function parseClaudeLogs(body: unknown): {
   }
   return { events, skipped };
 }
+
+export type ClaudeActive = {
+  taskId: string;
+  sessionId: string;
+  endMs: number;
+  value: number;
+  cumulative: boolean;
+};
+
+/** Picks `claude_code.active_time.total` points of type `cli` tagged with `miac.task.id` out of an OTLP/HTTP JSON metrics body. */
+export function parseClaudeActiveTime(body: unknown): ClaudeActive[] {
+  const out: ClaudeActive[] = [];
+  if (!isObj(body)) return out;
+  for (const rm of arr(body.resourceMetrics)) {
+    if (!isObj(rm)) continue;
+    const resource = attrMap(
+      isObj(rm.resource) ? rm.resource.attributes : undefined,
+    );
+    for (const sm of arr(rm.scopeMetrics)) {
+      if (!isObj(sm)) continue;
+      for (const metric of arr(sm.metrics)) {
+        if (
+          !isObj(metric) ||
+          metric.name !== 'claude_code.active_time.total' ||
+          !isObj(metric.sum)
+        )
+          continue;
+        const cumulative = metric.sum.aggregationTemporality === 2;
+        for (const dp of arr(metric.sum.dataPoints)) {
+          if (!isObj(dp)) continue;
+          const attrs = { ...resource, ...attrMap(dp.attributes) };
+          if (attrs.type !== 'cli') continue;
+          const taskId = str(attrs['miac.task.id']);
+          if (!taskId) continue;
+          const raw = dp.asDouble ?? dp.asInt;
+          const value =
+            typeof raw === 'number' || typeof raw === 'string'
+              ? Number(raw)
+              : Number.NaN;
+          const endMs = Math.floor(Number(dp.timeUnixNano) / 1e6);
+          if (!Number.isFinite(value) || value < 0 || !(endMs > 0)) continue;
+          out.push({
+            taskId,
+            sessionId: str(attrs['session.id']) || 'unknown-session',
+            endMs,
+            value,
+            cumulative,
+          });
+        }
+      }
+    }
+  }
+  return out;
+}

@@ -1,3 +1,4 @@
+import type { Interval } from '../../shared/time';
 import type { UsageEvent } from '../../shared/usage';
 import { attrMap, int, nanosToIso, safeIso } from './otlp';
 
@@ -52,6 +53,53 @@ function toEvent(span: Obj, taskId: string): UsageEvent | 'unreadable' | null {
   };
 }
 
+function spansOf(doc: Obj): unknown[] {
+  return Array.isArray(doc.resourceSpans)
+    ? doc.resourceSpans.flatMap((rs) =>
+        isObj(rs)
+          ? arr(rs.scopeSpans).flatMap((ss) => (isObj(ss) ? arr(ss.spans) : []))
+          : [],
+      )
+    : typeof doc.name === 'string'
+      ? [doc]
+      : [];
+}
+
+/** A span time as epoch ms, from `[sec, nanos]` or unix nanos; null when missing. */
+function spanMs(pair: unknown, nanos: unknown): number | null {
+  if (Array.isArray(pair) && pair.length === 2) {
+    const [sec, ns] = pair.map(Number);
+    if (Number.isFinite(sec)) return sec * 1000 + Math.floor((ns || 0) / 1e6);
+  }
+  const v =
+    typeof nanos === 'string' || typeof nanos === 'number'
+      ? Number(nanos)
+      : Number.NaN;
+  return v > 0 ? Math.floor(v / 1e6) : null;
+}
+
+/** Time spans of agent work (`invoke_agent*`, `chat*`, `execute_tool*`) in one exporter line; spans without a start and an end are skipped. */
+export function copilotAgentIntervals(line: string): Interval[] {
+  if (!line.trim()) return [];
+  let doc: unknown;
+  try {
+    doc = JSON.parse(line);
+  } catch {
+    return [];
+  }
+  if (!isObj(doc)) return [];
+  const out: Interval[] = [];
+  for (const span of spansOf(doc)) {
+    if (!isObj(span)) continue;
+    const name = s(span.name);
+    if (!/^(invoke_agent|chat|execute_tool)/.test(name)) continue;
+    const start = spanMs(span.startTime, span.startTimeUnixNano);
+    const end = spanMs(span.endTime, span.endTimeUnixNano);
+    if (start !== null && end !== null && end >= start) out.push([start, end]);
+  }
+  return out;
+}
+
 /** One line of the Copilot CLI file exporter. The task comes from the file name, not the line. */
 export function parseCopilotLine(
   line: string,
@@ -67,16 +115,7 @@ export function parseCopilotLine(
     return out;
   }
   if (!isObj(doc)) return out;
-  const spans: unknown[] = Array.isArray(doc.resourceSpans)
-    ? doc.resourceSpans.flatMap((rs) =>
-        isObj(rs)
-          ? arr(rs.scopeSpans).flatMap((ss) => (isObj(ss) ? arr(ss.spans) : []))
-          : [],
-      )
-    : typeof doc.name === 'string'
-      ? [doc]
-      : [];
-  for (const span of spans) {
+  for (const span of spansOf(doc)) {
     if (!isObj(span)) continue;
     const e = toEvent(span, taskId);
     if (e === 'unreadable') out.unreadable++;

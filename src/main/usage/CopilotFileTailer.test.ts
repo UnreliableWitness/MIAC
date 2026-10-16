@@ -39,6 +39,25 @@ function setup() {
   };
 }
 
+describe('CopilotFileTailer agent intervals', () => {
+  it('hands span intervals per task to onAgent', async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'miac-cop-'));
+    dirs.push(dir);
+    const got: [string, [number, number][]][] = [];
+    const tailer = new CopilotFileTailer(
+      dir,
+      () => undefined,
+      (t, ivs) => got.push([t, ivs]),
+    );
+    writeFileSync(
+      path.join(dir, 'task-z.jsonl'),
+      `${JSON.stringify({ name: 'invoke_agent a', startTime: [10, 0], endTime: [20, 0] })}\n`,
+    );
+    await tailer.poll();
+    expect(got).toEqual([['task-z', [[10000, 20000]]]]);
+  });
+});
+
 describe('CopilotFileTailer', () => {
   it('reads new complete lines per task file and keeps its offset', async () => {
     const { dir, got, tailer } = setup();
