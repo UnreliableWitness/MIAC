@@ -12,6 +12,7 @@ import { WorkspaceDetector } from '../workspaces/WorkspaceDetector';
 import type {
   Connection,
   FinishOptions,
+  FinishRowResult,
   MiacConfig,
   PullRequestRef,
   SetupEvent,
@@ -780,6 +781,9 @@ export function createHandlers(s: Services): Handlers {
     };
   };
 
+  /** Each row's outcome of the last Finish with workspaces, so the page can show them after a failure. */
+  const finishResults = new Map<string, FinishRowResult[]>();
+
   /** A summary taken before the push would say "local only" on the Done page. */
   const markPushed = (
     summary: TaskSummary | null,
@@ -945,6 +949,7 @@ export function createHandlers(s: Services): Handlers {
     wanted: { workspaceId: string; action: WorkspaceAction }[],
   ) => {
     claim(taskId, ['ready'], 'finish');
+    finishResults.delete(taskId);
     try {
       const task = taskById(taskId);
       await patchTask(taskId, { status: 'finishing' });
@@ -983,38 +988,104 @@ export function createHandlers(s: Services): Handlers {
         ).length;
         const costScope = withChanges > 1 ? { repos: withChanges } : undefined;
         const failures: string[] = [];
+        const results: FinishRowResult[] = [];
         for (const r of rows) {
-          if (r.action === 'push') {
+          const result: FinishRowResult = {
+            workspaceId: r.w.id,
+            action: r.action,
+            ok: true,
+            pushed: false,
+            pullRequest: null,
+            error: null,
+          };
+          results.push(result);
+          const fail = (error: string, text: string) => {
+            result.ok = false;
+            result.error = error;
+            failures.push(text);
+          };
+          if (r.action === 'drop') {
+            // The page judged "no changes" when it loaded; Claude may have worked since. Never force-remove work.
+            const files = await s.git
+              .summary(r.w.worktreePath, r.w.baseRef)
+              .then((x) => x.files)
+              .catch(() => null);
+            const changed =
+              !r.summary ||
+              !r.summary.baseKnown ||
+              r.summary.commitCount > 0 ||
+              files === null ||
+              files.length > 0;
+            if (changed) {
+              const error = `${r.repoName} has changes now; reload Finish`;
+              fail(error, `Not removed: ${error}`);
+            }
+          } else if (r.action === 'push') {
             try {
               if (!onOrigin(r.summary, r.w.branch)) {
                 await s.git.push(r.w.worktreePath, 'origin', r.w.branch);
                 r.summary = markPushed(r.summary, r.w.branch);
               }
+              result.pushed = true;
             } catch (e) {
               const message = e instanceof Error ? e.message : String(e);
               tel.event('pr.failed', { kind: 'git' });
-              failures.push(`Branch not pushed for ${r.repoName}: ${message}`);
+              fail(message, `Branch not pushed for ${r.repoName}: ${message}`);
             }
           } else if (r.action === 'pr') {
             try {
-              const pr = await openPullRequest(task, r.w, r.summary, costScope);
-              r.summary = pr.summary;
-              await patchWorkspace(taskId, r.w.id, { pullRequest: pr.ref });
-              // A retry links the PR it made before; that one is open in the browser already.
-              if (r.w.pullRequest?.id !== pr.ref.id)
+              const stored = r.w.pullRequest;
+              if (stored) {
+                // An earlier attempt made or linked it: keep it, even if it was completed or abandoned since.
+                if (!onOrigin(r.summary, r.w.branch)) {
+                  await s.git.push(r.w.worktreePath, 'origin', r.w.branch);
+                  r.summary = markPushed(r.summary, r.w.branch);
+                }
+                result.pullRequest = {
+                  id: stored.id,
+                  url: stored.url,
+                  linked: true,
+                };
+              } else {
+                const pr = await openPullRequest(
+                  task,
+                  r.w,
+                  r.summary,
+                  costScope,
+                );
+                r.summary = pr.summary;
+                await patchWorkspace(taskId, r.w.id, { pullRequest: pr.ref });
                 void s.openExternal(pr.ref.url).catch(() => undefined);
+                result.pullRequest = {
+                  id: pr.ref.id,
+                  url: pr.ref.url,
+                  linked: pr.existed,
+                };
+              }
+              result.pushed = true;
             } catch (e) {
               const message = e instanceof Error ? e.message : String(e);
               tel.event('pr.failed', {
                 kind: e instanceof AdoError ? e.kind : 'git',
               });
-              failures.push(
+              fail(
+                message,
                 `Pull request not created for ${r.repoName}: ${message}`,
               );
             }
           }
         }
+        finishResults.set(taskId, results);
         if (failures.length > 0) throw new Error(failures.join('; '));
+
+        // Summaries first: a cleanup that fails midway must not lose what the branches did.
+        await s.store.update((st) => {
+          const t = st.tasks.find((x) => x.id === taskId);
+          if (!t) return;
+          for (const r of rows)
+            if (r.action !== 'drop')
+              setWorkspace(t, r.w.id, { summary: r.summary });
+        });
 
         const dropping = rows.some((r) => r.action === 'drop');
         // As for a single repo: removing a worktree closes the terminals, which would block it on Windows.
@@ -1035,16 +1106,10 @@ export function createHandlers(s: Services): Handlers {
           }
           if (drop) await patchWorkspace(taskId, r.w.id, { dropped: true });
         }
-        await s.store.update((st) => {
-          const t = st.tasks.find((x) => x.id === taskId);
-          if (!t) return;
-          for (const r of rows)
-            if (r.action !== 'drop')
-              setWorkspace(t, r.w.id, { summary: r.summary });
-          t.status = 'done';
-          t.finishedAt = new Date().toISOString();
+        await patchTask(taskId, {
+          status: 'done',
+          finishedAt: new Date().toISOString(),
         });
-        await tasksChanged();
         tel.event(
           'task.finished',
           {
@@ -1246,7 +1311,8 @@ export function createHandlers(s: Services): Handlers {
       return s.git.summary(w.worktreePath, w.baseRef);
     },
     'tasks:finishChecks': async (taskId) => {
-      await workspaces.scan(taskId);
+      // A scan error must never keep the user from finishing.
+      await workspaces.scan(taskId).catch(() => undefined);
       const task = taskById(taskId);
       const checks: WorkspaceCheck[] = [];
       for (const w of activeWorkspaces(task))
@@ -1265,6 +1331,7 @@ export function createHandlers(s: Services): Handlers {
         workspaces: checks,
       };
     },
+    'tasks:finishResults': async (taskId) => finishResults.get(taskId) ?? null,
     'tasks:reopen': async (taskId) => {
       claim(taskId, ['done'], 'reopen');
       let setup = false;

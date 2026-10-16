@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import type {
   FinishChecks,
+  FinishRowResult,
   WorkspaceAction,
   WorkspaceCheck,
 } from '../../shared/types';
-import { activeWorkspaces } from '../../shared/workspaces';
+import { activeWorkspaces, HOME_ID } from '../../shared/workspaces';
 import { api, tryInvoke } from '../api';
 import { eur } from '../format';
 import { useTaskUsage } from '../hooks/useTaskUsage';
@@ -21,8 +22,6 @@ import {
 
 const ELLIPSIS = String.fromCharCode(0x2026);
 const PR_FAILED = 'Pull request not created: ';
-/** How main names a row that failed when the task has several repos. */
-const ROW_FAILED = /(Pull request not created|Branch not pushed) for /;
 
 type Choices = Record<string, boolean>;
 
@@ -80,7 +79,8 @@ export function FinishScreen({ taskId }: { taskId: string }) {
   const [prLoaded, setPrLoaded] = useState(false);
   // With several repos: each row's checkbox once the user touched it.
   const [rowChoice, setRowChoice] = useState<Choices>({});
-  const [failedRows, setFailedRows] = useState<string[]>([]);
+  // Each row's outcome of a Finish that stopped before cleanup.
+  const [results, setResults] = useState<FinishRowResult[] | null>(null);
   const ready = task?.status === 'ready';
   const usage = useTaskUsage(ready ? taskId : null);
   const repo = useStore((s) => s.repos.find((r) => r.id === task?.repoId));
@@ -260,7 +260,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
   const finishRows = async (choices: Choices, withoutPr = false) => {
     setBusy(true);
     setFinishError(null);
-    setFailedRows([]);
+    setResults(null);
     // The choices are saved when Finish is clicked; leaving out a failed PR is not a new preference.
     if (!withoutPr)
       for (const c of rows)
@@ -291,16 +291,16 @@ export function FinishScreen({ taskId }: { taskId: string }) {
           workspaces,
         });
       } catch (e) {
-        const m = e instanceof Error ? e.message : '';
-        const at = m.search(ROW_FAILED);
-        if (at < 0) throw e;
+        // Main keeps each row's outcome; without a failed row this is another error, shown as a notice.
+        const outcome = await api()
+          .invoke('tasks:finishResults', taskId)
+          .catch(() => null);
+        const failed = outcome?.filter((r) => !r.ok) ?? [];
+        if (!outcome || failed.length === 0) throw e;
         rowFailed = true;
-        const text = m.slice(at);
-        setFinishError(text);
-        setFailedRows(
-          rows
-            .filter((c) => text.includes(`for ${c.repoName}: `))
-            .map((c) => c.workspaceId),
+        setResults(outcome);
+        setFinishError(
+          `Finish stopped before cleanup: ${plural(failed.length, 'repo')} failed. Nothing was removed.`,
         );
         return false;
       }
@@ -318,11 +318,11 @@ export function FinishScreen({ taskId }: { taskId: string }) {
   /** Like the single-repo Finish without PR, for the failed rows only: untick them, and finish if nothing is lost. */
   const finishRowsWithoutPr = async () => {
     const next = { ...rowChoice };
-    for (const id of failedRows) next[id] = false;
+    for (const r of results ?? []) if (!r.ok) next[r.workspaceId] = false;
     setRowChoice(next);
     if (dirtyRows(rows, Boolean(checksFailed), next)) {
       setFinishError(null);
-      setFailedRows([]);
+      setResults(null);
       return;
     }
     await finishRows(next, true);
@@ -332,7 +332,35 @@ export function FinishScreen({ taskId }: { taskId: string }) {
     setRowChoice((c) => ({ ...c, [id]: on }));
     // A stale error's Retry would otherwise run with the new choice and no fresh look.
     setFinishError(null);
-    setFailedRows([]);
+    setResults(null);
+  };
+
+  /** After the task's repos changed, the rows are judged again from fresh checks. */
+  const reloadRows = async () => {
+    setFinishError(null);
+    setResults(null);
+    await loadChecks(stillHere);
+  };
+
+  const addWorktree = async () => {
+    const folder = await tryInvoke(
+      () => api().invoke('repos:pickFolder'),
+      notify,
+    );
+    if (!folder) return;
+    const added = await tryInvoke(
+      () => api().invoke('tasks:addWorkspace', taskId, folder),
+      notify,
+    );
+    if (added) await reloadRows();
+  };
+
+  const removeRow = async (workspaceId: string) => {
+    const removed = await tryInvoke(async () => {
+      await api().invoke('tasks:removeWorkspace', taskId, workspaceId);
+      return true;
+    }, notify);
+    if (removed) await reloadRows();
   };
 
   const dirty = multi
@@ -373,8 +401,26 @@ export function FinishScreen({ taskId }: { taskId: string }) {
                 action={actionOf(c, rowChoice)}
                 onToggle={(on) => setRow(c.workspaceId, on)}
                 openGit={openGit}
+                result={results?.find((r) => r.workspaceId === c.workspaceId)}
+                onRemove={
+                  c.workspaceId === HOME_ID
+                    ? undefined
+                    : () => void removeRow(c.workspaceId)
+                }
               />
             ))}
+          {(checks || checksFailed) && (
+            <div>
+              <button
+                type="button"
+                className="btn btn-sm"
+                disabled={busy}
+                onClick={() => void addWorktree()}
+              >
+                Add a worktree{ELLIPSIS}
+              </button>
+            </div>
+          )}
           {checks &&
             !multi &&
             (checks.uncommitted.length > 0 ? (
@@ -532,6 +578,15 @@ export function FinishScreen({ taskId }: { taskId: string }) {
               Removing the worktree folder closes its terminals too.
             </div>
           )}
+          {multi &&
+            !removeWorktree &&
+            !closeTerminals &&
+            nTerm > 0 &&
+            rows.some((c) => actionOf(c, rowChoice) === 'drop') && (
+              <div className="muted small">
+                Removing a repo without changes closes the terminals too.
+              </div>
+            )}
           {!removeWorktree && deleteBranch && (
             <div className="muted small">
               The branch cannot be deleted while its worktree folder exists.
@@ -613,13 +668,26 @@ function WorkspaceRow({
   action,
   onToggle,
   openGit,
+  result,
+  onRemove,
 }: {
   check: WorkspaceCheck;
   on: boolean;
   action: WorkspaceAction;
   onToggle: (on: boolean) => void;
   openGit: (label: string, command: string, workspaceId?: string) => void;
+  /** What the last Finish did with this row, when it stopped before cleanup. */
+  result?: FinishRowResult;
+  /** Absent for the home workspace, which stays in the task. */
+  onRemove?: () => void;
 }) {
+  const done = result?.ok
+    ? result.pullRequest
+      ? `Pull request #${result.pullRequest.id} ${result.pullRequest.linked ? 'linked' : 'created'}`
+      : result.action === 'push' && result.pushed
+        ? 'Pushed'
+        : null
+    : null;
   return (
     <div className="finish-workspace" role="group" aria-label={c.repoName}>
       <div className="finish-workspace-head">
@@ -630,7 +698,28 @@ function WorkspaceRow({
             {c.commits > 0 ? plural(c.commits, 'commit') : 'No commits'}
           </span>
         )}
+        {onRemove && (
+          <button
+            type="button"
+            className="btn btn-subtle btn-sm"
+            onClick={onRemove}
+          >
+            Remove from task
+          </button>
+        )}
       </div>
+      {done && (
+        <div className="check check-ok">
+          <span aria-hidden="true">{G.OK}</span>
+          <div className="body">{done}</div>
+        </div>
+      )}
+      {result && !result.ok && (
+        <div className="check check-warn">
+          <span aria-hidden="true">{G.WARN}</span>
+          <div className="body">{result.error}</div>
+        </div>
+      )}
       {c.missing ? (
         <div className="muted small">Folder missing, skipped</div>
       ) : (

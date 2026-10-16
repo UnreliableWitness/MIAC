@@ -4,6 +4,7 @@ import type {
   CreateTaskInput,
   FinishChecks,
   FinishOptions,
+  FinishRowResult,
   GitSummary,
   Iteration,
   MiacConfig,
@@ -122,6 +123,11 @@ export type Channels = {
     result: GitSummary;
   };
   'tasks:finishChecks': { args: [taskId: string]; result: FinishChecks };
+  /** Each row's outcome of the last Finish with workspaces (null before one ran); read after a failed Finish. */
+  'tasks:finishResults': {
+    args: [taskId: string];
+    result: FinishRowResult[] | null;
+  };
   /** Brings a finished task back: `setup` is true when its worktree is being made again (Setup page). */
   'tasks:reopen': { args: [taskId: string]; result: { setup: boolean } };
   'tasks:finish': {

@@ -25,6 +25,7 @@ import { TaskStore } from '../services/TaskStore';
 import type { Telemetry } from '../telemetry/AppInsightsClient';
 import { TerminalManager } from '../services/TerminalManager';
 import { DocsWatcher } from '../docs/DocsWatcher';
+import type { WorkspaceDetector } from '../workspaces/WorkspaceDetector';
 import {
   addOrigin,
   cleanupTempRepos,
@@ -2651,7 +2652,14 @@ describe('handlers: finish every workspace of a task', () => {
     await hx.h['repos:setConnection'](hx.added.id, c.id);
     const done = hx.setupDone();
     const t = await hx.h['tasks:create'](
-      hx.input({ baseRef: 'origin/main', openShell: false, ...over }),
+      hx.input({
+        baseRef: 'origin/main',
+        openShell: false,
+        // No copied or generated files: the home worktree is clean, as a real one with a .gitignore is.
+        copy: false,
+        commands: [],
+        ...over,
+      }),
     );
     await done;
     const remotes = new Map<string, string>([[hx.repo, HOME_REMOTE]]);
@@ -2876,10 +2884,46 @@ describe('handlers: finish every workspace of a task', () => {
     expect(hx.opened).toEqual([
       'https://dev.azure.com/contoso/P/_git/api/pullrequest/100',
     ]);
+    expect(await hx.h['tasks:finishResults'](hx.t.id)).toEqual([
+      {
+        workspaceId: 'home',
+        action: 'drop',
+        ok: true,
+        pushed: false,
+        pullRequest: null,
+        error: null,
+      },
+      {
+        workspaceId: hx.ids[0],
+        action: 'pr',
+        ok: true,
+        pushed: true,
+        pullRequest: {
+          id: 100,
+          url: 'https://dev.azure.com/contoso/P/_git/api/pullrequest/100',
+          linked: false,
+        },
+        error: null,
+      },
+      {
+        workspaceId: hx.ids[1],
+        action: 'pr',
+        ok: false,
+        pushed: false,
+        pullRequest: null,
+        error: '! [rejected] (fetch first)',
+      },
+    ]);
 
     failDocs = false;
     hx.push.mockClear();
+    // The api PR was completed meanwhile: the retry keeps the stored one instead of making a second.
+    const findActive = vi.mocked(
+      hx.clients.get(hx.c.id)!.findActivePullRequest,
+    );
+    findActive.mockClear();
     await hx.h['tasks:finish'](hx.t.id, finishAll);
+    expect(findActive.mock.calls.map((c) => c[1])).toEqual(['id-docs']);
     expect(hx.push.mock.calls.map((c) => c[0])).toEqual([hx.repos[1].wt]);
     expect(hx.created.map((x) => x.repo)).toEqual(['api', 'docs']);
     expect(ws(hx, hx.ids[0]).pullRequest).toMatchObject({ id: 100 });
@@ -2917,6 +2961,79 @@ describe('handlers: finish every workspace of a task', () => {
     expect(ws(hx, hx.ids[0]).pullRequest).toBeNull();
     expect(existsSync(hx.repos[0].wt)).toBe(false);
     expect(existsSync(hx.repos[1].wt)).toBe(false);
+  });
+
+  it('refuses to drop a repo that got changes after the checks, and cleans up nothing', async () => {
+    const hx = await multiHarness([{ name: 'api' }]);
+    commitFile(hx.repos[0].wt, 'api.txt', 'a\n', 'API change');
+    const checks = await hx.h['tasks:finishChecks'](hx.t.id);
+    expect(checks.workspaces[0]).toMatchObject({ commits: 0, uncommitted: [] });
+    // Claude keeps working while the Finish page is open.
+    commitFile(hx.t.worktreePath, 'late.txt', 'a\n', 'Late change');
+    await expect(
+      hx.h['tasks:finish'](hx.t.id, {
+        ...opts,
+        workspaces: [
+          { workspaceId: 'home', action: 'drop' },
+          { workspaceId: hx.ids[0], action: 'push' },
+        ],
+      }),
+    ).rejects.toThrow('webshop has changes now; reload Finish');
+    const task = hx.store.state.tasks[0];
+    expect(task.status).toBe('ready');
+    expect(task.homeDropped).toBe(false);
+    expect(existsSync(hx.t.worktreePath)).toBe(true);
+    expect(existsSync(hx.repos[0].wt)).toBe(true);
+    expect(await new GitClient().branchExists(hx.repo, hx.t.branch)).toBe(true);
+    // Uncommitted files count as changes too.
+    git(hx.t.worktreePath, 'reset', '-q', '--hard', 'HEAD~1');
+    writeFileSync(path.join(hx.t.worktreePath, 'draft.txt'), 'x');
+    await expect(
+      hx.h['tasks:finish'](hx.t.id, {
+        ...opts,
+        workspaces: [{ workspaceId: 'home', action: 'drop' }],
+      }),
+    ).rejects.toThrow('webshop has changes now; reload Finish');
+    expect(existsSync(path.join(hx.t.worktreePath, 'draft.txt'))).toBe(true);
+  });
+
+  it('keeps the summaries when cleanup fails midway', async () => {
+    const hx = await multiHarness([{ name: 'api' }]);
+    commitFile(hx.repos[0].wt, 'api.txt', 'a\n', 'API change');
+    vi.spyOn(hx.services.git, 'worktreeRemove').mockRejectedValueOnce(
+      new Error('folder locked'),
+    );
+    await expect(
+      hx.h['tasks:finish'](hx.t.id, {
+        ...opts,
+        workspaces: [
+          { workspaceId: 'home', action: 'keep' },
+          { workspaceId: hx.ids[0], action: 'push' },
+        ],
+      }),
+    ).rejects.toThrow('folder locked');
+    const task = hx.store.state.tasks[0];
+    expect(task.status).toBe('ready');
+    expect(task.summary).toMatchObject({ commitCount: 0 });
+    expect(ws(hx, hx.ids[0]).summary).toMatchObject({
+      commitCount: 1,
+      pushed: true,
+    });
+  });
+
+  it('a scan error does not break the Finish checks', async () => {
+    const hx = await harness(fakeCrypto(), {
+      workspaces: {
+        scan: async () => {
+          throw new Error('scan exploded');
+        },
+      } as unknown as WorkspaceDetector,
+    });
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](hx.input({ openShell: false }));
+    await done;
+    const checks = await hx.h['tasks:finishChecks'](t.id);
+    expect(checks.workspaces.map((w) => w.workspaceId)).toEqual(['home']);
   });
 
   it('a push-only row pushes without a PR, and records it as pushed', async () => {

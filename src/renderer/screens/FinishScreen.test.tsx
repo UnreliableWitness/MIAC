@@ -1,7 +1,11 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
-import type { TaskView, WorkspaceCheck } from '../../shared/types';
+import type {
+  FinishRowResult,
+  TaskView,
+  WorkspaceCheck,
+} from '../../shared/types';
 import { readPrChoice, readPushChoice, writePrChoice } from '../uiPrefs';
 import { useStore } from '../store';
 import { emptyUsage, installFakeApi } from '../test-helpers/fakeApi';
@@ -891,20 +895,43 @@ describe('FinishScreen with several repos', () => {
     );
   });
 
-  it('on a failed PR offers Retry, and Finish without PR keeps only the failed rows', async () => {
+  const ok = (
+    workspaceId: string,
+    action: 'pr' | 'push' | 'keep' | 'drop',
+    over: Partial<FinishRowResult> = {},
+  ): FinishRowResult => ({
+    workspaceId,
+    action,
+    ok: true,
+    pushed: false,
+    pullRequest: null,
+    error: null,
+    ...over,
+  });
+  const STOPPED =
+    'Finish stopped before cleanup: 1 repo failed. Nothing was removed.';
+
+  it('on a failed PR shows each row, offers Retry, and Finish without PR keeps only the failed rows', async () => {
     writePrChoice('r2', true);
-    const message =
-      'Pull request not created for api: The token cannot create pull requests';
     let n = 0;
     const { calls } = installFakeApi({
       'tasks:finishChecks': () => checks({ unpushed: 0 }),
       'tasks:finish': () => {
         if (n++ < 2)
           throw new Error(
-            `Error invoking remote method 'tasks:finish': Error: ${message}`,
+            "Error invoking remote method 'tasks:finish': Error: Pull request not created for api: The token cannot create pull requests",
           );
         return undefined;
       },
+      'tasks:finishResults': () => [
+        ok('home', 'drop'),
+        ok('w2', 'pr', {
+          ok: false,
+          error: 'The token cannot create pull requests',
+        }),
+        ok('w3', 'push', { pushed: true }),
+        ok('w4', 'keep'),
+      ],
     });
     render(<FinishScreen taskId="a" />);
     await screen.findByRole('group', { name: 'api' });
@@ -914,11 +941,15 @@ describe('FinishScreen with several repos', () => {
     await userEvent.click(
       screen.getByRole('button', { name: 'Finish and clean up' }),
     );
-    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(await screen.findByText(STOPPED)).toBeInTheDocument();
+    expect(
+      within(group('api')).getByText('The token cannot create pull requests'),
+    ).toBeInTheDocument();
+    expect(within(group('docs')).getByText('Pushed')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
     await waitFor(() => expect(finishArgs(calls)).toHaveLength(2));
     expect(finishArgs(calls)[1]).toEqual(finishArgs(calls)[0]);
-    await screen.findByText(message);
+    await screen.findByText(STOPPED);
     await userEvent.click(
       screen.getByRole('button', { name: 'Finish without PR' }),
     );
@@ -936,5 +967,124 @@ describe('FinishScreen with several repos', () => {
     await waitFor(() =>
       expect(useStore.getState().screen).toEqual({ kind: 'task' }),
     );
+  });
+
+  it('shows the pull request a row got when another row failed', async () => {
+    writePrChoice('r2', true);
+    installFakeApi({
+      'tasks:finishChecks': () => checks({ unpushed: 0 }),
+      'tasks:finish': () => {
+        throw new Error('Branch not pushed for docs: rejected');
+      },
+      'tasks:finishResults': () => [
+        ok('home', 'drop'),
+        ok('w2', 'pr', {
+          pushed: true,
+          pullRequest: { id: 7, url: 'u', linked: false },
+        }),
+        ok('w3', 'push', { ok: false, error: 'rejected' }),
+        ok('w4', 'keep'),
+      ],
+    });
+    render(<FinishScreen taskId="a" />);
+    await screen.findByRole('group', { name: 'api' });
+    await userEvent.click(
+      within(group('docs')).getByLabelText('Push the branch'),
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Finish and clean up' }),
+    );
+    expect(await screen.findByText(STOPPED)).toBeInTheDocument();
+    expect(
+      within(group('api')).getByText('Pull request #7 created'),
+    ).toBeInTheDocument();
+    expect(within(group('docs')).getByText('rejected')).toBeInTheDocument();
+    expect(useStore.getState().screen).toEqual({ kind: 'finish', taskId: 'a' });
+  });
+
+  it('a failure without failed rows is a notice, not row states', async () => {
+    installFakeApi({
+      'tasks:finishChecks': () => checks(),
+      'tasks:finish': () => {
+        throw new Error('git worktree remove failed: locked');
+      },
+      'tasks:finishResults': () => [ok('home', 'drop')],
+    });
+    render(<FinishScreen taskId="a" />);
+    await userEvent.click(
+      await screen.findByRole('button', {
+        name: 'Discard changes and clean up',
+      }),
+    );
+    await waitFor(() =>
+      expect(useStore.getState().notices[0]?.message).toMatch(/locked/),
+    );
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+  });
+
+  it('adds a worktree from a picked folder, then checks again', async () => {
+    let n = 0;
+    const { calls } = installFakeApi({
+      'tasks:finishChecks': () => {
+        n++;
+        return checks();
+      },
+      'repos:pickFolder': () => '/src/other',
+      'tasks:addWorkspace': () => extra('w5', 'r5'),
+    });
+    render(<FinishScreen taskId="a" />);
+    await screen.findByRole('group', { name: 'api' });
+    await userEvent.click(
+      screen.getByRole('button', {
+        name: 'Add a worktree' + String.fromCharCode(0x2026),
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        calls.find((c) => c.channel === 'tasks:addWorkspace')?.args,
+      ).toEqual(['a', '/src/other']),
+    );
+    await waitFor(() => expect(n).toBe(2));
+  });
+
+  it('removes a repo from the task, but not the home', async () => {
+    let n = 0;
+    const { calls } = installFakeApi({
+      'tasks:finishChecks': () => {
+        n++;
+        return checks();
+      },
+      'tasks:removeWorkspace': () => undefined,
+    });
+    render(<FinishScreen taskId="a" />);
+    await screen.findByRole('group', { name: 'api' });
+    expect(
+      within(group('webshop')).queryByRole('button', {
+        name: 'Remove from task',
+      }),
+    ).toBeNull();
+    await userEvent.click(
+      within(group('api')).getByRole('button', { name: 'Remove from task' }),
+    );
+    await waitFor(() =>
+      expect(
+        calls.find((c) => c.channel === 'tasks:removeWorkspace')?.args,
+      ).toEqual(['a', 'w2']),
+    );
+    await waitFor(() => expect(n).toBe(2));
+  });
+
+  it('says a dropped repo closes the terminals even when that is unticked', async () => {
+    installFakeApi({ 'tasks:finishChecks': () => checks() });
+    render(<FinishScreen taskId="a" />);
+    await screen.findByRole('group', { name: 'api' });
+    const note = 'Removing a repo without changes closes the terminals too.';
+    await userEvent.click(screen.getByLabelText('Remove worktree folders'));
+    await userEvent.click(screen.getByLabelText(/^Close 2 terminals/));
+    expect(screen.getByText(note)).toBeInTheDocument();
+    await userEvent.click(
+      within(group('webshop')).getByLabelText('Remove, no changes (no push)'),
+    );
+    expect(screen.queryByText(note)).toBeNull();
   });
 });

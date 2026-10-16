@@ -207,6 +207,18 @@ export type GitSummary = {
   hasUpstream: boolean;
   files: GitFile[];
 };
+/** What Finish did with one workspace, kept so the page can show each row's state after a failure. */
+export type FinishRowResult = {
+  workspaceId: string;
+  action: WorkspaceAction;
+  ok: boolean;
+  /** The branch is on origin (pushed now or before). */
+  pushed: boolean;
+  /** `linked`: an existing PR, not one made by this Finish. */
+  pullRequest: { id: number; url: string; linked: boolean } | null;
+  error: string | null;
+};
+
 /** The Finish page's look at one workspace still in the task. */
 export type WorkspaceCheck = {
   workspaceId: string;

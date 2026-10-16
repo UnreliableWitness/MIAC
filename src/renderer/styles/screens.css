@@ -368,6 +368,9 @@
 .finish-workspace-head {
   overflow-wrap: anywhere;
 }
+.finish-workspace-head .btn {
+  margin-left: 8px;
+}
 .check {
   display: flex;
   gap: 12px;
