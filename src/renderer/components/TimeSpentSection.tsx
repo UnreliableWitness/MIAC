@@ -5,6 +5,13 @@ import type { TaskView } from '../../shared/types';
 import { dateTime } from '../format';
 
 const STEP = 300;
+
+/** Slider values land on clock multiples of 5 minutes; the ends of the range stay exact. */
+function snap(v: number, min: number, max: number): number {
+  if (v <= min) return min;
+  if (v >= max) return max;
+  return Math.min(max, Math.max(min, Math.round(v / STEP) * STEP));
+}
 const TOOL_LABEL: Record<AgentTool, string> = {
   'claude-code': 'Claude Code',
   'copilot-cli': 'Copilot CLI',
@@ -43,12 +50,13 @@ export function TimeSpentSection({
   const max = Math.max(...all);
   const span = Math.max(1, max - min);
   const parsed = parseDuration(text);
+  const hasEstimate = estimateHours !== null && estimateHours > 0;
   const invalid = parsed === null;
   const pos = (seconds: number) =>
     `${Math.min(100, Math.max(0, ((seconds - min) / span) * 100))}%`;
   const shown = parsed ?? min;
   const agents = AGENT_ORDER.filter((t) => time.agentSeconds[t] > 0);
-  const estimateSeconds = estimateHours === null ? 0 : estimateHours * 3600;
+  const estimateSeconds = hasEstimate ? estimateHours * 3600 : 0;
   const pct =
     estimateSeconds > 0 && parsed !== null
       ? (parsed / estimateSeconds) * 100
@@ -64,10 +72,11 @@ export function TimeSpentSection({
           aria-label="Time to book slider"
           min={min}
           max={Math.max(max, min + 1)}
-          step={STEP}
+          step={1}
           value={Math.min(Math.max(shown, min), Math.max(max, min + 1))}
+          aria-valuetext={formatDuration(shown)}
           onChange={(e) => {
-            const seconds = Number(e.target.value);
+            const seconds = snap(Number(e.target.value), min, max);
             setText(formatDuration(seconds));
             onChange(seconds);
           }}
@@ -93,6 +102,7 @@ export function TimeSpentSection({
           type="text"
           value={text}
           aria-invalid={invalid}
+          aria-describedby={invalid ? 'time-to-book-error' : undefined}
           onChange={(e) => {
             setText(e.target.value);
             onChange(parseDuration(e.target.value));
@@ -100,11 +110,11 @@ export function TimeSpentSection({
         />
       </div>
       {invalid && (
-        <div className="text-warn small" role="alert">
+        <div id="time-to-book-error" className="text-warn small" role="alert">
           Enter a time like 3h 30m or 3.5
         </div>
       )}
-      {estimateHours !== null && parsed !== null && (
+      {hasEstimate && parsed !== null && (
         <div className="time-est">
           <span className="small">{`${formatDuration(parsed)} of ${formatDuration(estimateSeconds)} estimate`}</span>
           <div

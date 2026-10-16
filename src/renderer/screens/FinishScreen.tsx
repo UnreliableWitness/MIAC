@@ -48,7 +48,11 @@ export function FinishScreen({ taskId }: { taskId: string }) {
   const usage = useTaskUsage(ready ? taskId : null);
   const repo = useStore((s) => s.repos.find((r) => r.id === task?.repoId));
   const writeCost = useWriteCostToAdo();
-  const time = useTaskTime(ready ? taskId : null);
+  const {
+    time,
+    error: timeError,
+    reload: reloadTime,
+  } = useTaskTime(ready ? taskId : null);
   const [liveItem, setLiveItem] = useState<SprintItem | null>(null);
   const connectionId = repo?.connectionId ?? null;
   const workItemId = task?.workItem?.id ?? null;
@@ -66,22 +70,28 @@ export function FinishScreen({ taskId }: { taskId: string }) {
       live = false;
     };
   }, [ready, connectionId, workItemId]);
-  // Untouched (undefined) starts from the measured time, or from the earlier booking on a re-finish.
+  // The starting value is fixed when the time first loads: a later refetch updates the marks, never the booking.
+  const [frozenTime, setFrozenTime] = useState<number | undefined>();
   const [chosenTime, setChosenTime] = useState<number | null | undefined>();
-  const initialTime = time
-    ? time.booking
-      ? time.booking.bookedSeconds + time.measuredSinceReopenSeconds
-      : time.activeSeconds
-    : null;
-  const bookValue = chosenTime === undefined ? initialTime : chosenTime;
+  if (time && frozenTime === undefined)
+    setFrozenTime(
+      time.booking
+        ? time.booking.bookedSeconds + time.measuredSinceReopenSeconds
+        : time.activeSeconds,
+    );
+  const bookValue =
+    chosenTime === undefined ? (frozenTime ?? null) : chosenTime;
+  const positive = (n: number | null | undefined) => (n && n > 0 ? n : null);
   const estimateHours =
-    liveItem?.originalEstimate ??
-    time?.estimate?.hours ??
-    (liveItem &&
-    (liveItem.remainingWork !== null || liveItem.completedWork !== null)
-      ? (liveItem.remainingWork ?? 0) + (liveItem.completedWork ?? 0)
-      : null);
-  const timeInvalid = Boolean(time) && bookValue === null;
+    positive(liveItem?.originalEstimate) ??
+    positive(time?.estimate?.hours) ??
+    positive(
+      liveItem
+        ? (liveItem.remainingWork ?? 0) + (liveItem.completedWork ?? 0)
+        : null,
+    );
+  // Finish waits for the time (or an explicit "without booking"), and for a valid entry.
+  const timeBlocks = !time || bookValue === null;
   const canSync =
     Boolean(task?.workItem) &&
     Boolean(repo?.connectionId) &&
@@ -179,7 +189,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
         ? c.uncommitted.length > 0 || (c.unpushed > 0 && !withPr)
         : false;
 
-  const finish = async (withoutPr = false) => {
+  const finish = async (withoutPr = false, withoutTime = false) => {
     const withPr = createPr && !withoutPr;
     setBusy(true);
     setFinishError(null);
@@ -194,7 +204,9 @@ export function FinishScreen({ taskId }: { taskId: string }) {
           deleteBranch,
           syncUsage: canSync && syncUsage,
           createPullRequest: withPr,
-          ...(time && bookValue !== null ? { bookedSeconds: bookValue } : {}),
+          ...(!withoutTime && time && bookValue !== null
+            ? { bookedSeconds: bookValue }
+            : {}),
         });
       } catch (e) {
         const m = e instanceof Error ? e.message : '';
@@ -363,7 +375,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
           )}
         </div>
 
-        {time && (
+        {time ? (
           <TimeSpentSection
             task={task}
             time={time}
@@ -371,6 +383,34 @@ export function FinishScreen({ taskId }: { taskId: string }) {
             value={bookValue}
             onChange={setChosenTime}
           />
+        ) : (
+          <div className="finish-section">
+            <h2>Time spent</h2>
+            {timeError ? (
+              <div className="check check-warn" role="alert">
+                <span aria-hidden="true">{G.WARN}</span>
+                <div className="body">Time could not be loaded</div>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  disabled={busy}
+                  onClick={reloadTime}
+                >
+                  Retry
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-subtle btn-sm"
+                  disabled={busy || !prLoaded || (!checks && !checksFailed)}
+                  onClick={() => finish(false, true)}
+                >
+                  Finish without booking time
+                </button>
+              </div>
+            ) : (
+              <div className="muted">Loading time{ELLIPSIS}</div>
+            )}
+          </div>
         )}
 
         <div className="finish-section">
@@ -468,7 +508,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
             type="button"
             className={dirty ? 'btn btn-danger' : 'btn btn-primary'}
             disabled={
-              busy || !prLoaded || timeInvalid || (!checks && !checksFailed)
+              busy || !prLoaded || timeBlocks || (!checks && !checksFailed)
             }
             onClick={() => finish()}
           >

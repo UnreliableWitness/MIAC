@@ -22,16 +22,18 @@ function Harness({
   estimateHours = null,
   initial = 11400,
   onChange = () => undefined,
+  timeOverride = time,
 }: {
   estimateHours?: number | null;
   initial?: number | null;
   onChange?: (s: number | null) => void;
+  timeOverride?: typeof time;
 }) {
   const [v, setV] = useState<number | null>(initial);
   return (
     <TimeSpentSection
       task={task}
-      time={time}
+      time={timeOverride}
       estimateHours={estimateHours}
       value={v}
       onChange={(s) => {
@@ -100,6 +102,38 @@ describe('TimeSpentSection', () => {
 
   it('shows no estimate line without an estimate', () => {
     render(<Harness estimateHours={null} />);
+    expect(screen.queryByText(/estimate/)).toBeNull();
+  });
+
+  it('snaps slider values to clock multiples of 5 minutes but keeps the exact ends', () => {
+    const odd = { ...time, activeSeconds: 11237, wallClockSeconds: 34213 };
+    const onChange = vi.fn();
+    render(<Harness timeOverride={odd} initial={11237} onChange={onChange} />);
+    const slider = screen.getByRole('slider');
+    fireEvent.change(slider, { target: { value: '20000' } });
+    expect(onChange).toHaveBeenLastCalledWith(20100);
+    fireEvent.change(slider, { target: { value: '34213' } });
+    expect(onChange).toHaveBeenLastCalledWith(34213);
+    fireEvent.change(slider, { target: { value: '11237' } });
+    expect(onChange).toHaveBeenLastCalledWith(11237);
+  });
+
+  it('describes the slider value and links the error to the field', async () => {
+    render(<Harness />);
+    expect(screen.getByRole('slider')).toHaveAttribute(
+      'aria-valuetext',
+      '3h 10m',
+    );
+    const field = screen.getByLabelText('Time to book');
+    await userEvent.clear(field);
+    await userEvent.type(field, 'abc');
+    const err = screen.getByText('Enter a time like 3h 30m or 3.5');
+    expect(field.getAttribute('aria-describedby')).toBe(err.id);
+    expect(err.id).not.toBe('');
+  });
+
+  it('treats an estimate of 0 hours as no estimate', () => {
+    render(<Harness estimateHours={0} />);
     expect(screen.queryByText(/estimate/)).toBeNull();
   });
 });
