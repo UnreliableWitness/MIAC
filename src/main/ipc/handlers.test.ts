@@ -407,17 +407,20 @@ describe('handlers: finish', () => {
   });
 
   it('keeps the terminals when neither Close terminals nor Remove worktree is ticked', async () => {
-    const { h, input, setupDone, terminals } = await harness();
+    const { h, input, setupDone, terminals, store } = await harness();
     const done = setupDone();
     const t = await h['tasks:create'](input());
     await done;
+    const kill = vi.spyOn(terminals, 'kill');
     await h['tasks:finish'](t.id, {
       closeTerminals: false,
       removeWorktree: false,
       deleteBranch: false,
       syncUsage: false,
     });
-    expect(terminals.runningCount(t.id)).toBe(1);
+    expect(kill).not.toHaveBeenCalled();
+    expectTerminalsKept(store, terminals, t.id, 1);
+    kill.mockRestore();
     await terminals.killAllForTask(t.id);
   });
 
@@ -688,6 +691,22 @@ describe('handlers: concurrency guards', () => {
     terminals.killAllForTask(t.id);
   });
 });
+
+/**
+ * MIAC left the task's terminals alone: each is still listed on the task and still known to the TerminalManager,
+ * which forgets a terminal when MIAC kills it. Whether the OS process is still alive is not asserted: on a loaded
+ * Windows runner an idle interactive PowerShell has been seen to exit by itself during a long test.
+ */
+function expectTerminalsKept(
+  store: TaskStore,
+  terminals: TerminalManager,
+  taskId: string,
+  count: number,
+) {
+  const listed = store.state.tasks.find((t) => t.id === taskId)?.terminals;
+  expect(listed).toHaveLength(count);
+  for (const def of listed ?? []) expect(terminals.has(def.id)).toBe(true);
+}
 
 describe('handlers: terminals', () => {
   it('opens a run terminal, exposes its buffer, restarts and kills it', async () => {
@@ -1979,7 +1998,7 @@ describe('handlers: finish with a pull request', () => {
     commitFile(other, 'theirs.txt', 'b\n', 'Theirs');
     git(other, 'push', '-q', 'origin', hx.t.branch);
     git(hx.t.worktreePath, 'commit', '-q', '--amend', '-m', 'Mine again');
-    const kill = vi.spyOn(hx.terminals, 'killAllForTask');
+    const kill = vi.spyOn(hx.terminals, 'kill');
     await expect(hx.h['tasks:finish'](hx.t.id, finishWithPr)).rejects.toThrow(
       /^Pull request not created: [^]*rejected/,
     );
@@ -1987,7 +2006,7 @@ describe('handlers: finish with a pull request', () => {
     expect(hx.store.state.tasks[0].pullRequest).toBeNull();
     expect(existsSync(hx.t.worktreePath)).toBe(true);
     expect(kill).not.toHaveBeenCalled();
-    expect(hx.terminals.runningCount(hx.t.id)).toBe(1);
+    expectTerminalsKept(hx.store, hx.terminals, hx.t.id, 1);
     expect(hx.create).not.toHaveBeenCalled();
     expect(hx.opened).toEqual([]);
     kill.mockRestore();
