@@ -40,6 +40,11 @@ export class JsonFileStore<T> {
     }
   }
 
+  /** Resolves once every queued update has finished (failed ones included). */
+  async settled(): Promise<void> {
+    await this.queue;
+  }
+
   update(mutate: (v: T) => T | void): Promise<T> {
     const run = async () => {
       const draft = structuredClone(this.current);

@@ -95,6 +95,7 @@ describe('App', () => {
         'connections:list',
         'repos:list',
         'tasks:list',
+        'time:focus',
         'update:status',
       ]),
     );
@@ -119,9 +120,10 @@ describe('App', () => {
       useStore.getState().select('a');
       useStore.getState().go({ kind: 'task' });
     });
-    await waitFor(() => expect(focus()).toEqual([['a']]));
+    // Once on mount (Sprint: no task), then on each change.
+    await waitFor(() => expect(focus()).toEqual([[null], ['a']]));
     act(() => useStore.getState().go({ kind: 'sprint' }));
-    await waitFor(() => expect(focus()).toEqual([['a'], [null]]));
+    await waitFor(() => expect(focus()).toEqual([[null], ['a'], [null]]));
   });
 
   it('lands on Sprint at startup without selecting a task', async () => {

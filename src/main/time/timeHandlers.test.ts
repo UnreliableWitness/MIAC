@@ -81,10 +81,20 @@ async function setup(tasks: Task[]) {
 
 describe('time handlers', () => {
   it('time:focus passes the task on screen to the tracker', async () => {
-    const { h, focused } = await setup([]);
+    const { h, focused } = await setup([task({ id: 't1' })]);
     await h['time:focus']('t1');
     await h['time:focus'](null);
     expect(focused).toEqual(['t1', null]);
+  });
+
+  it('time:focus never counts a finished or unknown task', async () => {
+    const done = task({ id: 'd1', status: 'done' });
+    const open = task({ id: 'o1', status: 'ready' });
+    const { h, focused } = await setup([done, open]);
+    await h['time:focus']('d1');
+    await h['time:focus']('o1');
+    await h['time:focus']('gone');
+    expect(focused).toEqual([null, 'o1', null]);
   });
 
   it('time:task sums active, agent and realistic time from the store', async () => {
@@ -138,7 +148,7 @@ describe('time handlers', () => {
     const other = task({ id: 'other', repoId: 'r2' });
     const unlinked = task({ id: 'nowi', workItem: null });
     const { h, time } = await setup([done, open, other, unlinked]);
-    await time.addActive('done', [NOW - 7_200_000, NOW - 5_400_000]);
+    await time.addActive('done', [NOW - 3_600_000, NOW - 1_800_000]);
     await time.addActive('open', [NOW - 600_000, NOW]);
     await time.addAgent('open', 'claude-code', [NOW - 120_000, NOW]);
     await time.addActive('other', [NOW - 900_000, NOW]);

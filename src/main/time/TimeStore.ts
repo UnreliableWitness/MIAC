@@ -74,8 +74,10 @@ export class TimeStore extends EventEmitter<{ changed: [taskId: string] }> {
     value: number;
     cumulative: boolean;
   }): Promise<void> {
+    // A delta of zero adds nothing: leave the file and listeners alone.
+    if (!p.cumulative && p.value <= 0) return;
+    let seconds = p.value;
     await this.store.update((v) => {
-      let seconds = p.value;
       if (p.cumulative) {
         const last = v.claudeLast[p.sessionId];
         v.claudeLast[p.sessionId] = p.value;
@@ -89,7 +91,13 @@ export class TimeStore extends EventEmitter<{ changed: [taskId: string] }> {
           p.endMs,
         ]);
     });
-    this.emit('changed', p.taskId);
+    // A cumulative counter must still be recorded (it is the next diff's base), but only added time is a change.
+    if (seconds > 0) this.emit('changed', p.taskId);
+  }
+
+  /** Resolves once every write started so far is on disk and in memory. */
+  settled(): Promise<void> {
+    return this.store.settled();
   }
 
   async recordBaseline(key: string, hours: number): Promise<void> {
@@ -119,9 +127,14 @@ export class TimeStore extends EventEmitter<{ changed: [taskId: string] }> {
     hours: WorkHours,
     now: number,
   ): Omit<TaskTime, 'estimate'> {
-    const active = this.activeIntervals(task.id);
-    const agent = this.agentIntervals(task.id);
     const periods = periodsOf(task, now);
+    // Finished tasks never count: active time flushed after a finish (or before a reopen) is cut off.
+    const active = mergeIntervals(
+      periods.flatMap(([from, to]) =>
+        clip(this.activeIntervals(task.id), from, to),
+      ),
+    );
+    const agent = this.agentIntervals(task.id);
     const lastStart = periods.length ? periods[periods.length - 1][0] : 0;
     const sec = (ms: number) => Math.round(ms / 1000);
     return {

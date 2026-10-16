@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -81,6 +81,69 @@ describe('TimeStore', () => {
     expect(r.realisticSeconds).toBe(90);
     expect(r.agentSeconds['claude-code']).toBe(60);
     expect(r.taskId).toBe('t');
+  });
+
+  it("counts only active time inside the task's open periods", async () => {
+    const s = new TimeStore(file());
+    await s.load();
+    // Before the reopen, between finish and reopen, and after the final finish (a late flush).
+    await s.addActive('t', [10_000, 40_000]);
+    await s.addActive('t', [90_000, 130_000]);
+    await s.addActive('t', [190_000, 220_000]);
+    const task = {
+      id: 't',
+      createdAt: new Date(0).toISOString(),
+      finishedAt: new Date(200_000).toISOString(),
+      openPeriods: [
+        {
+          start: new Date(0).toISOString(),
+          end: new Date(100_000).toISOString(),
+        },
+        {
+          start: new Date(120_000).toISOString(),
+          end: new Date(200_000).toISOString(),
+        },
+      ],
+      time: null,
+    } as unknown as Task;
+    const r = s.summarize(task, hours, 300_000);
+    expect(r.activeSeconds).toBe(30 + 10 + 10 + 10);
+    expect(r.realisticSeconds).toBe(60);
+    expect(r.measuredSinceReopenSeconds).toBe(20);
+  });
+
+  it('writes and emits nothing when a claude data point adds no time', async () => {
+    const f = file();
+    const s = new TimeStore(f);
+    await s.load();
+    const seen: string[] = [];
+    s.on('changed', (id) => seen.push(id));
+    await s.addClaudeActive({
+      taskId: 't',
+      sessionId: 's',
+      endMs: 10_000,
+      value: 0,
+      cumulative: false,
+    });
+    expect(seen).toEqual([]);
+    expect(existsSync(f)).toBe(false);
+    // A cumulative counter that has not moved adds nothing either.
+    await s.addClaudeActive({
+      taskId: 't',
+      sessionId: 'c',
+      endMs: 20_000,
+      value: 4,
+      cumulative: true,
+    });
+    seen.length = 0;
+    await s.addClaudeActive({
+      taskId: 't',
+      sessionId: 'c',
+      endMs: 30_000,
+      value: 4,
+      cumulative: true,
+    });
+    expect(seen).toEqual([]);
   });
 
   it('keeps data across reload and backs up a corrupt file', async () => {

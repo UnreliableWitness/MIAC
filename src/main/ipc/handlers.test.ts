@@ -2571,6 +2571,78 @@ describe('handlers: time booking and write-back', () => {
       syncError: null,
     });
   });
+
+  it('refetches the type fields once when the cached ones lack the work item type', async () => {
+    const hx = await harness();
+    const { t } = await timeTask(hx, true);
+    const TYPES = '/unreliablewitness/MIAC/_apis/wit/workitemtypes';
+    let typeCalls = 0;
+    hx.server.route('GET', TYPES, () => {
+      typeCalls++;
+      return {
+        body: {
+          value: [
+            { name: 'Bug', fields: [] },
+            ...(typeCalls > 1
+              ? [
+                  {
+                    name: 'User Story',
+                    fields: [
+                      {
+                        referenceName:
+                          'Microsoft.VSTS.Scheduling.CompletedWork',
+                      },
+                    ],
+                  },
+                ]
+              : []),
+          ],
+        },
+      };
+    });
+    await hx.h['tasks:finish'](t.id, finishOpts(7200));
+    expect(typeCalls).toBe(2);
+    expect(patches(hx)).toHaveLength(1);
+    expect(JSON.parse(patches(hx)[0].body)).toEqual([
+      {
+        op: 'add',
+        path: '/fields/Microsoft.VSTS.Scheduling.CompletedWork',
+        value: 3,
+      },
+    ]);
+    expect(hx.store.state.tasks[0].time?.writtenHours).toBe(2);
+  });
+
+  it('flushes the open active interval before booking at Finish', async () => {
+    let time: TimeStore | undefined;
+    const flushed: number[] = [];
+    const hx = await harness(fakeCrypto(), {
+      tracker: {
+        setTask: () => undefined,
+        flush: () => {
+          const now = Date.now();
+          flushed.push(now);
+          // Like main: the write is started, not awaited.
+          void time?.addActive(hx.store.state.tasks[0].id, [
+            now - 1_800_000,
+            now,
+          ]);
+        },
+      },
+    });
+    time = hx.services.time;
+    const { t } = await timeTask(hx, false);
+    const hourAgo = new Date(Date.now() - 3_600_000).toISOString();
+    await hx.store.update((st) => {
+      st.tasks[0].createdAt = hourAgo;
+      st.tasks[0].openPeriods = st.tasks[0].openPeriods.map((p, k) =>
+        k === 0 ? { ...p, start: hourAgo } : p,
+      );
+    });
+    await hx.h['tasks:finish'](t.id, finishOpts(7200));
+    expect(flushed).toHaveLength(1);
+    expect(hx.store.state.tasks[0].time?.measuredSeconds).toBeGreaterThan(1700);
+  });
 });
 
 describe('handlers: estimate baseline at create', () => {

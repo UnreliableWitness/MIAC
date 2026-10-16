@@ -90,7 +90,7 @@ export type Services = {
   /** Measured active and agent time per task. */
   time: TimeStore;
   /** Counts active time for the task on screen (main); absent in tests. */
-  tracker?: Pick<ActivityTracker, 'setTask'>;
+  tracker?: Pick<ActivityTracker, 'setTask' | 'flush'>;
   /** Sees what is typed into a terminal (main estimates OpenCode agent time from it). */
   onTerminalInput?: (id: string, data: string) => void;
   settings: SettingsStore;
@@ -394,16 +394,21 @@ export function createHandlers(s: Services): Handlers {
           const id = Number(workItem.id);
           const current = await client.workItemEstimate(id);
           const type = (current.type || workItem.type).toLowerCase();
-          const types = await usageSync.typeFields(
-            target.connectionId,
-            target.project,
-          );
+          const fieldsOf = async (refresh: boolean) =>
+            (
+              await usageSync.typeFields(
+                target.connectionId,
+                target.project,
+                refresh,
+              )
+            ).find((t) => t.type.toLowerCase() === type)?.fields;
+          // A type missing from the cache (added or renamed since) is looked up again once before writing nothing.
+          const fields = (await fieldsOf(false)) ?? (await fieldsOf(true));
           const plan = planTimeWrite({
             bookedSeconds: booking.bookedSeconds,
             writtenHours: booking.writtenHours,
             current,
-            fields:
-              types.find((t) => t.type.toLowerCase() === type)?.fields ?? [],
+            fields: fields ?? [],
           });
           if (plan) await client.updateWorkItemFields(id, plan.patch);
           return plan?.hours ?? booking.writtenHours;
@@ -428,6 +433,9 @@ export function createHandlers(s: Services): Handlers {
   /** Books the time chosen at Finish on a done task, then writes it to the work item when that is on. Never throws. */
   const bookTime = async (taskId: string, bookedSeconds: number) => {
     try {
+      // The open interval holds up to a minute of unflushed active time: write it before measuring.
+      s.tracker?.flush();
+      await s.time.settled();
       const task = taskById(taskId);
       const m = s.time.summarize(task, s.settings.get().workHours, Date.now());
       await patchTask(taskId, {

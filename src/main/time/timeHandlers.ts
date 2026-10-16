@@ -34,7 +34,10 @@ export function createTimeHandlers(d: TimeDeps): Pick<Handlers, TimeChannels> {
 
   return {
     'time:focus': async (taskId) => {
-      d.tracker?.setTask(taskId);
+      // Finished tasks never count (their Done page is a task page too); a reopened one counts again.
+      const task =
+        taskId === null ? undefined : d.tasks().find((t) => t.id === taskId);
+      d.tracker?.setTask(task && task.status !== 'done' ? task.id : null);
     },
     'time:task': async (taskId) => {
       const task = d.task(taskId);
