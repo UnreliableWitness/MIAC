@@ -151,6 +151,23 @@ function RepoRow({ repo }: { repo: Repo }) {
             {repo.path} &middot; base {repo.baseBranch}
           </span>
         </div>
+        {repo.discovered && (
+          <>
+            <span className="tag">Found in a task</span>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() =>
+                tryInvoke(
+                  () => api().invoke('repos:setDiscovered', repo.id, false),
+                  notify,
+                )
+              }
+            >
+              Make it a normal repo
+            </button>
+          </>
+        )}
         {repo.miacYmlFound ? (
           <span className="tag tag-green">.miac.yml found</span>
         ) : (
