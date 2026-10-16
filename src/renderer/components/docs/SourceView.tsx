@@ -17,15 +17,13 @@ export function SourceView({
   }, [highlightLine]);
   return (
     <div className="doc-src mono" ref={host}>
+      {/* The line number is drawn by CSS from data-line, so it is never part of a selection or a quote. */}
       {lines.map((l, i) => (
         <div
           key={i}
           className={`src-line${highlightLine === i + 1 ? ' is-hl' : ''}`}
           data-line={i + 1}
         >
-          <span className="src-no" aria-hidden="true">
-            {i + 1}
-          </span>
           <span className="src-text">{l || ' '}</span>
         </div>
       ))}

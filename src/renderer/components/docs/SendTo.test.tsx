@@ -6,6 +6,7 @@ import { useStore } from '../../store';
 import { installFakeApi } from '../../test-helpers/fakeApi';
 import { registerTerminal } from '../../terminalRegistry';
 import { SendTo, selectionLines } from './SendTo';
+import { SourceView } from './SourceView';
 
 const task = {
   id: 't1',
@@ -166,6 +167,29 @@ describe('SendTo', () => {
       await screen.findByRole('button', { name: 'Send to Claude' }),
     );
     expect(pastes.cl.mock.calls[0][0].startsWith('a.md:10-11\n')).toBe(true);
+  });
+  it('quotes Source view lines without their line numbers', async () => {
+    installFakeApi({ 'terminals:isRunning': () => true });
+    const text = Array.from(
+      { length: 14 },
+      (_, i) => `line ${i + 1} text`,
+    ).join('\n');
+    const { container } = render(
+      <div data-testid="src">
+        <SourceView text={text} />
+      </div>,
+    );
+    const host = container.querySelector('.doc-src') as HTMLElement;
+    render(<SendTo task={task} container={host} path="a.md" view="source" />);
+    const at = (n: number) =>
+      host.querySelector(`[data-line="${n}"]`)!.lastChild!.firstChild!;
+    act(() => select(at(10), at(12)));
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Send to Claude' }),
+    );
+    expect(pastes.cl.mock.calls[0][0]).toBe(
+      'a.md:10-12\n> line 10 text\n> line 11 text\n> line 12 text\n\n',
+    );
   });
   it('sends a single line when bracketed paste is off', async () => {
     const plain = vi.fn();
