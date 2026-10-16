@@ -425,6 +425,13 @@ button.projecttile:hover {
 .termview[hidden] {
   display: none;
 }
+/* xterm's layers carry their own z-indexes (the link layer canvas is above the screen); keeping them in this
+   box stops them covering the exit bar, whose Restart button otherwise never got the click. */
+.termview-xterm {
+  width: 100%;
+  height: 100%;
+  isolation: isolate;
+}
 .term-exit {
   position: absolute;
   left: 16px;

@@ -204,15 +204,16 @@ describe('Sprint page', () => {
     expect(titles(table)).toEqual(['1', '5', '2', '4']);
   });
 
-  it('shows the MIAC task status and opens the task from its row', async () => {
-    fake();
+  it('shows the MIAC task status and opens the task from it, not Azure DevOps', async () => {
+    const { calls } = fake({ 'shell:openExternal': () => undefined });
     useStore.setState({ tasks: [task({})] });
     render(<Shell />);
     const table = await grid();
     const r = within(table).getAllByRole('row')[3];
     expect(within(r).getByText('Open')).toBeInTheDocument();
     expect(within(r).queryByRole('button', { name: /Start/ })).toBeNull();
-    await userEvent.click(r);
+    await userEvent.click(within(r).getByText('Open'));
+    expect(calls.some((c) => c.channel === 'shell:openExternal')).toBe(false);
     expect(useStore.getState().screen).toEqual({ kind: 'task' });
     expect(useStore.getState().selectedTaskId).toBe('t1');
   });
@@ -234,6 +235,29 @@ describe('Sprint page', () => {
     const table = await grid();
     const r = within(table).getAllByRole('row')[3];
     expect(within(r).queryByText('Open')).toBeNull();
+  });
+
+  it('opens the work item in Azure DevOps from the row and from its title', async () => {
+    const { calls } = fake({ 'shell:openExternal': () => undefined });
+    render(<Shell />);
+    const table = await grid();
+    const opened = () =>
+      calls
+        .filter((c) => c.channel === 'shell:openExternal')
+        .map((c) => c.args[0]);
+    await userEvent.click(within(table).getByText('Upgrade payment SDK'));
+    expect(opened()).toEqual([
+      'https://dev.azure.com/unreliablewitness/MIAC/_workitems/edit/4',
+    ]);
+    await userEvent.click(
+      within(table).getByRole('button', {
+        name: 'Open Task 5 Store the address in Azure DevOps',
+      }),
+    );
+    expect(opened()).toEqual([
+      'https://dev.azure.com/unreliablewitness/MIAC/_workitems/edit/4',
+      'https://dev.azure.com/unreliablewitness/MIAC/_workitems/edit/5',
+    ]);
   });
 
   it('opens the Done page for a finished task', async () => {

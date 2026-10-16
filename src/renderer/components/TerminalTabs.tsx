@@ -271,6 +271,7 @@ export function TerminalTabs({
             terminalId={t.id}
             taskId={task.id}
             resumes={t.kind === 'claude'}
+            autoStart={t.kind === 'claude' || t.kind === 'shell'}
             active={visible && active === t.id}
           />
         ))}
