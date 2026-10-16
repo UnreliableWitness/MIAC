@@ -93,6 +93,8 @@ async function harness(
   const base = testPlatform();
   const platform = {
     ...base,
+    // The real lookup of `code` on PATH differs per platform and machine.
+    editorCommand: (p: string) => ({ command: 'code', args: [p] }),
     shellCommand: (c: string) =>
       c === 'apm --version'
         ? base.shellCommand(echoCmd('apm 1.0.0'))
@@ -1189,6 +1191,9 @@ describe('handlers: reopen a finished task', () => {
   const withExtra = async (hx: Awaited<ReturnType<typeof finished>>) => {
     const extraPath = mkdtempSync(path.join(os.tmpdir(), 'miac-extra-'));
     git(extraPath, 'init', '-q');
+    git(extraPath, 'config', 'user.email', 'tests@miac.local');
+    git(extraPath, 'config', 'user.name', 'MIAC tests');
+    git(extraPath, 'config', 'core.autocrlf', 'false');
     await hx.store.update((st) => {
       st.tasks[0].extraWorkspaces.push({
         id: 'w2',

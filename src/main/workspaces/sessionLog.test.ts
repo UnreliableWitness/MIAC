@@ -27,10 +27,10 @@ describe('writeHitsFromLines', () => {
       tool('NotebookEdit', { notebook_path: '/src/e/n.ipynb' }),
     ];
     expect(writeHitsFromLines(lines)).toEqual([
-      { path: '/src/b/x.ts', via: 'edit' },
-      { path: '/src/c/y.ts', via: 'edit' },
-      { path: '/src/d/z.ts', via: 'edit' },
-      { path: '/src/e/n.ipynb', via: 'edit' },
+      { path: path.resolve('/src/b/x.ts'), via: 'edit' },
+      { path: path.resolve('/src/c/y.ts'), via: 'edit' },
+      { path: path.resolve('/src/d/z.ts'), via: 'edit' },
+      { path: path.resolve('/src/e/n.ipynb'), via: 'edit' },
     ]);
   });
 
@@ -91,7 +91,9 @@ describe('writeHitsFromLines', () => {
 
   it('finds Bash writes', () => {
     const lines = [tool('Bash', { command: 'git -C /src/b commit -m x' })];
-    expect(writeHitsFromLines(lines)).toEqual([{ path: '/src/b', via: 'git' }]);
+    expect(writeHitsFromLines(lines)).toEqual([
+      { path: path.resolve('/src/b'), via: 'git' },
+    ]);
   });
 
   it.runIf(process.platform === 'win32')('resolves Windows paths', () => {
@@ -109,7 +111,9 @@ describe('writeHitsFromBash', () => {
         'git -C /src/b worktree add /src/b.worktrees/42-x -b feature/42-x origin/main',
         '/w/home',
       ),
-    ).toEqual([{ path: '/src/b.worktrees/42-x', via: 'worktree-add' }]);
+    ).toEqual([
+      { path: path.resolve('/src/b.worktrees/42-x'), via: 'worktree-add' },
+    ]);
   });
 
   it('tracks cd and does not split on a quoted &&', () => {
@@ -118,7 +122,7 @@ describe('writeHitsFromBash', () => {
         'cd /src/b.worktrees/42-x && git commit -m "a && b"',
         '/w/home',
       ),
-    ).toEqual([{ path: '/src/b.worktrees/42-x', via: 'git' }]);
+    ).toEqual([{ path: path.resolve('/src/b.worktrees/42-x'), via: 'git' }]);
   });
 
   it('resolves git -C against cwd', () => {
@@ -133,13 +137,13 @@ describe('writeHitsFromBash', () => {
         'git -C /x -C /src/b add . ; ls || echo hi | cat',
         '/w',
       ),
-    ).toEqual([{ path: '/src/b', via: 'git' }]);
+    ).toEqual([{ path: path.resolve('/src/b'), via: 'git' }]);
   });
 
   it('handles -B, a quoted path, and relative worktree paths', () => {
     expect(
       writeHitsFromBash("git worktree add -B nm '/s/my wt' main", '/w'),
-    ).toEqual([{ path: '/s/my wt', via: 'worktree-add' }]);
+    ).toEqual([{ path: path.resolve('/s/my wt'), via: 'worktree-add' }]);
     expect(
       writeHitsFromBash('cd /s/b && git worktree add ../wt', '/w'),
     ).toEqual([{ path: path.resolve('/s/b', '../wt'), via: 'worktree-add' }]);
@@ -157,8 +161,8 @@ describe('writeHitsFromBash', () => {
     expect(
       writeHitsFromBash('git add . && cd /src/b && git commit -m x', '/w/home'),
     ).toEqual([
-      { path: '/w/home', via: 'git' },
-      { path: '/src/b', via: 'git' },
+      { path: path.resolve('/w/home'), via: 'git' },
+      { path: path.resolve('/src/b'), via: 'git' },
     ]);
   });
 });
