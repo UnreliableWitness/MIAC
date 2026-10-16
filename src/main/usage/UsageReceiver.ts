@@ -6,7 +6,11 @@ import {
 } from 'node:http';
 import { gunzipSync } from 'node:zlib';
 import type { UsageEvent } from '../../shared/usage';
-import { parseClaudeLogs } from './otlp';
+import {
+  type ClaudeActive,
+  parseClaudeActiveTime,
+  parseClaudeLogs,
+} from './otlp';
 
 const LIMIT = 5 * 1024 * 1024;
 type Status = { listening: boolean; port: number; error: string | null };
@@ -16,7 +20,10 @@ export class UsageReceiver {
   private server: Server | null = null;
   private current: Status = { listening: false, port: 0, error: null };
 
-  constructor(private readonly onEvents: (events: UsageEvent[]) => void) {}
+  constructor(
+    private readonly onEvents: (events: UsageEvent[]) => void,
+    private readonly onActiveTime?: (points: ClaudeActive[]) => void,
+  ) {}
 
   get status(): Status {
     return this.current;
@@ -83,16 +90,16 @@ export class UsageReceiver {
     });
     req.on('end', () => {
       if (tooBig) return;
-      if (path === '/v1/metrics') return reply(200);
-      let events: UsageEvent[];
-      let skipped: number;
+      let events: UsageEvent[] = [];
+      let skipped = 0;
+      let active: ClaudeActive[] = [];
       try {
         let buf = Buffer.concat(chunks);
         if ((req.headers['content-encoding'] ?? '').toLowerCase() === 'gzip')
           buf = gunzipSync(buf, { maxOutputLength: LIMIT });
-        ({ events, skipped } = parseClaudeLogs(
-          JSON.parse(buf.toString('utf8')),
-        ));
+        const doc: unknown = JSON.parse(buf.toString('utf8'));
+        if (path === '/v1/metrics') active = parseClaudeActiveTime(doc);
+        else ({ events, skipped } = parseClaudeLogs(doc));
       } catch (e) {
         const tooLarge =
           (e as NodeJS.ErrnoException).code === 'ERR_BUFFER_TOO_LARGE' ||
@@ -105,8 +112,9 @@ export class UsageReceiver {
         );
       try {
         if (events.length > 0) this.onEvents(events);
+        if (active.length > 0) this.onActiveTime?.(active);
       } catch (e) {
-        console.error('[usage] failed to handle usage events', e);
+        console.error('[usage] failed to handle usage data', e);
         return reply(500);
       }
       reply(200);

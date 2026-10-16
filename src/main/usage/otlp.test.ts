@@ -1,7 +1,12 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { attrMap, parseClaudeLogs, safeIso } from './otlp';
+import {
+  attrMap,
+  parseClaudeActiveTime,
+  parseClaudeLogs,
+  safeIso,
+} from './otlp';
 
 const FIXTURE_TASK = '00000000-0000-4000-8000-000000000001';
 const fixture = (name: string) =>
@@ -166,5 +171,63 @@ describe('timestamps', () => {
     recent(safeIso(Number.NaN));
     recent(safeIso(-1));
     recent(safeIso(1e30));
+  });
+});
+
+describe('parseClaudeActiveTime', () => {
+  it('reads the cli active_time point of the recorded metrics body', () => {
+    expect(parseClaudeActiveTime(fixture('metrics.json'))).toEqual([
+      {
+        taskId: FIXTURE_TASK,
+        sessionId: 'bd9b14be-bf37-4435-bac0-3e56ffda4e90',
+        endMs: 1791986361380,
+        value: 1.72,
+        cumulative: false,
+      },
+    ]);
+  });
+  it('ignores user points, other metrics, cumulative flag read from temporality', () => {
+    const point = (type: string, extra: Record<string, unknown> = {}) => ({
+      attributes: [kv('type', { stringValue: type })],
+      timeUnixNano: '1760436000000000000',
+      asInt: '5',
+      ...extra,
+    });
+    const doc = {
+      resourceMetrics: [
+        {
+          resource: {
+            attributes: [kv('miac.task.id', { stringValue: 'task-9' })],
+          },
+          scopeMetrics: [
+            {
+              metrics: [
+                {
+                  name: 'claude_code.active_time.total',
+                  sum: {
+                    aggregationTemporality: 2,
+                    dataPoints: [point('user'), point('cli')],
+                  },
+                },
+                {
+                  name: 'claude_code.cost.usage',
+                  sum: { dataPoints: [point('cli')] },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    expect(parseClaudeActiveTime(doc)).toEqual([
+      {
+        taskId: 'task-9',
+        sessionId: 'unknown-session',
+        endMs: 1760436000000,
+        value: 5,
+        cumulative: true,
+      },
+    ]);
+    expect(parseClaudeActiveTime(null)).toEqual([]);
   });
 });

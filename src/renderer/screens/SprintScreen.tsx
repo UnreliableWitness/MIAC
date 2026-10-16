@@ -16,6 +16,8 @@ import type {
 } from '../../shared/types';
 import { api, tryInvoke } from '../api';
 import { PageHeader, StateDot, WorkItemTypeIcon } from '../components/ui';
+import { sprintTime, type SprintTimeCell } from '../../shared/sprintTime';
+import { formatDuration, type LocalItemTime } from '../../shared/time';
 import { eur, sprintDates } from '../format';
 import { useTaskUsage } from '../hooks/useTaskUsage';
 import { startTaskFor } from '../startTask';
@@ -23,6 +25,54 @@ import { activeConnection, useStore } from '../store';
 
 /** Window focus refreshes the sprint at most this often. */
 const FOCUS_REFRESH_MS = 60_000;
+/** Time changes arrive every ~10 s while an agent runs; the column refetches at most this often. */
+const TIME_REFRESH_MS = 5_000;
+
+const NO_TIME: Record<string, LocalItemTime> = {};
+
+function TimeCell({
+  cell,
+  local,
+}: {
+  cell: SprintTimeCell | undefined;
+  local: LocalItemTime | undefined;
+}) {
+  const spent = cell?.spentSeconds ?? null;
+  const est = cell?.estimateHours ?? null;
+  if (spent === null && est === null) return <span className="muted">–</span>;
+  const over = spent !== null && est !== null && est > 0 && spent > est * 3600;
+  const text =
+    est === null
+      ? formatDuration(spent ?? 0)
+      : `${spent === null ? '–' : formatDuration(spent)} / ${formatDuration(est * 3600)}`;
+  const parts: string[] = [];
+  // A local task with no time yet still shows ADO Completed Work (sprintTime), so the hover says where it is from.
+  if (cell?.source === 'ado') parts.push('from Azure DevOps');
+  else if (local)
+    parts.push(
+      `Measured ${formatDuration(local.measuredSeconds)}`,
+      `agent ${formatDuration(local.agentSeconds)}`,
+      local.booked ? 'booked' : 'not booked yet',
+    );
+  if (cell?.rolledUp) parts.push('includes child items');
+  const pct =
+    spent !== null && est !== null && est > 0
+      ? Math.round((spent / (est * 3600)) * 100)
+      : null;
+  return (
+    <span
+      className={over ? 'sprint-time over' : 'sprint-time'}
+      title={parts.length ? parts.join(', ') : undefined}
+    >
+      <span>{text}</span>
+      {pct !== null && (
+        <span className={over ? 'time-bar over' : 'time-bar'}>
+          <i style={{ width: `${Math.min(100, pct)}%` }} />
+        </span>
+      )}
+    </span>
+  );
+}
 
 type Load =
   | { status: 'loading' }
@@ -139,8 +189,12 @@ function Row({
   repoId,
   collapsed,
   onToggle,
+  timeCell,
+  localTime,
 }: {
   row: SprintRow;
+  timeCell: SprintTimeCell | undefined;
+  localTime: LocalItemTime | undefined;
   connectionId: string;
   task: TaskView | null;
   repoId: string | null;
@@ -212,6 +266,9 @@ function Row({
       <span role="cell" className="sprint-num">
         {w.remainingWork ?? ''}
       </span>
+      <span role="cell">
+        <TimeCell cell={timeCell} local={localTime} />
+      </span>
       <span role="cell" className="sprint-miac">
         {task ? (
           <TaskCell task={task} label={label} />
@@ -255,7 +312,11 @@ function SprintGrid({
   collapsed,
   onToggle,
   label,
+  allRows,
+  local,
 }: {
+  allRows: SprintRow[];
+  local: Record<string, LocalItemTime>;
   rows: SprintRow[];
   connectionId: string;
   collapsed: Set<string>;
@@ -269,6 +330,8 @@ function SprintGrid({
     [repos],
   );
   const repoId = repos.find((r) => r.connectionId === connectionId)?.id ?? null;
+  // Totals cover the whole sprint, so a filter never changes a parent's roll-up.
+  const times = useMemo(() => sprintTime(allRows, local), [allRows, local]);
   return (
     <div role="table" aria-label={label} className="grid sprint-grid">
       <div role="row" className="grid-head">
@@ -279,6 +342,7 @@ function SprintGrid({
         <span role="columnheader" className="sprint-num">
           Remaining work
         </span>
+        <span role="columnheader">Spent / est.</span>
         <span role="columnheader">MIAC</span>
       </div>
       <div role="rowgroup" className="grid-body">
@@ -291,6 +355,8 @@ function SprintGrid({
             repoId={repoId}
             collapsed={collapsed.has(r.item.id)}
             onToggle={() => onToggle(r.item.id)}
+            timeCell={times.get(r.item.id)}
+            localTime={local[r.item.id]}
           />
         ))}
       </div>
@@ -306,13 +372,47 @@ function SprintPage({ connection }: { connection: Connection }) {
   const [query, setQuery] = useState('');
   const lastLoad = useRef(0);
   const seq = useRef(0);
+  const [local, setLocal] = useState(NO_TIME);
+  const lastTime = useRef(0);
+  const timeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const loadTime = useCallback(async () => {
+    lastTime.current = Date.now();
+    try {
+      setLocal(await api().invoke('time:sprint', connection.id));
+    } catch {
+      // The column falls back to Azure DevOps figures.
+    }
+  }, [connection.id]);
+
+  useEffect(() => {
+    const off = api().on('time:changed', () => {
+      if (timeTimer.current) return;
+      const wait = Math.max(
+        0,
+        TIME_REFRESH_MS - (Date.now() - lastTime.current),
+      );
+      timeTimer.current = setTimeout(() => {
+        timeTimer.current = null;
+        void loadTime();
+      }, wait);
+    });
+    return () => {
+      off();
+      if (timeTimer.current) clearTimeout(timeTimer.current);
+      timeTimer.current = null;
+    };
+  }, [loadTime]);
 
   const refresh = useCallback(async () => {
     const mine = ++seq.current;
     lastLoad.current = Date.now();
     setBusy(true);
     try {
-      const sprint = await api().invoke('workItems:sprint', connection.id);
+      const [sprint] = await Promise.all([
+        api().invoke('workItems:sprint', connection.id),
+        loadTime(),
+      ]);
       const assigned = sprint.iteration
         ? []
         : (
@@ -321,7 +421,12 @@ function SprintPage({ connection }: { connection: Connection }) {
               text: '',
             })
           ).map((item) => ({
-            item: { ...item, remainingWork: null },
+            item: {
+              ...item,
+              remainingWork: null,
+              originalEstimate: null,
+              completedWork: null,
+            },
             depth: 0,
             parentId: null,
             hasChildren: false,
@@ -344,7 +449,7 @@ function SprintPage({ connection }: { connection: Connection }) {
     } finally {
       if (mine === seq.current) setBusy(false);
     }
-  }, [connection.id, setSprintName]);
+  }, [connection.id, setSprintName, loadTime]);
 
   useEffect(() => {
     setSprintName(null);
@@ -453,6 +558,8 @@ function SprintPage({ connection }: { connection: Connection }) {
               <SprintGrid
                 label={`${load.iteration.name} backlog`}
                 rows={shown}
+                allRows={rows}
+                local={local}
                 connectionId={connection.id}
                 // While filtering, every match shows, even under a collapsed parent.
                 collapsed={searching ? new Set() : collapsed}
@@ -477,6 +584,8 @@ function SprintPage({ connection }: { connection: Connection }) {
               <SprintGrid
                 label="Assigned to me"
                 rows={filterRows(load.mine, query)}
+                allRows={load.mine}
+                local={local}
                 connectionId={connection.id}
                 collapsed={collapsed}
                 onToggle={toggle}

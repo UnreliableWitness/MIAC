@@ -497,6 +497,30 @@ describe('AdoClient sprint', () => {
     expect(batch!.path).toContain('Microsoft.VSTS.Scheduling.RemainingWork');
     expect(batch!.path).toContain('errorPolicy=omit');
   });
+  it('maps original estimate and completed work, null when absent', async () => {
+    server.route('GET', '/unreliablewitness/_apis/wit/workitems', {
+      body: {
+        value: [
+          wi(1, {
+            'Microsoft.VSTS.Scheduling.OriginalEstimate': 8,
+            'Microsoft.VSTS.Scheduling.CompletedWork': 2.5,
+            'Microsoft.VSTS.Scheduling.RemainingWork': 5.5,
+          }),
+          wi(2),
+        ],
+      },
+    });
+    const items = await client.workItems('MIAC', [1, 2]);
+    expect(
+      items.map((i) => [i.originalEstimate, i.completedWork, i.remainingWork]),
+    ).toEqual([
+      [8, 2.5, 5.5],
+      [null, null, null],
+    ]);
+    const path = server.requests.at(-1)!.path;
+    expect(path).toContain('Microsoft.VSTS.Scheduling.OriginalEstimate');
+    expect(path).toContain('Microsoft.VSTS.Scheduling.CompletedWork');
+  });
   it('fetches the items in chunks of 200', async () => {
     current();
     server.route('GET', `${ITERATIONS}/it-1/workitems`, {
@@ -886,6 +910,26 @@ describe('work item state and pull request calls', () => {
     });
     expect(server.requests.at(-1)!.path).toBe(
       '/unreliablewitness/_apis/wit/workitems/7?fields=System.WorkItemType,System.State,System.AssignedTo&api-version=7.1',
+    );
+  });
+  it('reads the type and the estimate fields of one work item', async () => {
+    server.route('GET', '/unreliablewitness/_apis/wit/workitems/7', {
+      body: {
+        fields: {
+          'System.WorkItemType': 'Task',
+          'Microsoft.VSTS.Scheduling.RemainingWork': 4,
+          'Microsoft.VSTS.Scheduling.CompletedWork': 1.5,
+        },
+      },
+    });
+    expect(await client.workItemEstimate(7)).toEqual({
+      type: 'Task',
+      originalEstimate: null,
+      remainingWork: 4,
+      completedWork: 1.5,
+    });
+    expect(server.requests.at(-1)!.path).toBe(
+      '/unreliablewitness/_apis/wit/workitems/7?fields=System.WorkItemType,Microsoft.VSTS.Scheduling.OriginalEstimate,Microsoft.VSTS.Scheduling.RemainingWork,Microsoft.VSTS.Scheduling.CompletedWork&api-version=7.1',
     );
   });
   it('falls back to the display name, then to null', async () => {

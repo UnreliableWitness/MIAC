@@ -4,6 +4,7 @@ import path from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { UsageEvent } from '../../shared/usage';
+import type { ClaudeActive } from './otlp';
 import { UsageReceiver } from './UsageReceiver';
 
 const receivers: UsageReceiver[] = [];
@@ -66,6 +67,29 @@ describe('UsageReceiver', () => {
     });
     expect(res.status).toBe(200);
     expect(got).toEqual([]);
+  });
+  it('hands active_time points of a metrics body to onActiveTime', async () => {
+    const points: ClaudeActive[] = [];
+    const r = new UsageReceiver(
+      () => undefined,
+      (p) => points.push(...p),
+    );
+    receivers.push(r);
+    const port = await freePort();
+    await r.start(port);
+    const url = `http://127.0.0.1:${port}/v1/metrics`;
+    const headers = { 'content-type': 'application/json' };
+    const res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: readFileSync(
+        path.join(__dirname, '__fixtures__', 'claude', 'metrics.json'),
+      ),
+    });
+    expect(res.status).toBe(200);
+    expect(points).toHaveLength(1);
+    const bad = await fetch(url, { method: 'POST', headers, body: '{nope' });
+    expect(bad.status).toBe(400);
   });
   it('rejects protobuf, bad JSON, oversized bodies and unknown paths', async () => {
     const { port } = await start();

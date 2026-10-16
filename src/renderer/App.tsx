@@ -4,6 +4,7 @@ import { HeaderBar } from './components/HeaderBar';
 import { Notices } from './components/Notices';
 import { TaskNav } from './components/TaskNav';
 import { invalidateRepoConfig } from './hooks/useRepoConfig';
+import { useTimeFocus } from './hooks/useTimeFocus';
 import { useShortcuts } from './hooks/useShortcuts';
 import { FinishScreen } from './screens/FinishScreen';
 import { NewTaskScreen } from './screens/NewTaskScreen';
@@ -69,6 +70,7 @@ export function App() {
   const setRepos = useStore((s) => s.setRepos);
   const setConnections = useStore((s) => s.setConnections);
   const notify = useStore((s) => s.notify);
+  useTimeFocus();
 
   useEffect(() => {
     void load().catch((e: Error) => notify('error', e.message));

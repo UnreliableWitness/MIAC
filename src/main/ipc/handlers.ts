@@ -23,6 +23,10 @@ import type {
 import { worktreeRoot } from '../paths';
 import { DocsWatcher } from '../docs/DocsWatcher';
 import { createDocsHandlers } from '../docs/docsHandlers';
+import type { ActivityTracker } from '../time/ActivityTracker';
+import { baselineKey, createTimeHandlers } from '../time/timeHandlers';
+import { closestMeasure, planTimeWrite } from '../time/timeWriteBack';
+import type { TimeStore } from '../time/TimeStore';
 import type { Command, Platform } from '../platform/Platform';
 import {
   OFFICIAL_RATES,
@@ -62,6 +66,7 @@ import type { UsageReceiver } from '../usage/UsageReceiver';
 import type { UsageStore } from '../usage/UsageStore';
 import { UsageSync } from '../usage/UsageSync';
 import { renderCostLine } from '../../shared/workItemUsage';
+import type { TimeBooking } from '../../shared/time';
 
 export type Services = {
   store: TaskStore;
@@ -82,6 +87,12 @@ export type Services = {
   launch: (cmd: Command) => Promise<void>;
   broadcast: <K extends keyof Events>(event: K, payload: Events[K]) => void;
   usage: UsageStore;
+  /** Measured active and agent time per task. */
+  time: TimeStore;
+  /** Counts active time for the task on screen (main); absent in tests. */
+  tracker?: Pick<ActivityTracker, 'setTask' | 'flush'>;
+  /** Sees what is typed into a terminal (main estimates OpenCode agent time from it). */
+  onTerminalInput?: (id: string, data: string) => void;
   settings: SettingsStore;
   appVersion: string;
   /** Windows OS build number (e.g. 22631), null elsewhere. */
@@ -108,6 +119,23 @@ export type Services = {
     install(): boolean;
   };
 };
+
+/** The task's open periods with a new one starting now (reopen). A task from before time tracking keeps creation to finish as its first. */
+function withOpenPeriod(task: Task): Task['openPeriods'] {
+  const now = new Date().toISOString();
+  const before =
+    task.openPeriods.length === 0
+      ? [{ start: task.createdAt, end: task.finishedAt ?? now }]
+      : withPeriodClosed(task, now);
+  return [...before, { start: now, end: null }];
+}
+
+/** The task's open periods with the last one ended at `end`, when it is still open. */
+function withPeriodClosed(task: Task, end: string): Task['openPeriods'] {
+  return task.openPeriods.map((p, i, all) =>
+    i === all.length - 1 && p.end === null ? { ...p, end } : p,
+  );
+}
 
 async function exists(p: string): Promise<boolean> {
   try {
@@ -314,28 +342,153 @@ export function createHandlers(s: Services): Handlers {
   const costLineFor = (taskId: string) =>
     writeCost() ? renderCostLine(s.usage.summarize(taskId)) : null;
 
+  /** The connection and project of the task's repo, null when the repo has none (or it is gone). */
+  const adoTarget = (
+    task: Task,
+  ): { connectionId: string; project: string } | null => {
+    const connectionId =
+      s.repos.list().find((r) => r.id === task.repoId)?.connectionId ?? null;
+    if (!connectionId) return null;
+    try {
+      return {
+        connectionId,
+        project: s.connections.get(connectionId).project,
+      };
+    } catch {
+      return null;
+    }
+  };
+
   const usageSync = new UsageSync({
     task: taskById,
     tasks: () => s.store.state.tasks,
-    target: (task) => {
-      const connectionId =
-        s.repos.list().find((r) => r.id === task.repoId)?.connectionId ?? null;
-      if (!connectionId) return null;
-      try {
-        return {
-          connectionId,
-          project: s.connections.get(connectionId).project,
-        };
-      } catch {
-        return null;
-      }
-    },
+    target: adoTarget,
     client: (connectionId) => s.ado.client(connectionId),
     run: withConnection,
     usage: (taskId) => s.usage.summarize(taskId),
     changedSince: (iso) => s.usage.changedSince(iso),
     patchTask,
   });
+  /** Booked time goes to Azure DevOps (Completed and Remaining Work) only when the user turned it on. */
+  const writeTime = () => s.settings.get().writeTimeToAdo;
+  const timeWrites = new Map<string, Promise<unknown>>();
+  /**
+   * Writes the difference between the task's booked hours and what was written before to its work item, one write
+   * per task at a time. Records the outcome on the booking; returns the error message, null on success.
+   */
+  const syncTime = (taskId: string): Promise<string | null> => {
+    const run = async (): Promise<string | null> => {
+      const task = taskById(taskId);
+      const booking = task.time;
+      const workItem = task.workItem;
+      const target = adoTarget(task);
+      if (!booking || !workItem || !target)
+        return 'This task has no booked time on a work item in a connected Azure DevOps project';
+      const patchBooking = async (patch: Partial<TimeBooking>) => {
+        const latest = taskById(taskId).time;
+        if (latest) await patchTask(taskId, { time: { ...latest, ...patch } });
+      };
+      try {
+        const hours = await withConnection(target.connectionId, async () => {
+          const client = s.ado.client(target.connectionId);
+          const id = Number(workItem.id);
+          const current = await client.workItemEstimate(id);
+          const type = (current.type || workItem.type).toLowerCase();
+          const fieldsOf = async (refresh: boolean) =>
+            (
+              await usageSync.typeFields(
+                target.connectionId,
+                target.project,
+                refresh,
+              )
+            ).find((t) => t.type.toLowerCase() === type)?.fields;
+          // A type missing from the cache (added or renamed since) is looked up again once before writing nothing.
+          const fields = (await fieldsOf(false)) ?? (await fieldsOf(true));
+          const plan = planTimeWrite({
+            bookedSeconds: booking.bookedSeconds,
+            writtenHours: booking.writtenHours,
+            current,
+            fields: fields ?? [],
+          });
+          if (plan) await client.updateWorkItemFields(id, plan.patch);
+          return plan?.hours ?? booking.writtenHours;
+        });
+        await patchBooking({ writtenHours: hours, syncError: null });
+        return null;
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        await patchBooking({ syncError: message }).catch(() => undefined);
+        return message;
+      }
+    };
+    const next = (timeWrites.get(taskId) ?? Promise.resolve()).then(run);
+    const tail = next.catch(() => undefined);
+    timeWrites.set(taskId, tail);
+    void tail.then(() => {
+      if (timeWrites.get(taskId) === tail) timeWrites.delete(taskId);
+    });
+    return next;
+  };
+
+  /** Books the time chosen at Finish on a done task, then writes it to the work item when that is on. Never throws. */
+  const bookTime = async (taskId: string, bookedSeconds: number) => {
+    try {
+      // The open interval holds up to a minute of unflushed active time: write it before measuring.
+      s.tracker?.flush();
+      await s.time.settled();
+      const task = taskById(taskId);
+      const m = s.time.summarize(task, s.settings.get().workHours, Date.now());
+      await patchTask(taskId, {
+        time: {
+          bookedSeconds,
+          measuredSeconds: m.activeSeconds,
+          realisticSeconds: m.realisticSeconds,
+          wallClockSeconds: m.wallClockSeconds,
+          agentSeconds: m.agentSeconds,
+          bookedAt: new Date().toISOString(),
+          writtenHours: task.time?.writtenHours ?? 0,
+          syncError: null,
+        },
+      });
+      tel.event('time.booked', {
+        closest: closestMeasure(bookedSeconds, {
+          measured: m.activeSeconds,
+          realistic: m.realisticSeconds,
+          wallClock: m.wallClockSeconds,
+        }),
+      });
+      if (!writeTime() || !task.workItem || !adoTarget(task)) return;
+      const error = await syncTime(taskId);
+      if (error)
+        s.broadcast('notice', {
+          level: 'warn',
+          message: `Task finished, but the time could not be written to the work item: ${error}. Use Retry on the Done page.`,
+        });
+    } catch (e) {
+      console.error('[time] booking on finish failed', e);
+    }
+  };
+
+  /** The estimate baseline of a work item, from its live fields when a task starts on it. Never throws. */
+  const recordBaseline = async (task: Task) => {
+    const target = adoTarget(task);
+    if (!task.workItem || !target) return;
+    try {
+      const e = await withConnection(target.connectionId, () =>
+        s.ado
+          .client(target.connectionId)
+          .workItemEstimate(Number(task.workItem!.id)),
+      );
+      if (e.originalEstimate === null && e.remainingWork !== null)
+        await s.time.recordBaseline(
+          baselineKey(target.connectionId, task.workItem.id),
+          e.remainingWork + (e.completedWork ?? 0),
+        );
+    } catch {
+      // A missing baseline falls back to the live fields.
+    }
+  };
+
   s.usage.on('changed', (taskId) => s.broadcast('usage:changed', { taskId }));
   s.onHourly(() => {
     if (s.settings.get().hourlySync && writeCost())
@@ -694,6 +847,15 @@ export function createHandlers(s: Services): Handlers {
       watcher: docsWatcher,
       event: (n, p) => tel.event(n, p),
     }),
+    ...createTimeHandlers({
+      time: s.time,
+      tasks: () => s.store.state.tasks,
+      task: taskById,
+      settings: () => s.settings.get(),
+      connectionOf: (task) =>
+        s.repos.list().find((r) => r.id === task.repoId)?.connectionId ?? null,
+      tracker: s.tracker,
+    }),
     'repos:list': async () => s.repos.list(),
     'repos:add': async (folder) => {
       const repo = await s.repos.add(folder);
@@ -748,6 +910,7 @@ export function createHandlers(s: Services): Handlers {
       )
         throw new Error(`Branch ${branch} is already being created`);
       for (const k of keys) creating.add(k);
+      const createdAt = new Date().toISOString();
       const task: Task = {
         id: randomUUID(),
         repoId: repo.id,
@@ -767,7 +930,7 @@ export function createHandlers(s: Services): Handlers {
           openCopilot: input.openCopilot ?? false,
         },
         terminals: [],
-        createdAt: new Date().toISOString(),
+        createdAt,
         finishedAt: null,
         usageSyncedAt: null,
         usageSyncError: null,
@@ -776,6 +939,8 @@ export function createHandlers(s: Services): Handlers {
         pullRequest: null,
         closedTerminals: [],
         reopen: null,
+        openPeriods: [{ start: createdAt, end: null }],
+        time: null,
       };
       inFlight.add(task.id);
       try {
@@ -789,6 +954,7 @@ export function createHandlers(s: Services): Handlers {
         for (const k of keys) creating.delete(k);
       }
       startSetupInBackground(task.id);
+      void recordBaseline(task);
       tel.event('task.created', {
         workItem: input.workItem !== null && input.workItem !== undefined,
         copy: input.copy,
@@ -831,6 +997,7 @@ export function createHandlers(s: Services): Handlers {
             status: 'done',
             reopen: null,
             terminals: [],
+            openPeriods: withPeriodClosed(task, new Date().toISOString()),
           });
           tel.event('task.reopenCancelled');
           return;
@@ -882,6 +1049,7 @@ export function createHandlers(s: Services): Handlers {
             finishedAt: null,
             terminals: defs,
             closedTerminals: [],
+            openPeriods: withOpenPeriod(task),
           });
           startRestored(taskById(taskId), defs);
           tel.event('task.reopened', { from: 'folder' });
@@ -911,6 +1079,7 @@ export function createHandlers(s: Services): Handlers {
           status: 'setting-up',
           reopen: { from },
           terminals: [],
+          openPeriods: withOpenPeriod(task),
         });
         setup = true;
         startSetupInBackground(taskId);
@@ -1033,10 +1202,12 @@ export function createHandlers(s: Services): Handlers {
           await patchTask(taskId, { status: 'ready' });
           throw e;
         }
+        const finishedAt = new Date().toISOString();
         await patchTask(taskId, {
           status: 'done',
-          finishedAt: new Date().toISOString(),
+          finishedAt,
           summary,
+          openPeriods: withPeriodClosed(taskById(taskId), finishedAt),
         });
         tel.event(
           'task.finished',
@@ -1049,6 +1220,13 @@ export function createHandlers(s: Services): Handlers {
           },
           { ageHours: (Date.now() - Date.parse(task.createdAt)) / 3_600_000 },
         );
+        const booked = options.bookedSeconds;
+        if (
+          typeof booked === 'number' &&
+          Number.isFinite(booked) &&
+          booked >= 0
+        )
+          await bookTime(taskId, booked);
         if (options.syncUsage && writeCost()) {
           try {
             if (killTerminals && s.finishFlushMs > 0)
@@ -1101,7 +1279,10 @@ export function createHandlers(s: Services): Handlers {
       tel.event('terminal.opened', { kind: full.kind, initial: false });
       return full;
     },
-    'terminals:write': async (id, data) => s.terminals.write(id, data),
+    'terminals:write': async (id, data) => {
+      s.terminals.write(id, data);
+      s.onTerminalInput?.(id, data);
+    },
     'terminals:resize': async (id, cols, rows) =>
       s.terminals.resize(id, cols, rows),
     'terminals:kill': async (id) => {
@@ -1278,9 +1459,7 @@ export function createHandlers(s: Services): Handlers {
       const [item] = await withConnection(connectionId, () =>
         s.ado.client(connectionId).workItems(c.project, [n]),
       );
-      if (!item) return null;
-      const { remainingWork: _, ...summary } = item;
-      return summary;
+      return item ?? null;
     },
     'shell:openExternal': async (url) => {
       if (!allowedExternal(url))
@@ -1288,6 +1467,17 @@ export function createHandlers(s: Services): Handlers {
       await s.openExternal(url);
     },
 
+    'time:sync': async (taskId) => {
+      if (!writeTime())
+        throw new Error(
+          'Writing time to Azure DevOps is off. Turn it on in Settings.',
+        );
+      const task = taskById(taskId);
+      if (task.status !== 'done' || !task.time)
+        throw new Error('Only a finished task with booked time can be written');
+      const error = await syncTime(taskId);
+      if (error) throw new Error(error);
+    },
     'usage:task': async (taskId) => s.usage.summarize(taskId),
     'usage:setBillable': async (taskId, sessionId, billable) => {
       await s.usage.setBillable(taskId, sessionId, billable);

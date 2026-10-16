@@ -38,6 +38,12 @@ const FIELDS = [
   'System.AssignedTo',
 ];
 const REMAINING_WORK = 'Microsoft.VSTS.Scheduling.RemainingWork';
+const ORIGINAL_ESTIMATE = 'Microsoft.VSTS.Scheduling.OriginalEstimate';
+const COMPLETED_WORK = 'Microsoft.VSTS.Scheduling.CompletedWork';
+/** The estimate fields in hours; ADO leaves a field out when it is unset. */
+const ESTIMATE_FIELDS = [ORIGINAL_ESTIMATE, REMAINING_WORK, COMPLETED_WORK];
+const hoursOf = (v: unknown): number | null =>
+  typeof v === 'number' && Number.isFinite(v) ? v : null;
 const MAX_RESULTS = 50;
 /** The work items batch API takes at most 200 ids per call. */
 const BATCH = 200;
@@ -216,7 +222,7 @@ export class AdoClient {
     return { iteration, rows: buildSprintTree(relations, items) };
   }
 
-  /** Work items by id with the picker's fields plus remaining work, in chunks of 200. Unreadable ids are left out. */
+  /** Work items by id with the picker's fields plus the estimate fields, in chunks of 200. Unreadable ids are left out. */
   async workItems(project: string, ids: number[]): Promise<SprintItem[]> {
     const out: SprintItem[] = [];
     for (let i = 0; i < ids.length; i += BATCH) {
@@ -224,7 +230,7 @@ export class AdoClient {
       const batch = await this.request<{
         value?: ({ id: number; fields: Json; _links?: Json } | null)[];
       }>(
-        `/_apis/wit/workitems?ids=${chunk.join(',')}&fields=${[...FIELDS, REMAINING_WORK].join(',')}&errorPolicy=omit&${API}`,
+        `/_apis/wit/workitems?ids=${chunk.join(',')}&fields=${[...FIELDS, ...ESTIMATE_FIELDS].join(',')}&errorPolicy=omit&${API}`,
       );
       const byId = new Map(
         (batch.value ?? []).flatMap((w) => (w ? [[w.id, w] as const] : [])),
@@ -232,10 +238,11 @@ export class AdoClient {
       for (const id of chunk) {
         const w = byId.get(id);
         if (!w) continue;
-        const remaining = w.fields[REMAINING_WORK];
         out.push({
           ...this.summary(project, w),
-          remainingWork: typeof remaining === 'number' ? remaining : null,
+          remainingWork: hoursOf(w.fields[REMAINING_WORK]),
+          originalEstimate: hoursOf(w.fields[ORIGINAL_ESTIMATE]),
+          completedWork: hoursOf(w.fields[COMPLETED_WORK]),
         });
       }
     }
@@ -471,6 +478,25 @@ export class AdoClient {
       { write: true },
     );
     return { id: data.id };
+  }
+
+  /** Type and estimate fields (hours, null when unset) of a work item. */
+  async workItemEstimate(id: number): Promise<{
+    type: string;
+    originalEstimate: number | null;
+    remainingWork: number | null;
+    completedWork: number | null;
+  }> {
+    const data = await this.request<{ fields?: Json }>(
+      `/_apis/wit/workitems/${id}?fields=${['System.WorkItemType', ...ESTIMATE_FIELDS].join(',')}&${API}`,
+    );
+    const f = data.fields ?? {};
+    return {
+      type: String(f['System.WorkItemType'] ?? ''),
+      originalEstimate: hoursOf(f[ORIGINAL_ESTIMATE]),
+      remainingWork: hoursOf(f[REMAINING_WORK]),
+      completedWork: hoursOf(f[COMPLETED_WORK]),
+    };
   }
 
   /** Type, state and assignee (unique name, else display name) of a work item. */

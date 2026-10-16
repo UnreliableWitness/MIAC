@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { TimeBookingSchema } from './time';
 
 /** Work item type names come from the project's process (Agile, Scrum, Basic, custom); any string is valid. */
 export type WorkItemType = string;
@@ -103,6 +104,12 @@ export const TaskSchema = z.object({
    * null when the local branch still exists, else a ref or commit to make it from.
    */
   reopen: z.object({ from: z.string().nullable() }).nullable().default(null),
+  /** When the task was open, as ISO instants; `end: null` while it is. Empty on older tasks (time falls back to createdAt/finishedAt). */
+  openPeriods: z
+    .array(z.object({ start: z.string(), end: z.string().nullable() }))
+    .default([]),
+  /** What was booked at Finish; null while open and for tasks finished before time tracking. */
+  time: TimeBookingSchema.nullable().default(null),
 });
 export type Task = z.infer<typeof TaskSchema>;
 
@@ -160,6 +167,8 @@ export type FinishOptions = {
   deleteBranch: boolean;
   syncUsage: boolean;
   createPullRequest?: boolean;
+  /** The time to book on the task (seconds); absent books nothing. */
+  bookedSeconds?: number;
 };
 
 export type GitFile = { status: string; path: string };
@@ -279,8 +288,12 @@ export type WorkItemSummary = {
 
 export type WorkItemSearch = { scope: 'sprint' | 'mine'; text: string };
 
-/** A sprint backlog item: the picker's fields plus remaining work (hours, null when unset). */
-export type SprintItem = WorkItemSummary & { remainingWork: number | null };
+/** A sprint backlog item: the picker's fields plus the estimate fields (hours, null when unset). */
+export type SprintItem = WorkItemSummary & {
+  remainingWork: number | null;
+  originalEstimate: number | null;
+  completedWork: number | null;
+};
 /** One grid row of the sprint page, in ADO's backlog order; children follow their parent. */
 export type SprintRow = {
   item: SprintItem;

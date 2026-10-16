@@ -9,6 +9,7 @@ import type {
 import { api, tryInvoke } from '../api';
 import { ConnectionsSection } from '../components/ConnectionsSection';
 import { CostSection } from '../components/CostSection';
+import { TimeSection } from '../components/TimeSection';
 import { MindMark, PageHeader } from '../components/ui';
 import { useStore } from '../store';
 
@@ -322,6 +323,7 @@ export function SettingsScreen() {
           </a>
           <a href="#ado">Azure DevOps</a>
           <a href="#cost">AI cost and invoicing</a>
+          <a href="#time">Time tracking</a>
           <a href="#appearance">Appearance</a>
           <a href="#terminals" className="disabled" aria-disabled="true">
             Terminals and Claude
@@ -352,6 +354,7 @@ export function SettingsScreen() {
           </section>
           <ConnectionsSection />
           <CostSection />
+          <TimeSection />
           <section id="terminals" className="section">
             <div className="section-head">
               <h2>Terminals and Claude</h2>

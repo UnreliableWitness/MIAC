@@ -440,7 +440,7 @@
 }
 .grid.sprint-grid {
   flex: 1;
-  --grid-cols: 24px minmax(0, 1fr) 140px 180px 120px 180px;
+  --grid-cols: 24px minmax(0, 1fr) 140px 180px 120px 150px 180px;
 }
 .sprint-grid .grid-head,
 .sprint-grid .grid-row {
@@ -607,4 +607,103 @@
 .done-nosummary {
   margin: 0;
   padding: 16px 32px 0;
+}
+
+/* Finish: Time spent */
+.time-slider {
+  position: relative;
+  max-width: 100%;
+  overflow-x: clip;
+  padding: 6px 4px 0;
+}
+.time-slider input[type='range'] {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.time-marks {
+  position: relative;
+  height: 34px;
+  margin-top: 2px;
+}
+.time-mark {
+  position: absolute;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  transform: translateX(-50%);
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  text-align: center;
+}
+.time-mark.edge-start {
+  transform: none;
+  text-align: left;
+}
+.time-mark.edge-end {
+  transform: translateX(-100%);
+  text-align: right;
+}
+.time-mark.edge-start.edge-end {
+  transform: none;
+  text-align: left;
+}
+.time-mark b {
+  color: var(--text);
+  font-weight: 600;
+}
+.time-book {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.time-book input {
+  width: 100px;
+  padding: 5px 8px;
+  background: var(--bg-card);
+  color: var(--text);
+  border: 1px solid var(--line-strong);
+  border-radius: 2px;
+  font: inherit;
+}
+.time-book input[aria-invalid='true'] {
+  border-color: var(--warn);
+}
+.time-est {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.time-bar {
+  height: 4px;
+  background: var(--line-strong);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.time-bar i {
+  display: block;
+  height: 100%;
+  background: var(--link);
+}
+.time-bar.over i {
+  background: var(--warn);
+}
+.sprint-time {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.sprint-time.over > span {
+  color: var(--warn);
+}
+.time-agents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+.time-agents b {
+  color: var(--text);
+  font-weight: 600;
 }

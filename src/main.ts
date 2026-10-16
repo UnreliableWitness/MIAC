@@ -11,6 +11,7 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  powerMonitor,
   safeStorage,
   shell,
 } from 'electron';
@@ -35,6 +36,9 @@ import { SetupRunner } from './main/services/SetupRunner';
 import { TaskStore } from './main/services/TaskStore';
 import { TerminalManager } from './main/services/TerminalManager';
 import { CopilotFileTailer } from './main/usage/CopilotFileTailer';
+import { ActivityTracker } from './main/time/ActivityTracker';
+import { TerminalAgentTimer } from './main/time/TerminalAgentTimer';
+import { TimeStore } from './main/time/TimeStore';
 import { SettingsStore } from './main/usage/SettingsStore';
 import { UsageReceiver } from './main/usage/UsageReceiver';
 import { OFFICIAL_RATES } from './main/pricing/officialRates';
@@ -103,6 +107,12 @@ let booting = true;
 const terminals = new TerminalManager();
 const DOT = String.fromCharCode(0xb7);
 let stopUsage: () => void = () => {};
+/** Ends the time tracking timers and closes the open intervals (on quit). */
+let stopTime: () => void = () => {};
+/** Time writes still in flight; the quit waits for them. */
+const timeWrites = new Set<Promise<void>>();
+/** Window focus, for active time (set once the tracker exists). */
+let onWindowFocus: (focused: boolean) => void = () => {};
 let stopUpdates: () => void = () => {};
 let updates: AutoUpdate | null = null;
 /** Set when an update has downloaded; the renderer offers Restart and update. */
@@ -171,6 +181,8 @@ function createWindow(): BrowserWindow {
   win.on('enter-full-screen', sendFullScreen);
   win.on('leave-full-screen', sendFullScreen);
   win.webContents.on('did-finish-load', sendFullScreen);
+  win.on('focus', () => onWindowFocus(true));
+  win.on('blur', () => onWindowFocus(false));
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = null;
   });
@@ -298,10 +310,46 @@ async function boot(): Promise<void> {
             console.error('[usage] could not store a record', err),
           );
     };
-    const receiver = new UsageReceiver(ingest);
+    const time = new TimeStore(path.join(usageDir, 'time.json'));
+    const timeLoaded = await time.load();
+    const keep = (write: Promise<void>) => {
+      const p = write.catch((err: unknown) =>
+        console.error('[time] could not store an interval', err),
+      );
+      timeWrites.add(p);
+      void p.finally(() => timeWrites.delete(p));
+    };
+    const tracker = new ActivityTracker({
+      now: Date.now,
+      idleSeconds: () => powerMonitor.getSystemIdleTime(),
+      idleLimitSeconds: () => settings.get().idleMinutes * 60,
+      onInterval: (taskId, iv) => keep(time.addActive(taskId, iv)),
+    });
+    // OpenCode has no telemetry: its agent time is estimated from the terminal (output after Enter).
+    const agentTimer = new TerminalAgentTimer({
+      now: Date.now,
+      watch: (terminalId) => {
+        for (const t of store.state.tasks)
+          if (
+            t.terminals.some(
+              (d) => d.id === terminalId && d.kind === 'opencode',
+            )
+          )
+            return { taskId: t.id };
+        return null;
+      },
+      onInterval: (taskId, iv) => keep(time.addAgent(taskId, 'opencode', iv)),
+    });
+    time.on('changed', (taskId) => broadcast('time:changed', { taskId }));
+    const receiver = new UsageReceiver(ingest, (points) => {
+      for (const p of points) keep(time.addClaudeActive(p));
+    });
     const copilot = new CopilotFileTailer(
       path.join(usageDir, 'copilot'),
       ingest,
+      (taskId, ivs) => {
+        for (const iv of ivs) keep(time.addAgent(taskId, 'copilot-cli', iv));
+      },
     );
     const handlers = createHandlers({
       update: {
@@ -314,6 +362,9 @@ async function boot(): Promise<void> {
           ? Number(os.release().split('.')[2]) || null
           : null,
       usage,
+      time,
+      tracker,
+      onTerminalInput: (id, data) => agentTimer.input(id, data),
       settings,
       receiver,
       copilot,
@@ -381,6 +432,25 @@ async function boot(): Promise<void> {
       broadcast('terminal:exit', { id, exitCode }),
     );
     terminals.on('exit', () => void copilot.poll());
+    terminals.on('data', (id) => agentTimer.output(id));
+    terminals.on('exit', (id) => agentTimer.close(id));
+    const timeTick = setInterval(() => {
+      tracker.tick();
+      agentTimer.tick();
+    }, 15_000);
+    const timeFlush = setInterval(() => tracker.flush(), 60_000);
+    powerMonitor.on('lock-screen', () => tracker.suspend());
+    powerMonitor.on('suspend', () => tracker.suspend());
+    powerMonitor.on('unlock-screen', () => tracker.resume());
+    powerMonitor.on('resume', () => tracker.resume());
+    stopTime = () => {
+      clearInterval(timeTick);
+      clearInterval(timeFlush);
+      // Closes the open intervals at now; will-quit waits for their writes.
+      tracker.setFocused(false);
+      for (const id of terminals.ids()) agentTimer.close(id);
+    };
+    onWindowFocus = (focused) => tracker.setFocused(focused);
 
     reporter.step(
       `Checking Azure DevOps ${DOT} ${connections.list().length} connection(s)`,
@@ -412,6 +482,11 @@ async function boot(): Promise<void> {
         broadcast('notice', {
           level: 'warn',
           message: `billable.json was unreadable and was moved to ${path.basename(usageLoaded.billableBackup)}; all sessions are billable again. Review them on the Usage screen.`,
+        });
+      if (timeLoaded.recovered)
+        broadcast('notice', {
+          level: 'warn',
+          message: `time.json was unreadable and was moved to ${path.basename(timeLoaded.backup ?? '')}; measured time starts empty.`,
         });
       for (const [name, r] of [['settings.json', settingsLoaded]] as const)
         if (r.recovered)
@@ -554,23 +629,29 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  stopTime();
   docsWatcher.stopAll();
   for (const id of terminals.ids()) terminals.kill(id);
   stopUsage();
   stopUpdates();
 });
 
-let telemetryFlushed = false;
+let quitHeld = false;
 app.on('will-quit', (e) => {
-  // Hold the quit for one last best-effort send (at most 2 s), then exit.
-  if (telemetryFlushed || telemetry === NoopTelemetry) return;
-  telemetryFlushed = true;
+  // Hold the quit for the last time writes and one best-effort telemetry send (at most 2 s), then exit.
+  const sendTelemetry = telemetry !== NoopTelemetry;
+  if (quitHeld || (!sendTelemetry && timeWrites.size === 0)) return;
+  quitHeld = true;
   e.preventDefault();
-  telemetry.event('app.quit', undefined, {
-    sessionMinutes: (Date.now() - sessionStart) / 60_000,
-  });
+  if (sendTelemetry)
+    telemetry.event('app.quit', undefined, {
+      sessionMinutes: (Date.now() - sessionStart) / 60_000,
+    });
   void Promise.race([
-    telemetry.flush(),
+    Promise.allSettled([
+      ...timeWrites,
+      ...(sendTelemetry ? [telemetry.flush()] : []),
+    ]),
     new Promise((r) => setTimeout(r, 2000)),
   ]).finally(() => app.exit(0));
 });

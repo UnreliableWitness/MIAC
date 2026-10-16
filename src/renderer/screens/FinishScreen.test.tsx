@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { TaskView } from '../../shared/types';
 import { readPrChoice, writePrChoice } from '../uiPrefs';
 import { useStore } from '../store';
-import { emptyUsage, installFakeApi } from '../test-helpers/fakeApi';
+import { emptyTime, emptyUsage, installFakeApi } from '../test-helpers/fakeApi';
 import { FinishScreen } from './FinishScreen';
 
 const task: TaskView = {
@@ -22,6 +22,8 @@ const task: TaskView = {
   worktreePath: '/w/a',
   baseRef: 'origin/main',
   baseSha: null,
+  openPeriods: [],
+  time: null,
   status: 'ready',
   setup: {
     copy: true,
@@ -118,6 +120,7 @@ describe('FinishScreen', () => {
           deleteBranch: false,
           syncUsage: false,
           createPullRequest: false,
+          bookedSeconds: 0,
         },
       ]),
     );
@@ -415,6 +418,9 @@ describe('FinishScreen AI usage', () => {
         version: 1,
         receiverPort: 4319,
         hourlySync: true,
+        writeTimeToAdo: false,
+        idleMinutes: 5,
+        workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
         writeCostToAdo: false,
         showSplash: true,
         sendTelemetry: true,
@@ -701,5 +707,228 @@ describe('FinishScreen pull request failure with unpushed commits', () => {
       name: 'Finish and clean up',
     });
     await waitFor(() => expect(btn).toBeEnabled());
+  });
+
+  describe('time spent', () => {
+    const measured = {
+      ...emptyTime('a'),
+      activeSeconds: 11400,
+      realisticSeconds: 14700,
+      wallClockSeconds: 34200,
+    };
+
+    it('books the time in the field with Finish', async () => {
+      const { calls } = installFakeApi({
+        'tasks:finishChecks': () => clean,
+        'tasks:finish': () => undefined,
+        'time:task': () => measured,
+      });
+      render(<FinishScreen taskId="a" />);
+      const field = await screen.findByLabelText('Time to book');
+      expect(field).toHaveValue('3h 10m');
+      await userEvent.clear(field);
+      await userEvent.type(field, '4h');
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Finish and clean up' }),
+      );
+      await waitFor(() =>
+        expect(calls.find((c) => c.channel === 'tasks:finish')).toBeDefined(),
+      );
+      const opts = calls.find((c) => c.channel === 'tasks:finish')?.args[1] as
+        | { bookedSeconds?: number }
+        | undefined;
+      expect(opts?.bookedSeconds).toBe(14400);
+    });
+
+    it('starts from the earlier booking plus time measured since the reopen', async () => {
+      installFakeApi({
+        'tasks:finishChecks': () => clean,
+        'time:task': () => ({
+          ...measured,
+          measuredSinceReopenSeconds: 1800,
+          booking: {
+            bookedSeconds: 7200,
+            measuredSeconds: 7200,
+            realisticSeconds: 7200,
+            wallClockSeconds: 7200,
+            agentSeconds: { 'claude-code': 0, 'copilot-cli': 0, opencode: 0 },
+            bookedAt: 'then',
+            writtenHours: 0,
+            syncError: null,
+          },
+        }),
+      });
+      render(<FinishScreen taskId="a" />);
+      expect(await screen.findByLabelText('Time to book')).toHaveValue(
+        '2h 30m',
+      );
+    });
+
+    it('invalid time blocks finish', async () => {
+      installFakeApi({
+        'tasks:finishChecks': () => clean,
+        'time:task': () => measured,
+      });
+      render(<FinishScreen taskId="a" />);
+      const field = await screen.findByLabelText('Time to book');
+      await userEvent.clear(field);
+      await userEvent.type(field, 'abc');
+      expect(
+        screen.getByText('Enter a time like 3h 30m or 3.5'),
+      ).toBeInTheDocument();
+      expect(
+        await screen.findByRole('button', { name: 'Finish and clean up' }),
+      ).toBeDisabled();
+    });
+
+    it('uses the live original estimate from the work item', async () => {
+      useStore.setState({
+        repos: [
+          {
+            id: 'r1',
+            name: 'repo',
+            path: '/src/repo',
+            baseBranch: 'main',
+            connectionId: 'c1',
+            miacYmlFound: true,
+            workItemOnStart: {
+              moveToInProgress: true,
+              assignToMe: true,
+              stateOverrides: {},
+            },
+          },
+        ],
+      });
+      installFakeApi({
+        'tasks:finishChecks': () => clean,
+        'time:task': () => ({
+          ...measured,
+          estimate: { hours: 8, source: 'baseline' },
+        }),
+        'workItems:get': () => ({
+          id: '48213',
+          type: 'User Story',
+          title: 't',
+          state: 'Active',
+          areaPath: 'a',
+          iterationPath: 'i',
+          assignedTo: null,
+          url: 'u',
+          originalEstimate: 5,
+          remainingWork: 1,
+          completedWork: 2,
+        }),
+      });
+      render(<FinishScreen taskId="a" />);
+      expect(
+        await screen.findByText('3h 10m of 5h estimate'),
+      ).toBeInTheDocument();
+    });
+
+    it('falls back to the recorded estimate without a connection', async () => {
+      installFakeApi({
+        'tasks:finishChecks': () => clean,
+        'time:task': () => ({
+          ...measured,
+          estimate: { hours: 8, source: 'baseline' },
+        }),
+      });
+      render(<FinishScreen taskId="a" />);
+      expect(
+        await screen.findByText('3h 10m of 8h estimate'),
+      ).toBeInTheDocument();
+    });
+  });
+
+  describe('time loading', () => {
+    const measured = { ...emptyTime('a'), activeSeconds: 11400 };
+    const finishOpts = (calls: { channel: string; args: unknown[] }[]) =>
+      calls.find((c) => c.channel === 'tasks:finish')?.args[1] as
+        | Record<string, unknown>
+        | undefined;
+
+    it('disables Finish while the time is loading', async () => {
+      installFakeApi({
+        'tasks:finishChecks': () => clean,
+        'time:task': () => new Promise(() => undefined),
+      });
+      render(<FinishScreen taskId="a" />);
+      expect(await screen.findByText('Loading time\u2026')).toBeInTheDocument();
+      await screen.findByText('Nothing to push');
+      expect(
+        screen.getByRole('button', { name: 'Finish and clean up' }),
+      ).toBeDisabled();
+    });
+
+    it('offers Retry and Finish without booking time when loading fails', async () => {
+      let fail = true;
+      installFakeApi({
+        'tasks:finishChecks': () => clean,
+        'tasks:finish': () => undefined,
+        'time:task': () => {
+          if (fail) throw new Error('boom');
+          return measured;
+        },
+      });
+      render(<FinishScreen taskId="a" />);
+      expect(
+        await screen.findByText('Time could not be loaded'),
+      ).toBeInTheDocument();
+      await screen.findByText('Nothing to push');
+      expect(
+        screen.getByRole('button', { name: 'Finish and clean up' }),
+      ).toBeDisabled();
+      fail = false;
+      await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+      expect(await screen.findByLabelText('Time to book')).toHaveValue(
+        '3h 10m',
+      );
+    });
+
+    it('finishes without bookedSeconds via Finish without booking time', async () => {
+      const { calls } = installFakeApi({
+        'tasks:finishChecks': () => clean,
+        'tasks:finish': () => undefined,
+        'time:task': () => {
+          throw new Error('boom');
+        },
+      });
+      render(<FinishScreen taskId="a" />);
+      await screen.findByText('Nothing to push');
+      await userEvent.click(
+        await screen.findByRole('button', {
+          name: 'Finish without booking time',
+        }),
+      );
+      await waitFor(() => expect(finishOpts(calls)).toBeDefined());
+      expect(finishOpts(calls)).not.toHaveProperty('bookedSeconds');
+    });
+
+    it('keeps the starting value when time changes while the page is open', async () => {
+      let active = 11400;
+      const { calls, emit } = installFakeApi({
+        'tasks:finishChecks': () => clean,
+        'tasks:finish': () => undefined,
+        'time:task': () => ({ ...measured, activeSeconds: active }),
+      });
+      render(<FinishScreen taskId="a" />);
+      expect(await screen.findByLabelText('Time to book')).toHaveValue(
+        '3h 10m',
+      );
+      active = 12000;
+      emit('time:changed', { taskId: 'a' });
+      await waitFor(() =>
+        expect(
+          calls.filter((c) => c.channel === 'time:task').length,
+        ).toBeGreaterThan(1),
+      );
+      await screen.findByText('Nothing to push');
+      expect(screen.getByLabelText('Time to book')).toHaveValue('3h 10m');
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Finish and clean up' }),
+      );
+      await waitFor(() => expect(finishOpts(calls)).toBeDefined());
+      expect(finishOpts(calls)?.bookedSeconds).toBe(11400);
+    });
   });
 });

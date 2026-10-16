@@ -23,9 +23,10 @@ import { loadMiacConfig } from '../services/MiacConfig';
 import { RepoRegistry } from '../services/RepoRegistry';
 import { SetupRunner } from '../services/SetupRunner';
 import { TaskStore } from '../services/TaskStore';
-import type { Telemetry } from '../telemetry/AppInsightsClient';
+import { NoopTelemetry, type Telemetry } from '../telemetry/AppInsightsClient';
 import { TerminalManager } from '../services/TerminalManager';
 import { DocsWatcher } from '../docs/DocsWatcher';
+import { TimeStore } from '../time/TimeStore';
 import {
   addOrigin,
   cleanupTempRepos,
@@ -108,6 +109,8 @@ async function harness(
   await settings.save({ ...settings.get(), writeCostToAdo: true });
   const usage = new UsageStore(usageDir, () => OFFICIAL_RATES);
   await usage.load();
+  const time = new TimeStore(path.join(usageDir, 'time.json'));
+  await time.load();
   const receiverStarts: number[] = [];
   let receiverStatus = {
     listening: true,
@@ -150,6 +153,7 @@ async function harness(
     pickFolder: async () => '/picked',
     launch: async () => {},
     usage,
+    time,
     settings,
     receiver,
     copilot: { stats: { records: 0, unreadable: 0 }, poll: async () => {} },
@@ -284,6 +288,18 @@ describe('handlers: create task', () => {
     ]);
     expect(broadcasts.some((b) => b.event === 'tasks:changed')).toBe(true);
     terminals.killAllForTask(task.id);
+  });
+
+  it('stores an open period from creation and no booking', async () => {
+    const { h, store, setupDone, input, terminals } = await harness();
+    const done = setupDone();
+    const task = await h['tasks:create'](input({ openShell: false }));
+    await done;
+    expect(store.state.tasks[0].openPeriods).toEqual([
+      { start: task.createdAt, end: null },
+    ]);
+    expect(store.state.tasks[0].time).toBeNull();
+    await terminals.killAllForTask(task.id);
   });
 
   it('runs the setup commands in a Setup tab after the other tabs, without waiting for them', async () => {
@@ -607,7 +623,7 @@ describe('handlers: finish', () => {
   });
 
   it('reports checks, then removes worktree and branch and marks done', async () => {
-    const { h, input, setupDone, terminals, repo } = await harness();
+    const { h, input, setupDone, terminals, repo, store } = await harness();
     const done = setupDone();
     const t = await h['tasks:create'](input());
     await done;
@@ -624,6 +640,9 @@ describe('handlers: finish', () => {
     const [view] = await h['tasks:list']();
     expect(view.status).toBe('done');
     expect(view.finishedAt).not.toBeNull();
+    expect(store.state.tasks[0].openPeriods).toEqual([
+      { start: t.createdAt, end: view.finishedAt },
+    ]);
     expect(view.terminals).toEqual([]);
     expect(terminals.runningCount(t.id)).toBe(0);
     expect(existsSync(t.worktreePath)).toBe(false);
@@ -1081,6 +1100,9 @@ describe('handlers: reopen a finished task', () => {
       finishedAt: null,
       closedTerminals: [],
     });
+    expect(task.openPeriods).toHaveLength(2);
+    expect(task.openPeriods[0].end).not.toBeNull();
+    expect(task.openPeriods[1].end).toBeNull();
     expect(task.terminals.map((d) => d.id)).toEqual(hx.before.map((d) => d.id));
     const claude = hx.before.find((d) => d.kind === 'claude')!;
     expect(hx.calls.at(-1)).toEqual({
@@ -1088,6 +1110,20 @@ describe('handlers: reopen a finished task', () => {
       flags: ['--resume', claude.sessionId],
     });
     expect(hx.terminals.runningCount(hx.t.id)).toBe(2);
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
+  it('reopening a task from before time tracking keeps creation to finish as its first period', async () => {
+    const hx = await finished({ removeWorktree: false, deleteBranch: false });
+    await hx.store.update((st) => {
+      st.tasks[0].openPeriods = [];
+    });
+    const { createdAt, finishedAt } = hx.store.state.tasks[0];
+    await hx.h['tasks:reopen'](hx.t.id);
+    const periods = hx.store.state.tasks[0].openPeriods;
+    expect(periods[0]).toEqual({ start: createdAt, end: finishedAt });
+    expect(periods).toHaveLength(2);
+    expect(periods[1].end).toBeNull();
     await hx.terminals.killAllForTask(hx.t.id);
   });
 
@@ -1117,6 +1153,9 @@ describe('handlers: reopen a finished task', () => {
     expect(oldSetupTab).toBeDefined();
     const result = await reopenSetup(hx);
     expect(result.ok).toBe(true);
+    expect(
+      hx.store.state.tasks[0].openPeriods.map((p) => p.end === null),
+    ).toEqual([false, true]);
     expect(existsSync(path.join(hx.t.worktreePath, 'feature.txt'))).toBe(true);
     await vi.waitFor(
       () =>
@@ -1211,6 +1250,9 @@ describe('handlers: reopen a finished task', () => {
       status: 'done',
       reopen: null,
     });
+    expect(
+      hx.store.state.tasks[0].openPeriods.every((p) => p.end !== null),
+    ).toBe(true);
     expect(existsSync(hx.t.worktreePath)).toBe(false);
     expect(await new GitClient().branchExists(hx.repo, hx.t.branch)).toBe(true);
   });
@@ -1293,6 +1335,8 @@ describe('recoverInterruptedTasks', () => {
       worktreePath: '/w',
       baseRef: 'main',
       baseSha: null,
+      openPeriods: [],
+      time: null,
       setup: {
         copy: false,
         commands: [],
@@ -1699,7 +1743,7 @@ describe('handlers: sprint, types and live work items', () => {
       id: '5',
       state: 'To Do',
     });
-    expect(await hx.h['workItems:get'](c.id, '5')).not.toHaveProperty(
+    expect(await hx.h['workItems:get'](c.id, '5')).toHaveProperty(
       'remainingWork',
     );
     hx.server.route('GET', '/unreliablewitness/_apis/wit/workitems', {
@@ -2526,5 +2570,273 @@ describe('handlers: finish with a pull request', () => {
     const checks = await hx.h['tasks:finishChecks'](hx.t.id);
     expect(checks.unpushed).toBe(1);
     expect(checks.runningTerminals).toBe(0);
+  });
+});
+
+describe('handlers: time', () => {
+  it('passes terminal input on for agent time', async () => {
+    const seen: [string, string][] = [];
+    const { h, input, setupDone, store, terminals } = await harness(
+      fakeCrypto(),
+      { onTerminalInput: (id, data) => seen.push([id, data]) },
+    );
+    const done = setupDone();
+    const t = await h['tasks:create'](input());
+    await done;
+    const id = store.state.tasks[0].terminals[0].id;
+    await h['terminals:write'](id, 'ls\r');
+    expect(seen).toEqual([[id, 'ls\r']]);
+    await terminals.killAllForTask(t.id);
+  });
+
+  it('has the time handlers', async () => {
+    const { h } = await harness();
+    expect(await h['time:sprint']('none')).toEqual({});
+  });
+});
+
+describe('handlers: time booking and write-back', () => {
+  const WI = '/unreliablewitness/_apis/wit/workitems/48231';
+  const finishOpts = (bookedSeconds?: number) => ({
+    closeTerminals: true,
+    removeWorktree: true,
+    deleteBranch: true,
+    syncUsage: false,
+    bookedSeconds,
+  });
+
+  async function timeTask(
+    hx: Awaited<ReturnType<typeof harness>>,
+    writeTime: boolean,
+  ) {
+    await hx.settings.save({ ...hx.settings.get(), writeTimeToAdo: writeTime });
+    const { t, c } = await linkedTask(hx);
+    hx.server.route('GET', '/unreliablewitness/MIAC/_apis/wit/workitemtypes', {
+      body: {
+        value: [
+          {
+            name: 'User Story',
+            fields: [
+              { referenceName: 'Microsoft.VSTS.Scheduling.RemainingWork' },
+              { referenceName: 'Microsoft.VSTS.Scheduling.CompletedWork' },
+            ],
+          },
+        ],
+      },
+    });
+    hx.server.route('GET', WI, {
+      body: {
+        fields: {
+          'System.WorkItemType': 'User Story',
+          'Microsoft.VSTS.Scheduling.RemainingWork': 5,
+          'Microsoft.VSTS.Scheduling.CompletedWork': 1,
+        },
+      },
+    });
+    return { t, c };
+  }
+  const patches = (hx: Awaited<ReturnType<typeof harness>>) =>
+    hx.server.requests.filter((r) => r.method === 'PATCH');
+
+  it('books the time without writing it when time writing is off', async () => {
+    const events: [string, unknown][] = [];
+    const hx = await harness(fakeCrypto(), {
+      telemetry: {
+        ...NoopTelemetry,
+        event: (name, props) => events.push([name, props]),
+      },
+    });
+    const { t } = await timeTask(hx, false);
+    await hx.h['tasks:finish'](t.id, finishOpts(7200));
+    const task = hx.store.state.tasks[0];
+    expect(task.status).toBe('done');
+    expect(task.time).toMatchObject({
+      bookedSeconds: 7200,
+      writtenHours: 0,
+      syncError: null,
+    });
+    expect(typeof task.time?.measuredSeconds).toBe('number');
+    expect(patches(hx)).toEqual([]);
+    expect(events).toContainEqual(['time.booked', { closest: 'custom' }]);
+    await expect(hx.h['time:sync'](t.id)).rejects.toThrow(
+      'Writing time to Azure DevOps is off',
+    );
+  });
+
+  it('keeps no booking when Finish has no time to book', async () => {
+    const hx = await harness();
+    const { t } = await timeTask(hx, true);
+    await hx.h['tasks:finish'](t.id, finishOpts());
+    expect(hx.store.state.tasks[0].time).toBeNull();
+    expect(patches(hx)).toEqual([]);
+  });
+
+  it('writes Completed and Remaining Work when time writing is on', async () => {
+    const hx = await harness();
+    const { t } = await timeTask(hx, true);
+    await hx.h['tasks:finish'](t.id, finishOpts(7200));
+    expect(patches(hx)).toHaveLength(1);
+    expect(JSON.parse(patches(hx)[0].body)).toEqual([
+      {
+        op: 'add',
+        path: '/fields/Microsoft.VSTS.Scheduling.CompletedWork',
+        value: 3,
+      },
+      {
+        op: 'add',
+        path: '/fields/Microsoft.VSTS.Scheduling.RemainingWork',
+        value: 3,
+      },
+    ]);
+    expect(hx.store.state.tasks[0]).toMatchObject({
+      status: 'done',
+      time: { bookedSeconds: 7200, writtenHours: 2, syncError: null },
+    });
+  });
+
+  it('finishes and warns when the time write fails, then time:sync retries it', async () => {
+    const hx = await harness();
+    const { t } = await timeTask(hx, true);
+    hx.server.route('PATCH', WI, { status: 403, body: {} });
+    await hx.h['tasks:finish'](t.id, finishOpts(7200));
+    const task = hx.store.state.tasks[0];
+    expect(task.status).toBe('done');
+    expect(task.time?.writtenHours).toBe(0);
+    expect(task.time?.syncError).toBe(
+      'The token cannot write work items (needs Work Items: Read & write)',
+    );
+    expect(hx.broadcasts).toContainEqual({
+      event: 'notice',
+      payload: {
+        level: 'warn',
+        message:
+          'Task finished, but the time could not be written to the work item: The token cannot write work items (needs Work Items: Read & write). Use Retry on the Done page.',
+      },
+    });
+    hx.server.route('PATCH', WI, { body: { id: 48231 } });
+    await hx.h['time:sync'](t.id);
+    expect(hx.store.state.tasks[0].time).toMatchObject({
+      writtenHours: 2,
+      syncError: null,
+    });
+  });
+
+  it('refetches the type fields once when the cached ones lack the work item type', async () => {
+    const hx = await harness();
+    const { t } = await timeTask(hx, true);
+    const TYPES = '/unreliablewitness/MIAC/_apis/wit/workitemtypes';
+    let typeCalls = 0;
+    hx.server.route('GET', TYPES, () => {
+      typeCalls++;
+      return {
+        body: {
+          value: [
+            { name: 'Bug', fields: [] },
+            ...(typeCalls > 1
+              ? [
+                  {
+                    name: 'User Story',
+                    fields: [
+                      {
+                        referenceName:
+                          'Microsoft.VSTS.Scheduling.CompletedWork',
+                      },
+                    ],
+                  },
+                ]
+              : []),
+          ],
+        },
+      };
+    });
+    await hx.h['tasks:finish'](t.id, finishOpts(7200));
+    expect(typeCalls).toBe(2);
+    expect(patches(hx)).toHaveLength(1);
+    expect(JSON.parse(patches(hx)[0].body)).toEqual([
+      {
+        op: 'add',
+        path: '/fields/Microsoft.VSTS.Scheduling.CompletedWork',
+        value: 3,
+      },
+    ]);
+    expect(hx.store.state.tasks[0].time?.writtenHours).toBe(2);
+  });
+
+  it('flushes the open active interval before booking at Finish', async () => {
+    let time: TimeStore | undefined;
+    const flushed: number[] = [];
+    const hx = await harness(fakeCrypto(), {
+      tracker: {
+        setTask: () => undefined,
+        flush: () => {
+          const now = Date.now();
+          flushed.push(now);
+          // Like main: the write is started, not awaited.
+          void time?.addActive(hx.store.state.tasks[0].id, [
+            now - 1_800_000,
+            now,
+          ]);
+        },
+      },
+    });
+    time = hx.services.time;
+    const { t } = await timeTask(hx, false);
+    const hourAgo = new Date(Date.now() - 3_600_000).toISOString();
+    await hx.store.update((st) => {
+      st.tasks[0].createdAt = hourAgo;
+      st.tasks[0].openPeriods = st.tasks[0].openPeriods.map((p, k) =>
+        k === 0 ? { ...p, start: hourAgo } : p,
+      );
+    });
+    await hx.h['tasks:finish'](t.id, finishOpts(7200));
+    expect(flushed).toHaveLength(1);
+    expect(hx.store.state.tasks[0].time?.measuredSeconds).toBeGreaterThan(1700);
+  });
+});
+
+describe('handlers: estimate baseline at create', () => {
+  async function connect(hx: Awaited<ReturnType<typeof harness>>) {
+    routeHealthyOrg(hx.server);
+    const c = await hx.h['connections:save']({
+      organizationUrl: `${hx.server.url}/unreliablewitness`,
+      project: 'MIAC',
+      pat: 'secret-pat',
+    });
+    await hx.h['repos:setConnection'](hx.added.id, c.id);
+    return c;
+  }
+
+  it('records Remaining + Completed Work when the item has no Original Estimate', async () => {
+    const hx = await harness();
+    const c = await connect(hx);
+    hx.server.route('GET', '/unreliablewitness/_apis/wit/workitems/48231', {
+      body: {
+        fields: {
+          'System.WorkItemType': 'User Story',
+          'Microsoft.VSTS.Scheduling.RemainingWork': 5,
+          'Microsoft.VSTS.Scheduling.CompletedWork': 1,
+        },
+      },
+    });
+    const done = hx.setupDone();
+    await hx.h['tasks:create'](hx.input({ openShell: false }));
+    await done;
+    await vi.waitFor(() =>
+      expect(hx.services.time.baseline(`${c.id}:48231`)).toBe(6),
+    );
+  });
+
+  it('still creates the task when Azure DevOps fails', async () => {
+    const hx = await harness();
+    const c = await connect(hx);
+    hx.server.route('GET', '/unreliablewitness/_apis/wit/workitems/48231', {
+      status: 500,
+      body: {},
+    });
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](hx.input({ openShell: false }));
+    await done;
+    expect(hx.store.state.tasks.map((x) => x.id)).toEqual([t.id]);
+    expect(hx.services.time.baseline(`${c.id}:48231`)).toBeNull();
   });
 });
