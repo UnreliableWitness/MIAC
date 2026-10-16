@@ -1,6 +1,7 @@
 import {
   Branch16Regular,
   Dismiss12Regular,
+  Warning16Regular,
   Code16Regular,
   DataPie16Regular,
   Document16Regular,
@@ -17,11 +18,14 @@ import { useTaskUsage } from '../hooks/useTaskUsage';
 import { holdDocsWatch } from '../docs/holdDocsWatch';
 import { DOCS_TAB, USAGE_TAB, useStore } from '../store';
 import { DocsTab } from './docs/DocsTab';
+import { activeWorkspaces } from '../../shared/workspaces';
 import { NewTerminalMenu } from './NewTerminalMenu';
 import { TerminalView } from './TerminalView';
 import { IconButton, MindMark, modKey } from './ui';
 import { UsagePanel } from './UsagePanel';
+import { TaskMenu, WorkspaceChips } from './WorkspaceChips';
 
+const SCAN_MS = 120000;
 const MARKDOWN = /\.(md|markdown)$/i;
 /** Build output and dependencies: Markdown there is not the task's documentation. */
 const OUTPUT_DIR = /^(dist|build|out|node_modules)\//;
@@ -30,6 +34,8 @@ const DOWN = String.fromCharCode(0x2193);
 const DOT = String.fromCharCode(0xb7);
 const DELTA = String.fromCharCode(0x394);
 const DASH = String.fromCharCode(0x2014);
+
+const folderName = (p: string) => p.split(/[\\/]/).filter(Boolean).at(-1) ?? p;
 
 /** The task's AI cost; opens the Usage tab. */
 export function CostButton({ taskId }: { taskId: string }) {
@@ -60,6 +66,7 @@ export function TerminalTabs({
 }) {
   const notify = useStore((s) => s.notify);
   const go = useStore((s) => s.go);
+  const repos = useStore((s) => s.repos);
   const config = useRepoConfig(task.repoId);
   const git = useGitSummary(task.id, task.worktreeMissing, visible);
   const active = useStore((s) => s.activeTab(task.id));
@@ -108,6 +115,26 @@ export function TerminalTabs({
   useEffect(() => {
     if (active === USAGE_TAB) setUnseen(false);
   }, [active]);
+
+  // The task page looks for other repos' worktrees when shown and every 2 minutes while the window is focused.
+  useEffect(() => {
+    if (!visible || !ready) return;
+    const scan = () => {
+      void api()
+        .invoke('tasks:scanWorkspaces', task.id)
+        .catch(() => undefined);
+    };
+    scan();
+    const timer = setInterval(() => {
+      if (document.hasFocus()) scan();
+    }, SCAN_MS);
+    return () => clearInterval(timer);
+  }, [task.id, visible, ready]);
+
+  const workspaces = activeWorkspaces(task).map((w) => ({
+    id: w.id,
+    name: repos.find((r) => r.id === w.repoId)?.name ?? w.branch,
+  }));
 
   const open = async (def: NewTerminal) => {
     const created = await tryInvoke(
@@ -194,6 +221,7 @@ export function TerminalTabs({
           ))}
           <NewTerminalMenu
             disabled={task.worktreeMissing}
+            workspaces={workspaces}
             onOpen={(def) => void open(def)}
           />
           {runCommands.length > 0 && (
@@ -214,6 +242,7 @@ export function TerminalTabs({
           )}
         </div>
         <div className="taskbar-right">
+          <WorkspaceChips task={task} />
           <span className="mono taskbar-git" title={task.branch}>
             <Branch16Regular aria-hidden="true" />
             <span className="taskbar-branch">{task.branch}</span>
@@ -245,6 +274,7 @@ export function TerminalTabs({
               >
                 Finish
               </button>
+              <TaskMenu task={task} />
               <IconButton
                 label={inFocus ? 'Exit focus' : 'Focus'}
                 shortcut={`${modKey}+Shift+F`}
@@ -260,6 +290,12 @@ export function TerminalTabs({
           )}
         </div>
       </div>
+      {task.mainCheckoutEdits.map((e) => (
+        <div key={e.repoPath} role="status" className="ws-warning">
+          <Warning16Regular aria-hidden="true" />
+          {`Changes made in ${folderName(e.repoPath)}'s main checkout${e.branch ? ` (branch ${e.branch})` : ''}`}
+        </div>
+      ))}
       <div className="termhost">
         {visible && active === USAGE_TAB && <UsagePanel taskId={task.id} />}
         {visible && active === DOCS_TAB && !task.worktreeMissing && (

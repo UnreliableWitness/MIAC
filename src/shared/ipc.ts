@@ -128,7 +128,10 @@ export type Channels = {
     args: [taskId: string, options: FinishOptions];
     result: void;
   };
-  'tasks:openInEditor': { args: [taskId: string]; result: void };
+  'tasks:openInEditor': {
+    args: [taskId: string, workspaceId?: string];
+    result: void;
+  };
   /** Looks for other repos' worktrees the task worked in and joins them; returns the ones added. */
   'tasks:scanWorkspaces': { args: [taskId: string]; result: Workspace[] };
   /** Joins the worktree containing a folder by hand. */

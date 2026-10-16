@@ -280,3 +280,50 @@ describe('HeaderBar', () => {
     ).toBeTruthy();
   });
 });
+
+describe('HeaderBar workspaces', () => {
+  it('lists each repo and branch in the task details', async () => {
+    installFakeApi({
+      'tasks:gitSummary': () => git,
+      'usage:task': () => usage,
+    });
+    useStore.setState({
+      repos: [
+        ...useStore.getState().repos,
+        {
+          ...useStore.getState().repos[0],
+          id: 'r2',
+          name: 'api',
+        },
+      ],
+      tasks: [
+        {
+          ...task,
+          extraWorkspaces: [
+            {
+              id: 'w1',
+              repoId: 'r2',
+              branch: 'feature/api-side',
+              worktreePath: '/api.wt',
+              baseRef: 'origin/main',
+              baseSha: null,
+              source: 'detected',
+              summary: null,
+              pullRequest: null,
+              reopen: null,
+              dropped: false,
+            } as never,
+          ],
+        },
+      ],
+    });
+    render(<HeaderBar />);
+    const card = await openCard();
+    expect(within(card).getByText('webshop')).toBeInTheDocument();
+    expect(
+      within(card).getByText('feature/48213-save-delivery-address'),
+    ).toBeInTheDocument();
+    expect(within(card).getByText('api')).toBeInTheDocument();
+    expect(within(card).getByText('feature/api-side')).toBeInTheDocument();
+  });
+});

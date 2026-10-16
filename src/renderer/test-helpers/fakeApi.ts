@@ -42,6 +42,7 @@ const defaults: FakeHandlers = {
   'workItems:types': () => [],
   'connections:list': () => [],
   'tasks:list': () => [],
+  'tasks:scanWorkspaces': () => [],
   'tasks:setupState': () => null,
   'tasks:prAvailability': () => ({
     available: false,

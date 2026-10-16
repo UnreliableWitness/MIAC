@@ -1096,9 +1096,10 @@ export function createHandlers(s: Services): Handlers {
         release(taskId);
       }
     },
-    'tasks:openInEditor': async (taskId) => {
+    'tasks:openInEditor': async (taskId, workspaceId) => {
       const task = taskById(taskId);
-      await s.launch(s.platform.editorCommand(task.worktreePath));
+      const ws = workspaceById(task, workspaceId);
+      await s.launch(s.platform.editorCommand(ws.worktreePath));
       tel.event('editor.opened');
     },
 

@@ -81,6 +81,19 @@ const task: TaskView = {
   mainCheckoutEdits: [],
   worktreeMissing: false,
 };
+const extra = {
+  id: 'w1',
+  repoId: 'r2',
+  branch: 'feature/48213-save-delivery-address',
+  worktreePath: '/src/api.worktrees/x',
+  baseRef: 'origin/main',
+  baseSha: null,
+  source: 'detected',
+  summary: null,
+  pullRequest: null,
+  reopen: null,
+  dropped: false,
+} as unknown as TaskView['extraWorkspaces'][number];
 const config = {
   worktreeRoot: '/src/webshop.worktrees',
   config: {
@@ -818,5 +831,187 @@ describe('tabs and focus', () => {
       );
     }
     expect(mounts.count).toBe(0);
+  });
+});
+
+describe('TaskScreen workspaces', () => {
+  const api2 = {
+    id: 'r2',
+    name: 'api',
+    path: '/src/api',
+    baseBranch: 'main',
+    connectionId: null,
+    miacYmlFound: false,
+    discovered: false,
+    workItemOnStart: {
+      moveToInProgress: true,
+      assignToMe: true,
+      stateOverrides: {},
+    },
+  };
+  const two = () =>
+    useStore.setState({
+      repos: [...useStore.getState().repos, api2],
+      tasks: [{ ...task, extraWorkspaces: [extra] }],
+    });
+  const handlers = {
+    'repos:config': () => config,
+    'tasks:gitSummary': () => ({
+      branch: 'x',
+      ahead: 0,
+      behind: 0,
+      hasUpstream: false,
+      files: [],
+    }),
+  };
+
+  it('shows no chips for a single-repo task', () => {
+    installFakeApi(handlers);
+    render(<Shell />);
+    expect(screen.queryByRole('group', { name: 'Repos of this task' })).toBe(
+      null,
+    );
+  });
+
+  it('shows a chip per repo, home first, and its menu works', async () => {
+    two();
+    const { calls } = installFakeApi({
+      ...handlers,
+      'tasks:openInEditor': () => undefined,
+      'tasks:removeWorkspace': () => undefined,
+      'terminals:open': (_t, def) => ({ id: 'n1', ...def }),
+    });
+    render(<Shell />);
+    const group = screen.getByRole('group', { name: 'Repos of this task' });
+    expect(
+      within(group)
+        .getAllByRole('button')
+        .map((b) => b.textContent),
+    ).toEqual(['webshop', 'api']);
+
+    await userEvent.click(
+      within(group).getByRole('button', { name: /webshop/ }),
+    );
+    expect(screen.queryByRole('menuitem', { name: 'Remove from task' })).toBe(
+      null,
+    );
+    await userEvent.click(
+      screen.getByRole('menuitem', { name: 'Open in editor' }),
+    );
+    await waitFor(() =>
+      expect(
+        calls.find((c) => c.channel === 'tasks:openInEditor')?.args,
+      ).toEqual(['a', 'home']),
+    );
+
+    await userEvent.click(within(group).getByRole('button', { name: /api/ }));
+    await userEvent.click(
+      screen.getByRole('menuitem', { name: 'New shell here' }),
+    );
+    await waitFor(() =>
+      expect(calls.find((c) => c.channel === 'terminals:open')?.args).toEqual([
+        'a',
+        { kind: 'shell', label: 'shell', workspaceId: 'w1' },
+      ]),
+    );
+    await userEvent.click(within(group).getByRole('button', { name: /api/ }));
+    await userEvent.click(
+      screen.getByRole('menuitem', { name: 'Remove from task' }),
+    );
+    await waitFor(() =>
+      expect(
+        calls.find((c) => c.channel === 'tasks:removeWorkspace')?.args,
+      ).toEqual(['a', 'w1']),
+    );
+  });
+
+  it('scans on mount and every 2 minutes while focused and ready', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      const focus = vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+      const { calls } = installFakeApi(handlers);
+      render(<Shell />);
+      const scans = () =>
+        calls.filter((c) => c.channel === 'tasks:scanWorkspaces').length;
+      expect(scans()).toBe(1);
+      act(() => vi.advanceTimersByTime(120000));
+      expect(scans()).toBe(2);
+      focus.mockReturnValue(false);
+      act(() => vi.advanceTimersByTime(240000));
+      expect(scans()).toBe(2);
+      focus.mockRestore();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not scan a task that is not ready', () => {
+    useStore.setState({ tasks: [{ ...task, status: 'done' }] });
+    const { calls } = installFakeApi(handlers);
+    render(<Shell />);
+    expect(calls.some((c) => c.channel === 'tasks:scanWorkspaces')).toBe(false);
+  });
+
+  it('scans and adds a worktree from the task menu', async () => {
+    const { calls } = installFakeApi({
+      ...handlers,
+      'repos:pickFolder': () => '/src/api.worktrees/x',
+      'tasks:addWorkspace': () => extra as never,
+    });
+    render(<Shell />);
+    await userEvent.click(screen.getByRole('button', { name: 'Task menu' }));
+    await userEvent.click(
+      screen.getByRole('menuitem', { name: 'Scan for other repos' }),
+    );
+    await waitFor(() =>
+      expect(useStore.getState().notices.map((n) => n.message)).toContain(
+        'No other repos found for this task',
+      ),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Task menu' }));
+    await userEvent.click(
+      screen.getByRole('menuitem', { name: /Add a worktree/ }),
+    );
+    await waitFor(() =>
+      expect(
+        calls.find((c) => c.channel === 'tasks:addWorkspace')?.args,
+      ).toEqual(['a', '/src/api.worktrees/x']),
+    );
+  });
+
+  it('notifies when adding a worktree fails', async () => {
+    installFakeApi({
+      ...handlers,
+      'repos:pickFolder': () => '/tmp/x',
+      'tasks:addWorkspace': () => {
+        throw new Error('Not inside a git worktree');
+      },
+    });
+    render(<Shell />);
+    await userEvent.click(screen.getByRole('button', { name: 'Task menu' }));
+    await userEvent.click(
+      screen.getByRole('menuitem', { name: /Add a worktree/ }),
+    );
+    await waitFor(() =>
+      expect(useStore.getState().notices.map((n) => n.message)).toContain(
+        'Not inside a git worktree',
+      ),
+    );
+  });
+
+  it('warns about changes in another repo main checkout', () => {
+    useStore.setState({
+      tasks: [
+        {
+          ...task,
+          mainCheckoutEdits: [{ repoPath: '/src/api', branch: 'develop' }],
+        },
+      ],
+    });
+    installFakeApi(handlers);
+    render(<Shell />);
+    expect(
+      screen.getByText("Changes made in api's main checkout (branch develop)"),
+    ).toBeInTheDocument();
   });
 });

@@ -363,3 +363,28 @@ describe('TaskNav', () => {
     expect(row).not.toHaveTextContent('feature/48213-a');
   });
 });
+
+describe('TaskNav extra repos', () => {
+  it('shows +1 repo and +2 repos on a task with extras', () => {
+    installFakeApi({ 'usage:task': emptyUsage });
+    const w = (id: string, dropped = false) =>
+      ({ id, repoId: 'r2', dropped }) as never;
+    useStore.setState({
+      repos,
+      connections: [],
+      selectedTaskId: 'a',
+      screen: { kind: 'task' },
+      tasks: [
+        { ...tasks[0], extraWorkspaces: [w('w1')] },
+        {
+          ...tasks[0],
+          id: 'z',
+          extraWorkspaces: [w('w2'), w('w3'), w('w4', true)],
+        },
+      ],
+    });
+    render(<TaskNav />);
+    expect(screen.getByText('+1 repo')).toBeInTheDocument();
+    expect(screen.getByText('+2 repos')).toBeInTheDocument();
+  });
+});

@@ -3,6 +3,7 @@ import { Fragment, type ReactNode, useState } from 'react';
 import type { TaskView } from '../../shared/types';
 import { api, tryInvoke } from '../api';
 import { ago, eur } from '../format';
+import { activeWorkspaces } from '../../shared/workspaces';
 import { useGitSummary } from '../hooks/useGitSummary';
 import { useTaskUsage } from '../hooks/useTaskUsage';
 import { activeConnection, useStore } from '../store';
@@ -28,7 +29,9 @@ function TaskDetails({
   onClose: () => void;
 }) {
   const notify = useStore((s) => s.notify);
-  const repo = useStore((s) => s.repos.find((r) => r.id === task.repoId));
+  const repos = useStore((s) => s.repos);
+  const repo = repos.find((r) => r.id === task.repoId);
+  const workspaces = activeWorkspaces(task);
   const git = useGitSummary(task.id, task.worktreeMissing);
   const usage = useTaskUsage(task.id);
   const linked = task.workItem !== null && Boolean(repo?.connectionId);
@@ -78,7 +81,16 @@ function TaskDetails({
           {task.status === 'ready' ? 'Active' : task.status}
         </span>
       </div>
-      <div className="mono">{task.branch}</div>
+      {workspaces.length > 1 ? (
+        workspaces.map((w) => (
+          <div key={w.id} className="mono">
+            {repos.find((r) => r.id === w.repoId)?.name ?? w.id}{' '}
+            <span className="muted">{w.branch}</span>
+          </div>
+        ))
+      ) : (
+        <div className="mono">{task.branch}</div>
+      )}
       {git && (
         <div className="mono muted">
           <span>{`${UP}${git.ahead} ${DOWN}${git.behind}`}</span>{' '}

@@ -263,6 +263,33 @@ describe('handlers: workspaces', () => {
   });
 });
 
+describe('handlers: open in editor', () => {
+  it('opens the home worktree, or the chosen workspace', async () => {
+    const launched: { command: string; args: string[] }[] = [];
+    const { h, setupDone, input } = await harness(undefined, {
+      launch: async (c) => {
+        launched.push(c);
+      },
+    });
+    const finished = setupDone();
+    const task = await h['tasks:create'](input());
+    await finished;
+    const api = makeRepo('api');
+    await h['repos:add'](api);
+    const apiWt = path.join(path.dirname(api), 'api-wt');
+    git(api, 'worktree', 'add', '-q', '-b', task.branch, apiWt);
+    const [ws] = await h['tasks:scanWorkspaces'](task.id);
+
+    await h['tasks:openInEditor'](task.id);
+    await h['tasks:openInEditor'](task.id, ws.id);
+
+    expect(launched.map((c) => c.args[0])).toEqual([
+      task.worktreePath,
+      ws.worktreePath,
+    ]);
+  });
+});
+
 describe('handlers: create task', () => {
   it('creates the task, runs setup, starts a shell and ends ready', async () => {
     const { h, terminals, setupDone, input, added, broadcasts } =

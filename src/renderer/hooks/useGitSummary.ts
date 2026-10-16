@@ -8,6 +8,7 @@ export function useGitSummary(
   taskId: string,
   worktreeMissing: boolean,
   enabled = true,
+  workspaceId?: string,
 ): GitSummary | null {
   const [git, setGit] = useState<GitSummary | null>(null);
 
@@ -16,7 +17,7 @@ export function useGitSummary(
     let live = true;
     const refresh = () =>
       api()
-        .invoke('tasks:gitSummary', taskId)
+        .invoke('tasks:gitSummary', taskId, workspaceId)
         .then((g) => {
           if (live) setGit(g);
         })
@@ -29,7 +30,7 @@ export function useGitSummary(
       live = false;
       clearInterval(timer);
     };
-  }, [taskId, worktreeMissing, enabled]);
+  }, [taskId, worktreeMissing, enabled, workspaceId]);
 
   return git;
 }
