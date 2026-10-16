@@ -3,7 +3,9 @@ import '@fontsource/jetbrains-mono/600.css';
 import { createRoot } from 'react-dom/client';
 import { App } from './renderer/App';
 import { installErrorTracking } from './renderer/telemetry';
+import { installWindowChrome } from './renderer/windowChrome';
 import './renderer/styles/app.css';
 
 installErrorTracking();
+if (window.miac) installWindowChrome(window.miac);
 createRoot(document.getElementById('root')!).render(<App />);
