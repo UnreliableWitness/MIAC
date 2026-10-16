@@ -2,6 +2,7 @@
 @import './shell.css';
 @import './screens.css';
 @import './usage.css';
+@import './docs.css';
 
 * {
   box-sizing: border-box;

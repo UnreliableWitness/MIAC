@@ -51,4 +51,13 @@ Download the installer from GitHub: open the Actions run for the commit, then th
     - On the Done page, the Pull request fact shows `PR <id> · Draft` and the branch shows as pushed.
     - Remove the cached Azure DevOps credential (Credential Manager, Windows Credentials, `git:https://dev.azure.com`) and finish another task with the box ticked. The Git Credential Manager sign-in appears (check behind MIAC too); after signing in the PR is created. If you ignore it, Finish stops after 120 s with "git push timed out after 120 s (a credential prompt may be waiting)" and the task stays ready.
 
+
+14. **Docs tab, terminal links and Send to.**
+    - Open a task and press `Ctrl+Shift+D`: the Docs tab opens.
+    - `.miac\task.md` renders.
+    - Ask Claude to write `docs\x.md`: the tab shows "Updated" and reloads.
+    - Click a printed `src\a.ts:3` link in a terminal: VS Code opens at line 3.
+    - Select text in the Docs tab and use Send to Claude, then Send to PowerShell. PowerShell 7 gets a multi-line paste; Windows PowerShell 5.1 without PSReadLine gets one line (`path:N-M "text"`). Enter is never sent.
+    - Finish the task with the Docs tab open: the worktree is removed with no "in use" error.
+
 If a setup command or a shim fails with "running scripts is disabled on this system": MIAC passes `-ExecutionPolicy Bypass`, but an execution policy set by Group Policy overrides it. Ask IT, or install claude and copilot as native `.exe` builds.

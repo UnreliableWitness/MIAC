@@ -395,8 +395,11 @@ describe('TaskScreen', () => {
   });
 });
 
-function setup(over: Partial<TaskView> = {}) {
-  const { emit } = installFakeApi({
+function setup(
+  over: Partial<TaskView> = {},
+  handlers: Parameters<typeof installFakeApi>[0] = {},
+) {
+  const { emit, calls } = installFakeApi({
     'repos:config': () => config,
     'tasks:gitSummary': () => ({
       branch: 'x',
@@ -405,12 +408,13 @@ function setup(over: Partial<TaskView> = {}) {
       hasUpstream: false,
       files: [],
     }),
+    ...handlers,
   });
   useStore.setState({
     tasks: [{ ...task, ...over }],
     selectedTaskId: 'a',
   });
-  return { emit };
+  return { emit, calls };
 }
 
 const FOCUS_KEYS = {
@@ -433,6 +437,7 @@ describe('tabs and focus', () => {
     const tabs = await screen.findAllByRole('tab');
     expect(tabs.map((t) => t.textContent)).toEqual([
       expect.stringContaining('Usage'),
+      expect.stringContaining('Docs'),
       'Claude Code',
       'zsh',
     ]);
@@ -572,6 +577,90 @@ describe('tabs and focus', () => {
     ).toBeInTheDocument();
     await userEvent.click(screen.getByRole('tab', { name: /Usage/ }));
     expect(screen.getByRole('tab', { name: 'Usage' })).toBeInTheDocument();
+  });
+
+  it('shows a changed dot on the Docs tab while another tab is active', async () => {
+    const { emit } = setup();
+    render(<Shell />);
+    await screen.findByTestId('term-c1');
+    act(() =>
+      emit('docs:changed', { taskId: 'a', paths: ['src/app.ts', 'docs'] }),
+    );
+    expect(screen.queryByRole('tab', { name: 'Docs, changed' })).toBeNull();
+    act(() => emit('docs:changed', { taskId: 'a', paths: ['README.md'] }));
+    expect(
+      screen.getByRole('tab', { name: 'Docs, changed' }),
+    ).toBeInTheDocument();
+  });
+
+  it('does not light the Docs dot for Markdown in build output folders', async () => {
+    const { emit } = setup();
+    render(<Shell />);
+    await screen.findByTestId('term-c1');
+    act(() =>
+      emit('docs:changed', {
+        taskId: 'a',
+        paths: [
+          'dist/a.md',
+          'build/b.md',
+          'out/c.md',
+          'node_modules/d/README.md',
+        ],
+      }),
+    );
+    expect(screen.queryByRole('tab', { name: 'Docs, changed' })).toBeNull();
+    act(() => emit('docs:changed', { taskId: 'a', paths: ['docs/dist.md'] }));
+    expect(
+      screen.getByRole('tab', { name: 'Docs, changed' }),
+    ).toBeInTheDocument();
+  });
+
+  it('does not send docs:watch off when its on failed', async () => {
+    const { calls } = setup(
+      {},
+      {
+        'docs:watch': () => {
+          throw new Error('nope');
+        },
+      },
+    );
+    const view = render(<Shell />);
+    await screen.findByTestId('term-c1');
+    await act(async () => {});
+    view.unmount();
+    await act(async () => {});
+    expect(
+      calls.filter((c) => c.channel === 'docs:watch').map((c) => c.args[1]),
+    ).toEqual([true]);
+  });
+
+  it('does not send docs:watch off after main stopped the watcher', async () => {
+    const { calls, emit } = setup();
+    const view = render(<Shell />);
+    await screen.findByTestId('term-c1');
+    await act(async () => {});
+    act(() => emit('docs:watchStopped', { taskId: 'a' }));
+    view.unmount();
+    await act(async () => {});
+    expect(
+      calls.filter((c) => c.channel === 'docs:watch').map((c) => c.args[1]),
+    ).toEqual([true]);
+  });
+
+  it('opens the Docs tab with Mod+Shift+D', async () => {
+    setup();
+    render(<Shell />);
+    const term = await screen.findByTestId('term-c1');
+    const ev = createEvent.keyDown(term, {
+      key: 'D',
+      code: 'KeyD',
+      shiftKey: true,
+      ctrlKey: true,
+      metaKey: true,
+    });
+    fireEvent(term, ev);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(useStore.getState().activeTab('a')).toBe('docs');
   });
 
   it('falls back to Usage when a task has no terminals', async () => {

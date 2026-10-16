@@ -41,7 +41,11 @@ This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 
 | `terminal.restarted` | kind |
 | `usage.opened` | via the tab or the task strip |
 | `usage.synced` | ok; on finish or by hand |
-| `usage.exportCsv`, `editor.opened` | none |
+| `docs.opened` | view (`rendered`, `source`); from (`list`, `link`, `terminal`); the file opened automatically with the tab is not tracked |
+| `docs.sentTo` | kind of the target terminal (`claude`, `copilot`, `shell`, `run`) |
+| `terminal.linkOpened` | type of the clicked terminal link (`md`, `file`, `url`) |
+| `editor.opened` | `at: file` when opened from the Docs tab or a terminal link; none otherwise |
+| `usage.exportCsv` | none |
 | `focus.toggled`, `nav.toggled` | on / collapsed |
 | `settings.changed` | names of the changed settings (not their values) |
 | `workItems.search` | picker scope (`sprint` or `mine`); whether search text was typed (not the text) |

@@ -17,6 +17,8 @@ import type {
   WorkItemTypeMeta,
 } from '../../shared/types';
 import { worktreeRoot } from '../paths';
+import { DocsWatcher } from '../docs/DocsWatcher';
+import { createDocsHandlers } from '../docs/docsHandlers';
 import type { Command, Platform } from '../platform/Platform';
 import {
   OFFICIAL_RATES,
@@ -65,6 +67,10 @@ export type Services = {
   connections: ConnectionStore;
   ado: AdoRegistry;
   openExternal: (url: string) => Promise<void>;
+  /** Shows a file in Finder or Explorer (main uses shell.showItemInFolder). */
+  revealFile?: (absPath: string) => void;
+  /** Owned by main so it can stop on quit; handlers create their own when absent (tests). */
+  docsWatcher?: DocsWatcher;
   terminals: TerminalManager;
   runner: SetupRunner;
   loadConfig: (repoPath: string) => Promise<MiacConfig>;
@@ -543,7 +549,25 @@ export function createHandlers(s: Services): Handlers {
     void runSetup(taskId, fromStep);
   };
 
+  const docsWatcher =
+    s.docsWatcher ??
+    new DocsWatcher(
+      (taskId, paths) => s.broadcast('docs:changed', { taskId, paths }),
+      undefined,
+      (taskId) => s.broadcast('docs:watchStopped', { taskId }),
+    );
+
   return {
+    ...createDocsHandlers({
+      taskById,
+      git: s.git,
+      editorGoto: (wt, f, l, c) => s.platform.editorGotoCommand(wt, f, l, c),
+      launch: s.launch,
+      openExternal: s.openExternal,
+      revealFile: s.revealFile ?? (() => undefined),
+      watcher: docsWatcher,
+      event: (n, p) => tel.event(n, p),
+    }),
     'repos:list': async () => s.repos.list(),
     'repos:add': async (folder) => {
       const repo = await s.repos.add(folder);
@@ -667,6 +691,7 @@ export function createHandlers(s: Services): Handlers {
         const task = taskById(taskId);
         const repo = s.repos.get(task.repoId);
         // Windows will not remove a folder that a running process has as its cwd.
+        docsWatcher.stopTask(taskId);
         await s.terminals.killAllForTask(taskId);
         if (await exists(task.worktreePath))
           await s.git.worktreeRemove(repo.path, task.worktreePath, true);
@@ -789,6 +814,7 @@ export function createHandlers(s: Services): Handlers {
         const killTerminals = options.closeTerminals || options.removeWorktree;
         try {
           if (killTerminals) {
+            docsWatcher.stopTask(taskId);
             await s.terminals.killAllForTask(taskId);
             await patchTask(taskId, { terminals: [] });
           }

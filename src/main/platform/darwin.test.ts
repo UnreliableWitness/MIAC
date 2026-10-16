@@ -37,6 +37,13 @@ describe('darwinPlatform', () => {
       args: ['/src/x'],
     });
   });
+  it('opens VS Code at a file and line in the worktree window', () => {
+    expect(p.editorGotoCommand('/wt', '/wt/a.md', 12, 3)).toEqual({
+      command: 'code',
+      args: ['/wt', '-g', '/wt/a.md:12:3'],
+    });
+    expect(p.editorGotoCommand('/wt', '/wt/a.md').args[2]).toBe('/wt/a.md:1:1');
+  });
   it('falls back to /bin/zsh when SHELL is unset', () => {
     expect(darwinPlatform({}).interactiveShell().command).toBe('/bin/zsh');
   });

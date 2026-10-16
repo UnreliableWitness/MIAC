@@ -24,6 +24,7 @@ import { SetupRunner } from '../services/SetupRunner';
 import { TaskStore } from '../services/TaskStore';
 import type { Telemetry } from '../telemetry/AppInsightsClient';
 import { TerminalManager } from '../services/TerminalManager';
+import { DocsWatcher } from '../docs/DocsWatcher';
 import {
   addOrigin,
   cleanupTempRepos,
@@ -439,6 +440,33 @@ describe('handlers: finish', () => {
     );
     await h['tasks:cancelSetup'](t.id);
     expect(order).toEqual(['terminals exited', 'remove']);
+  });
+
+  it('stops the docs watcher before Finish removes the worktree', async () => {
+    const docsWatcher = new DocsWatcher(() => undefined);
+    const { h, input, setupDone, services } = await harness(fakeCrypto(), {
+      docsWatcher,
+    });
+    const done = setupDone();
+    const t = await h['tasks:create'](input());
+    await done;
+    await h['docs:watch'](t.id, true);
+    expect(docsWatcher.active(t.id)).toBe(true);
+    const order: string[] = [];
+    const realRemove = services.git.worktreeRemove.bind(services.git);
+    vi.spyOn(services.git, 'worktreeRemove').mockImplementation(
+      async (...a) => {
+        order.push(`remove:${docsWatcher.active(t.id)}`);
+        return realRemove(...a);
+      },
+    );
+    await h['tasks:finish'](t.id, {
+      closeTerminals: true,
+      removeWorktree: true,
+      deleteBranch: true,
+      syncUsage: false,
+    });
+    expect(order).toEqual(['remove:false']);
   });
 
   it('finish does not delete an unticked worktree folder', async () => {

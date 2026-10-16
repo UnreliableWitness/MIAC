@@ -108,5 +108,11 @@ export function windowsPlatform(
       if (!deps.which('code')) throw new Error('VS Code (code) is not on PATH');
       return ps(`& code ${psQuote(p)}`);
     },
+    editorGotoCommand: (wt, f, line, col) => {
+      if (!deps.which('code')) throw new Error('VS Code (code) is not on PATH');
+      return ps(
+        `& code ${psQuote(wt)} -g ${psQuote(`${f}:${line ?? 1}:${col ?? 1}`)}`,
+      );
+    },
   };
 }

@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { USAGE_TAB, useStore } from '../store';
+import { DOCS_TAB, USAGE_TAB, useStore } from '../store';
 
 const isMac =
   typeof navigator !== 'undefined' &&
@@ -21,6 +21,10 @@ export function useShortcuts(): void {
       const digit = /^(?:Digit|Numpad)([0-9])$/.exec(e.code);
       if (e.shiftKey && e.code === 'KeyF') {
         toggleFocus();
+      } else if (e.shiftKey && e.code === 'KeyD') {
+        const task = tasks.find((t) => t.id === selectedTaskId);
+        if (screen.kind !== 'task' || !task || task.status !== 'ready') return;
+        setTab(task.id, DOCS_TAB);
       } else if (!e.shiftKey && digit) {
         const task = tasks.find((t) => t.id === selectedTaskId);
         if (screen.kind !== 'task' || !task || task.status !== 'ready') return;
