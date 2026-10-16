@@ -81,17 +81,26 @@ export function windowsPlatform(
     ],
   });
 
-  const tool = (name: string, args: string[], promptEnv?: string): Command => {
+  /** `flags` are MIAC's own tokens (no user text), so they are quoted for PowerShell; a prompt goes through an env var. */
+  const tool = (
+    name: string,
+    flags: string[],
+    promptEnv: string | null = null,
+  ): Command => {
     const found = deps.which(name);
     if (found && found.toLowerCase().endsWith('.exe'))
-      return { command: found, args };
-    if (!found) return ps(name);
-    if (promptEnv !== undefined)
       return {
-        ...ps(`& ${name} $env:MIAC_CLAUDE_PROMPT`),
+        command: found,
+        args: promptEnv === null ? flags : [...flags, promptEnv],
+      };
+    if (!found) return ps(name);
+    const line = [`& ${name}`, ...flags.map(psQuote)];
+    if (promptEnv !== null)
+      return {
+        ...ps([...line, '$env:MIAC_CLAUDE_PROMPT'].join(' ')),
         env: { MIAC_CLAUDE_PROMPT: shimSafePrompt(promptEnv) },
       };
-    return ps(`& ${name}`);
+    return ps(line.join(' '));
   };
 
   return {
@@ -102,7 +111,7 @@ export function windowsPlatform(
     }),
     shellCommand: (cmd) => nonInteractive(psSetupWrapper(cmd)),
     runCommand: (cmd) => nonInteractive(psRunWrapper(cmd)),
-    claudeCommand: (prompt) => tool('claude', [prompt], prompt),
+    claudeCommand: (prompt, flags = []) => tool('claude', flags, prompt),
     copilotCommand: () => tool('copilot', []),
     editorCommand: (p) => {
       if (!deps.which('code')) throw new Error('VS Code (code) is not on PATH');

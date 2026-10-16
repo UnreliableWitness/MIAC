@@ -342,17 +342,30 @@ export function createHandlers(s: Services): Handlers {
     await tasksChanged();
   };
 
-  const terminalCommand = (task: Task, def: TerminalDef): Command => {
+  /** A resumed Claude Code tab continues its own session, or the latest one in the worktree when it has no id. */
+  const terminalCommand = (
+    task: Task,
+    def: TerminalDef,
+    resume = false,
+  ): Command => {
     if (def.kind === 'claude')
-      return s.platform.claudeCommand(claudePrompt(task));
+      return resume
+        ? s.platform.claudeCommand(
+            null,
+            def.sessionId ? ['--resume', def.sessionId] : ['--continue'],
+          )
+        : s.platform.claudeCommand(
+            claudePrompt(task),
+            def.sessionId ? ['--session-id', def.sessionId] : [],
+          );
     if (def.kind === 'run' && def.command)
       return s.platform.runCommand(def.command);
     if (def.kind === 'copilot') return s.platform.copilotCommand();
     return s.platform.interactiveShell();
   };
 
-  const spawnTerminal = (task: Task, def: TerminalDef) => {
-    const cmd = terminalCommand(task, def);
+  const spawnTerminal = (task: Task, def: TerminalDef, resume = false) => {
+    const cmd = terminalCommand(task, def, resume);
     s.terminals.spawn({
       id: def.id,
       taskId: task.id,
@@ -369,7 +382,12 @@ export function createHandlers(s: Services): Handlers {
   const initialTerminals = (task: Task): TerminalDef[] => {
     const defs: TerminalDef[] = [];
     if (task.setup.startClaude)
-      defs.push({ id: randomUUID(), kind: 'claude', label: 'Claude Code' });
+      defs.push({
+        id: randomUUID(),
+        kind: 'claude',
+        label: 'Claude Code',
+        sessionId: randomUUID(),
+      });
     if (task.setup.openCopilot)
       defs.push({ id: randomUUID(), kind: 'copilot', label: 'Copilot CLI' });
     if (task.setup.openShell)
@@ -883,7 +901,11 @@ export function createHandlers(s: Services): Handlers {
       claim(taskId, ['ready'], 'open a terminal in');
       let full: TerminalDef;
       try {
-        full = { id: randomUUID(), ...def };
+        full = {
+          id: randomUUID(),
+          ...def,
+          ...(def.kind === 'claude' ? { sessionId: randomUUID() } : {}),
+        };
         spawnTerminal(taskById(taskId), full);
       } finally {
         release(taskId);
@@ -906,22 +928,28 @@ export function createHandlers(s: Services): Handlers {
         );
     },
     'terminals:restart': async (id) => {
-      if (s.terminals.isRunning(id) || s.terminals.has(id)) {
-        s.terminals.restart(id);
-        return;
-      }
-      // After an app relaunch the manager is empty while the task still lists its terminals.
       const owner = s.store.state.tasks.find((t) =>
         t.terminals.some((x) => x.id === id),
       );
       const def = owner?.terminals.find((x) => x.id === id);
+      const known = s.terminals.has(id);
+      // Claude Code resumes its conversation instead of starting over with the first prompt.
+      if (known && def?.kind !== 'claude') {
+        s.terminals.restart(id);
+        return;
+      }
       if (!owner || !def) throw new Error(`Unknown terminal ${id}`);
-      if (owner.status !== 'ready')
+      // After an app relaunch the manager is empty while the task still lists its terminals.
+      if (!known && owner.status !== 'ready')
         throw new Error(
           `Cannot restart a terminal of a task that is ${owner.status}`,
         );
-      spawnTerminal(owner, def);
-      tel.event('terminal.restarted', { kind: def.kind, afterRelaunch: true });
+      await s.terminals.kill(id);
+      spawnTerminal(owner, def, def.kind === 'claude');
+      tel.event('terminal.restarted', {
+        kind: def.kind,
+        afterRelaunch: !known,
+      });
     },
     'terminals:buffer': async (id) => s.terminals.buffer(id),
     'terminals:isRunning': async (id) => s.terminals.isRunning(id),
