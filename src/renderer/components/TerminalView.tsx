@@ -4,6 +4,7 @@ import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { api, tryInvoke } from '../api';
 import { useStore } from '../store';
+import { attachClipboardKeys, isMac } from '../terminalClipboard';
 import { createLinkProvider } from '../terminalLinks';
 import { registerTerminal } from '../terminalRegistry';
 import { loadRenderer, terminalOptions, windowsBuild } from '../terminalSetup';
@@ -37,6 +38,7 @@ export function TerminalView({
     const t = new Terminal(terminalOptions(null));
     const f = new FitAddon();
     t.loadAddon(f);
+    attachClipboardKeys(t, isMac, navigator.clipboard);
     term.current = t;
     const unregister = registerTerminal(terminalId, t);
     fit.current = f;

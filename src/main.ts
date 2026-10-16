@@ -57,6 +57,7 @@ import {
 import { TELEMETRY_CHANNEL } from './shared/telemetry';
 import { type AutoUpdate, startAutoUpdate } from './main/autoUpdate';
 import { appUrlMatcher, guardWindow, trustedSender } from './main/windowGuards';
+import { titleBarOptions } from './main/windowChrome';
 
 if (started) app.quit();
 
@@ -137,7 +138,9 @@ function createWindow(): BrowserWindow {
     minHeight: 600,
     show: false,
     backgroundColor: '#201f1e',
+    // The title stays for the taskbar, Alt+Tab and the Window menu; the header shows the app instead of a title bar.
     title: 'MIAC',
+    ...titleBarOptions(process.platform),
     ...(windowIcon ? { icon: windowIcon } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -160,6 +163,14 @@ function createWindow(): BrowserWindow {
       path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`),
     );
   }
+  // Full screen hides the traffic lights, so the header drops the room it keeps for them (macOS).
+  const sendFullScreen = () => {
+    const payload: Events['window:fullScreen'] = win.isFullScreen();
+    win.webContents.send(`${EVENT_PREFIX}window:fullScreen`, payload);
+  };
+  win.on('enter-full-screen', sendFullScreen);
+  win.on('leave-full-screen', sendFullScreen);
+  win.webContents.on('did-finish-load', sendFullScreen);
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = null;
   });

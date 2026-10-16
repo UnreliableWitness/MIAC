@@ -57,7 +57,8 @@ export function Shell() {
   const navCollapsed = useStore((s) => s.navCollapsed);
   useShortcuts();
   return (
-    <div className="app">
+    // In focus the task's tab row is the top bar, so it takes over as the title bar (shell.css).
+    <div className={inFocus ? 'app in-focus' : 'app'}>
       {!inFocus && <HeaderBar />}
       <div className="shell">
         {(!inFocus || navCollapsed) && <TaskNav />}

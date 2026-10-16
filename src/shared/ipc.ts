@@ -34,6 +34,7 @@ import type {
   TaskUsage,
 } from './usage';
 import type { RendererTelemetry } from './telemetry';
+import type { TitleBarKind } from './titleBar';
 
 /** Request/response channels. `args` is the tuple the renderer passes; `result` is what main resolves. */
 export type Channels = {
@@ -196,6 +197,8 @@ export type Events = {
   notice: { level: 'info' | 'warn' | 'error'; message: string };
   /** An update finished downloading; the renderer offers Restart and update. */
   'update:ready': PendingUpdate;
+  /** The main window entered or left full screen (also sent on every load). */
+  'window:fullScreen': boolean;
 };
 
 /** `version` is null when the release name holds none. */
@@ -218,6 +221,8 @@ export type MiacApi = {
   ): () => void;
   /** Fire-and-forget app telemetry; main validates, scrubs and drops it when the user opted out. */
   track(message: RendererTelemetry): void;
+  /** How the window draws its title bar, so the header keeps room for the window controls (#49). */
+  titleBar: TitleBarKind;
 };
 
 export const EVENT_PREFIX = 'miac-event:';
