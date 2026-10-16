@@ -71,7 +71,10 @@ export type Channels = {
       target: string | null;
     };
   };
-  'tasks:prStatus': { args: [taskId: string]; result: PullRequestRef | null };
+  'tasks:prStatus': {
+    args: [taskId: string, workspaceId?: string];
+    result: PullRequestRef | null;
+  };
   'workItems:currentIteration': {
     args: [connectionId: string];
     result: Iteration | null;

@@ -2564,6 +2564,46 @@ describe('handlers: finish with a pull request', () => {
     expect(await hx.h['tasks:prStatus'](hx.t.id)).toEqual(next);
   });
 
+  it('refreshes and stores an extra workspace PR', async () => {
+    const hx = await prHarness();
+    const pr = {
+      id: 8,
+      url: 'u',
+      repositoryId: 'rid2',
+      project: 'P',
+      repo: 'api',
+      status: 'active' as const,
+      isDraft: true,
+    };
+    await hx.store.update((st) => {
+      st.tasks[0].extraWorkspaces.push({
+        id: 'x1',
+        repoId: hx.t.repoId,
+        branch: 'feature/x',
+        worktreePath: '/w/x',
+        baseRef: 'origin/main',
+        baseSha: null,
+        source: 'detected',
+        summary: null,
+        pullRequest: pr,
+        reopen: null,
+        dropped: false,
+      });
+    });
+    const refresh = vi.spyOn(hx.client, 'pullRequest').mockResolvedValue({
+      pullRequestId: 8,
+      status: 'completed',
+      isDraft: false,
+    });
+    const next = await hx.h['tasks:prStatus'](hx.t.id, 'x1');
+    expect(refresh).toHaveBeenCalledWith('P', 'rid2', 8);
+    expect(next).toMatchObject({ id: 8, status: 'completed' });
+    expect(hx.store.state.tasks[0].extraWorkspaces[0].pullRequest).toEqual(
+      next,
+    );
+    expect(hx.store.state.tasks[0].pullRequest).toBeNull();
+  });
+
   it('finishChecks still reports unpushed commits as a count', async () => {
     const hx = await prHarness();
     commitFile(hx.t.worktreePath, 'feature.txt', 'a\n', 'Add the feature');

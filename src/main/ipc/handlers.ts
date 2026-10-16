@@ -1692,9 +1692,10 @@ export function createHandlers(s: Services): Handlers {
         target: c.availability.available ? c.target : null,
       };
     },
-    'tasks:prStatus': async (taskId) => {
+    'tasks:prStatus': async (taskId, workspaceId) => {
       const task = taskById(taskId);
-      const pr = task.pullRequest;
+      const w = workspaceById(task, workspaceId);
+      const pr = w.pullRequest;
       if (!pr) return null;
       const connectionId = taskConnectionId(task, s.repos.list());
       if (!connectionId) return pr;
@@ -1703,7 +1704,7 @@ export function createHandlers(s: Services): Handlers {
           .client(connectionId)
           .pullRequest(pr.project, pr.repositoryId, pr.id);
         const next = { ...pr, status: raw.status, isDraft: raw.isDraft };
-        await patchTask(taskId, { pullRequest: next });
+        await patchWorkspace(taskId, w.id, { pullRequest: next });
         return next;
       } catch {
         return pr;
