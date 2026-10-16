@@ -579,6 +579,10 @@ describe('tabs and focus', () => {
     const { emit } = setup();
     render(<Shell />);
     await screen.findByTestId('term-c1');
+    act(() =>
+      emit('docs:changed', { taskId: 'a', paths: ['src/app.ts', 'docs'] }),
+    );
+    expect(screen.queryByRole('tab', { name: 'Docs, changed' })).toBeNull();
     act(() => emit('docs:changed', { taskId: 'a', paths: ['README.md'] }));
     expect(
       screen.getByRole('tab', { name: 'Docs, changed' }),

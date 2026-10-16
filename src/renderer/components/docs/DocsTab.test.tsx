@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TaskView } from '../../../shared/types';
 import { useStore } from '../../store';
 import { installFakeApi } from '../../test-helpers/fakeApi';
-import { DocsTab } from './DocsTab';
+import { DocsTab, resetDocTargetsForTests } from './DocsTab';
 
 vi.mock('mermaid', () => ({
   default: {
@@ -27,6 +27,7 @@ const files = [
 let texts: Record<string, string>;
 beforeEach(() => {
   localStorage.clear();
+  resetDocTargetsForTests();
   texts = {
     '.miac/task.md': '# Task file',
     'README.md': '# Readme',
@@ -166,6 +167,52 @@ describe('DocsTab', () => {
       expect(
         await screen.findByRole('heading', { name: 'Polled' }),
       ).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('does not send docs:watch off when on was rejected', async () => {
+    const api = mount({
+      'docs:watch': () => {
+        throw new Error('nope');
+      },
+    });
+    await screen.findByRole('heading', { name: 'Task file' });
+    api.view.unmount();
+    await Promise.resolve();
+    const w = api.calls.filter((c) => c.channel === 'docs:watch');
+    expect(w.map((c) => c.args[1])).toEqual([true]);
+  });
+  it('never shows a polled file of the old path after switching files', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let release: () => void = () => undefined;
+      let hold = false;
+      mount({
+        'docs:watch': () => ({ live: false }),
+        'docs:read': async (_t: string, p: string) => {
+          if (p === '.miac/task.md' && hold) {
+            await new Promise<void>((r) => (release = r));
+            return { text: '# OLD STALE', mtimeMs: 9 };
+          }
+          return { text: texts[p], mtimeMs: 1 };
+        },
+      });
+      await screen.findByRole('heading', { name: 'Task file' });
+      hold = true;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2100);
+      });
+      await userEvent.click(screen.getByRole('button', { name: /README\.md/ }));
+      expect(
+        await screen.findByRole('heading', { name: 'Readme' }),
+      ).toBeTruthy();
+      await act(async () => {
+        release();
+        await vi.advanceTimersByTimeAsync(10);
+      });
+      expect(screen.queryByText('OLD STALE')).toBeNull();
+      expect(screen.getByRole('heading', { name: 'Readme' })).toBeTruthy();
     } finally {
       vi.useRealTimers();
     }

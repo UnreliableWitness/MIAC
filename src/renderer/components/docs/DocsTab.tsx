@@ -29,6 +29,7 @@ const errorText = (e: unknown) =>
 
 /** Targets already acted on, so returning to the tab does not replay an old terminal link. */
 const handledTargets = new Map<string, number>();
+export const resetDocTargetsForTests = () => handledTargets.clear();
 
 export function DocsTab({ task }: { task: TaskView }) {
   const notify = useStore((s) => s.notify);
@@ -51,6 +52,8 @@ export function DocsTab({ task }: { task: TaskView }) {
   const timers = useRef<{ hl?: number; chip?: number; save?: number }>({});
   const currentRef = useRef(current);
   currentRef.current = current;
+  const docRef = useRef(doc);
+  docRef.current = doc;
 
   const persist = useCallback(() => {
     const s = saved.current;
@@ -78,23 +81,25 @@ export function DocsTab({ task }: { task: TaskView }) {
       try {
         const r = await api().invoke('docs:read', task.id, path);
         if (mine !== token.current) return;
+        if (path !== currentRef.current) return;
         mtime.current = r.mtimeMs;
-        setDoc((d) => {
-          if (!first && d?.path === path && d.text !== r.text) {
-            const el = scrollRef.current;
-            if (el && el.scrollTop > 0) {
-              setUpdated(true);
-              window.clearTimeout(timers.current.chip);
-              timers.current.chip = window.setTimeout(
-                () => setUpdated(false),
-                2000,
-              );
-            }
-          }
-          return { path, text: r.text, error: null, deleted: false };
-        });
+        const shown = docRef.current;
+        if (
+          !first &&
+          shown?.path === path &&
+          shown.text !== r.text &&
+          (scrollRef.current?.scrollTop ?? 0) > 0
+        ) {
+          setUpdated(true);
+          window.clearTimeout(timers.current.chip);
+          timers.current.chip = window.setTimeout(
+            () => setUpdated(false),
+            2000,
+          );
+        }
+        setDoc({ path, text: r.text, error: null, deleted: false });
       } catch (e) {
-        if (mine !== token.current) return;
+        if (mine !== token.current || path !== currentRef.current) return;
         const msg = errorText(e);
         setDoc((d) => {
           if (
@@ -158,17 +163,26 @@ export function DocsTab({ task }: { task: TaskView }) {
   // Learn whether the watcher is live. Main reference-counts, so each true is paired with a false.
   useEffect(() => {
     let off = false;
-    api()
-      .invoke('docs:watch', task.id, true)
-      .then((r) => {
-        if (!off) setLive(r.live);
-      })
-      .catch(() => undefined);
-    return () => {
-      off = true;
+    let on = false;
+    const sendOff = () =>
       void api()
         .invoke('docs:watch', task.id, false)
         .catch(() => undefined);
+    const pendingOn = api()
+      .invoke('docs:watch', task.id, true)
+      .then(
+        (r) => {
+          on = true;
+          if (!off) setLive(r.live);
+          return true;
+        },
+        () => false,
+      );
+    return () => {
+      off = true;
+      // Off only if on succeeded: an unpaired off would decrement another holder's count.
+      if (on) sendOff();
+      else void pendingOn.then((ok) => ok && sendOff());
     };
   }, [task.id]);
 
@@ -193,7 +207,11 @@ export function DocsTab({ task }: { task: TaskView }) {
           : files[0].path;
     if (pick === remembered.path)
       pending.current = { scroll: remembered.scroll };
-    saved.current = { ...saved.current, path: pick, scroll: remembered.scroll };
+    saved.current = {
+      ...saved.current,
+      path: pick,
+      scroll: pick === remembered.path ? remembered.scroll : 0,
+    };
     setCurrent(pick);
   }, [files, current, task.id]);
 
@@ -227,10 +245,11 @@ export function DocsTab({ task }: { task: TaskView }) {
       void (async () => {
         try {
           const r = await api().invoke('docs:read', task.id, current);
+          if (current !== currentRef.current) return;
           if (mtime.current !== null && r.mtimeMs !== mtime.current)
             void read(current, false);
         } catch {
-          void read(current, false);
+          if (current === currentRef.current) void read(current, false);
         }
         void loadFiles();
       })();
@@ -351,6 +370,7 @@ export function DocsTab({ task }: { task: TaskView }) {
             taskId={task.id}
             empty={files !== null && files.length === 0}
             doc={doc}
+            current={current}
             slow={slow}
             view={view}
             highlight={highlight}

@@ -14,6 +14,7 @@ export function DocsBody({
   taskId,
   empty,
   doc,
+  current,
   slow,
   view,
   highlight,
@@ -24,6 +25,7 @@ export function DocsBody({
   taskId: string;
   empty: boolean;
   doc: Doc | null;
+  current: string | null;
   slow: boolean;
   view: DocView;
   highlight: number | null;
@@ -33,7 +35,8 @@ export function DocsBody({
 }) {
   if (empty)
     return <div className="docs-state">No Markdown files in this worktree</div>;
-  if (!doc) return slow ? <div className="docs-state">Loading</div> : null;
+  if (!doc || doc.path !== current)
+    return slow ? <div className="docs-state">Loading</div> : null;
   if (doc.error === 'too-large')
     return (
       <div className="docs-state">

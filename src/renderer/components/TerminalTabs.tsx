@@ -20,6 +20,7 @@ import { TerminalView } from './TerminalView';
 import { IconButton, MindMark, modKey } from './ui';
 import { UsagePanel } from './UsagePanel';
 
+const MARKDOWN = /\.(md|markdown)$/i;
 const UP = String.fromCharCode(0x2191);
 const DOWN = String.fromCharCode(0x2193);
 const DOT = String.fromCharCode(0xb7);
@@ -71,6 +72,7 @@ export function TerminalTabs({
       api().on('docs:changed', (p) => {
         if (
           p.taskId === task.id &&
+          p.paths.some((f) => MARKDOWN.test(f)) &&
           useStore.getState().activeTab(task.id) !== DOCS_TAB
         )
           setDocsUnseen(true);
@@ -153,7 +155,7 @@ export function TerminalTabs({
             Usage
             {unseen && <span className="tab-new" aria-hidden="true" />}
           </button>
-          {ready && (
+          {ready && !task.worktreeMissing && (
             <button
               type="button"
               role="tab"
@@ -264,7 +266,9 @@ export function TerminalTabs({
       </div>
       <div className="termhost">
         {visible && active === USAGE_TAB && <UsagePanel taskId={task.id} />}
-        {visible && active === DOCS_TAB && <DocsTab task={task} />}
+        {visible && active === DOCS_TAB && !task.worktreeMissing && (
+          <DocsTab task={task} />
+        )}
         {task.terminals.map((t) => (
           <TerminalView
             key={t.id}
