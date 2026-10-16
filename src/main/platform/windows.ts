@@ -111,6 +111,14 @@ export function windowsPlatform(
     }),
     shellCommand: (cmd) => nonInteractive(psSetupWrapper(cmd)),
     runCommand: (cmd) => nonInteractive(psRunWrapper(cmd)),
+    setupCommands: (cmds) =>
+      nonInteractive(
+        cmds
+          .map((c) =>
+            [`Write-Host ${psQuote(`$ ${c}`)}`, psRunWrapper(c)].join('\n'),
+          )
+          .join('\n'),
+      ),
     // The context is the value of the last flag, so it can travel in the env var like any prompt.
     claudeCommand: (context, flags = []) =>
       tool(

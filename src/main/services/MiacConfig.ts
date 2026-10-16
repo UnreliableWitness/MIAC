@@ -27,6 +27,7 @@ const MiacYmlSchema = z.strictObject({
   copy: listOrString.default([]),
   setup: listOrString.optional(),
   run: z.record(z.string(), z.string()).default({}),
+  apm: z.union([z.literal(false), listOrString]).optional(),
 });
 
 async function exists(p: string): Promise<boolean> {
@@ -83,6 +84,7 @@ export async function loadMiacConfig(repoPath: string): Promise<MiacConfig> {
     copy: c.copy,
     setup: c.setup ?? defaultSetup,
     run: c.run,
+    ...(c.apm !== undefined ? { apm: c.apm } : {}),
     found: true,
   };
 }

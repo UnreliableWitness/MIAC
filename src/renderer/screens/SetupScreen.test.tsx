@@ -58,10 +58,9 @@ const state: SetupState = {
     },
     {
       def: {
-        kind: 'command',
+        kind: 'apm',
         label: 'npm ci',
         detail: 'in worktree',
-        command: 'npm ci',
       },
       status: 'todo',
     },

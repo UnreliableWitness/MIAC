@@ -380,6 +380,8 @@ export function createHandlers(s: Services): Handlers {
         def.sessionId ? ['--session-id', def.sessionId] : [],
       );
     }
+    if (def.kind === 'run' && def.setupCommands)
+      return s.platform.setupCommands(def.setupCommands);
     if (def.kind === 'run' && def.command)
       return s.platform.runCommand(def.command);
     if (def.kind === 'copilot') return s.platform.copilotCommand();
@@ -422,6 +424,29 @@ export function createHandlers(s: Services): Handlers {
     return defs;
   };
 
+  /** The Setup tab, last in the row, running the task's setup commands. */
+  const setupTerminal = (commands: string[]): TerminalDef => ({
+    id: randomUUID(),
+    kind: 'run',
+    label: 'Setup',
+    setupCommands: commands,
+  });
+
+  /** A task's tabs without its Setup tab: setup commands never run again by themselves. */
+  const withoutSetupTab = (defs: TerminalDef[]) =>
+    defs.filter((d) => !d.setupCommands);
+
+  /** apm targets: the harness of each tab, in order, once. */
+  const apmTargetsFor = (defs: TerminalDef[]): string[] => [
+    ...new Set(
+      defs.flatMap((d) =>
+        d.kind === 'claude' || d.kind === 'copilot' || d.kind === 'opencode'
+          ? [d.kind]
+          : [],
+      ),
+    ),
+  ];
+
   /**
    * The tabs a reopened task gets back: those it had at Finish, or for tasks finished before that was kept, the
    * ones setup opens. A Claude tab without a session id continues the folder's latest session when there is one.
@@ -429,7 +454,7 @@ export function createHandlers(s: Services): Handlers {
   const restoredTerminals = (task: Task): TerminalDef[] => {
     const defs =
       task.closedTerminals.length > 0
-        ? task.closedTerminals
+        ? withoutSetupTab(task.closedTerminals)
         : initialTerminals(task).map((d): TerminalDef => {
             const { sessionId: _, ...rest } = d as TerminalDef;
             return rest;
@@ -471,6 +496,8 @@ export function createHandlers(s: Services): Handlers {
     const repo = s.repos.get(task.repoId);
     const config = await s.loadConfig(repo.path);
     const defs = task.reopen ? restoredTerminals(task) : initialTerminals(task);
+    const hasApm =
+      config.apm !== false && (await exists(path.join(repo.path, 'apm.yml')));
     return {
       taskId: task.id,
       repoPath: repo.path,
@@ -479,6 +506,10 @@ export function createHandlers(s: Services): Handlers {
       baseRef: task.baseRef,
       copy: task.setup.copy ? config.copy : [],
       commands: task.setup.commands,
+      cloneNodeModules:
+        Boolean(s.platform.cloneDir) &&
+        task.setup.commands.some((c) => c.trim() === 'npm ci'),
+      apmTargets: hasApm ? config.apm || apmTargetsFor(defs) : [],
       taskMd: renderTaskMd(task),
       startTerminalsLabel:
         defs.length > 0 ? defs.map((d) => d.label).join(', ') : null,
@@ -546,14 +577,19 @@ export function createHandlers(s: Services): Handlers {
         onBaseSha: async (baseSha) => {
           await patchTask(taskId, { baseSha });
         },
-        startTerminals: async () => {
+        startTerminals: async (commands) => {
+          const setupTab = commands.length > 0 ? [setupTerminal(commands)] : [];
           if (task.reopen) {
-            const defs = restoredTerminals(task);
-            startRestored(task, defs);
-            await updateTerminals(taskId, () => defs);
+            const restored = restoredTerminals(task);
+            startRestored(task, restored);
+            for (const def of setupTab) {
+              spawnTerminal({ ...task, terminals: restored }, def);
+              tel.event('terminal.opened', { kind: def.kind, initial: true });
+            }
+            await updateTerminals(taskId, () => [...restored, ...setupTab]);
             return;
           }
-          const defs = initialTerminals(task);
+          const defs = [...initialTerminals(task), ...setupTab];
           for (const def of defs) {
             spawnTerminal({ ...task, terminals: defs }, def);
             tel.event('terminal.opened', { kind: def.kind, initial: true });
@@ -839,7 +875,7 @@ export function createHandlers(s: Services): Handlers {
           // The worktree was kept: back to ready with the tabs it had.
           const defs =
             task.terminals.length > 0
-              ? task.terminals
+              ? withoutSetupTab(task.terminals)
               : restoredTerminals(task);
           await patchTask(taskId, {
             status: 'ready',
