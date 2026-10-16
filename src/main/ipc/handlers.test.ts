@@ -717,6 +717,87 @@ describe('handlers: terminals', () => {
   });
 });
 
+describe('handlers: Claude Code sessions', () => {
+  const recording = () => {
+    const base = testPlatform();
+    const calls: { prompt: string | null; flags: string[] }[] = [];
+    const platform = {
+      ...base,
+      // A shell that exits at once stands in for claude.
+      claudeCommand: (prompt: string | null, flags: string[] = []) => {
+        calls.push({ prompt, flags });
+        return base.runCommand(echoCmd('claude'));
+      },
+    };
+    return { platform, calls };
+  };
+
+  it('starts Claude Code with its own session id and resumes it on restart', async () => {
+    const { platform, calls } = recording();
+    const hx = await harness(fakeCrypto(), { platform });
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](
+      hx.input({ openShell: false, startClaude: true }),
+    );
+    await done;
+    const def = hx.store.state.tasks[0].terminals.find(
+      (x) => x.kind === 'claude',
+    );
+    expect(def?.sessionId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(calls).toEqual([
+      {
+        prompt: expect.stringContaining('.miac/task.md'),
+        flags: ['--session-id', def?.sessionId],
+      },
+    ]);
+    await hx.h['terminals:restart'](def!.id);
+    expect(calls[1]).toEqual({
+      prompt: null,
+      flags: ['--resume', def?.sessionId],
+    });
+    // After a relaunch the new manager does not know the terminal; it still resumes.
+    await hx.terminals.killAllForTask(t.id);
+    const fresh = new TerminalManager();
+    allTerminals.push(fresh);
+    const h2 = createHandlers({ ...hx.services, terminals: fresh });
+    await h2['terminals:restart'](def!.id);
+    expect(calls[2]).toEqual({
+      prompt: null,
+      flags: ['--resume', def?.sessionId],
+    });
+  });
+
+  it('continues the latest conversation for a Claude Code tab without a session id', async () => {
+    const { platform, calls } = recording();
+    const hx = await harness(fakeCrypto(), { platform });
+    const done = hx.setupDone();
+    await hx.h['tasks:create'](
+      hx.input({ openShell: false, startClaude: true }),
+    );
+    await done;
+    await hx.store.update((st) => {
+      for (const d of st.tasks[0].terminals) delete d.sessionId;
+    });
+    const id = hx.store.state.tasks[0].terminals[0].id;
+    await hx.h['terminals:restart'](id);
+    expect(calls.at(-1)).toEqual({ prompt: null, flags: ['--continue'] });
+  });
+
+  it('gives a Claude Code tab opened by hand a session id', async () => {
+    const { platform, calls } = recording();
+    const hx = await harness(fakeCrypto(), { platform });
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](hx.input({ openShell: false }));
+    await done;
+    const def = await hx.h['terminals:open'](t.id, {
+      kind: 'claude',
+      label: 'Claude Code',
+    });
+    expect(def.sessionId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(calls.at(-1)?.flags).toEqual(['--session-id', def.sessionId]);
+  });
+});
+
 describe('handlers: run terminal command', () => {
   it('starts a run terminal with runCommand, not the setup wrapper', async () => {
     const base = testPlatform();

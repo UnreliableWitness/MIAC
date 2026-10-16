@@ -38,7 +38,7 @@ This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 
 | `setup.finished` | ok; retry; kind of the failed step (`fetch`, `worktree`, `copy`, `task-file`, `command`, `terminals`); duration; step count |
 | `setup.retried`, `setup.cancelled` | none |
 | `terminal.opened` | kind (`claude`, `copilot`, `shell`, `run`); opened by setup or by hand |
-| `terminal.restarted` | kind |
+| `terminal.restarted` | kind; after an app relaunch or not (a Claude Code restart resumes its session) |
 | `usage.opened` | via the tab or the task strip |
 | `usage.synced` | ok; on finish or by hand |
 | `docs.opened` | view (`rendered`, `source`); from (`list`, `link`, `terminal`); the file opened automatically with the tab is not tracked |

@@ -12,10 +12,13 @@ export function TerminalView({
   terminalId,
   taskId,
   active,
+  resumes = false,
 }: {
   terminalId: string;
   taskId: string;
   active: boolean;
+  /** Claude Code: Restart resumes the conversation, so the button says so. */
+  resumes?: boolean;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
@@ -152,7 +155,7 @@ export function TerminalView({
             {exitCode === -1 ? 'Process ended' : `Exited with code ${exitCode}`}
           </span>
           <button type="button" className="btn btn-sm" onClick={restart}>
-            Restart
+            {resumes ? 'Resume session' : 'Restart'}
           </button>
           <button
             type="button"

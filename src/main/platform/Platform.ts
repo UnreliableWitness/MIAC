@@ -20,8 +20,11 @@ export interface Platform {
    * program keeps the console: no pipe in between, so colour, UTF-8 output and unbuffered logs survive.
    */
   runCommand(cmd: string): Command;
-  /** Start Claude Code with a first prompt. */
-  claudeCommand(prompt: string): Command;
+  /**
+   * Start Claude Code: with a first prompt, or none when resuming. `flags` are MIAC's own (session id, resume),
+   * passed before the prompt.
+   */
+  claudeCommand(prompt: string | null, flags?: string[]): Command;
   /** Start GitHub Copilot CLI. */
   copilotCommand(): Command;
   /** Open a folder in the editor. */

@@ -270,6 +270,7 @@ export function TerminalTabs({
             key={t.id}
             terminalId={t.id}
             taskId={task.id}
+            resumes={t.kind === 'claude'}
             active={visible && active === t.id}
           />
         ))}

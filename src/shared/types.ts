@@ -16,6 +16,8 @@ export const TerminalDefSchema = z.object({
   kind: z.enum(['claude', 'shell', 'run', 'copilot']),
   label: z.string(),
   command: z.string().optional(),
+  /** Claude Code's session id (a UUID), so Restart resumes the same conversation. Absent on older tasks. */
+  sessionId: z.string().optional(),
 });
 export type TerminalDef = z.infer<typeof TerminalDefSchema>;
 export type NewTerminal = Omit<TerminalDef, 'id'>;

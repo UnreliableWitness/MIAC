@@ -103,6 +103,31 @@ describe('windowsPlatform', () => {
     });
   });
 
+  it('passes session flags before the prompt to claude.exe and a shim', () => {
+    expect(
+      make({ claude: 'C:\\bin\\claude.exe' }).claudeCommand('go', [
+        '--session-id',
+        'abc',
+      ]).args,
+    ).toEqual(['--session-id', 'abc', 'go']);
+    expect(
+      make({ claude: 'C:\\bin\\claude.exe' }).claudeCommand(null, [
+        '--resume',
+        'abc',
+      ]).args,
+    ).toEqual(['--resume', 'abc']);
+    expect(
+      make({ claude: 'C:\\npm\\claude.cmd' })
+        .claudeCommand('go', ['--session-id', 'abc'])
+        .args.at(-1),
+    ).toBe("& claude '--session-id' 'abc' $env:MIAC_CLAUDE_PROMPT");
+    const resume = make({ claude: 'C:\\npm\\claude.cmd' }).claudeCommand(null, [
+      '--continue',
+    ]);
+    expect(resume.args.at(-1)).toBe("& claude '--continue'");
+    expect(resume.env).toBeUndefined();
+  });
+
   it('lets PowerShell report a missing claude', () => {
     expect(make({}).claudeCommand('x')).toEqual({
       command: 'powershell.exe',

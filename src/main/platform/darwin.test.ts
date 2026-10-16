@@ -25,6 +25,16 @@ describe('darwinPlatform', () => {
       args: ['-l', '-c', "exec claude 'Work item 1: it'\\''s done'"],
     });
   });
+  it('passes session flags before the prompt, and no prompt when resuming', () => {
+    expect(p.claudeCommand('go', ['--session-id', 'abc'])).toEqual({
+      command: '/bin/zsh',
+      args: ['-l', '-c', "exec claude '--session-id' 'abc' 'go'"],
+    });
+    expect(p.claudeCommand(null, ['--continue'])).toEqual({
+      command: '/bin/zsh',
+      args: ['-l', '-c', "exec claude '--continue'"],
+    });
+  });
   it('starts Copilot CLI through a login shell', () => {
     expect(p.copilotCommand()).toEqual({
       command: '/bin/zsh',
