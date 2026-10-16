@@ -49,7 +49,9 @@ function useIsCurrent(taskId: string) {
   return useStore((s) =>
     s.screen.kind === 'task'
       ? s.selectedTaskId === taskId
-      : (s.screen.kind === 'setup' || s.screen.kind === 'finish') &&
+      : (s.screen.kind === 'setup' ||
+          s.screen.kind === 'finish' ||
+          s.screen.kind === 'repos') &&
         s.screen.taskId === taskId,
   );
 }

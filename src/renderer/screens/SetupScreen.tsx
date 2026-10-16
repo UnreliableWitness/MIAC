@@ -65,8 +65,18 @@ function replayPending(
   return state;
 }
 
-export function SetupScreen({ taskId }: { taskId: string }) {
+/** A task's setup, or with `repoId` the setup of a repo being added to a running task folder. */
+export function SetupScreen({
+  taskId,
+  repoId,
+}: {
+  taskId: string;
+  repoId?: string;
+}) {
   const task = useStore((s) => s.tasks.find((t) => t.id === taskId));
+  const worktree = repoId
+    ? task?.worktrees?.find((w) => w.repoId === repoId)
+    : undefined;
   const go = useStore((s) => s.go);
   const select = useStore((s) => s.select);
   const notify = useStore((s) => s.notify);
@@ -78,7 +88,7 @@ export function SetupScreen({ taskId }: { taskId: string }) {
     let live = true;
     let pending: SetupEvent[] | null = [];
     const off = api().on('setup', (e) => {
-      if (e.taskId !== taskId) return;
+      if (e.taskId !== taskId || e.repoId !== repoId) return;
       if (pending) {
         pending.push(e);
         return;
@@ -89,24 +99,26 @@ export function SetupScreen({ taskId }: { taskId: string }) {
         go({ kind: 'task' });
       }
     });
-    void tryInvoke(() => api().invoke('tasks:setupState', taskId), notify).then(
-      (snapshot) => {
-        const buffered = pending ?? [];
-        pending = null;
-        if (!live) return;
-        const next = replayPending(snapshot ?? EMPTY_STATE, buffered);
-        setState(next);
-        if (next.finished && next.ok) {
-          select(taskId);
-          go({ kind: 'task' });
-        }
-      },
-    );
+    void tryInvoke(
+      () =>
+        api().invoke('tasks:setupState', taskId, ...(repoId ? [repoId] : [])),
+      notify,
+    ).then((snapshot) => {
+      const buffered = pending ?? [];
+      pending = null;
+      if (!live) return;
+      const next = replayPending(snapshot ?? EMPTY_STATE, buffered);
+      setState(next);
+      if (next.finished && next.ok) {
+        select(taskId);
+        go({ kind: 'task' });
+      }
+    });
     return () => {
       live = false;
       off();
     };
-  }, [taskId, go, select, notify]);
+  }, [taskId, repoId, go, select, notify]);
 
   useEffect(() => {
     if (follow && logRef.current)
@@ -120,17 +132,31 @@ export function SetupScreen({ taskId }: { taskId: string }) {
 
   const retry = async () => {
     const ok = await tryInvoke(async () => {
-      await api().invoke('tasks:retrySetup', taskId);
+      if (repoId) await api().invoke('tasks:retryRepoSetup', taskId, repoId);
+      else await api().invoke('tasks:retrySetup', taskId);
       return true;
     }, notify);
     if (!ok) return;
     const fresh = await tryInvoke(
-      () => api().invoke('tasks:setupState', taskId),
+      () =>
+        api().invoke('tasks:setupState', taskId, ...(repoId ? [repoId] : [])),
       notify,
     );
     if (fresh) setState(fresh);
   };
   const cancel = async () => {
+    if (repoId) {
+      // A repo that failed to be added goes again; the task and its other repos stay.
+      const removed = await tryInvoke(async () => {
+        await api().invoke('tasks:removeRepo', taskId, repoId, {
+          force: false,
+          deleteBranch: true,
+        });
+        return true;
+      }, notify);
+      if (removed) go({ kind: 'repos', taskId });
+      return;
+    }
     const ok = await tryInvoke(async () => {
       await api().invoke('tasks:cancelSetup', taskId);
       return true;
@@ -144,8 +170,11 @@ export function SetupScreen({ taskId }: { taskId: string }) {
   };
 
   if (!task) return <div className="empty">Task not found.</div>;
-  const back = () => go({ kind: 'sprint' });
-  const reopening = task.reopen !== null;
+  const back = () =>
+    repoId ? (select(taskId), go({ kind: 'task' })) : go({ kind: 'sprint' });
+  const reopening = !repoId && task.reopen !== null;
+  // Adding a repo: its own status; the task itself stays ready.
+  const status = repoId ? (worktree?.status ?? 'ready') : task.status;
 
   return (
     <div className="page">
@@ -163,15 +192,21 @@ export function SetupScreen({ taskId }: { taskId: string }) {
       <div className="setup">
         <section className="setup-left">
           <div className="muted">
-            {reopening
-              ? task.status === 'setup-failed'
-                ? 'Reopening failed. Fix the cause, then retry, or cancel: the task goes back to Done.'
-                : 'Restoring the worktree and terminals of this task. You can leave this page; it keeps going in the background.'
-              : task.status === 'setup-failed'
-                ? 'Setup failed. Fix the cause, then retry, or remove the task.'
-                : task.status === 'ready'
-                  ? 'Setup finished.'
-                  : 'Setting up your task. You can leave this page; it keeps going in the background.'}
+            {repoId
+              ? status === 'setup-failed'
+                ? `Adding ${worktree?.dir ?? 'the repo'} failed. Fix the cause, then retry, or remove the repo.`
+                : status === 'ready'
+                  ? 'Repo added.'
+                  : `Adding ${worktree?.dir ?? 'the repo'} to this task. Its terminals keep running; you can leave this page.`
+              : reopening
+                ? task.status === 'setup-failed'
+                  ? 'Reopening failed. Fix the cause, then retry, or cancel: the task goes back to Done.'
+                  : 'Restoring the worktree and terminals of this task. You can leave this page; it keeps going in the background.'
+                : task.status === 'setup-failed'
+                  ? 'Setup failed. Fix the cause, then retry, or remove the task.'
+                  : task.status === 'ready'
+                    ? 'Setup finished.'
+                    : 'Setting up your task. You can leave this page; it keeps going in the background.'}
           </div>
           {state ? (
             <StepList steps={state.steps} />
@@ -180,9 +215,9 @@ export function SetupScreen({ taskId }: { taskId: string }) {
           )}
           <div className="actions" style={{ justifyContent: 'flex-start' }}>
             <button type="button" className="btn" onClick={back}>
-              Back to Sprint
+              {repoId ? 'Back to task' : 'Back to Sprint'}
             </button>
-            {task.status === 'setup-failed' && (
+            {status === 'setup-failed' && (
               <button type="button" className="btn btn-primary" onClick={retry}>
                 {failedLabel ? `Retry from ${failedLabel}` : 'Retry'}
               </button>
@@ -190,10 +225,14 @@ export function SetupScreen({ taskId }: { taskId: string }) {
             <button
               type="button"
               className="btn btn-warn"
-              disabled={task.status === 'setting-up'}
+              disabled={status === 'setting-up'}
               onClick={cancel}
             >
-              {reopening ? 'Cancel reopen' : 'Cancel and remove'}
+              {repoId
+                ? 'Remove repo'
+                : reopening
+                  ? 'Cancel reopen'
+                  : 'Cancel and remove'}
             </button>
           </div>
         </section>

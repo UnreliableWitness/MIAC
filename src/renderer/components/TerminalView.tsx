@@ -103,7 +103,9 @@ export function TerminalView({
       if (build) t.options.windowsPty = terminalOptions(build).windowsPty;
       t.open(el);
       loadRenderer(t);
-      links = t.registerLinkProvider(createLinkProvider(t, taskId));
+      links = t.registerLinkProvider(
+        createLinkProvider(t, taskId, { terminalId }),
+      );
       observer.observe(el);
       sendSize();
     });

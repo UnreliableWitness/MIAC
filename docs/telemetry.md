@@ -26,16 +26,18 @@ This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 
 
 | Name | Properties / measurements |
 | --- | --- |
-| Screen views (page views) | `sprint`, `task`, `new-task`, `setup`, `finish`, `settings` |
+| Screen views (page views) | `sprint`, `task`, `new-task`, `setup`, `finish`, `repos`, `settings` |
 | `app.started` | splash on/off; counts of repos, open tasks, connections; whether the usage receiver listens; boot step timings (see Performance) |
 | `app.quit` | session length in minutes |
 | `update.ready` | an update finished downloading (Windows); none |
 | `update.restart`, `update.later` | the choice on the update notice; none |
 | `task.created` | has a work item; copy files, start Claude, open shell, open Copilot (booleans); number of setup commands |
 | `task.startRepoChosen` | Start on the Sprint page used the repo menu instead of the remembered repo; number of the project's repos |
-| `task.finished` | remove worktree, delete branch, close terminals, sync usage, has a work item (booleans); task age in hours |
+| `task.finished` | remove worktree, delete branch, close terminals, sync usage, has a work item (booleans); task age in hours; number of repos and of pull requests made |
+| `task.repoAdded` | a repo was added to a running task folder: ok; retry; kind of the failed step; whether it replaces another repo (Move); duration; step count |
+| `task.repoRemoved` | a repo was removed from a task folder: forced (it had work), branch deleted (booleans) |
 | `workitem.startUpdated` | setup moved the work item to In Progress (`moved`), assigned it (`assigned`), or the update failed (`failed`) |
-| `pr.created` | Finish created a draft pull request; none |
+| `pr.created` | Finish created a draft pull request (one event per repo); none |
 | `pr.linked` | Finish linked an existing active pull request instead of creating one; none |
 | `pr.failed` | Finish stopped because the push or pull request failed; `kind` (`git`, or the Azure DevOps error kind: `unauthorized`, `not-found`, `unreachable`, `http`) |
 | `setup.finished` | ok; retry; kind of the failed step (`fetch`, `worktree`, `copy`, `task-file`, `command`, `terminals`); duration; step count |

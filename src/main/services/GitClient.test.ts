@@ -21,6 +21,16 @@ const client = new GitClient();
 afterAll(cleanupTempRepos);
 
 describe('GitClient', () => {
+  it('counts the commits since a base, and gives null for an unknown base', async () => {
+    const repo = makeRepo();
+    const base = git(repo, 'rev-parse', 'HEAD').trim();
+    expect(await client.commitsSince(repo, base)).toBe(0);
+    commitFile(repo, 'a.txt', 'a\n');
+    commitFile(repo, 'b.txt', 'b\n');
+    expect(await client.commitsSince(repo, base)).toBe(2);
+    expect(await client.commitsSince(repo, 'no-such-ref')).toBeNull();
+  });
+
   it('returns toplevel and commonDir in native path form', async () => {
     const c = new GitClient();
     const spy = vi.spyOn(c, 'run').mockResolvedValue('C:/x/y\n');

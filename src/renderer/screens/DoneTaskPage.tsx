@@ -6,6 +6,7 @@ import type {
   TaskView,
   WorkItemSummary,
 } from '../../shared/types';
+import { isFolderTask, worktreesOf } from '../../shared/tasks';
 import { api, tryInvoke } from '../api';
 import { TaskTypeIcon } from '../components/TaskTypeIcon';
 import { PageHeader, StateDot } from '../components/ui';
@@ -40,16 +41,20 @@ function useLiveWorkItem(
   return item;
 }
 
-/** The pull request as Azure DevOps has it now; starts from the stored one and refreshes once. */
-function useLivePullRequest(task: TaskView): PullRequestRef | null {
-  const [pr, setPr] = useState<PullRequestRef | null>(task.pullRequest);
-  const has = task.pullRequest !== null;
+/** A repo's pull request as Azure DevOps has it now; starts from the stored one and refreshes once. */
+function useLivePullRequest(
+  taskId: string,
+  repoId: string | null,
+  stored: PullRequestRef | null,
+): PullRequestRef | null {
+  const [pr, setPr] = useState<PullRequestRef | null>(stored);
+  const has = stored !== null;
   useEffect(() => {
-    setPr(task.pullRequest);
+    setPr(stored);
     if (!has) return;
     let live = true;
     api()
-      .invoke('tasks:prStatus', task.id)
+      .invoke('tasks:prStatus', taskId, ...(repoId ? [repoId] : []))
       .then((p) => {
         if (live && p) setPr(p);
       })
@@ -58,7 +63,7 @@ function useLivePullRequest(task: TaskView): PullRequestRef | null {
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [task.id, has]);
+  }, [taskId, repoId, has]);
   return pr;
 }
 
@@ -108,9 +113,18 @@ export function DoneTaskPage({ task }: { task: TaskView }) {
   const connectionId = useTaskConnectionId(task);
   const usage = useTaskUsage(task.id);
   const wi = task.workItem;
-  const pr = useLivePullRequest(task);
+  // The home repo's worktree (an older task's own fields).
+  const home =
+    worktreesOf(task).find((w) => w.repoId === task.repoId) ??
+    worktreesOf(task)[0] ??
+    null;
+  const pr = useLivePullRequest(
+    task.id,
+    isFolderTask(task) ? (home?.repoId ?? null) : null,
+    home?.pullRequest ?? null,
+  );
   const live = useLiveWorkItem(connectionId, wi?.id ?? null);
-  const s = task.summary;
+  const s = home?.summary ?? null;
   const took = task.finishedAt
     ? duration(task.createdAt, task.finishedAt)
     : null;
@@ -262,7 +276,7 @@ export function DoneTaskPage({ task }: { task: TaskView }) {
           </section>
         ) : (
           <p className="done-nosummary muted">
-            {task.baseSha
+            {home?.baseSha
               ? 'No summary: git could not read the branch when it finished.'
               : 'Finished before MIAC recorded summaries.'}
           </p>

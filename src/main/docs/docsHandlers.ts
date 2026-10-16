@@ -1,12 +1,14 @@
 import { existsSync } from 'node:fs';
 import type { Handlers } from '../../shared/ipc';
 import type { TelemetryProps } from '../../shared/telemetry';
+import { isFolderTask, terminalCwd, worktreesOf } from '../../shared/tasks';
 import type { Task } from '../../shared/types';
 import type { Command } from '../platform/Platform';
 import type { GitClient } from '../services/GitClient';
 import type { DocsWatcher } from './DocsWatcher';
 import {
   listDocs,
+  listTaskDocs,
   readAsset,
   readDoc,
   resolveInWorktree,
@@ -62,16 +64,29 @@ export function createDocsHandlers(d: DocsDeps): Pick<Handlers, DocsChannels> {
     return t.worktreePath;
   };
   return {
-    'docs:list': async (taskId) => ({
-      files: await listDocs(
-        d.git,
-        worktree(taskId),
-        d.taskById(taskId).baseSha,
-      ),
-    }),
+    'docs:list': async (taskId) => {
+      const root = worktree(taskId);
+      const t = d.taskById(taskId);
+      return {
+        files: isFolderTask(t)
+          ? await listTaskDocs(
+              d.git,
+              root,
+              worktreesOf(t).filter((w) => w.status === 'ready'),
+            )
+          : await listDocs(d.git, root, t.baseSha),
+      };
+    },
     'docs:read': async (taskId, p) => readDoc(worktree(taskId), p),
     'docs:asset': async (taskId, p) => readAsset(worktree(taskId), p),
-    'docs:resolve': async (taskId, p) => resolveLink(worktree(taskId), p),
+    'docs:resolve': async (taskId, p, terminalId) => {
+      const root = worktree(taskId);
+      const t = d.taskById(taskId);
+      const def = terminalId
+        ? t.terminals?.find((x) => x.id === terminalId)
+        : undefined;
+      return resolveLink(root, p, def ? terminalCwd(t, def) : root);
+    },
     'docs:openInEditor': async (taskId, p, line, col) => {
       const wt = worktree(taskId);
       const abs = await resolveInWorktree(wt, p);

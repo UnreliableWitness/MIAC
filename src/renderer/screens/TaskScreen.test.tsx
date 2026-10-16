@@ -184,6 +184,94 @@ describe('TaskScreen', () => {
     );
   });
 
+  it('in a task folder with two repos: Repos button, a shell per repo, run chips per repo and repo names on tabs', async () => {
+    const wt = (repoId: string, dir: string) => ({
+      repoId,
+      dir,
+      path: `/tasks/48213/${dir}`,
+      branch: task.branch,
+      baseRef: 'origin/main',
+      baseSha: null,
+      status: 'ready' as const,
+      copy: true,
+      commands: [],
+      summary: null,
+      pullRequest: null,
+      reopen: null,
+    });
+    useStore.setState({
+      repos: [
+        ...useStore.getState().repos,
+        { ...useStore.getState().repos[0], id: 'r2', name: 'api' },
+      ],
+      tasks: [
+        {
+          ...task,
+          worktreePath: '/tasks/48213',
+          folder: '/tasks/48213',
+          worktrees: [wt('r1', 'webshop'), wt('r2', 'api')],
+          terminals: [
+            { id: 'c1', kind: 'claude', label: 'Claude Code' },
+            { id: 's1', kind: 'shell', label: 'zsh', repoId: 'r2' },
+          ],
+        },
+      ],
+    });
+    const { calls } = installFakeApi({
+      'repos:config': (repoId) => ({
+        ...config,
+        config: {
+          ...config.config,
+          run: (repoId === 'r2'
+            ? { serve: 'npm start' }
+            : { dev: 'npm run dev' }) as Record<string, string>,
+        },
+      }),
+      'terminals:open': (_id, def) => ({ id: 'n9', ...def }),
+    });
+    render(<Shell />);
+    expect(screen.getByRole('tab', { name: 'zsh · api' })).toBeInTheDocument();
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'api: serve' }),
+    );
+    await waitFor(() =>
+      expect(calls.find((c) => c.channel === 'terminals:open')?.args).toEqual([
+        'a',
+        {
+          kind: 'run',
+          label: 'api: serve',
+          command: 'npm start',
+          repoId: 'r2',
+        },
+      ]),
+    );
+    expect(screen.getByRole('button', { name: 'webshop: dev' })).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'New terminal' }));
+    expect(
+      within(screen.getByRole('menu'))
+        .getAllByRole('menuitem')
+        .map((i) => i.textContent),
+    ).toEqual([
+      'Claude Code',
+      'Shell in webshop',
+      'Shell in api',
+      'Copilot CLI',
+      'OpenCodeAI cost not tracked',
+    ]);
+    await userEvent.click(
+      screen.getByRole('menuitem', { name: 'Shell in api' }),
+    );
+    await waitFor(() =>
+      expect(
+        calls.filter((c) => c.channel === 'terminals:open').at(-1)?.args,
+      ).toEqual(['a', { kind: 'shell', label: 'shell', repoId: 'r2' }]),
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Repos, 2 in this task' }),
+    );
+    expect(useStore.getState().screen).toEqual({ kind: 'repos', taskId: 'a' });
+  });
+
   it('opens a Copilot CLI terminal from the + menu', async () => {
     const { calls } = installFakeApi({
       'repos:config': () => config,

@@ -4,15 +4,17 @@ import {
   Code16Regular,
   DataPie16Regular,
   Document16Regular,
+  FolderOpen16Regular,
   FullScreenMaximize16Regular,
   FullScreenMinimize16Regular,
 } from '@fluentui/react-icons';
 import { useEffect, useState } from 'react';
+import { isFolderTask, worktreesOf } from '../../shared/tasks';
 import type { NewTerminal, TaskView } from '../../shared/types';
 import { api, tryInvoke } from '../api';
 import { eur } from '../format';
 import { useGitSummary } from '../hooks/useGitSummary';
-import { useRepoConfig } from '../hooks/useRepoConfig';
+import { useRepoConfigs } from '../hooks/useRepoConfig';
 import { useTaskUsage } from '../hooks/useTaskUsage';
 import { holdDocsWatch } from '../docs/holdDocsWatch';
 import { DOCS_TAB, USAGE_TAB, useStore } from '../store';
@@ -60,7 +62,23 @@ export function TerminalTabs({
 }) {
   const notify = useStore((s) => s.notify);
   const go = useStore((s) => s.go);
-  const config = useRepoConfig(task.repoId);
+  const folder = isFolderTask(task);
+  const repos = worktreesOf(task).filter((w) => w.status === 'ready');
+  const several = folder && repos.length > 1;
+  const dirOf = (repoId?: string) =>
+    repoId ? repos.find((w) => w.repoId === repoId)?.dir : undefined;
+  // Run chips come from every repo's .miac.yml; in a task folder they run in that repo's worktree.
+  const runRepos = folder
+    ? repos.map((w) => ({ repoId: w.repoId, dir: w.dir }))
+    : [{ repoId: task.repoId, dir: '' }];
+  const configs = useRepoConfigs(runRepos.map((r) => r.repoId));
+  const runCommands = runRepos.flatMap((r, i) =>
+    Object.entries(configs[i]?.config.run ?? {}).map(([name, command]) => ({
+      label: several ? `${r.dir}: ${name}` : name,
+      command,
+      repoId: folder ? r.repoId : undefined,
+    })),
+  );
   const git = useGitSummary(task.id, task.worktreeMissing, visible);
   const active = useStore((s) => s.activeTab(task.id));
   const setTab = useStore((s) => s.setTab);
@@ -120,8 +138,6 @@ export function TerminalTabs({
   const closeTerminal = (id: string) =>
     tryInvoke(() => api().invoke('terminals:kill', id), notify);
 
-  const runCommands = Object.entries(config?.config.run ?? {});
-
   return (
     <>
       <div className="taskbar">
@@ -179,7 +195,9 @@ export function TerminalTabs({
                   if (e.button === 1) void closeTerminal(t.id);
                 }}
               >
-                {t.label}
+                {several && dirOf(t.repoId)
+                  ? `${t.label} · ${dirOf(t.repoId)}`
+                  : t.label}
               </button>
               <button
                 type="button"
@@ -195,19 +213,32 @@ export function TerminalTabs({
           <NewTerminalMenu
             disabled={task.worktreeMissing}
             onOpen={(def) => void open(def)}
+            // In a task folder a shell runs in a repo, where git and the dev tools work.
+            shellRepos={
+              folder
+                ? repos.map((w) => ({ repoId: w.repoId, dir: w.dir }))
+                : undefined
+            }
           />
           {runCommands.length > 0 && (
             <span className="tabrow-run">
               <span className="small muted">Run</span>
-              {runCommands.map(([name, command]) => (
+              {runCommands.map((r) => (
                 <button
-                  key={name}
+                  key={r.label}
                   type="button"
                   className="btn btn-sm chip"
-                  onClick={() => open({ kind: 'run', label: name, command })}
+                  onClick={() =>
+                    open({
+                      kind: 'run',
+                      label: r.label,
+                      command: r.command,
+                      ...(r.repoId ? { repoId: r.repoId } : {}),
+                    })
+                  }
                   disabled={task.worktreeMissing}
                 >
-                  {name}
+                  {r.label}
                 </button>
               ))}
             </span>
@@ -221,6 +252,18 @@ export function TerminalTabs({
               ` ${UP}${git.ahead}${git.behind ? ` ${DOWN}${git.behind}` : ''} ${DOT} ${git.files.length ? `${git.files.length}${DELTA}` : 'clean'}`}
           </span>
           <CostButton taskId={task.id} />
+          {ready && folder && (
+            <button
+              type="button"
+              className="btn btn-subtle btn-sm"
+              aria-label={`Repos, ${worktreesOf(task).length} in this task`}
+              title="Add, remove or replace the task's repos"
+              onClick={() => go({ kind: 'repos', taskId: task.id })}
+            >
+              <FolderOpen16Regular aria-hidden="true" />
+              {`Repos ${worktreesOf(task).length}`}
+            </button>
+          )}
           {ready && (
             <>
               <button

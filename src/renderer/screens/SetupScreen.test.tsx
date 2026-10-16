@@ -204,6 +204,117 @@ describe('SetupScreen', () => {
     expect(useStore.getState().selectedTaskId).toBe('t1');
   });
 
+  describe('adding a repo', () => {
+    const folderTask = (status: 'setting-up' | 'setup-failed'): TaskView => ({
+      ...task,
+      status: 'ready',
+      worktreePath: '/tasks/48231-show',
+      folder: '/tasks/48231-show',
+      worktrees: [
+        {
+          repoId: 'r1',
+          dir: 'webshop',
+          path: '/tasks/48231-show/webshop',
+          branch: task.branch,
+          baseRef: 'origin/main',
+          baseSha: null,
+          status: 'ready',
+          copy: true,
+          commands: [],
+          summary: null,
+          pullRequest: null,
+          reopen: null,
+        },
+        {
+          repoId: 'r2',
+          dir: 'api',
+          path: '/tasks/48231-show/api',
+          branch: task.branch,
+          baseRef: 'origin/main',
+          baseSha: null,
+          status,
+          copy: true,
+          commands: ['npm ci'],
+          summary: null,
+          pullRequest: null,
+          reopen: null,
+        },
+      ],
+    });
+
+    it('follows only that repo’s setup and goes back to the task when it is done', async () => {
+      useStore.setState({ tasks: [folderTask('setting-up')] });
+      const { emit, calls } = installFakeApi({
+        'tasks:setupState': () => state,
+      });
+      render(<SetupScreen taskId="t1" repoId="r2" />);
+      await screen.findByText('Fetch base');
+      expect(calls.find((c) => c.channel === 'tasks:setupState')?.args).toEqual(
+        ['t1', 'r2'],
+      );
+      expect(screen.getByText(/Adding api to this task/)).toBeInTheDocument();
+      act(() => {
+        emit('setup', { taskId: 't1', type: 'log', line: 'whole task' });
+        emit('setup', {
+          taskId: 't1',
+          repoId: 'r2',
+          type: 'log',
+          line: 'api only',
+        });
+      });
+      expect(screen.queryByText('whole task')).not.toBeInTheDocument();
+      expect(screen.getByText('api only')).toBeInTheDocument();
+      act(() =>
+        emit('setup', {
+          taskId: 't1',
+          repoId: 'r2',
+          type: 'finished',
+          ok: true,
+        }),
+      );
+      await waitFor(() =>
+        expect(useStore.getState().screen).toEqual({ kind: 'task' }),
+      );
+    });
+
+    it('retries or removes a repo that failed to be added', async () => {
+      useStore.setState({ tasks: [folderTask('setup-failed')] });
+      const { calls } = installFakeApi({
+        'tasks:setupState': () => ({
+          ...state,
+          finished: true,
+          ok: false,
+          failedStep: 2,
+        }),
+        'tasks:retryRepoSetup': () => undefined,
+        'tasks:removeRepo': () => undefined,
+      });
+      render(<SetupScreen taskId="t1" repoId="r2" />);
+      expect(await screen.findByText(/Adding api failed/)).toBeInTheDocument();
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Retry from npm ci' }),
+      );
+      await waitFor(() =>
+        expect(
+          calls.find((c) => c.channel === 'tasks:retryRepoSetup')?.args,
+        ).toEqual(['t1', 'r2']),
+      );
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Remove repo' }),
+      );
+      await waitFor(() =>
+        expect(
+          calls.find((c) => c.channel === 'tasks:removeRepo')?.args,
+        ).toEqual(['t1', 'r2', { force: false, deleteBranch: true }]),
+      );
+      expect(useStore.getState().screen).toEqual({
+        kind: 'repos',
+        taskId: 't1',
+      });
+      expect(calls.some((c) => c.channel === 'tasks:cancelSetup')).toBe(false);
+    });
+  });
+
   it('jumps to the task page when setup finishes successfully', async () => {
     const { emit } = installFakeApi({ 'tasks:setupState': () => state });
     render(<SetupScreen taskId="t1" />);

@@ -60,6 +60,8 @@ export const AppSettingsSchema = z.object({
   sendTelemetry: z.boolean().default(true),
   /** Auto-update (packaged Windows builds). No UI yet: set false in settings.json to turn it off. */
   autoUpdate: z.boolean().optional(),
+  /** Where task folders are made; absent or null is `~/miac/tasks`. */
+  tasksFolder: z.string().nullable().optional(),
 });
 export type AppSettings = z.infer<typeof AppSettingsSchema>;
 export const defaultSettings = (): AppSettings => ({

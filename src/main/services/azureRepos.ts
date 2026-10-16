@@ -108,12 +108,23 @@ export type PrDescriptionInput = {
   commitCount: number;
   /** e.g. "AI cost for this task: €1.00 (Claude €1.00, Copilot €0.00)"; null leaves the cost out. */
   costLine: string | null;
+  /** The task's other repos, e.g. "web (`feature/x`)": one task changed several repos, each with its own PR. */
+  otherRepos?: string[];
 };
 
 export function prDescription(input: PrDescriptionInput): string {
-  const footer = input.costLine
-    ? `${input.costLine} · recorded by MIAC`
-    : 'Recorded by MIAC';
+  const others = input.otherRepos ?? [];
+  const footer = [
+    ...(others.length > 0
+      ? [
+          `Part of a change across ${others.length + 1} repos, also in ${others.join(', ')}; the work item links every pull request.`,
+          '',
+        ]
+      : []),
+    input.costLine
+      ? `${input.costLine} · recorded by MIAC`
+      : 'Recorded by MIAC',
+  ].join('\n');
   const build = (n: number): string => {
     if (input.commits.length === 0 && input.commitCount === 0)
       return `${input.heading}\n\n${footer}`;

@@ -3,6 +3,7 @@ import {
   branchType,
   claudeContext,
   renderBranch,
+  renderClaudeMd,
   renderTaskMd,
   slugify,
   taskSlug,
@@ -149,6 +150,81 @@ describe('claudeContext', () => {
     );
     expect(claudeContext({ ...task, workItem: null, name: 'Spike' })).toContain(
       'MIAC task for Task: Spike.',
+    );
+  });
+});
+
+const folderTask: Task = {
+  ...task,
+  worktreePath: '/tasks/48231-show-estimated-deliv',
+  folder: '/tasks/48231-show-estimated-deliv',
+  worktrees: [
+    {
+      repoId: 'r1',
+      dir: 'api',
+      path: '/tasks/48231-show-estimated-deliv/api',
+      branch: task.branch,
+      baseRef: 'origin/main',
+      baseSha: null,
+      status: 'ready',
+      copy: true,
+      commands: [],
+      summary: null,
+      pullRequest: null,
+      reopen: null,
+    },
+    {
+      repoId: 'r2',
+      dir: 'web',
+      path: '/tasks/48231-show-estimated-deliv/web',
+      branch: task.branch,
+      baseRef: 'origin/develop',
+      baseSha: null,
+      status: 'ready',
+      copy: true,
+      commands: [],
+      summary: null,
+      pullRequest: null,
+      reopen: null,
+    },
+  ],
+};
+
+describe('task folder files', () => {
+  it('names the repos in Claude’s context', () => {
+    expect(claudeContext(folderTask)).toBe(
+      "This folder is a MIAC task for User Story 48231: Show estimated delivery date on product page. Each of its folders api/, web/ is a worktree of one repo, on branch feature/48231-show-estimated-delivery-date-on. Make each change in the repo it belongs to and run git inside that repo's folder. The details are in CLAUDE.md and .miac/task.md. Do not start on the task by yourself: wait for the user's instructions.",
+    );
+  });
+  it('lists the repos in the task file', () => {
+    const md = renderTaskMd(folderTask);
+    expect(md).toContain('- Folder: `/tasks/48231-show-estimated-deliv`');
+    expect(md).toContain(
+      '- Repos: `api/` from `origin/main`, `web/` from `origin/develop`',
+    );
+    expect(md).not.toContain('Worktree:');
+  });
+  it('writes CLAUDE.md with the repos and imports only the instructions that exist', () => {
+    const md = renderClaudeMd(folderTask, [
+      { dir: 'api', name: 'API', hasClaudeMd: true },
+      { dir: 'web', name: 'webshop', hasClaudeMd: false },
+    ]);
+    expect(md).toBe(
+      [
+        '# MIAC task: User Story 48231: Show estimated delivery date on product page',
+        '',
+        'This folder is a MIAC task. Each folder below is a worktree of one repo, all on branch `feature/48231-show-estimated-delivery-date-on`:',
+        '',
+        '- `api/`: repo API, from `origin/main`',
+        '- `web/`: repo webshop, from `origin/develop`',
+        '',
+        "Make each change in the repo it belongs to, and run git inside that repo's folder. Task notes: .miac/task.md.",
+        '',
+        'This file is written by MIAC and rewritten when a repo is added or removed.',
+        '',
+        '@api/CLAUDE.md',
+        '',
+      ].join('\n'),
     );
   });
 });

@@ -611,3 +611,42 @@
   padding: 0 6px;
   min-width: 0;
 }
+
+/* Repos page of a task folder */
+.repos {
+  max-width: 860px;
+  gap: 24px;
+}
+.repos-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--line);
+}
+.repos-row {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.repos-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+}
+.repos-dir {
+  font-weight: 600;
+}
+.repos-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px;
+  background: var(--warn-bg);
+  border-radius: var(--radius-card);
+}
+.repos-add {
+  max-width: 560px;
+}

@@ -341,7 +341,9 @@ export function FinishScreen({ taskId }: { taskId: string }) {
                 }}
               />
               {pr.available
-                ? `Create a draft pull request into ${pr.target}`
+                ? (task.worktrees?.length ?? 0) > 1
+                  ? 'Create a draft pull request for each repo with commits'
+                  : `Create a draft pull request into ${pr.target}`
                 : 'Create a draft pull request'}
               {!pr.available && pr.reason && (
                 <>

@@ -312,6 +312,25 @@ describe('SettingsScreen', () => {
     await waitFor(() => expect(box).not.toBeChecked());
   });
 
+  it('picks a tasks folder and goes back to the default', async () => {
+    const { calls } = installFakeApi({
+      'settings:save': (next) => next,
+      'repos:pickFolder': () => '/work/tasks',
+    });
+    render(<SettingsScreen />);
+    const shown = await screen.findByLabelText('Tasks folder');
+    expect(shown).toHaveTextContent('miac/tasks in your home folder');
+    await userEvent.click(screen.getByRole('button', { name: 'Browse' }));
+    await waitFor(() => expect(shown).toHaveTextContent('/work/tasks'));
+    expect(
+      calls.find((c) => c.channel === 'settings:save')?.args[0],
+    ).toMatchObject({ tasksFolder: '/work/tasks' });
+    await userEvent.click(screen.getByRole('button', { name: 'Use default' }));
+    await waitFor(() =>
+      expect(shown).toHaveTextContent('miac/tasks in your home folder'),
+    );
+  });
+
   it('toggles the splash setting', async () => {
     const { calls } = installFakeApi({ 'settings:save': (next) => next });
     render(<SettingsScreen />);

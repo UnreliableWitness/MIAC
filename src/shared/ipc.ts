@@ -1,4 +1,7 @@
 import type {
+  AddRepoInput,
+  PrAvailability,
+  RemoveRepoOptions,
   Connection,
   ConnectionInput,
   CreateTaskInput,
@@ -55,15 +58,18 @@ export type Channels = {
     args: [repoId: string, settings: StartSettings];
     result: Repo;
   };
+  /** The home repo's PR availability, and for a task folder each repo's in `repos`. */
   'tasks:prAvailability': {
     args: [taskId: string];
-    result: {
-      available: boolean;
-      reason: string | null;
-      target: string | null;
+    result: PrAvailability & {
+      repos?: (PrAvailability & { repoId: string; dir: string })[];
     };
   };
-  'tasks:prStatus': { args: [taskId: string]; result: PullRequestRef | null };
+  /** One repo's PR (the home repo's without `repoId`), refreshed from Azure DevOps. */
+  'tasks:prStatus': {
+    args: [taskId: string, repoId?: string];
+    result: PullRequestRef | null;
+  };
   'workItems:currentIteration': {
     args: [connectionId: string];
     result: Iteration | null;
@@ -91,8 +97,9 @@ export type Channels = {
     result: { text: string; mtimeMs: number };
   };
   'docs:asset': { args: [taskId: string, path: string]; result: string };
+  /** A path printed in a terminal resolves against that terminal's folder when `terminalId` is given. */
   'docs:resolve': {
-    args: [taskId: string, path: string];
+    args: [taskId: string, path: string, terminalId?: string];
     result: { path: string; kind: 'md' | 'file' } | null;
   };
   'docs:openInEditor': {
@@ -107,8 +114,26 @@ export type Channels = {
   'links:open': { args: [url: string]; result: void };
   'tasks:list': { args: []; result: TaskView[] };
   'tasks:create': { args: [input: CreateTaskInput]; result: Task };
-  'tasks:setupState': { args: [taskId: string]; result: SetupState | null };
+  /** The task's setup, or with `repoId` the setup of a repo being added. */
+  'tasks:setupState': {
+    args: [taskId: string, repoId?: string];
+    result: SetupState | null;
+  };
   'tasks:retrySetup': { args: [taskId: string]; result: void };
+  /** Adds a repo to a running task folder; its setup runs in the background (setup events carry `repoId`). */
+  'tasks:addRepo': {
+    args: [taskId: string, input: AddRepoInput];
+    result: void;
+  };
+  'tasks:retryRepoSetup': {
+    args: [taskId: string, repoId: string];
+    result: void;
+  };
+  /** Removes a repo's worktree from a task folder; refuses work (REPO_HAS_WORK) without `force`. */
+  'tasks:removeRepo': {
+    args: [taskId: string, repoId: string, options: RemoveRepoOptions];
+    result: void;
+  };
   'tasks:cancelSetup': { args: [taskId: string]; result: void };
   'tasks:gitSummary': { args: [taskId: string]; result: GitSummary };
   'tasks:finishChecks': { args: [taskId: string]; result: FinishChecks };

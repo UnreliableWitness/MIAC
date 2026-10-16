@@ -129,6 +129,17 @@ describe('prDescription', () => {
     expect(text).not.toContain('AI cost');
     expect(text.endsWith('\n\nRecorded by MIAC')).toBe(true);
   });
+  it('names the other repos of a task that changed several', () => {
+    const text = prDescription({
+      ...base,
+      costLine: null,
+      otherRepos: ['web (`feature/x`)', 'docs (`feature/x`)'],
+    });
+    expect(text).toContain(
+      'Part of a change across 3 repos, also in web (`feature/x`), docs (`feature/x`); the work item links every pull request.\n\nRecorded by MIAC',
+    );
+    expect(prDescription(base)).not.toContain('Part of a change');
+  });
   it('mentions commits beyond the list', () => {
     expect(prDescription({ ...base, commitCount: 5 })).toContain(
       '…and 3 more commits',

@@ -89,6 +89,15 @@ function TaskDetails({
           )}
         </div>
       )}
+      {git?.repos && git.repos.length > 0 && (
+        <ul aria-label="Repos" className="mono small muted callout-repos">
+          {git.repos.map((r) => (
+            <li key={r.repoId}>
+              {`${r.dir}/ ${UP}${r.ahead} ${DOWN}${r.behind} ${DOT} ${r.files ? `${r.files} changed` : 'clean'}`}
+            </li>
+          ))}
+        </ul>
+      )}
       <div className="mono muted">{task.worktreePath}</div>
       {usage && (
         <div className="small muted">
@@ -170,7 +179,9 @@ export function HeaderBar() {
   const connection = useStore(activeConnection);
   const task = useStore((s) => {
     const id =
-      s.screen.kind === 'setup' || s.screen.kind === 'finish'
+      s.screen.kind === 'setup' ||
+      s.screen.kind === 'finish' ||
+      s.screen.kind === 'repos'
         ? s.screen.taskId
         : s.screen.kind === 'task'
           ? s.selectedTaskId
@@ -202,11 +213,13 @@ export function HeaderBar() {
       ? 'Setup'
       : screen.kind === 'finish'
         ? 'Finish'
-        : screen.kind === 'new-task'
-          ? 'New task'
-          : screen.kind === 'settings'
-            ? 'Settings'
-            : null;
+        : screen.kind === 'repos'
+          ? 'Repos'
+          : screen.kind === 'new-task'
+            ? 'New task'
+            : screen.kind === 'settings'
+              ? 'Settings'
+              : null;
   if (page)
     crumbs.push(
       <Crumb key="page" current onClick={() => undefined}>

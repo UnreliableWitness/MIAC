@@ -7,6 +7,7 @@ import { invalidateRepoConfig } from './hooks/useRepoConfig';
 import { useShortcuts } from './hooks/useShortcuts';
 import { FinishScreen } from './screens/FinishScreen';
 import { NewTaskScreen } from './screens/NewTaskScreen';
+import { ReposScreen } from './screens/ReposScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { SetupScreen } from './screens/SetupScreen';
 import { SprintScreen } from './screens/SprintScreen';
@@ -29,7 +30,15 @@ function Page() {
         />
       );
     case 'setup':
-      return <SetupScreen taskId={screen.taskId} />;
+      return (
+        <SetupScreen
+          key={`${screen.taskId}:${screen.repoId ?? ''}`}
+          taskId={screen.taskId}
+          repoId={screen.repoId}
+        />
+      );
+    case 'repos':
+      return <ReposScreen key={screen.taskId} taskId={screen.taskId} />;
     case 'finish':
       return <FinishScreen taskId={screen.taskId} />;
     case 'settings':

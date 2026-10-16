@@ -2,25 +2,43 @@ import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { Events, Handlers, PendingUpdate } from '../../shared/ipc';
-import { claudeContext, renderTaskMd, taskSlug } from '../../shared/naming';
+import {
+  claudeContext,
+  renderClaudeMd,
+  renderTaskMd,
+  taskSlug,
+} from '../../shared/naming';
+import {
+  folderName,
+  isFolderTask,
+  patchWorktree,
+  repoDir,
+  terminalCwd,
+  worktreesOf,
+} from '../../shared/tasks';
 import {
   claudeHasSessionsIn,
   claudeSessionExists,
 } from '../services/claudeSessions';
-import type {
-  Connection,
-  MiacConfig,
-  PullRequestRef,
-  SetupEvent,
-  SetupState,
-  Task,
-  TaskStatus,
-  TaskSummary,
-  TaskView,
-  TerminalDef,
-  WorkItemTypeMeta,
+import {
+  REPO_HAS_WORK,
+  type Connection,
+  type GitFile,
+  type GitSummary,
+  type MiacConfig,
+  type PullRequestRef,
+  type RepoFinishCheck,
+  type SetupEvent,
+  type SetupState,
+  type Task,
+  type TaskStatus,
+  type TaskSummary,
+  type TaskView,
+  type TaskWorktree,
+  type TerminalDef,
+  type WorkItemTypeMeta,
 } from '../../shared/types';
-import { worktreeRoot } from '../paths';
+import { defaultTasksFolder, worktreeRoot } from '../paths';
 import { DocsWatcher } from '../docs/DocsWatcher';
 import { createDocsHandlers } from '../docs/docsHandlers';
 import type { Command, Platform } from '../platform/Platform';
@@ -101,6 +119,8 @@ export type Services = {
   claudeSessionExists?: (sessionId: string) => boolean;
   /** Whether Claude Code saved any session for this folder (default: looks in ~/.claude/projects). */
   claudeHasSessionsIn?: (cwd: string) => boolean;
+  /** How new tasks are laid out: a task folder with a worktree per repo (default), or the older single worktree. */
+  newTaskLayout?: 'folder' | 'worktree';
   /** Windows auto-update: the downloaded update and how to apply it. Absent in dev, on macOS and in tests. */
   update?: {
     pending(): PendingUpdate | null;
@@ -132,6 +152,12 @@ export async function recoverInterruptedTasks(
         t.status = 'ready';
         changed++;
       }
+      // A repo that was being added when MIAC stopped.
+      for (const w of t.worktrees ?? [])
+        if (w.status === 'setting-up') {
+          w.status = 'setup-failed';
+          changed++;
+        }
     }
   });
   return changed;
@@ -239,8 +265,15 @@ export function createHandlers(s: Services): Handlers {
     }
   };
 
+  /** Setup states by task, and by task and repo for a repo being added. */
   const setupStates = new Map<string, SetupState>();
+  const setupKey = (taskId: string, repoId?: string) =>
+    repoId ? `${taskId}:${repoId}` : taskId;
   const inFlight = new Set<string>();
+  /** Tasks with a repo being added or removed: one change at a time, while the task itself stays usable. */
+  const repoChanging = new Set<string>();
+  /** A Move: the repo to remove once the added one (by setup key) is ready. */
+  const pendingReplace = new Map<string, string>();
 
   /** Synchronous guard: call before the first await of an operation that changes a task's status. */
   const claim = (taskId: string, allowed: TaskStatus[], action: string) => {
@@ -282,9 +315,69 @@ export function createHandlers(s: Services): Handlers {
     await tasksChanged();
   };
 
+  /** Changes a stored task in place (never from a stale snapshot) and broadcasts. */
+  const mutateTask = async (id: string, change: (t: Task) => void) => {
+    await s.store.update((st) => {
+      const t = st.tasks.find((x) => x.id === id);
+      if (t) change(t);
+    });
+    await tasksChanged();
+  };
+
+  const repoName = (repoId: string) =>
+    s.repos.list().find((r) => r.id === repoId)?.name ?? repoId;
+
+  const worktreeOf = (task: Task, repoId: string): TaskWorktree => {
+    const w = worktreesOf(task).find((x) => x.repoId === repoId);
+    if (!w) throw new Error('That repo is not in this task');
+    return w;
+  };
+
+  /** The files MIAC keeps in a task folder. The notes file is written once and then left to the user. */
+  const taskFilesFor = async (taskId: string) => {
+    const t = taskById(taskId);
+    const repos = await Promise.all(
+      worktreesOf(t).map(async (w) => ({
+        dir: w.dir,
+        name: repoName(w.repoId),
+        hasClaudeMd: await exists(path.join(w.path, 'CLAUDE.md')),
+      })),
+    );
+    const files = [{ rel: 'CLAUDE.md', content: renderClaudeMd(t, repos) }];
+    if (!(await exists(path.join(t.worktreePath, '.miac', 'task.md'))))
+      files.push({ rel: '.miac/task.md', content: renderTaskMd(t) });
+    return files;
+  };
+
+  const writeTaskFiles = async (taskId: string) => {
+    const folder = taskById(taskId).worktreePath;
+    for (const f of await taskFilesFor(taskId)) {
+      const dest = path.join(folder, f.rel);
+      await fs.mkdir(path.dirname(dest), { recursive: true });
+      await fs.writeFile(dest, f.content, 'utf8');
+    }
+  };
+
+  /** Removes what MIAC wrote into a task folder, then the folder if nothing else is in it. */
+  const removeTaskFolder = async (folder: string) => {
+    await fs.rm(path.join(folder, 'CLAUDE.md'), { force: true });
+    await fs.rm(path.join(folder, '.miac'), { recursive: true, force: true });
+    await fs.rmdir(folder).catch(() => undefined);
+  };
+
+  /** Types a one-line note into every running Claude Code tab of the task, without Enter: the user sends it. */
+  const tellClaude = (taskId: string, note: string) => {
+    // The trailing space keeps a second note apart when the first was not sent yet.
+    const line = `MIAC: ${note} `.replace(/[\r\n]+/g, ' ');
+    for (const d of taskById(taskId).terminals)
+      if (d.kind === 'claude' && s.terminals.isRunning(d.id))
+        s.terminals.write(d.id, line);
+  };
+
   /** Where a task's pull request would go: the repo's connection and its `origin` parsed as Azure Repos. */
-  const prContext = async (task: Task) => {
-    const repo = s.repos.get(task.repoId);
+  const prContext = async (task: Task, repoId: string = task.repoId) => {
+    const w = worktreeOf(task, repoId);
+    const repo = s.repos.get(repoId);
     const connection = repo.connectionId
       ? s.connections.get(repo.connectionId)
       : null;
@@ -305,7 +398,7 @@ export function createHandlers(s: Services): Handlers {
     return {
       connection,
       availability,
-      target: targetBranch(task.baseRef, remotes),
+      target: targetBranch(w.baseRef, remotes),
     };
   };
 
@@ -392,7 +485,7 @@ export function createHandlers(s: Services): Handlers {
     s.terminals.spawn({
       id: def.id,
       taskId: task.id,
-      cwd: task.worktreePath,
+      cwd: terminalCwd(task, def),
       command: cmd.command,
       args: cmd.args,
       env: {
@@ -413,11 +506,13 @@ export function createHandlers(s: Services): Handlers {
       });
     if (task.setup.openCopilot)
       defs.push({ id: randomUUID(), kind: 'copilot', label: 'Copilot CLI' });
+    // In a task folder the shell opens in the home repo, where git and the dev tools work.
     if (task.setup.openShell)
       defs.push({
         id: randomUUID(),
         kind: 'shell',
         label: s.platform.shellLabel,
+        ...(isFolderTask(task) ? { repoId: task.repoId } : {}),
       });
     return defs;
   };
@@ -467,7 +562,64 @@ export function createHandlers(s: Services): Handlers {
     }
   };
 
-  const buildPlan = async (task: Task): Promise<SetupPlan> => {
+  /** True while the work item should be moved and assigned by this setup: a new task with a linked work item. */
+  const updatesWorkItem = (task: Task) => {
+    const repo = s.repos.get(task.repoId);
+    return (
+      !task.reopen &&
+      Boolean(
+        task.workItem &&
+        repo.connectionId &&
+        (repo.workItemOnStart.moveToInProgress ||
+          repo.workItemOnStart.assignToMe),
+      )
+    );
+  };
+
+  /** A task folder's setup: every repo (new task, reopen), or with `scope` only the repo being added. */
+  const buildFolderPlan = async (
+    task: Task,
+    scope?: string,
+  ): Promise<SetupPlan> => {
+    const repos = await Promise.all(
+      worktreesOf(task)
+        .filter((w) => !scope || w.repoId === scope)
+        .map(async (w) => {
+          const repo = s.repos.get(w.repoId);
+          const config = await s.loadConfig(repo.path);
+          return {
+            repoId: w.repoId,
+            dir: w.dir,
+            repoPath: repo.path,
+            worktreePath: w.path,
+            branch: w.branch,
+            baseRef: w.baseRef,
+            copy: w.copy ? config.copy : [],
+            commands: w.commands,
+            ...(task.reopen && !scope
+              ? { restore: { from: w.reopen?.from ?? null } }
+              : {}),
+          };
+        }),
+    );
+    const defs = scope
+      ? []
+      : task.reopen
+        ? restoredTerminals(task)
+        : initialTerminals(task);
+    return {
+      taskId: task.id,
+      folder: task.worktreePath,
+      repos,
+      startTerminalsLabel:
+        defs.length > 0 ? defs.map((d) => d.label).join(', ') : null,
+      updateWorkItem: !scope && updatesWorkItem(task),
+      ...(scope ? { scope } : {}),
+    };
+  };
+
+  const buildPlan = async (task: Task, scope?: string): Promise<SetupPlan> => {
+    if (isFolderTask(task)) return buildFolderPlan(task, scope);
     const repo = s.repos.get(task.repoId);
     const config = await s.loadConfig(repo.path);
     const defs = task.reopen ? restoredTerminals(task) : initialTerminals(task);
@@ -495,15 +647,24 @@ export function createHandlers(s: Services): Handlers {
     };
   };
 
-  /** Runs the setup. The caller must hold the in-flight claim; it is released before the final 'finished' event. */
-  const runSetup = async (taskId: string, fromStep?: number): Promise<void> => {
+  /**
+   * Runs the setup. The caller must hold the in-flight claim (for `scope`, the repo-change lock); it is released
+   * before the final 'finished' event. With `scope`, only that repo of a task folder is set up (Add repo).
+   */
+  const runSetup = async (
+    taskId: string,
+    fromStep?: number,
+    scope?: string,
+  ): Promise<void> => {
     let state: SetupState | undefined;
     let finishedEvent: SetupEvent | null = null;
+    let addedOk = false;
+    const key = setupKey(taskId, scope);
     const t0 = Date.now();
     let steps: ReturnType<typeof planSteps> = [];
     const report = (ok: boolean, failedStep: number | null) =>
       tel.event(
-        'setup.finished',
+        scope ? 'task.repoAdded' : 'setup.finished',
         {
           ok,
           retry: fromStep !== undefined,
@@ -511,12 +672,20 @@ export function createHandlers(s: Services): Handlers {
             failedStep === null
               ? 'none'
               : (steps[failedStep]?.kind ?? 'unknown'),
+          ...(scope ? { replaces: pendingReplace.has(key) } : {}),
         },
         { durationMs: Date.now() - t0, steps: steps.length },
       );
+    const setStatus = async (ok: boolean) => {
+      if (scope)
+        await mutateTask(taskId, (t) =>
+          patchWorktree(t, scope, { status: ok ? 'ready' : 'setup-failed' }),
+        );
+      else await patchTask(taskId, { status: ok ? 'ready' : 'setup-failed' });
+    };
     try {
       const task = taskById(taskId);
-      const plan = await buildPlan(task);
+      const plan = await buildPlan(task, scope);
       steps = planSteps(plan);
       const current: SetupState = {
         steps: steps.map((def) => ({ def, status: 'todo' })),
@@ -526,7 +695,7 @@ export function createHandlers(s: Services): Handlers {
         failedStep: null,
       };
       state = current;
-      setupStates.set(taskId, current);
+      setupStates.set(key, current);
       const result = await s.runner.run(plan, {
         fromStep,
         onEvent: (e) => {
@@ -543,9 +712,14 @@ export function createHandlers(s: Services): Handlers {
           if (e.type === 'finished') finishedEvent = e;
           else s.broadcast('setup', e);
         },
-        onBaseSha: async (baseSha) => {
-          await patchTask(taskId, { baseSha });
+        onBaseSha: async (baseSha, repoId) => {
+          if (repoId)
+            await mutateTask(taskId, (t) =>
+              patchWorktree(t, repoId, { baseSha }),
+            );
+          else await patchTask(taskId, { baseSha });
         },
+        taskFiles: () => taskFilesFor(taskId),
         startTerminals: async () => {
           if (task.reopen) {
             const defs = restoredTerminals(task);
@@ -599,17 +773,26 @@ export function createHandlers(s: Services): Handlers {
           }
         },
       });
-      await patchTask(
-        taskId,
-        result.ok
-          ? {
-              status: 'ready',
-              ...(task.reopen
-                ? { reopen: null, finishedAt: null, closedTerminals: [] }
-                : {}),
-            }
-          : { status: 'setup-failed' },
-      );
+      if (scope) {
+        await setStatus(result.ok);
+        addedOk = result.ok;
+      } else
+        await mutateTask(taskId, (t) => {
+          if (!result.ok) {
+            t.status = 'setup-failed';
+            return;
+          }
+          t.status = 'ready';
+          if (t.reopen) {
+            t.reopen = null;
+            t.finishedAt = null;
+            t.closedTerminals = [];
+          }
+          for (const w of t.worktrees ?? []) {
+            w.status = 'ready';
+            w.reopen = null;
+          }
+        });
       report(result.ok, result.ok ? null : current.failedStep);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
@@ -623,20 +806,131 @@ export function createHandlers(s: Services): Handlers {
         state.finished = true;
         state.ok = false;
       }
-      finishedEvent = { taskId, type: 'finished', ok: false };
+      finishedEvent = {
+        taskId,
+        ...(scope ? { repoId: scope } : {}),
+        type: 'finished',
+        ok: false,
+      };
       try {
-        await patchTask(taskId, { status: 'setup-failed' });
+        await setStatus(false);
       } catch {
         // the store itself is failing; nothing more we can persist
       }
     } finally {
-      release(taskId);
+      if (scope) repoChanging.delete(taskId);
+      else release(taskId);
     }
+    if (scope && addedOk) await afterRepoAdded(taskId, scope);
     if (finishedEvent) s.broadcast('setup', finishedEvent);
   };
 
-  const startSetupInBackground = (taskId: string, fromStep?: number) => {
-    void runSetup(taskId, fromStep);
+  const startSetupInBackground = (
+    taskId: string,
+    fromStep?: number,
+    scope?: string,
+  ) => {
+    void runSetup(taskId, fromStep, scope);
+  };
+
+  const plural = (n: number, word: string) =>
+    `${n} ${word}${n === 1 ? '' : 's'}`;
+
+  /** What removing a worktree would lose: commits since its base and uncommitted changes. */
+  const workIn = async (w: TaskWorktree) => {
+    if (!(await exists(w.path))) return { commits: 0, uncommitted: 0 };
+    const commits =
+      (await s.git.commitsSince(w.path, w.baseSha ?? w.baseRef)) ?? 0;
+    const summary = await s.git.summary(w.path, w.baseRef).catch(() => null);
+    return { commits, uncommitted: summary?.files.length ?? 0 };
+  };
+
+  /** Takes one repo out of a task folder: its tabs, its worktree and (when asked) its branch. */
+  const removeRepo = async (
+    taskId: string,
+    repoId: string,
+    o: { force: boolean; deleteBranch: boolean },
+  ) => {
+    const task = taskById(taskId);
+    if (!isFolderTask(task)) throw new Error('This task has no task folder');
+    if (task.status !== 'ready')
+      throw new Error(
+        `Cannot change the repos of a task that is ${task.status}`,
+      );
+    const w = worktreeOf(task, repoId);
+    if (worktreesOf(task).length <= 1)
+      throw new Error(
+        'A task keeps at least one repo. Finish the task to remove its last one.',
+      );
+    if (repoChanging.has(taskId))
+      throw new Error('Another repo of this task is being added or removed');
+    if (inFlight.has(taskId)) throw new Error('Task is busy');
+    repoChanging.add(taskId);
+    try {
+      // A repo whose setup failed has no work of the user's yet; its copied files may go.
+      if (!o.force && w.status === 'ready') {
+        const work = await workIn(w);
+        if (work.commits > 0 || work.uncommitted > 0)
+          throw new Error(
+            `${REPO_HAS_WORK}${plural(work.commits, 'commit')}, ${plural(work.uncommitted, 'uncommitted change')}`,
+          );
+      }
+      const repo = s.repos.get(repoId);
+      // A terminal in the folder blocks its removal on Windows, and so does the Docs watcher.
+      for (const d of task.terminals)
+        if (d.repoId === repoId) await s.terminals.kill(d.id);
+      docsWatcher.stopTask(taskId);
+      if (await exists(w.path))
+        await s.git.worktreeRemove(repo.path, w.path, true);
+      await s.git.worktreePrune(repo.path);
+      if (o.deleteBranch && (await s.git.branchExists(repo.path, w.branch)))
+        await s.git.deleteBranch(repo.path, w.branch);
+      setupStates.delete(setupKey(taskId, repoId));
+      await mutateTask(taskId, (t) => {
+        t.worktrees = (t.worktrees ?? []).filter((x) => x.repoId !== repoId);
+        t.terminals = t.terminals.filter((d) => d.repoId !== repoId);
+        const next = t.worktrees[0];
+        if (t.repoId === repoId && next) {
+          t.repoId = next.repoId;
+          t.baseRef = next.baseRef;
+        }
+      });
+      await writeTaskFiles(taskId);
+      tellClaude(
+        taskId,
+        `repo ${repoName(repoId)} was removed from this task. CLAUDE.md lists the task's repos.`,
+      );
+      tel.event('task.repoRemoved', {
+        forced: o.force,
+        deleteBranch: o.deleteBranch,
+      });
+    } finally {
+      repoChanging.delete(taskId);
+    }
+  };
+
+  /** Once an added repo is set up: tell Claude, and finish a Move by removing the repo it replaces. */
+  const afterRepoAdded = async (taskId: string, repoId: string) => {
+    const key = setupKey(taskId, repoId);
+    const replaces = pendingReplace.get(key) ?? null;
+    pendingReplace.delete(key);
+    const w = worktreeOf(taskById(taskId), repoId);
+    tellClaude(
+      taskId,
+      `repo ${repoName(repoId)} was added to this task in ./${w.dir} (branch ${w.branch}). CLAUDE.md lists the task's repos.`,
+    );
+    if (!replaces) return;
+    try {
+      await removeRepo(taskId, replaces, { force: false, deleteBranch: true });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      s.broadcast('notice', {
+        level: 'warn',
+        message: message.startsWith(REPO_HAS_WORK)
+          ? `${repoName(replaces)} was kept: it has work (${message.slice(REPO_HAS_WORK.length)}). Remove it on the Repos page.`
+          : `${repoName(replaces)} was kept: ${message}`,
+      });
+    }
   };
 
   const docsWatcher =
@@ -696,10 +990,22 @@ export function createHandlers(s: Services): Handlers {
         throw new Error('Give the task a name or a work item');
       if (input.workItem && input.workItem.title.trim().length === 0)
         throw new Error('Give the work item a title');
-      const slug = taskSlug(input.workItem, input.name);
-      const worktreePath = path.join(worktreeRoot(repo.path), slug);
+      // New tasks get a task folder with the repo's worktree inside; older tasks were their worktree.
+      const layout = s.newTaskLayout ?? 'folder';
+      const slug =
+        layout === 'folder'
+          ? folderName(input.workItem, input.name)
+          : taskSlug(input.workItem, input.name);
+      const worktreePath =
+        layout === 'folder'
+          ? path.join(
+              s.settings.get().tasksFolder || defaultTasksFolder(),
+              slug,
+            )
+          : path.join(worktreeRoot(repo.path), slug);
       if (await exists(worktreePath))
         throw new Error(`Folder ${worktreePath} already exists`);
+      const dir = repoDir(repo.name, []);
       const keys = [`${repo.id}:${branch}`, `${repo.id}:${worktreePath}`];
       if (
         keys.some((k) => creating.has(k)) ||
@@ -740,6 +1046,27 @@ export function createHandlers(s: Services): Handlers {
         pullRequest: null,
         closedTerminals: [],
         reopen: null,
+        ...(layout === 'folder'
+          ? {
+              folder: worktreePath,
+              worktrees: [
+                {
+                  repoId: repo.id,
+                  dir,
+                  path: path.join(worktreePath, dir),
+                  branch,
+                  baseRef: input.baseRef,
+                  baseSha: null,
+                  status: 'setting-up' as const,
+                  copy: input.copy,
+                  commands: input.commands,
+                  summary: null,
+                  pullRequest: null,
+                  reopen: null,
+                },
+              ],
+            }
+          : {}),
       };
       inFlight.add(task.id);
       try {
@@ -764,7 +1091,89 @@ export function createHandlers(s: Services): Handlers {
       await tasksChanged();
       return task;
     },
-    'tasks:setupState': async (taskId) => setupStates.get(taskId) ?? null,
+    'tasks:setupState': async (taskId, repoId) =>
+      setupStates.get(setupKey(taskId, repoId)) ?? null,
+    'tasks:addRepo': async (taskId, input) => {
+      const task = taskById(taskId);
+      if (!isFolderTask(task)) throw new Error('This task has no task folder');
+      if (task.status !== 'ready')
+        throw new Error(`Cannot add a repo to a task that is ${task.status}`);
+      const repo = s.repos.get(input.repoId);
+      const current = worktreesOf(task);
+      if (current.some((w) => w.repoId === repo.id))
+        throw new Error(`${repo.name} is already in this task`);
+      const taskConnection =
+        s.repos.list().find((r) => r.id === task.repoId)?.connectionId ?? null;
+      if (repo.connectionId !== null && repo.connectionId !== taskConnection)
+        throw new Error(
+          `${repo.name} is linked to another Azure DevOps project than this task's work item`,
+        );
+      if (input.replaces) worktreeOf(task, input.replaces);
+      if (repoChanging.has(taskId))
+        throw new Error('Another repo of this task is being added or removed');
+      if (inFlight.has(taskId)) throw new Error('Task is busy');
+      repoChanging.add(taskId);
+      let started = false;
+      try {
+        const branch = task.branch;
+        if (!(await s.git.validBranchName(repo.path, branch)))
+          throw new Error(`"${branch}" is not a valid branch name`);
+        if (await s.git.branchExists(repo.path, branch))
+          throw new Error(`Branch ${branch} already exists in ${repo.name}`);
+        const dir = repoDir(
+          repo.name,
+          current.map((w) => w.dir),
+        );
+        const wtPath = path.join(task.worktreePath, dir);
+        if (await exists(wtPath))
+          throw new Error(`Folder ${wtPath} already exists`);
+        await mutateTask(taskId, (t) => {
+          t.worktrees = [
+            ...(t.worktrees ?? []),
+            {
+              repoId: repo.id,
+              dir,
+              path: wtPath,
+              branch,
+              baseRef: input.baseRef,
+              baseSha: null,
+              status: 'setting-up',
+              copy: input.copy,
+              commands: input.commands,
+              summary: null,
+              pullRequest: null,
+              reopen: null,
+            },
+          ];
+        });
+        if (input.replaces)
+          pendingReplace.set(setupKey(taskId, repo.id), input.replaces);
+        started = true;
+        startSetupInBackground(taskId, undefined, repo.id);
+      } finally {
+        if (!started) repoChanging.delete(taskId);
+      }
+    },
+    'tasks:retryRepoSetup': async (taskId, repoId) => {
+      const w = worktreeOf(taskById(taskId), repoId);
+      if (w.status !== 'setup-failed')
+        throw new Error(`Cannot retry the setup of a repo that is ${w.status}`);
+      if (repoChanging.has(taskId))
+        throw new Error('Another repo of this task is being added or removed');
+      repoChanging.add(taskId);
+      const from = setupStates.get(setupKey(taskId, repoId))?.failedStep ?? 0;
+      try {
+        await mutateTask(taskId, (t) =>
+          patchWorktree(t, repoId, { status: 'setting-up' }),
+        );
+      } catch (e) {
+        repoChanging.delete(taskId);
+        throw e;
+      }
+      startSetupInBackground(taskId, from, repoId);
+    },
+    'tasks:removeRepo': async (taskId, repoId, options) =>
+      removeRepo(taskId, repoId, options),
     'tasks:retrySetup': async (taskId) => {
       claim(taskId, ['setup-failed'], 'retry the setup of');
       const from = setupStates.get(taskId)?.failedStep ?? 0;
@@ -781,26 +1190,33 @@ export function createHandlers(s: Services): Handlers {
       claim(taskId, ['setup-failed'], 'cancel the setup of');
       try {
         const task = taskById(taskId);
-        const repo = s.repos.get(task.repoId);
         // Windows will not remove a folder that a running process has as its cwd.
         docsWatcher.stopTask(taskId);
         await s.terminals.killAllForTask(taskId);
-        if (await exists(task.worktreePath))
-          await s.git.worktreeRemove(repo.path, task.worktreePath, true);
-        await s.git.worktreePrune(repo.path);
+        for (const w of worktreesOf(task)) {
+          const repo = s.repos.get(w.repoId);
+          if (await exists(w.path))
+            await s.git.worktreeRemove(repo.path, w.path, true);
+          await s.git.worktreePrune(repo.path);
+        }
+        if (isFolderTask(task)) await removeTaskFolder(task.worktreePath);
         if (task.reopen) {
-          // A failed reopen goes back to Done; the task, its branch and its history stay.
+          // A failed reopen goes back to Done; the task, its branches and its history stay.
           setupStates.delete(taskId);
-          await patchTask(taskId, {
-            status: 'done',
-            reopen: null,
-            terminals: [],
+          await mutateTask(taskId, (t) => {
+            t.status = 'done';
+            t.reopen = null;
+            t.terminals = [];
+            for (const w of t.worktrees ?? []) w.reopen = null;
           });
           tel.event('task.reopenCancelled');
           return;
         }
-        if (await s.git.branchExists(repo.path, task.branch))
-          await s.git.deleteBranch(repo.path, task.branch);
+        for (const w of worktreesOf(task)) {
+          const repo = s.repos.get(w.repoId);
+          if (await s.git.branchExists(repo.path, w.branch))
+            await s.git.deleteBranch(repo.path, w.branch);
+        }
         setupStates.delete(taskId);
         await s.store.update((st) => {
           st.tasks = st.tasks.filter((t) => t.id !== taskId);
@@ -813,15 +1229,59 @@ export function createHandlers(s: Services): Handlers {
     },
     'tasks:gitSummary': async (taskId) => {
       const task = taskById(taskId);
-      return s.git.summary(task.worktreePath, task.baseRef);
+      if (!isFolderTask(task))
+        return s.git.summary(task.worktreePath, task.baseRef);
+      const ready = worktreesOf(task).filter((w) => w.status === 'ready');
+      const each = await Promise.all(
+        ready.map(async (w) => ({
+          w,
+          g: await s.git.summary(w.path, w.baseRef).catch(() => null),
+        })),
+      );
+      const known = each.filter(
+        (x): x is { w: TaskWorktree; g: GitSummary } => x.g !== null,
+      );
+      return {
+        branch: task.branch,
+        ahead: known.reduce((n, x) => n + x.g.ahead, 0),
+        behind: known.reduce((n, x) => n + x.g.behind, 0),
+        hasUpstream: known.length > 0 && known.every((x) => x.g.hasUpstream),
+        files: known.flatMap((x) =>
+          x.g.files.map((f) => ({ ...f, path: `${x.w.dir}/${f.path}` })),
+        ),
+        repos: known.map((x) => ({
+          repoId: x.w.repoId,
+          dir: x.w.dir,
+          ahead: x.g.ahead,
+          behind: x.g.behind,
+          files: x.g.files.length,
+        })),
+      };
     },
     'tasks:finishChecks': async (taskId) => {
       const task = taskById(taskId);
-      const summary = await s.git.summary(task.worktreePath, task.baseRef);
+      const repos: RepoFinishCheck[] = await Promise.all(
+        worktreesOf(task).map(async (w) => {
+          const summary = await s.git.summary(w.path, w.baseRef);
+          return {
+            repoId: w.repoId,
+            dir: w.dir,
+            branch: w.branch,
+            uncommitted: summary.files,
+            unpushed: summary.ahead,
+            commits: await s.git.commitsSince(w.path, w.baseSha ?? w.baseRef),
+          };
+        }),
+      );
+      const prefixed = (r: RepoFinishCheck): GitFile[] =>
+        isFolderTask(task)
+          ? r.uncommitted.map((f) => ({ ...f, path: `${r.dir}/${f.path}` }))
+          : r.uncommitted;
       return {
-        uncommitted: summary.files,
-        unpushed: summary.ahead,
+        uncommitted: repos.flatMap(prefixed),
+        unpushed: repos.reduce((n, r) => n + r.unpushed, 0),
         runningTerminals: s.terminals.runningCount(taskId),
+        repos,
       };
     },
     'tasks:reopen': async (taskId) => {
@@ -829,14 +1289,25 @@ export function createHandlers(s: Services): Handlers {
       let setup = false;
       try {
         const task = taskById(taskId);
-        const repo = s.repos.get(task.repoId);
-        const hasBranch = await s.git.branchExists(repo.path, task.branch);
-        if (await exists(task.worktreePath)) {
-          if (!hasBranch)
+        const folder = isFolderTask(task);
+        const state = await Promise.all(
+          worktreesOf(task).map(async (w) => {
+            const repo = s.repos.get(w.repoId);
+            return {
+              w,
+              repo,
+              hasBranch: await s.git.branchExists(repo.path, w.branch),
+              present: await exists(w.path),
+            };
+          }),
+        );
+        for (const x of state)
+          if (x.present && !x.hasBranch)
             throw new Error(
-              `${task.worktreePath} exists but branch ${task.branch} is gone`,
+              `${x.w.path} exists but branch ${x.w.branch} is gone`,
             );
-          // The worktree was kept: back to ready with the tabs it had.
+        if (state.every((x) => x.present)) {
+          // The worktrees were kept: back to ready with the tabs it had.
           const defs =
             task.terminals.length > 0
               ? task.terminals
@@ -851,30 +1322,38 @@ export function createHandlers(s: Services): Handlers {
           tel.event('task.reopened', { from: 'folder' });
           return { setup: false };
         }
-        let from: string | null = null;
+        const froms: { repoId: string; from: string | null }[] = [];
         let via = 'branch';
-        if (!hasBranch) {
-          const remote = `origin/${task.branch}`;
-          await s.git.fetch(repo.path, remote).catch(() => false);
-          const head = task.summary?.commits[0]?.sha;
-          if (await s.git.commitExists(repo.path, `refs/remotes/${remote}`)) {
-            from = remote;
-            via = 'origin';
-          } else if (head && (await s.git.commitExists(repo.path, head))) {
-            from = head;
-            via = 'commit';
-          } else if (task.summary && task.summary.commitCount === 0) {
-            from = task.baseSha ?? task.baseRef;
-            via = 'base';
-          } else
-            throw new Error(
-              `Branch ${task.branch} cannot be restored: it was deleted and is not on origin`,
-            );
+        for (const { w, repo, hasBranch } of state) {
+          let from: string | null = null;
+          if (!hasBranch) {
+            const remote = `origin/${w.branch}`;
+            await s.git.fetch(repo.path, remote).catch(() => false);
+            const head = w.summary?.commits[0]?.sha;
+            if (await s.git.commitExists(repo.path, `refs/remotes/${remote}`)) {
+              from = remote;
+              via = 'origin';
+            } else if (head && (await s.git.commitExists(repo.path, head))) {
+              from = head;
+              via = 'commit';
+            } else if (w.summary && w.summary.commitCount === 0) {
+              from = w.baseSha ?? w.baseRef;
+              via = 'base';
+            } else
+              throw new Error(
+                `Branch ${w.branch}${folder ? ` of ${w.dir}` : ''} cannot be restored: it was deleted and is not on origin`,
+              );
+          }
+          froms.push({ repoId: w.repoId, from });
         }
-        await patchTask(taskId, {
-          status: 'setting-up',
-          reopen: { from },
-          terminals: [],
+        await mutateTask(taskId, (t) => {
+          t.status = 'setting-up';
+          t.terminals = [];
+          // A task folder marks the reopen on the task and keeps each repo's starting point on its worktree.
+          t.reopen = { from: folder ? null : (froms[0]?.from ?? null) };
+          if (folder)
+            for (const f of froms)
+              patchWorktree(t, f.repoId, { reopen: { from: f.from } });
         });
         setup = true;
         startSetupInBackground(taskId);
@@ -886,26 +1365,55 @@ export function createHandlers(s: Services): Handlers {
       }
     },
     'tasks:finish': async (taskId, options) => {
+      if (repoChanging.has(taskId))
+        throw new Error(
+          'Wait until the repo being added or removed is done, then finish',
+        );
       claim(taskId, ['ready'], 'finish');
       try {
         const task = taskById(taskId);
-        const repo = s.repos.get(task.repoId);
+        const folder = isFolderTask(task);
+        const worktrees = worktreesOf(task);
         await patchTask(taskId, { status: 'finishing' });
-        // Record what the branch did while the worktree still exists; a summary must never block Finish.
-        let summary: TaskSummary | null = null;
-        if (await exists(task.worktreePath))
-          summary = await s.git
-            .finishSummary(task.worktreePath, {
-              baseRef: task.baseRef,
-              baseSha: task.baseSha,
-              branch: task.branch,
-            })
-            .catch(() => null);
-        // Push and open the PR before any cleanup: a failure leaves the task ready with its worktree.
-        if (options.createPullRequest) {
-          let pullRequest: PullRequestRef;
+        // Record what each branch did while its worktree still exists; a summary must never block Finish.
+        const summaries = new Map<string, TaskSummary | null>();
+        for (const w of worktrees)
+          summaries.set(
+            w.repoId,
+            (await exists(w.path))
+              ? await s.git
+                  .finishSummary(w.path, {
+                    baseRef: w.baseRef,
+                    baseSha: w.baseSha,
+                    branch: w.branch,
+                  })
+                  .catch(() => null)
+              : null,
+          );
+        // Older tasks: the one repo. A task folder: every repo with commits, unless the repos are named.
+        const prRepos =
+          options.pullRequestRepos ??
+          (!options.createPullRequest
+            ? []
+            : folder
+              ? worktrees
+                  .filter(
+                    (w) => (summaries.get(w.repoId)?.commitCount ?? 0) > 0,
+                  )
+                  .map((w) => w.repoId)
+              : [task.repoId]);
+        // The home repo first: its PR carries the cost line, so the amount is never counted twice.
+        const ordered = worktrees
+          .filter((w) => prRepos.includes(w.repoId))
+          .sort((a, b) =>
+            a.repoId === task.repoId ? -1 : b.repoId === task.repoId ? 1 : 0,
+          );
+        const opened: string[] = [];
+        // Push and open the PRs before any cleanup: a failure leaves the task ready with its worktrees.
+        // PRs made before a failure stay; Retry links them (an active PR for the branch) instead of making more.
+        for (const [i, w] of ordered.entries()) {
           try {
-            const c = await prContext(task);
+            const c = await prContext(task, w.repoId);
             if (
               !c.availability.available ||
               !c.availability.target ||
@@ -915,26 +1423,27 @@ export function createHandlers(s: Services): Handlers {
                 c.availability.reason ?? 'pull requests are not available',
               );
             const connection = c.connection;
-            const { project, repo: repoName } = c.availability.target;
-            await s.git.push(task.worktreePath, 'origin', task.branch);
+            const { project, repo: azureRepo } = c.availability.target;
+            await s.git.push(w.path, 'origin', w.branch);
             // The summary was taken before this push; the Done page would otherwise say "local only".
+            const summary = summaries.get(w.repoId) ?? null;
             if (summary)
-              summary = {
+              summaries.set(w.repoId, {
                 ...summary,
                 pushed: true,
-                upstream: `origin/${task.branch}`,
-              };
+                upstream: `origin/${w.branch}`,
+              });
             const client = s.ado.client(connection.id);
-            const repositoryId = await client.repositoryId(project, repoName);
+            const repositoryId = await client.repositoryId(project, azureRepo);
             const existing = await client.findActivePullRequest(
               project,
               repositoryId,
-              task.branch,
+              w.branch,
             );
             const raw =
               existing ??
               (await client.createPullRequest(project, repositoryId, {
-                source: task.branch,
+                source: w.branch,
                 target: c.target,
                 title: prTitle(task),
                 description: prDescription({
@@ -943,25 +1452,34 @@ export function createHandlers(s: Services): Handlers {
                     : task.name,
                   commits: summary?.commits ?? [],
                   commitCount: summary?.commitCount ?? 0,
-                  costLine: costLineFor(taskId),
+                  costLine: i === 0 ? costLineFor(taskId) : null,
+                  otherRepos:
+                    folder && worktrees.length > 1
+                      ? worktrees
+                          .filter((x) => x.repoId !== w.repoId)
+                          .map((x) => `${x.dir} (\`${x.branch}\`)`)
+                      : [],
                 }),
                 workItemId: task.workItem ? Number(task.workItem.id) : null,
               }));
-            pullRequest = {
+            const pullRequest: PullRequestRef = {
               id: raw.pullRequestId,
               url: prWebUrl(
                 connection.organizationUrl,
                 project,
-                repoName,
+                azureRepo,
                 raw.pullRequestId,
               ),
               repositoryId,
               project,
-              repo: repoName,
+              repo: azureRepo,
               status: raw.status,
               isDraft: raw.isDraft,
             };
-            await patchTask(taskId, { pullRequest });
+            await mutateTask(taskId, (t) =>
+              patchWorktree(t, w.repoId, { pullRequest }),
+            );
+            opened.push(pullRequest.url);
             tel.event(existing ? 'pr.linked' : 'pr.created');
           } catch (e) {
             await patchTask(taskId, { status: 'ready' });
@@ -969,10 +1487,15 @@ export function createHandlers(s: Services): Handlers {
             tel.event('pr.failed', {
               kind: e instanceof AdoError ? e.kind : 'git',
             });
-            throw new Error(`Pull request not created: ${message}`);
+            for (const url of opened)
+              void s.openExternal(url).catch(() => undefined);
+            throw new Error(
+              `Pull request not created: ${folder ? `${w.dir}: ` : ''}${message}`,
+            );
           }
-          void s.openExternal(pullRequest.url).catch(() => undefined);
         }
+        for (const url of opened)
+          void s.openExternal(url).catch(() => undefined);
         // A terminal running in the folder blocks its removal on Windows (and a terminal without its
         // folder is useless), so removing the worktree closes the terminals even when that was unticked.
         const killTerminals = options.closeTerminals || options.removeWorktree;
@@ -985,22 +1508,30 @@ export function createHandlers(s: Services): Handlers {
               terminals: [],
             });
           }
-          if (options.removeWorktree && (await exists(task.worktreePath)))
-            await s.git.worktreeRemove(repo.path, task.worktreePath, true);
-          if (options.deleteBranch) {
-            // A deleted folder leaves a stale registration that blocks branch deletion.
-            // A folder that still exists keeps the refusal, which protects uncommitted work.
-            await s.git.worktreePrune(repo.path);
-            await s.git.deleteBranch(repo.path, task.branch);
+          for (const w of worktrees) {
+            const repo = s.repos.get(w.repoId);
+            if (options.removeWorktree && (await exists(w.path)))
+              await s.git.worktreeRemove(repo.path, w.path, true);
+            if (options.deleteBranch) {
+              // A deleted folder leaves a stale registration that blocks branch deletion.
+              // A folder that still exists keeps the refusal, which protects uncommitted work.
+              await s.git.worktreePrune(repo.path);
+              await s.git.deleteBranch(repo.path, w.branch);
+            }
           }
+          if (folder && options.removeWorktree)
+            await removeTaskFolder(task.worktreePath);
         } catch (e) {
           await patchTask(taskId, { status: 'ready' });
           throw e;
         }
-        await patchTask(taskId, {
-          status: 'done',
-          finishedAt: new Date().toISOString(),
-          summary,
+        await mutateTask(taskId, (t) => {
+          t.status = 'done';
+          t.finishedAt = new Date().toISOString();
+          for (const w of worktrees)
+            patchWorktree(t, w.repoId, {
+              summary: summaries.get(w.repoId) ?? null,
+            });
         });
         tel.event(
           'task.finished',
@@ -1011,7 +1542,11 @@ export function createHandlers(s: Services): Handlers {
             syncUsage: options.syncUsage && writeCost(),
             workItem: task.workItem !== null && task.workItem !== undefined,
           },
-          { ageHours: (Date.now() - Date.parse(task.createdAt)) / 3_600_000 },
+          {
+            ageHours: (Date.now() - Date.parse(task.createdAt)) / 3_600_000,
+            repos: worktrees.length,
+            pullRequests: ordered.length,
+          },
         );
         if (options.syncUsage && writeCost()) {
           try {
@@ -1050,6 +1585,16 @@ export function createHandlers(s: Services): Handlers {
       claim(taskId, ['ready'], 'open a terminal in');
       let full: TerminalDef;
       try {
+        if (def.repoId) {
+          const task = taskById(taskId);
+          if (
+            !isFolderTask(task) ||
+            !worktreesOf(task).some(
+              (w) => w.repoId === def.repoId && w.status === 'ready',
+            )
+          )
+            throw new Error('That repo is not in this task');
+        }
         full = {
           id: randomUUID(),
           ...def,
@@ -1156,25 +1701,54 @@ export function createHandlers(s: Services): Handlers {
       return repo;
     },
     'tasks:prAvailability': async (taskId) => {
-      const c = await prContext(taskById(taskId));
+      const task = taskById(taskId);
+      const of = async (repoId: string) => {
+        const c = await prContext(task, repoId);
+        return {
+          available: c.availability.available,
+          reason: c.availability.reason,
+          target: c.availability.available ? c.target : null,
+        };
+      };
+      if (!isFolderTask(task)) return of(task.repoId);
+      const repos = await Promise.all(
+        worktreesOf(task).map(async (w) => ({
+          repoId: w.repoId,
+          dir: w.dir,
+          ...(await of(w.repoId).catch((e: Error) => ({
+            available: false,
+            reason: e.message,
+            target: null,
+          }))),
+        })),
+      );
+      const home = repos.find((r) => r.repoId === task.repoId) ?? repos[0];
       return {
-        available: c.availability.available,
-        reason: c.availability.reason,
-        target: c.availability.available ? c.target : null,
+        available: home?.available ?? false,
+        reason: home?.reason ?? null,
+        target: home?.target ?? null,
+        repos,
       };
     },
-    'tasks:prStatus': async (taskId) => {
+    'tasks:prStatus': async (taskId, repoId) => {
       const task = taskById(taskId);
-      const pr = task.pullRequest;
+      const id = repoId ?? task.repoId;
+      const pr = worktreesOf(task).find((w) => w.repoId === id)?.pullRequest;
       if (!pr) return null;
-      const connectionId = s.repos.get(task.repoId).connectionId;
+      // A PR goes through the task's connection: every repo of a task folder shares it.
+      const connectionId =
+        s.repos.list().find((r) => r.id === id)?.connectionId ??
+        s.repos.list().find((r) => r.id === task.repoId)?.connectionId ??
+        null;
       if (!connectionId) return pr;
       try {
         const raw = await s.ado
           .client(connectionId)
           .pullRequest(pr.project, pr.repositoryId, pr.id);
         const next = { ...pr, status: raw.status, isDraft: raw.isDraft };
-        await patchTask(taskId, { pullRequest: next });
+        await mutateTask(taskId, (t) =>
+          patchWorktree(t, id, { pullRequest: next }),
+        );
         return next;
       } catch {
         return pr;

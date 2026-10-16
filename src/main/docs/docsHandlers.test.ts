@@ -1,10 +1,10 @@
-import { realpathSync } from 'node:fs';
+import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { Task } from '../../shared/types';
 import type { Command } from '../platform/Platform';
 import { GitClient } from '../services/GitClient';
-import { cleanupTempRepos, makeRepo } from '../test-helpers/gitRepo';
+import { cleanupTempRepos, git, makeRepo } from '../test-helpers/gitRepo';
 import { DocsWatcher } from './DocsWatcher';
 import { allowedLink, createDocsHandlers } from './docsHandlers';
 
@@ -68,6 +68,76 @@ describe('docs handlers', () => {
     expect(watcher.active('t1')).toBe(true);
     await h['docs:watch']('t1', false);
     expect(watcher.active('t1')).toBe(false);
+  });
+});
+
+describe('docs handlers: task folder', () => {
+  function folderSetup() {
+    const api = makeRepo('api');
+    const folder = path.dirname(api);
+    git(folder, 'clone', '-q', api, 'web');
+    const base = git(api, 'rev-parse', 'HEAD').trim();
+    mkdirSync(path.join(api, 'docs'));
+    writeFileSync(path.join(api, 'docs', 'plan.md'), '# plan\n');
+    writeFileSync(path.join(folder, 'CLAUDE.md'), '# task\n');
+    mkdirSync(path.join(folder, '.miac'));
+    writeFileSync(path.join(folder, '.miac', 'task.md'), 'notes\n');
+    const task = {
+      id: 't1',
+      status: 'ready',
+      worktreePath: folder,
+      folder,
+      baseSha: null,
+      worktrees: [
+        { repoId: 'r1', dir: 'api', path: api, baseSha: base, status: 'ready' },
+        {
+          repoId: 'r2',
+          dir: 'web',
+          path: path.join(folder, 'web'),
+          baseSha: null,
+          status: 'ready',
+        },
+      ],
+      terminals: [{ id: 'sh', kind: 'shell', label: 'zsh', repoId: 'r1' }],
+    } as unknown as Task;
+    const h = createDocsHandlers({
+      taskById: () => task,
+      git: new GitClient(),
+      editorGoto: () => ({ command: 'code', args: [] }),
+      launch: async () => undefined,
+      openExternal: async () => undefined,
+      revealFile: () => undefined,
+      watcher: new DocsWatcher(() => undefined),
+      event: () => undefined,
+    });
+    return { h, folder };
+  }
+
+  it('lists the task files and each repo’s Markdown under its folder, with badges per repo', async () => {
+    const { h } = folderSetup();
+    expect((await h['docs:list']('t1')).files).toEqual([
+      { path: '.miac/task.md', changed: null },
+      { path: 'CLAUDE.md', changed: null },
+      { path: 'api/README.md', changed: null },
+      { path: 'api/docs/plan.md', changed: 'new' },
+      { path: 'web/README.md', changed: null },
+    ]);
+    expect((await h['docs:read']('t1', 'api/docs/plan.md')).text).toBe(
+      '# plan\n',
+    );
+  });
+
+  it('resolves a path printed in a terminal against that terminal’s repo', async () => {
+    const { h } = folderSetup();
+    expect(await h['docs:resolve']('t1', 'docs/plan.md', 'sh')).toEqual({
+      path: 'api/docs/plan.md',
+      kind: 'md',
+    });
+    expect(await h['docs:resolve']('t1', 'web/README.md')).toEqual({
+      path: 'web/README.md',
+      kind: 'md',
+    });
+    expect(await h['docs:resolve']('t1', '../../x.md', 'sh')).toBeNull();
   });
 });
 

@@ -139,6 +139,35 @@ export async function listDocs(
   return all.slice(0, MAX_DOCS);
 }
 
+const isFile = (p: string) =>
+  fs.stat(p).then(
+    (s) => s.isFile(),
+    () => false,
+  );
+
+/**
+ * A task folder's Markdown: MIAC's task files first, then each repo's files under its folder, with badges
+ * against that repo's own base.
+ */
+export async function listTaskDocs(
+  git: GitClient,
+  folder: string,
+  worktrees: { dir: string; path: string; baseSha: string | null }[],
+): Promise<DocFile[]> {
+  const top: DocFile[] = [];
+  for (const rel of [TASK_FILE, 'CLAUDE.md'])
+    if (await isFile(path.join(folder, rel)))
+      top.push({ path: rel, changed: null });
+  const per = await Promise.all(
+    worktrees.map(async (w) =>
+      (await listDocs(git, w.path, w.baseSha).catch(() => []))
+        .filter((f) => f.path !== TASK_FILE)
+        .map((f) => ({ ...f, path: `${w.dir}/${f.path}` })),
+    ),
+  );
+  return [...top, ...per.flat()].slice(0, MAX_DOCS);
+}
+
 export async function readDoc(
   worktree: string,
   rel: string,
@@ -161,12 +190,21 @@ export async function readAsset(
   return `data:${type};base64,${(await fs.readFile(abs)).toString('base64')}`;
 }
 
+/**
+ * A link to a file inside the worktree, as a path relative to it. A relative `rel` is read from `base` (a
+ * terminal's folder inside the worktree, such as one repo of a task folder); it must still land inside.
+ */
 export async function resolveLink(
   worktree: string,
   rel: string,
+  base: string = worktree,
 ): Promise<{ path: string; kind: 'md' | 'file' } | null> {
   try {
-    const abs = await resolveInWorktree(worktree, rel);
+    const from =
+      base === worktree || path.isAbsolute(rel)
+        ? rel
+        : path.relative(worktree, path.resolve(base, rel));
+    const abs = await resolveInWorktree(worktree, from);
     const root = await fs.realpath(worktree);
     return { path: toRel(root, abs), kind: MD.test(abs) ? 'md' : 'file' };
   } catch {

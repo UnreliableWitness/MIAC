@@ -211,7 +211,9 @@ function AppearanceSection() {
   }, [notify]);
 
   const toggle = async (
-    patch: Partial<Pick<AppSettings, 'showSplash' | 'sendTelemetry'>>,
+    patch: Partial<
+      Pick<AppSettings, 'showSplash' | 'sendTelemetry' | 'tasksFolder'>
+    >,
   ) => {
     if (!settings) return;
     // Read fresh so a save from another section is not overwritten.
@@ -249,6 +251,41 @@ function AppearanceSection() {
             />{' '}
             Send anonymous usage and error data
           </label>
+        </div>
+        <div className="list-row">
+          <div>
+            <div>Tasks folder</div>
+            <div className="small muted">
+              New tasks get a folder here, with a worktree per repo inside.
+            </div>
+            <div className="mono small" aria-label="Tasks folder">
+              {settings?.tasksFolder || 'miac/tasks in your home folder'}
+            </div>
+          </div>
+          <span className="spacer" />
+          <button
+            type="button"
+            className="btn btn-sm"
+            disabled={!settings}
+            onClick={async () => {
+              const folder = await tryInvoke(
+                () => api().invoke('repos:pickFolder'),
+                notify,
+              );
+              if (folder) await toggle({ tasksFolder: folder });
+            }}
+          >
+            Browse
+          </button>
+          {settings?.tasksFolder && (
+            <button
+              type="button"
+              className="btn btn-subtle btn-sm"
+              onClick={() => void toggle({ tasksFolder: null })}
+            >
+              Use default
+            </button>
+          )}
         </div>
       </div>
     </section>

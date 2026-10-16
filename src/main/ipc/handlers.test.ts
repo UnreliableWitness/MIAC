@@ -2,6 +2,7 @@ import {
   chmodSync,
   existsSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -9,7 +10,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { Events } from '../../shared/ipc';
-import type { CreateTaskInput, SetupEvent, Task } from '../../shared/types';
+import type {
+  AddRepoInput,
+  CreateTaskInput,
+  SetupEvent,
+  Task,
+} from '../../shared/types';
 import { AdoRegistry } from '../services/AdoRegistry';
 import { ConnectionStore, type TokenCrypto } from '../services/ConnectionStore';
 import { fakeCrypto } from '../test-helpers/fakeCrypto';
@@ -147,6 +153,8 @@ async function harness(
     },
     finishFlushMs: 0,
     appVersion: '9.9.9',
+    // Most tests cover tasks without a task folder (older tasks); task folders have their own tests.
+    newTaskLayout: 'worktree',
     ...over,
     broadcast: (event, payload) => {
       broadcasts.push({ event, payload });
@@ -1175,6 +1183,28 @@ describe('recoverInterruptedTasks', () => {
       'ready',
       'ready',
     ]);
+    await store.update((s) => {
+      s.tasks[2].folder = '/w';
+      s.tasks[2].worktrees = [
+        {
+          repoId: 'r',
+          dir: 'x',
+          path: '/w/x',
+          branch: 'c',
+          baseRef: 'main',
+          baseSha: null,
+          status: 'setting-up',
+          copy: false,
+          commands: [],
+          summary: null,
+          pullRequest: null,
+          reopen: null,
+        },
+      ];
+    });
+    expect(await recoverInterruptedTasks(store)).toBe(1);
+    expect(store.state.tasks[2].status).toBe('ready');
+    expect(store.state.tasks[2].worktrees?.[0].status).toBe('setup-failed');
   });
 });
 
@@ -2377,5 +2407,391 @@ describe('handlers: finish with a pull request', () => {
     const checks = await hx.h['tasks:finishChecks'](hx.t.id);
     expect(checks.unpushed).toBe(1);
     expect(checks.runningTerminals).toBe(0);
+  });
+});
+
+describe('handlers: task folders', () => {
+  const finishAll = {
+    closeTerminals: true,
+    removeWorktree: true,
+    deleteBranch: true,
+    syncUsage: false,
+  };
+  async function folderHarness(
+    over: Partial<Services> = {},
+    inputOver: Partial<CreateTaskInput> = {},
+  ) {
+    const hx = await harness(fakeCrypto(), {
+      newTaskLayout: 'folder',
+      docsWatcher: new DocsWatcher(() => undefined),
+      ...over,
+    });
+    const tasksRoot = mkdtempSync(path.join(os.tmpdir(), 'miac-tasks-'));
+    connDirs.push(tasksRoot);
+    await hx.settings.save({ ...hx.settings.get(), tasksFolder: tasksRoot });
+    const apiRepo = makeRepo('api');
+    commitFile(apiRepo, 'CLAUDE.md', 'Use tabs.\n');
+    const api = await hx.h['repos:add'](apiRepo);
+    const cwds: { id: string; cwd: string }[] = [];
+    const spawn = hx.terminals.spawn.bind(hx.terminals);
+    vi.spyOn(hx.terminals, 'spawn').mockImplementation((o) => {
+      cwds.push({ id: o.id, cwd: o.cwd });
+      spawn(o);
+    });
+    const writes: { id: string; data: string }[] = [];
+    vi.spyOn(hx.terminals, 'write').mockImplementation((id, data) => {
+      writes.push({ id, data });
+    });
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](
+      hx.input({ startClaude: true, ...inputOver }),
+    );
+    expect((await done).ok).toBe(true);
+    const folder = path.join(tasksRoot, '48231-show-estimated-deliv');
+    const addApi = async (o: Partial<AddRepoInput> = {}): Promise<Finished> => {
+      const added = hx.setupDone();
+      await hx.h['tasks:addRepo'](t.id, {
+        repoId: api.id,
+        baseRef: 'main',
+        copy: true,
+        commands: [],
+        replaces: null,
+        ...o,
+      });
+      return added;
+    };
+    const task = () => hx.store.state.tasks.find((x) => x.id === t.id)!;
+    return {
+      ...hx,
+      tasksRoot,
+      apiRepo,
+      api,
+      cwds,
+      writes,
+      t,
+      folder,
+      addApi,
+      task,
+    };
+  }
+
+  it('makes a short task folder with the repo worktree, task files, Claude in the folder and the shell in the repo', async () => {
+    const hx = await folderHarness();
+    const t = hx.task();
+    expect(t.folder).toBe(hx.folder);
+    expect(t.worktreePath).toBe(hx.folder);
+    expect(t.baseSha).toBeNull();
+    const wt = path.join(hx.folder, 'webshop');
+    expect(t.worktrees).toEqual([
+      expect.objectContaining({
+        repoId: hx.added.id,
+        dir: 'webshop',
+        path: wt,
+        branch: 'feature/48231-show-estimated-delivery-date',
+        status: 'ready',
+        baseSha: expect.stringMatching(/^[0-9a-f]{40}$/),
+      }),
+    ]);
+    expect(existsSync(path.join(wt, '.env'))).toBe(true);
+    expect(existsSync(path.join(wt, 'ok.txt'))).toBe(true);
+    expect(readFileSync(path.join(hx.folder, 'CLAUDE.md'), 'utf8')).toContain(
+      '- `webshop/`: repo webshop, from `main`',
+    );
+    expect(existsSync(path.join(hx.folder, '.miac', 'task.md'))).toBe(true);
+    expect(git(wt, 'status', '--porcelain')).not.toContain('.miac');
+    const [claude, shell] = t.terminals;
+    expect(claude.kind).toBe('claude');
+    expect(claude.repoId).toBeUndefined();
+    expect(shell).toMatchObject({ kind: 'shell', repoId: hx.added.id });
+    expect(hx.cwds.find((c) => c.id === claude.id)?.cwd).toBe(hx.folder);
+    expect(hx.cwds.find((c) => c.id === shell.id)?.cwd).toBe(wt);
+    await hx.terminals.killAllForTask(t.id);
+  });
+
+  it('adds a repo while the task runs, rewrites CLAUDE.md and tells Claude without pressing Enter', async () => {
+    const hx = await folderHarness();
+    const finished = await hx.addApi();
+    expect(finished).toMatchObject({ ok: true, repoId: hx.api.id });
+    const t = hx.task();
+    expect(t.status).toBe('ready');
+    expect(t.worktrees?.map((w) => [w.dir, w.status])).toEqual([
+      ['webshop', 'ready'],
+      ['api', 'ready'],
+    ]);
+    expect(await hx.services.git.branchExists(hx.apiRepo, t.branch)).toBe(true);
+    const md = readFileSync(path.join(hx.folder, 'CLAUDE.md'), 'utf8');
+    expect(md).toContain('- `api/`: repo api, from `main`');
+    expect(md).toContain('@api/CLAUDE.md');
+    expect(md).not.toContain('@webshop/CLAUDE.md');
+    const claude = t.terminals.find((d) => d.kind === 'claude')!;
+    const note = hx.writes.find((w) => w.id === claude.id)?.data ?? '';
+    expect(note).toContain('repo api was added to this task in ./api');
+    expect(note).not.toMatch(/[\r\n]/);
+    expect(hx.writes.some((w) => w.id !== claude.id)).toBe(false);
+    const state = await hx.h['tasks:setupState'](t.id, hx.api.id);
+    expect(state?.finished).toBe(true);
+    expect(state?.steps.map((s) => s.def.kind)).toEqual([
+      'fetch',
+      'worktree',
+      'task-file',
+    ]);
+    await hx.terminals.killAllForTask(t.id);
+  });
+
+  it('refuses a repo already in the task, a repo of another project and a task without a folder', async () => {
+    const hx = await folderHarness();
+    await expect(
+      hx.h['tasks:addRepo'](hx.t.id, {
+        repoId: hx.added.id,
+        baseRef: 'main',
+        copy: false,
+        commands: [],
+        replaces: null,
+      }),
+    ).rejects.toThrow('webshop is already in this task');
+    const c = await hx.connections.save({
+      organizationUrl: 'https://dev.azure.com/contoso',
+      project: 'P',
+      pat: 'p',
+    });
+    await hx.h['repos:setConnection'](hx.api.id, c.id);
+    await expect(hx.addApi()).rejects.toThrow(
+      'api is linked to another Azure DevOps project',
+    );
+    const old = await harness();
+    const done = old.setupDone();
+    const legacy = await old.h['tasks:create'](old.input());
+    await done;
+    await expect(
+      old.h['tasks:addRepo'](legacy.id, {
+        repoId: old.added.id,
+        baseRef: 'main',
+        copy: false,
+        commands: [],
+        replaces: null,
+      }),
+    ).rejects.toThrow('This task has no task folder');
+    await hx.terminals.killAllForTask(hx.t.id);
+    await old.terminals.killAllForTask(legacy.id);
+  });
+
+  it('marks a failed added repo, retries it and can remove it, without touching the task', async () => {
+    const hx = await folderHarness();
+    const failed = await hx.addApi({ commands: [failCmd(2)] });
+    expect(failed).toMatchObject({ ok: false, repoId: hx.api.id });
+    expect(hx.task().status).toBe('ready');
+    expect(hx.task().worktrees?.[1].status).toBe('setup-failed');
+    await expect(hx.addApi()).rejects.toThrow('api is already in this task');
+    const retried = hx.setupDone();
+    await hx.h['tasks:retryRepoSetup'](hx.t.id, hx.api.id);
+    expect((await retried).ok).toBe(false);
+    await hx.h['tasks:removeRepo'](hx.t.id, hx.api.id, {
+      force: false,
+      deleteBranch: true,
+    });
+    expect(hx.task().worktrees?.map((w) => w.dir)).toEqual(['webshop']);
+    expect(existsSync(path.join(hx.folder, 'api'))).toBe(false);
+    expect(await hx.services.git.branchExists(hx.apiRepo, hx.t.branch)).toBe(
+      false,
+    );
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
+  it('removes a repo: refuses work without force, closes its tabs, makes the next repo home and keeps the branch unless asked', async () => {
+    const hx = await folderHarness({}, { copy: false, commands: [] });
+    await hx.addApi();
+    await hx.h['tasks:removeRepo'](hx.t.id, hx.api.id, {
+      force: false,
+      deleteBranch: false,
+    });
+    // api had no work: gone, its branch kept.
+    expect(await hx.services.git.branchExists(hx.apiRepo, hx.t.branch)).toBe(
+      true,
+    );
+    await hx.services.git.deleteBranch(hx.apiRepo, hx.t.branch);
+    await hx.addApi();
+    const webshop = path.join(hx.folder, 'webshop');
+    commitFile(webshop, 'feature.txt', 'a\n', 'Work in the wrong repo');
+    writeFileSync(path.join(webshop, 'scratch.txt'), 'x');
+    await expect(
+      hx.h['tasks:removeRepo'](hx.t.id, hx.added.id, {
+        force: false,
+        deleteBranch: true,
+      }),
+    ).rejects.toThrow('REPO_HAS_WORK: 1 commit, 1 uncommitted change');
+    expect(existsSync(webshop)).toBe(true);
+    const shell = hx.task().terminals.find((d) => d.kind === 'shell')!;
+    const order: string[] = [];
+    vi.spyOn(hx.services.docsWatcher!, 'stopTask').mockImplementation(() => {
+      order.push('docs');
+    });
+    const realRemove = hx.services.git.worktreeRemove.bind(hx.services.git);
+    vi.spyOn(hx.services.git, 'worktreeRemove').mockImplementation(
+      async (...a) => {
+        order.push('remove');
+        return realRemove(...a);
+      },
+    );
+    await hx.h['tasks:removeRepo'](hx.t.id, hx.added.id, {
+      force: true,
+      deleteBranch: true,
+    });
+    expect(order).toEqual(['docs', 'remove']);
+    const t = hx.task();
+    expect(t.repoId).toBe(hx.api.id);
+    expect(t.baseRef).toBe('main');
+    expect(t.worktrees?.map((w) => w.dir)).toEqual(['api']);
+    expect(t.terminals.some((d) => d.id === shell.id)).toBe(false);
+    expect(hx.terminals.isRunning(shell.id)).toBe(false);
+    expect(existsSync(webshop)).toBe(false);
+    expect(await hx.services.git.branchExists(hx.repo, t.branch)).toBe(false);
+    expect(
+      readFileSync(path.join(hx.folder, 'CLAUDE.md'), 'utf8'),
+    ).not.toContain('webshop');
+    const claude = t.terminals.find((d) => d.kind === 'claude')!;
+    expect(hx.writes.filter((w) => w.id === claude.id).at(-1)?.data).toContain(
+      'repo webshop was removed from this task',
+    );
+    await expect(
+      hx.h['tasks:removeRepo'](hx.t.id, hx.api.id, {
+        force: true,
+        deleteBranch: true,
+      }),
+    ).rejects.toThrow('A task keeps at least one repo');
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
+  it('moves the task: adds the right repo, then removes the one it replaces', async () => {
+    const hx = await folderHarness({}, { copy: false, commands: [] });
+    await hx.addApi({ replaces: hx.added.id });
+    await vi.waitFor(() =>
+      expect(hx.task().worktrees?.map((w) => w.dir)).toEqual(['api']),
+    );
+    expect(hx.task().repoId).toBe(hx.api.id);
+    expect(existsSync(path.join(hx.folder, 'webshop'))).toBe(false);
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
+  it('keeps the replaced repo when it has work, and says so', async () => {
+    const hx = await folderHarness();
+    await hx.addApi({ replaces: hx.added.id });
+    expect(hx.task().worktrees?.map((w) => w.dir)).toEqual(['webshop', 'api']);
+    expect(
+      hx.broadcasts.find(
+        (b) =>
+          b.event === 'notice' &&
+          (b.payload as { message: string }).message.startsWith(
+            'webshop was kept: it has work',
+          ),
+      ),
+    ).toBeTruthy();
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
+  it('opens a shell in a chosen repo and refuses a repo that is not in the task', async () => {
+    const hx = await folderHarness();
+    await hx.addApi();
+    const def = await hx.h['terminals:open'](hx.t.id, {
+      kind: 'shell',
+      label: 'shell',
+      repoId: hx.api.id,
+    });
+    expect(hx.cwds.find((c) => c.id === def.id)?.cwd).toBe(
+      path.join(hx.folder, 'api'),
+    );
+    await expect(
+      hx.h['terminals:open'](hx.t.id, {
+        kind: 'shell',
+        label: 'shell',
+        repoId: 'nope',
+      }),
+    ).rejects.toThrow('That repo is not in this task');
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
+  it('sums the git state of all repos and lists each', async () => {
+    const hx = await folderHarness();
+    await hx.addApi();
+    commitFile(path.join(hx.folder, 'api'), 'a.txt', 'a\n');
+    writeFileSync(path.join(hx.folder, 'webshop', 'b.txt'), 'b');
+    const g = await hx.h['tasks:gitSummary'](hx.t.id);
+    expect(g.ahead).toBe(1);
+    expect(g.files.map((f) => f.path)).toEqual(
+      expect.arrayContaining(['webshop/b.txt']),
+    );
+    expect(g.repos?.map((r) => [r.dir, r.ahead])).toEqual([
+      ['webshop', 0],
+      ['api', 1],
+    ]);
+    const checks = await hx.h['tasks:finishChecks'](hx.t.id);
+    expect(checks.repos?.map((r) => [r.dir, r.commits])).toEqual([
+      ['webshop', 0],
+      ['api', 1],
+    ]);
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
+  it('finishes every repo: summaries per repo, worktrees and branches gone, MIAC files and the empty folder removed', async () => {
+    const hx = await folderHarness();
+    await hx.addApi();
+    commitFile(path.join(hx.folder, 'api'), 'a.txt', 'a\n', 'Change the API');
+    await hx.h['tasks:finish'](hx.t.id, finishAll);
+    const t = hx.task();
+    expect(t.status).toBe('done');
+    expect(t.worktrees?.map((w) => [w.dir, w.summary?.commitCount])).toEqual([
+      ['webshop', 0],
+      ['api', 1],
+    ]);
+    expect(existsSync(hx.folder)).toBe(false);
+    expect(await hx.services.git.branchExists(hx.apiRepo, t.branch)).toBe(
+      false,
+    );
+    expect(await hx.services.git.branchExists(hx.repo, t.branch)).toBe(false);
+  });
+
+  it('keeps a task folder that holds files MIAC did not write', async () => {
+    const hx = await folderHarness();
+    writeFileSync(path.join(hx.folder, 'mine.txt'), 'keep');
+    await hx.h['tasks:finish'](hx.t.id, finishAll);
+    expect(existsSync(path.join(hx.folder, 'mine.txt'))).toBe(true);
+    expect(existsSync(path.join(hx.folder, 'CLAUDE.md'))).toBe(false);
+    expect(existsSync(path.join(hx.folder, 'webshop'))).toBe(false);
+  });
+
+  it('reopens every repo of a finished task and resumes Claude in the same folder', async () => {
+    const hx = await folderHarness({ claudeSessionExists: () => true });
+    await hx.addApi();
+    commitFile(path.join(hx.folder, 'api'), 'a.txt', 'a\n', 'Change the API');
+    await hx.h['tasks:finish'](hx.t.id, { ...finishAll, deleteBranch: false });
+    const done = hx.setupDone();
+    expect(await hx.h['tasks:reopen'](hx.t.id)).toEqual({ setup: true });
+    expect((await done).ok).toBe(true);
+    const t = hx.task();
+    expect(t.status).toBe('ready');
+    expect(t.reopen).toBeNull();
+    expect(existsSync(path.join(hx.folder, 'api', 'a.txt'))).toBe(true);
+    expect(existsSync(path.join(hx.folder, 'webshop', 'README.md'))).toBe(true);
+    expect(t.worktrees?.every((w) => w.reopen === null)).toBe(true);
+    const claude = t.terminals.find((d) => d.kind === 'claude')!;
+    expect(hx.cwds.filter((c) => c.id === claude.id).at(-1)?.cwd).toBe(
+      hx.folder,
+    );
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
+  it('cancels a failed setup: removes the worktrees, branches, task files and the task', async () => {
+    const hx = await harness(fakeCrypto(), { newTaskLayout: 'folder' });
+    const tasksRoot = mkdtempSync(path.join(os.tmpdir(), 'miac-tasks-'));
+    connDirs.push(tasksRoot);
+    await hx.settings.save({ ...hx.settings.get(), tasksFolder: tasksRoot });
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](
+      hx.input({ commands: [failCmd(1)], openShell: false }),
+    );
+    expect((await done).ok).toBe(false);
+    await hx.h['tasks:cancelSetup'](t.id);
+    expect(hx.store.state.tasks).toEqual([]);
+    expect(existsSync(t.worktreePath)).toBe(false);
+    expect(await hx.services.git.branchExists(hx.repo, t.branch)).toBe(false);
   });
 });

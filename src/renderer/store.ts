@@ -18,8 +18,11 @@ export type Screen =
   | { kind: 'sprint' }
   | { kind: 'task' }
   | { kind: 'new-task'; workItem?: WorkItemRef; repoId?: string }
-  | { kind: 'setup'; taskId: string }
+  /** A task's setup, or with `repoId` the setup of a repo being added to it. */
+  | { kind: 'setup'; taskId: string; repoId?: string }
   | { kind: 'finish'; taskId: string }
+  /** The repos of a task folder: add, remove, replace. */
+  | { kind: 'repos'; taskId: string }
   | { kind: 'settings' };
 
 type Store = {
@@ -197,7 +200,12 @@ const pageTaskId = (s: ConnectionState): string | null => {
   const screen = s.screen;
   if (!screen) return null;
   if (screen.kind === 'task') return s.selectedTaskId;
-  if (screen.kind === 'setup' || screen.kind === 'finish') return screen.taskId;
+  if (
+    screen.kind === 'setup' ||
+    screen.kind === 'finish' ||
+    screen.kind === 'repos'
+  )
+    return screen.taskId;
   return null;
 };
 

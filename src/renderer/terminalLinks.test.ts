@@ -78,6 +78,23 @@ describe('createLinkProvider', () => {
       url: 'http://localhost:3000',
     });
   });
+  it('resolves paths against the terminal’s own folder', async () => {
+    const { calls } = installFakeApi({
+      'docs:resolve': () => ({ path: 'api/src/a.ts', kind: 'file' }),
+    });
+    const b = buffer([{ text: 'src/a.ts:4', wrapped: false }], 80);
+    const term = { cols: 80, buffer: { active: b } } as never;
+    const p = createLinkProvider(term, 't1', {
+      terminalId: 'term-1',
+      open: vi.fn(),
+    });
+    await new Promise((r) => p.provideLinks(1, r));
+    expect(calls.find((c) => c.channel === 'docs:resolve')?.args).toEqual([
+      't1',
+      'src/a.ts',
+      'term-1',
+    ]);
+  });
   it('caches resolution per line text', async () => {
     const b = buffer([{ text: 'docs/a.md', wrapped: false }], 80);
     const term = { cols: 80, buffer: { active: b } } as never;

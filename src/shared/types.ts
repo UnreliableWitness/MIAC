@@ -18,6 +18,8 @@ export const TerminalDefSchema = z.object({
   command: z.string().optional(),
   /** Claude Code's session id (a UUID), so Restart resumes the same conversation. Absent on older tasks. */
   sessionId: z.string().optional(),
+  /** The repo whose worktree the tab runs in (a task with a task folder); absent runs in the task folder. */
+  repoId: z.string().optional(),
 });
 export type TerminalDef = z.infer<typeof TerminalDefSchema>;
 export type NewTerminal = Omit<TerminalDef, 'id'>;
@@ -72,6 +74,34 @@ export const PullRequestRefSchema = z.object({
 });
 export type PullRequestRef = z.infer<typeof PullRequestRefSchema>;
 
+export const WorktreeStatusSchema = z.enum([
+  'setting-up',
+  'ready',
+  'setup-failed',
+]);
+export type WorktreeStatus = z.infer<typeof WorktreeStatusSchema>;
+
+/** One repo's worktree inside a task folder. */
+export const TaskWorktreeSchema = z.object({
+  repoId: z.string().min(1),
+  /** The folder name inside the task folder; '' for the one worktree of a task without a task folder. */
+  dir: z.string(),
+  path: z.string().min(1),
+  branch: z.string().min(1),
+  baseRef: z.string().min(1),
+  /** The commit the branch started from, recorded when the worktree is made. */
+  baseSha: z.string().nullable().default(null),
+  status: WorktreeStatusSchema.default('ready'),
+  /** What its setup copies and runs, from that repo's .miac.yml. */
+  copy: z.boolean().default(true),
+  commands: z.array(z.string()).default([]),
+  summary: TaskSummarySchema.nullable().default(null),
+  pullRequest: PullRequestRefSchema.nullable().default(null),
+  /** Set while a finished task's worktree is made again; see Task.reopen. */
+  reopen: z.object({ from: z.string().nullable() }).nullable().default(null),
+});
+export type TaskWorktree = z.infer<typeof TaskWorktreeSchema>;
+
 export const TaskSchema = z.object({
   id: z.string().min(1),
   repoId: z.string().min(1),
@@ -101,6 +131,13 @@ export const TaskSchema = z.object({
    * null when the local branch still exists, else a ref or commit to make it from.
    */
   reopen: z.object({ from: z.string().nullable() }).nullable().default(null),
+  /**
+   * The task folder that holds one worktree per repo (tasks made since multi-repo tasks). Absent or null for
+   * older tasks, whose worktree is their folder. For a folder task, `worktreePath` is the folder, `repoId`,
+   * `branch` and `baseRef` are the home repo's, and `baseSha`, `summary` and `pullRequest` live per worktree.
+   */
+  folder: z.string().nullable().optional(),
+  worktrees: z.array(TaskWorktreeSchema).optional(),
 });
 export type Task = z.infer<typeof TaskSchema>;
 
@@ -155,8 +192,23 @@ export type FinishOptions = {
   removeWorktree: boolean;
   deleteBranch: boolean;
   syncUsage: boolean;
+  /** A draft PR for the home repo (older tasks), or for every repo with commits (a task folder). */
   createPullRequest?: boolean;
+  /** The repos to make a draft PR for; when given it replaces `createPullRequest`. */
+  pullRequestRepos?: string[];
 };
+
+/** Adding a repo to a running task folder; `replaces` is a repo of the task to remove once it is set up (Move). */
+export type AddRepoInput = {
+  repoId: string;
+  baseRef: string;
+  copy: boolean;
+  commands: string[];
+  replaces: string | null;
+};
+export type RemoveRepoOptions = { force: boolean; deleteBranch: boolean };
+/** Removing a repo with work needs `force`; the error message starts with this. */
+export const REPO_HAS_WORK = 'REPO_HAS_WORK: ';
 
 export type GitFile = { status: string; path: string };
 export type GitSummary = {
@@ -165,11 +217,35 @@ export type GitSummary = {
   behind: number;
   hasUpstream: boolean;
   files: GitFile[];
+  /** A task folder: each repo's counts (the fields above add them up, with `<dir>/` before each file). */
+  repos?: {
+    repoId: string;
+    dir: string;
+    ahead: number;
+    behind: number;
+    files: number;
+  }[];
+};
+export type RepoFinishCheck = {
+  repoId: string;
+  dir: string;
+  branch: string;
+  uncommitted: GitFile[];
+  unpushed: number;
+  /** Commits since the branch left its base; null when that cannot be told. */
+  commits: number | null;
 };
 export type FinishChecks = {
   uncommitted: GitFile[];
   unpushed: number;
   runningTerminals: number;
+  /** Per repo; the fields above add them up. */
+  repos?: RepoFinishCheck[];
+};
+export type PrAvailability = {
+  available: boolean;
+  reason: string | null;
+  target: string | null;
 };
 
 export type SetupStepKind =
@@ -187,7 +263,8 @@ export type SetupStepDef = {
   command?: string;
 };
 export type SetupStepStatus = 'todo' | 'running' | 'done' | 'warn' | 'failed';
-export type SetupEvent =
+/** `repoId` is set on the events of a repo being added to a running task (its own setup). */
+export type SetupEvent = { repoId?: string } & (
   | {
       taskId: string;
       type: 'step';
@@ -197,7 +274,8 @@ export type SetupEvent =
       ms?: number;
     }
   | { taskId: string; type: 'log'; line: string }
-  | { taskId: string; type: 'finished'; ok: boolean; failedStep?: number };
+  | { taskId: string; type: 'finished'; ok: boolean; failedStep?: number }
+);
 export type SetupState = {
   steps: {
     def: SetupStepDef;

@@ -35,6 +35,40 @@ export function useRepoConfig(repoId: string | null) {
   return value;
 }
 
+/** The .miac.yml of several repos (a task folder), in the same order; an entry is null until loaded or on error. */
+export function useRepoConfigs(repoIds: string[]) {
+  const notify = useStore((s) => s.notify);
+  const key = repoIds.join('\n');
+  const [value, setValue] = useState(() =>
+    repoIds.map((id) => cache.get(id) ?? null),
+  );
+  useEffect(() => {
+    const ids = key ? key.split('\n') : [];
+    let live = true;
+    setValue(ids.map((id) => cache.get(id) ?? null));
+    void Promise.all(
+      ids.map(async (id) => {
+        const hit = cache.get(id);
+        if (hit) return hit;
+        try {
+          const r = await api().invoke('repos:config', id);
+          cache.set(id, r);
+          return r;
+        } catch (e) {
+          if (live) notify('error', e instanceof Error ? e.message : String(e));
+          return null;
+        }
+      }),
+    ).then((all) => {
+      if (live) setValue(all);
+    });
+    return () => {
+      live = false;
+    };
+  }, [key, notify]);
+  return value;
+}
+
 export function invalidateRepoConfig(repoId?: string) {
   if (repoId) cache.delete(repoId);
   else cache.clear();

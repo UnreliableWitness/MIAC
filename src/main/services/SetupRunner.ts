@@ -5,7 +5,8 @@ import type { SetupEvent, SetupStepDef } from '../../shared/types';
 import type { Platform } from '../platform/Platform';
 import type { GitClient } from './GitClient';
 
-export type SetupPlan = {
+/** The setup of a task without a task folder (older tasks): one repo, its worktree is the task's folder. */
+export type SingleSetupPlan = {
   taskId: string;
   repoPath: string;
   worktreePath: string;
@@ -18,7 +19,39 @@ export type SetupPlan = {
   updateWorkItem: boolean;
   /** Reopening a finished task: the worktree is made again for its branch (see Task.reopen). */
   restore?: { from: string | null };
+  folder?: undefined;
+  scope?: string;
 };
+
+/** One repo of a task folder: its worktree, and what to copy into it and run in it. */
+export type RepoSetupPlan = {
+  repoId: string;
+  dir: string;
+  repoPath: string;
+  worktreePath: string;
+  branch: string;
+  baseRef: string;
+  copy: string[];
+  commands: string[];
+  /** Reopening: the worktree is made again for its branch, from the local branch (null) or this ref. */
+  restore?: { from: string | null };
+};
+
+/** The setup of a task folder: the repos to make (all of the task's, or the one being added) and the task files. */
+export type FolderSetupPlan = {
+  taskId: string;
+  folder: string;
+  repos: RepoSetupPlan[];
+  startTerminalsLabel: string | null;
+  updateWorkItem: boolean;
+  /** The repo being added to a running task; its events carry it as `repoId`. */
+  scope?: string;
+};
+
+export type SetupPlan = SingleSetupPlan | FolderSetupPlan;
+
+const isFolderPlan = (p: SetupPlan): p is FolderSetupPlan =>
+  typeof p.folder === 'string';
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
   ? Omit<T, K>
@@ -27,63 +60,125 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
 export type SetupHooks = {
   onEvent(e: SetupEvent): void;
   startTerminals(): Promise<void>;
-  /** The commit a freshly made worktree's branch starts from. */
-  onBaseSha?(sha: string): Promise<void>;
+  /** The commit a freshly made worktree's branch starts from; `repoId` for a task folder's repo. */
+  onBaseSha?(sha: string, repoId?: string): Promise<void>;
   /** Moves the task's work item and assigns it; a thrown error becomes a warning. */
   updateWorkItem?: () => Promise<{ detail: string; warn: boolean }>;
+  /** The files MIAC writes into a task folder (paths relative to it), built once the worktrees exist. */
+  taskFiles?: () => Promise<{ rel: string; content: string }[]>;
   fromStep?: number;
 };
 
-export function planSteps(plan: SetupPlan): SetupStepDef[] {
-  const steps: SetupStepDef[] = plan.restore
-    ? [
-        {
+type Work = { def: SetupStepDef; repo: RepoSetupPlan | null };
+
+/** A single-repo plan as one repo with no folder name, so both kinds run the same steps. */
+const singleRepo = (p: SingleSetupPlan): RepoSetupPlan => ({
+  repoId: '',
+  dir: '',
+  repoPath: p.repoPath,
+  worktreePath: p.worktreePath,
+  branch: p.branch,
+  baseRef: p.baseRef,
+  copy: p.copy,
+  commands: p.commands,
+  ...(p.restore ? { restore: p.restore } : {}),
+});
+
+function planWork(plan: SetupPlan): Work[] {
+  const folder = isFolderPlan(plan);
+  const repos = folder ? plan.repos : [singleRepo(plan)];
+  const at = (r: RepoSetupPlan, text: string) =>
+    folder ? `${r.dir}: ${text}` : text;
+  const work: Work[] = [];
+  for (const r of repos) {
+    if (r.restore)
+      work.push({
+        repo: r,
+        def: {
           kind: 'worktree',
           label: 'Restore worktree',
-          detail: plan.restore.from
-            ? `${plan.branch} from ${plan.restore.from}`
-            : plan.branch,
+          detail: at(
+            r,
+            r.restore.from ? `${r.branch} from ${r.restore.from}` : r.branch,
+          ),
         },
-      ]
-    : [
-        { kind: 'fetch', label: 'Fetch base', detail: plan.baseRef },
+      });
+    else
+      work.push(
         {
-          kind: 'worktree',
-          label: 'Create branch and worktree',
-          detail: plan.branch,
+          repo: r,
+          def: { kind: 'fetch', label: 'Fetch base', detail: at(r, r.baseRef) },
         },
-      ];
+        {
+          repo: r,
+          def: {
+            kind: 'worktree',
+            label: 'Create branch and worktree',
+            detail: at(r, r.branch),
+          },
+        },
+      );
+  }
   if (plan.updateWorkItem)
-    steps.push({
-      kind: 'work-item',
-      label: 'Update work item',
-      detail: 'Move to In Progress',
+    work.push({
+      repo: null,
+      def: {
+        kind: 'work-item',
+        label: 'Update work item',
+        detail: 'Move to In Progress',
+      },
     });
-  if (plan.copy.length > 0)
-    steps.push({
-      kind: 'copy',
-      label: 'Copy local files',
-      detail: plan.copy.join(', '),
-    });
-  steps.push({
-    kind: 'task-file',
-    label: 'Write task file',
-    detail: '.miac/task.md',
+  for (const r of repos)
+    if (r.copy.length > 0)
+      work.push({
+        repo: r,
+        def: {
+          kind: 'copy',
+          label: 'Copy local files',
+          detail: at(r, r.copy.join(', ')),
+        },
+      });
+  work.push({
+    repo: folder ? null : repos[0],
+    def: folder
+      ? {
+          kind: 'task-file',
+          label: 'Write task files',
+          detail: 'CLAUDE.md, .miac/task.md',
+        }
+      : {
+          kind: 'task-file',
+          label: 'Write task file',
+          detail: '.miac/task.md',
+        },
   });
-  for (const command of plan.commands)
-    steps.push({
-      kind: 'command',
-      label: command,
-      detail: 'in worktree',
-      command,
-    });
+  for (const r of repos)
+    for (const command of r.commands)
+      work.push({
+        repo: r,
+        def: {
+          kind: 'command',
+          label: command,
+          detail: folder ? `in ${r.dir}` : 'in worktree',
+          command,
+        },
+      });
   if (plan.startTerminalsLabel)
-    steps.push({
-      kind: 'terminals',
-      label: plan.restore ? 'Restore terminals' : 'Start terminals',
-      detail: plan.startTerminalsLabel,
+    work.push({
+      repo: null,
+      def: {
+        kind: 'terminals',
+        label: repos.some((r) => r.restore)
+          ? 'Restore terminals'
+          : 'Start terminals',
+        detail: plan.startTerminalsLabel,
+      },
     });
-  return steps;
+  return work;
+}
+
+export function planSteps(plan: SetupPlan): SetupStepDef[] {
+  return planWork(plan).map((w) => w.def);
 }
 
 /** Adds a pattern to the repository's .git/info/exclude (shared by all worktrees) if it is not there yet. */
@@ -144,18 +239,19 @@ export class SetupRunner {
     plan: SetupPlan,
     hooks: SetupHooks,
   ): Promise<{ ok: boolean; failedStep?: number }> {
-    const steps = planSteps(plan);
+    const work = planWork(plan);
     const from = hooks.fromStep ?? 0;
-    if (from < 0 || from >= steps.length) {
+    if (from < 0 || from >= work.length) {
       throw new Error(
-        `Cannot retry from step ${from}: the plan has ${steps.length} steps`,
+        `Cannot retry from step ${from}: the plan has ${work.length} steps`,
       );
     }
-    const emit = (e: DistributiveOmit<SetupEvent, 'taskId'>) =>
-      hooks.onEvent({ taskId: plan.taskId, ...e } as SetupEvent);
+    const scope = plan.scope ? { repoId: plan.scope } : {};
+    const emit = (e: DistributiveOmit<SetupEvent, 'taskId' | 'repoId'>) =>
+      hooks.onEvent({ taskId: plan.taskId, ...scope, ...e } as SetupEvent);
     const log = (line: string) => emit({ type: 'log', line });
 
-    for (let index = 0; index < steps.length; index++) {
+    for (let index = 0; index < work.length; index++) {
       if (index < from) {
         emit({ type: 'step', index, status: 'done' });
         continue;
@@ -163,7 +259,7 @@ export class SetupRunner {
       emit({ type: 'step', index, status: 'running' });
       const started = Date.now();
       try {
-        const out = await this.execute(steps[index], plan, hooks, log);
+        const out = await this.execute(work[index], plan, hooks, log);
         emit({
           type: 'step',
           index,
@@ -190,58 +286,57 @@ export class SetupRunner {
   }
 
   private async execute(
-    step: SetupStepDef,
+    { def: step, repo }: Work,
     plan: SetupPlan,
     hooks: SetupHooks,
     log: (l: string) => void,
   ): Promise<{ detail?: string; warn?: boolean } | void> {
     switch (step.kind) {
       case 'fetch': {
-        log(`$ git fetch ${plan.baseRef}`);
-        const fetched = await this.git.fetch(plan.repoPath, plan.baseRef);
-        if (!fetched) log(`${plan.baseRef} has no remote, nothing to fetch`);
+        const r = repo!;
+        log(`$ git fetch ${r.baseRef}`);
+        const fetched = await this.git.fetch(r.repoPath, r.baseRef);
+        if (!fetched) log(`${r.baseRef} has no remote, nothing to fetch`);
         return;
       }
-      case 'worktree':
+      case 'worktree': {
+        const r = repo!;
         if (
-          (await exists(plan.worktreePath)) &&
-          (await this.git.branchExists(plan.repoPath, plan.branch))
+          (await exists(r.worktreePath)) &&
+          (await this.git.branchExists(r.repoPath, r.branch))
         ) {
-          log(`worktree ${plan.worktreePath} already exists, reusing it`);
+          log(`worktree ${r.worktreePath} already exists, reusing it`);
           return;
         }
-        if (plan.restore) {
+        if (r.restore) {
           // The branch keeps its original base: no onBaseSha.
-          if (plan.restore.from === null) {
-            log(`$ git worktree add ${plan.worktreePath} ${plan.branch}`);
-            await this.git.worktreeAddExisting(plan.repoPath, {
-              branch: plan.branch,
-              path: plan.worktreePath,
+          if (r.restore.from === null) {
+            log(`$ git worktree add ${r.worktreePath} ${r.branch}`);
+            await this.git.worktreeAddExisting(r.repoPath, {
+              branch: r.branch,
+              path: r.worktreePath,
             });
           } else {
             log(
-              `$ git worktree add -b ${plan.branch} ${plan.worktreePath} ${plan.restore.from}`,
+              `$ git worktree add -b ${r.branch} ${r.worktreePath} ${r.restore.from}`,
             );
-            await this.git.worktreeAdd(plan.repoPath, {
-              branch: plan.branch,
-              path: plan.worktreePath,
-              baseRef: plan.restore.from,
+            await this.git.worktreeAdd(r.repoPath, {
+              branch: r.branch,
+              path: r.worktreePath,
+              baseRef: r.restore.from,
             });
           }
           return;
         }
-        log(
-          `$ git worktree add -b ${plan.branch} ${plan.worktreePath} ${plan.baseRef}`,
-        );
-        {
-          const sha = await this.git.worktreeAdd(plan.repoPath, {
-            branch: plan.branch,
-            path: plan.worktreePath,
-            baseRef: plan.baseRef,
-          });
-          await hooks.onBaseSha?.(sha);
-        }
+        log(`$ git worktree add -b ${r.branch} ${r.worktreePath} ${r.baseRef}`);
+        const sha = await this.git.worktreeAdd(r.repoPath, {
+          branch: r.branch,
+          path: r.worktreePath,
+          baseRef: r.baseRef,
+        });
+        await hooks.onBaseSha?.(sha, ...(isFolderPlan(plan) ? [r.repoId] : []));
         return;
+      }
       case 'work-item': {
         if (!hooks.updateWorkItem) return { detail: 'Skipped' };
         try {
@@ -254,18 +349,17 @@ export class SetupRunner {
           return { detail, warn: true };
         }
       }
-      case 'copy':
-        for (const rel of plan.copy) {
-          const src = insideDir(plan.repoPath, rel);
-          const dest = insideDir(plan.worktreePath, rel);
+      case 'copy': {
+        const r = repo!;
+        for (const rel of r.copy) {
+          const src = insideDir(r.repoPath, rel);
+          const dest = insideDir(r.worktreePath, rel);
           if (src === null || dest === null) {
             log(`skipped ${rel} (outside the repository)`);
             continue;
           }
           if (!(await exists(src))) {
-            log(
-              `skipped ${rel} (not present in ${path.basename(plan.repoPath)})`,
-            );
+            log(`skipped ${rel} (not present in ${path.basename(r.repoPath)})`);
             continue;
           }
           await fs.cp(src, dest, {
@@ -274,7 +368,20 @@ export class SetupRunner {
           log(`copied ${rel}`);
         }
         return;
+      }
       case 'task-file':
+        if (isFolderPlan(plan)) {
+          const files = (await hooks.taskFiles?.()) ?? [];
+          for (const f of files) {
+            const dest = insideDir(plan.folder, f.rel);
+            if (dest === null || dest === path.resolve(plan.folder))
+              throw new Error(`${f.rel} is outside the task folder`);
+            await fs.mkdir(path.dirname(dest), { recursive: true });
+            await fs.writeFile(dest, f.content, 'utf8');
+            log(`wrote ${f.rel}`);
+          }
+          return;
+        }
         await fs.mkdir(path.join(plan.worktreePath, '.miac'), {
           recursive: true,
         });
@@ -288,7 +395,7 @@ export class SetupRunner {
         return;
       case 'command':
         log(`$ ${step.command}`);
-        await this.runCommand(step.command ?? '', plan.worktreePath, log);
+        await this.runCommand(step.command ?? '', repo!.worktreePath, log);
         return;
       case 'terminals':
         await hooks.startTerminals();

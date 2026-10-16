@@ -1,4 +1,10 @@
+import os from 'node:os';
 import path from 'node:path';
+
+/** Task folders, unless Settings names another place: `~/miac/tasks` (`%USERPROFILE%\miac\tasks` on Windows). */
+export function defaultTasksFolder(home: string = os.homedir()): string {
+  return path.join(home, 'miac', 'tasks');
+}
 
 /** Worktrees for `/src/webshop` live in `/src/webshop.worktrees/<slug>`. */
 export function worktreeRoot(repoPath: string): string {

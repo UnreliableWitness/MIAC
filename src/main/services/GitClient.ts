@@ -264,6 +264,21 @@ export class GitClient {
     return configured.trim() !== '';
   }
 
+  /** How many commits HEAD has that `base` (a commit or ref) does not; null when git cannot tell. */
+  async commitsSince(worktree: string, base: string): Promise<number | null> {
+    try {
+      const out = await this.run(worktree, [
+        'rev-list',
+        '--count',
+        `${base}..HEAD`,
+      ]);
+      const n = Number(out.trim());
+      return Number.isFinite(n) ? n : null;
+    } catch {
+      return null;
+    }
+  }
+
   async summary(worktree: string, baseRef: string): Promise<GitSummary> {
     const out = await this.run(worktree, [
       '--no-optional-locks',

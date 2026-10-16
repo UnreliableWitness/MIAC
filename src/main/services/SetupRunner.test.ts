@@ -13,9 +13,10 @@ import {
 import { GitClient } from './GitClient';
 import {
   ensureExcluded,
+  type FolderSetupPlan,
   planSteps,
   SetupRunner,
-  type SetupPlan,
+  type SingleSetupPlan,
 } from './SetupRunner';
 
 afterAll(cleanupTempRepos);
@@ -23,7 +24,10 @@ afterAll(cleanupTempRepos);
 const git = new GitClient();
 const runner = new SetupRunner(git, testPlatform());
 
-function plan(repo: string, over: Partial<SetupPlan> = {}): SetupPlan {
+function plan(
+  repo: string,
+  over: Partial<SingleSetupPlan> = {},
+): SingleSetupPlan {
   return {
     taskId: 'task1',
     repoPath: repo,
@@ -362,6 +366,127 @@ describe('SetupRunner', () => {
       existsSync(path.join(path.dirname(p.worktreePath), 'outside.txt')),
     ).toBe(false);
     expect(existsSync(path.join(p.worktreePath, 'hosts'))).toBe(false);
+  });
+});
+
+describe('SetupRunner: task folder', () => {
+  function folderPlan(
+    repos: string[],
+    over: Partial<FolderSetupPlan> = {},
+  ): FolderSetupPlan {
+    const folder = path.join(path.dirname(repos[0]), 'task-x');
+    return {
+      taskId: 'task1',
+      folder,
+      repos: repos.map((r, i) => ({
+        repoId: `r${i + 1}`,
+        dir: path.basename(r),
+        repoPath: r,
+        worktreePath: path.join(folder, path.basename(r)),
+        branch: 'feature/x',
+        baseRef: 'main',
+        copy: [],
+        commands: [],
+      })),
+      startTerminalsLabel: null,
+      updateWorkItem: false,
+      ...over,
+    };
+  }
+
+  it('plans fetch and worktree per repo, then the work item, copies, task files, commands and terminals', () => {
+    const p = folderPlan(['/a/api', '/b/web'], {
+      updateWorkItem: true,
+      startTerminalsLabel: 'Claude Code',
+    });
+    p.repos[0].copy = ['.env'];
+    p.repos[1].commands = ['npm ci'];
+    const steps = planSteps(p);
+    expect(steps.map((s) => `${s.kind} ${s.detail}`)).toEqual([
+      'fetch api: main',
+      'worktree api: feature/x',
+      'fetch web: main',
+      'worktree web: feature/x',
+      'work-item Move to In Progress',
+      'copy api: .env',
+      'task-file CLAUDE.md, .miac/task.md',
+      'command in web',
+      'terminals Claude Code',
+    ]);
+    expect(steps[6].label).toBe('Write task files');
+  });
+
+  it('plans a restore per repo', () => {
+    const p = folderPlan(['/a/api', '/b/web']);
+    p.repos[0].restore = { from: null };
+    p.repos[1].restore = { from: 'origin/feature/x' };
+    expect(planSteps(p).map((s) => `${s.label} ${s.detail}`)).toEqual([
+      'Restore worktree api: feature/x',
+      'Restore worktree web: feature/x from origin/feature/x',
+      'Write task files CLAUDE.md, .miac/task.md',
+    ]);
+  });
+
+  it('makes a worktree per repo in the task folder, writes the task files there and runs commands per repo', async () => {
+    const api = makeRepo('api');
+    const web = makeRepo('web');
+    const p = folderPlan([api, web]);
+    p.repos[1].commands = [writeLineCmd('built', 'built.txt')];
+    const { events, onEvent } = collect();
+    const bases: [string, string | undefined][] = [];
+    const result = await runner.run(
+      { ...p, scope: 'r2' },
+      {
+        onEvent,
+        startTerminals: async () => {},
+        onBaseSha: async (sha, repoId) => {
+          bases.push([sha, repoId]);
+        },
+        taskFiles: async () => [
+          { rel: 'CLAUDE.md', content: '# task\n' },
+          { rel: '.miac/task.md', content: 'notes\n' },
+        ],
+      },
+    );
+    expect(result).toEqual({ ok: true });
+    expect(
+      await git.branchExists(path.join(p.folder, 'api'), 'feature/x'),
+    ).toBe(true);
+    expect(existsSync(path.join(p.folder, 'web', 'README.md'))).toBe(true);
+    expect(readFileSync(path.join(p.folder, 'CLAUDE.md'), 'utf8')).toBe(
+      '# task\n',
+    );
+    expect(readFileSync(path.join(p.folder, '.miac', 'task.md'), 'utf8')).toBe(
+      'notes\n',
+    );
+    expect(
+      normaliseEol(
+        readFileSync(path.join(p.folder, 'web', 'built.txt'), 'utf8'),
+      ).trim(),
+    ).toBe('built');
+    expect(existsSync(path.join(p.folder, 'api', 'built.txt'))).toBe(false);
+    // The task files are outside every repo: nothing to exclude.
+    const exclude = path.join(api, '.git', 'info', 'exclude');
+    expect(
+      existsSync(exclude) ? readFileSync(exclude, 'utf8') : '',
+    ).not.toContain('.miac/');
+    expect(bases.map((b) => b[1])).toEqual(['r1', 'r2']);
+    expect(events.every((e) => e.repoId === 'r2')).toBe(true);
+  });
+
+  it('refuses task files that would leave the task folder', async () => {
+    const api = makeRepo('api');
+    const p = folderPlan([api]);
+    const { onEvent } = collect();
+    const result = await runner.run(p, {
+      onEvent,
+      startTerminals: async () => {},
+      taskFiles: async () => [{ rel: '../escape.md', content: 'x' }],
+    });
+    expect(result).toEqual({ ok: false, failedStep: 2 });
+    expect(existsSync(path.join(path.dirname(p.folder), 'escape.md'))).toBe(
+      false,
+    );
   });
 });
 

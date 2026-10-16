@@ -91,13 +91,23 @@ const tooltip = (label: string) => ({
 export function createLinkProvider(
   term: Pick<Terminal, 'cols'> & { buffer: { active: BufferLike } },
   taskId: string,
-  deps: { resolve?: Resolve; open?: (t: LinkTarget) => void } = {},
+  deps: {
+    resolve?: Resolve;
+    open?: (t: LinkTarget) => void;
+    /** Paths resolve against this terminal's folder (one repo of a task folder). */
+    terminalId?: string;
+  } = {},
 ): ILinkProvider {
   const resolve: Resolve =
     deps.resolve ??
     ((t, p) =>
       api()
-        .invoke('docs:resolve', t, p)
+        .invoke(
+          'docs:resolve',
+          t,
+          p,
+          ...(deps.terminalId ? [deps.terminalId] : []),
+        )
         .catch(() => null));
   const open = deps.open ?? ((t: LinkTarget) => openLink(taskId, t));
   // Resolutions are cached per path (text-relative); null is never kept, so a
