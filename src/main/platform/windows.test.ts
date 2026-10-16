@@ -144,6 +144,15 @@ describe('windowsPlatform', () => {
     });
   });
 
+  it('starts opencode like copilot', () => {
+    expect(make({ opencode: 'C:\\o\\opencode.exe' }).opencodeCommand()).toEqual(
+      { command: 'C:\\o\\opencode.exe', args: [] },
+    );
+    expect(
+      make({ opencode: 'C:\\npm\\opencode.cmd' }).opencodeCommand().args.at(-1),
+    ).toBe('& opencode');
+  });
+
   it('starts copilot the same way', () => {
     expect(make({ copilot: 'C:\\c\\copilot.exe' }).copilotCommand()).toEqual({
       command: 'C:\\c\\copilot.exe',

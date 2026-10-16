@@ -867,6 +867,43 @@ describe('handlers: Claude Code sessions', () => {
   });
 });
 
+describe('handlers: terminals opened from the + menu', () => {
+  it('names a shell tab after the platform shell and starts OpenCode with its command', async () => {
+    const base = testPlatform();
+    const platform = {
+      ...base,
+      shellLabel: 'PowerShell',
+      opencodeCommand: () =>
+        base.runCommand(`${echoCmd('opencode-started')}; ${sleepCmd(5)}`),
+    };
+    const hx = await harness(fakeCrypto(), { platform });
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](hx.input({ openShell: false }));
+    await done;
+    const shell = await hx.h['terminals:open'](t.id, {
+      kind: 'shell',
+      label: 'shell',
+    });
+    expect(shell.label).toBe('PowerShell');
+    const oc = await hx.h['terminals:open'](t.id, {
+      kind: 'opencode',
+      label: 'OpenCode',
+    });
+    await vi.waitFor(
+      async () =>
+        expect(await hx.h['terminals:buffer'](oc.id)).toContain(
+          'opencode-started',
+        ),
+      { timeout: 10_000 },
+    );
+    await hx.h['terminals:kill'](oc.id);
+    expect(hx.store.state.tasks[0].terminals.map((x) => x.kind)).toEqual([
+      'shell',
+    ]);
+    await hx.terminals.killAllForTask(t.id);
+  });
+});
+
 describe('handlers: run terminal command', () => {
   it('starts a run terminal with runCommand, not the setup wrapper', async () => {
     const base = testPlatform();

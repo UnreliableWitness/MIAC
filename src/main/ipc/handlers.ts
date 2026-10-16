@@ -377,6 +377,7 @@ export function createHandlers(s: Services): Handlers {
     if (def.kind === 'run' && def.command)
       return s.platform.runCommand(def.command);
     if (def.kind === 'copilot') return s.platform.copilotCommand();
+    if (def.kind === 'opencode') return s.platform.opencodeCommand();
     return s.platform.interactiveShell();
   };
 
@@ -920,6 +921,8 @@ export function createHandlers(s: Services): Handlers {
         full = {
           id: randomUUID(),
           ...def,
+          // A shell tab is named after the platform's shell (PowerShell, zsh), like the one setup opens.
+          ...(def.kind === 'shell' ? { label: s.platform.shellLabel } : {}),
           ...(def.kind === 'claude' ? { sessionId: randomUUID() } : {}),
         };
         spawnTerminal(taskById(taskId), full);
@@ -938,10 +941,12 @@ export function createHandlers(s: Services): Handlers {
       const owner = s.store.state.tasks.find((t) =>
         t.terminals.some((x) => x.id === id),
       );
+      const def = owner?.terminals.find((x) => x.id === id);
       if (owner)
         await updateTerminals(owner.id, (list) =>
           list.filter((x) => x.id !== id),
         );
+      if (def) tel.event('terminal.closed', { kind: def.kind });
     },
     'terminals:restart': async (id) => {
       const owner = s.store.state.tasks.find((t) =>

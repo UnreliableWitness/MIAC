@@ -119,6 +119,7 @@ export function windowsPlatform(
         context,
       ),
     copilotCommand: () => tool('copilot', []),
+    opencodeCommand: () => tool('opencode', []),
     editorCommand: (p) => {
       if (!deps.which('code')) throw new Error('VS Code (code) is not on PATH');
       return ps(`& code ${psQuote(p)}`);

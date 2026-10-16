@@ -13,7 +13,7 @@ export type WorkItemRef = z.infer<typeof WorkItemRefSchema>;
 
 export const TerminalDefSchema = z.object({
   id: z.string().min(1),
-  kind: z.enum(['claude', 'shell', 'run', 'copilot']),
+  kind: z.enum(['claude', 'shell', 'run', 'copilot', 'opencode']),
   label: z.string(),
   command: z.string().optional(),
   /** Claude Code's session id (a UUID), so Restart resumes the same conversation. Absent on older tasks. */

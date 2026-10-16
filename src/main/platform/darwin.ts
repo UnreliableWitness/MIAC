@@ -25,6 +25,7 @@ export function darwinPlatform(env: NodeJS.ProcessEnv): Platform {
         ].join(' '),
       ]),
     copilotCommand: () => login(['-c', 'exec copilot']),
+    opencodeCommand: () => login(['-c', 'exec opencode']),
     editorCommand: (p) => ({ command: 'code', args: [p] }),
     editorGotoCommand: (wt, f, line, col) => ({
       command: 'code',
