@@ -11,6 +11,7 @@ import { PageHeader, StateDot } from '../components/ui';
 import { UsagePanel } from '../components/UsagePanel';
 import { dateTime, duration, eur } from '../format';
 import { useTaskUsage } from '../hooks/useTaskUsage';
+import { useWriteCostToAdo } from '../hooks/useWriteCostToAdo';
 import { useStore, useTaskConnectionId } from '../store';
 
 const MINUS = String.fromCharCode(0x2212);
@@ -95,13 +96,16 @@ export function DoneTaskPage({ task }: { task: TaskView }) {
   const took = task.finishedAt
     ? duration(task.createdAt, task.finishedAt)
     : null;
+  const writeCost = useWriteCostToAdo();
   const logged = !wi
     ? 'No work item'
     : task.usageCommentId !== null
       ? `Yes, ${task.usageSyncedAt ? dateTime(task.usageSyncedAt) : 'on finish'}`
       : task.usageSyncError
         ? `No: ${task.usageSyncError}`
-        : 'No';
+        : writeCost === false
+          ? 'No (off in Settings)'
+          : 'No';
   return (
     <div className="page page-done">
       <PageHeader

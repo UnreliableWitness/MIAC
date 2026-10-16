@@ -59,6 +59,7 @@ describe('SettingsStore', () => {
       version: 1,
       receiverPort: 5000,
       hourlySync: false,
+      writeCostToAdo: false,
       showSplash: true,
       sendTelemetry: true,
     });
@@ -67,6 +68,7 @@ describe('SettingsStore', () => {
       version: 1,
       receiverPort: 5000,
       hourlySync: true,
+      writeCostToAdo: false,
       showSplash: true,
       sendTelemetry: true,
     });

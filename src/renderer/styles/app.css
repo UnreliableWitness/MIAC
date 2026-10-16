@@ -506,6 +506,12 @@ fieldset.group legend {
   border: none;
   color: var(--muted);
 }
+.cost-write {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
 .notice-update-body {
   display: flex;
   flex-direction: column;

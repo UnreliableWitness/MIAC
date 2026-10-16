@@ -23,6 +23,7 @@ const settings = {
   version: 1 as const,
   receiverPort: 4319,
   hourlySync: true,
+  writeCostToAdo: true,
   showSplash: true,
   sendTelemetry: true,
 };
@@ -46,6 +47,31 @@ beforeEach(() => {
 });
 
 describe('CostSection', () => {
+  it('turns on writing cost to Azure DevOps; hourly sync needs it', async () => {
+    const { calls } = installFakeApi({
+      'settings:get': () => ({ ...settings, writeCostToAdo: false }),
+      'settings:save': (s) => s,
+      'rates:list': () => ({ rates, officialAsOf: '2026-10-14' }),
+    });
+    render(<CostSection />);
+    const write = await screen.findByRole('checkbox', {
+      name: 'Write AI cost to Azure DevOps',
+    });
+    const hourly = screen.getByRole('checkbox', { name: /every hour/ });
+    expect(write).not.toBeChecked();
+    expect(hourly).toBeDisabled();
+    expect(hourly).not.toBeChecked();
+    await userEvent.click(write);
+    expect(hourly).toBeEnabled();
+    expect(hourly).toBeChecked();
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Save settings' }),
+    );
+    expect(
+      calls.find((c) => c.channel === 'settings:save')?.args[0],
+    ).toMatchObject({ writeCostToAdo: true, hourlySync: true });
+  });
+
   it('saves the port and hourly sync, and has no exchange rate or markup inputs', async () => {
     const { calls } = installFakeApi({
       'settings:get': () => settings,
@@ -65,6 +91,7 @@ describe('CostSection', () => {
       version: 1,
       receiverPort: 4319,
       hourlySync: false,
+      writeCostToAdo: true,
       showSplash: true,
       sendTelemetry: true,
     });

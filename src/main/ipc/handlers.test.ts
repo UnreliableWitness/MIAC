@@ -91,6 +91,8 @@ async function harness(
   connDirs.push(usageDir);
   const settings = new SettingsStore(path.join(usageDir, 'settings.json'));
   await settings.load();
+  // Most tests cover the write-back; the default (off) is tested on its own.
+  await settings.save({ ...settings.get(), writeCostToAdo: true });
   const usage = new UsageStore(usageDir, () => OFFICIAL_RATES);
   await usage.load();
   const receiverStarts: number[] = [];
@@ -1635,6 +1637,33 @@ describe('handlers: usage', () => {
     errors.mockRestore();
   });
 
+  it('writes nothing to Azure DevOps when cost writing is off (the default)', async () => {
+    const hx = await harness();
+    await hx.settings.save({ ...hx.settings.get(), writeCostToAdo: false });
+    const { t } = await linkedTask(hx);
+    await expect(hx.h['usage:sync'](t.id)).rejects.toThrow(
+      'Writing AI cost to Azure DevOps is off',
+    );
+    hx.hourly[0]();
+    await hx.h['tasks:finish'](t.id, {
+      closeTerminals: true,
+      removeWorktree: true,
+      deleteBranch: true,
+      syncUsage: true,
+    });
+    await new Promise((r) => setTimeout(r, 200));
+    expect(
+      hx.server.requests.filter(
+        (r) => r.method === 'PATCH' || r.path.includes('/comments'),
+      ),
+    ).toEqual([]);
+    expect(hx.store.state.tasks[0]).toMatchObject({
+      status: 'done',
+      usageSyncedAt: null,
+      usageCommentId: null,
+    });
+  });
+
   it('sync now and the hourly sync write fields without a comment', async () => {
     const hx = await harness();
     const { t, c } = await linkedTask(hx);
@@ -1971,6 +2000,16 @@ describe('handlers: finish with a pull request', () => {
       isDraft: true,
     });
     expect(existsSync(hx.t.worktreePath)).toBe(false);
+  });
+
+  it('leaves the AI cost out of the PR description when cost writing is off', async () => {
+    const hx = await prHarness();
+    await hx.settings.save({ ...hx.settings.get(), writeCostToAdo: false });
+    commitFile(hx.t.worktreePath, 'feature.txt', 'a\n', 'Add the feature');
+    await hx.h['tasks:finish'](hx.t.id, finishWithPr);
+    const description = hx.create.mock.calls[0][2].description;
+    expect(description).toContain('Add the feature');
+    expect(description).not.toContain('AI cost');
   });
 
   it('records the branch as pushed in the Done summary, since the PR pushed it', async () => {

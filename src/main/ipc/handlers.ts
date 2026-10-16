@@ -299,8 +299,10 @@ export function createHandlers(s: Services): Handlers {
     };
   };
 
+  /** Cost goes to Azure DevOps (work items, PR descriptions) only when the user turned it on. */
+  const writeCost = () => s.settings.get().writeCostToAdo;
   const costLineFor = (taskId: string) =>
-    renderCostLine(s.usage.summarize(taskId));
+    writeCost() ? renderCostLine(s.usage.summarize(taskId)) : null;
 
   const usageSync = new UsageSync({
     task: taskById,
@@ -326,7 +328,7 @@ export function createHandlers(s: Services): Handlers {
   });
   s.usage.on('changed', (taskId) => s.broadcast('usage:changed', { taskId }));
   s.onHourly(() => {
-    if (s.settings.get().hourlySync)
+    if (s.settings.get().hourlySync && writeCost())
       usageSync
         .syncChanged()
         .catch((e) => console.error('[usage] hourly sync failed', e));
@@ -865,12 +867,12 @@ export function createHandlers(s: Services): Handlers {
             removeWorktree: options.removeWorktree,
             deleteBranch: options.deleteBranch,
             closeTerminals: options.closeTerminals,
-            syncUsage: options.syncUsage,
+            syncUsage: options.syncUsage && writeCost(),
             workItem: task.workItem !== null && task.workItem !== undefined,
           },
           { ageHours: (Date.now() - Date.parse(task.createdAt)) / 3_600_000 },
         );
-        if (options.syncUsage) {
+        if (options.syncUsage && writeCost()) {
           try {
             if (killTerminals && s.finishFlushMs > 0)
               await new Promise((r) => setTimeout(r, s.finishFlushMs));
@@ -1111,6 +1113,10 @@ export function createHandlers(s: Services): Handlers {
       return s.usage.summarize(taskId);
     },
     'usage:sync': async (taskId) => {
+      if (!writeCost())
+        throw new Error(
+          'Writing AI cost to Azure DevOps is off. Turn it on in Settings, AI cost and invoicing.',
+        );
       const result = await usageSync.syncTask(taskId, {
         refreshFields: true,
         // A done task still owes its one usage comment if the write on finish failed.

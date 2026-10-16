@@ -12,6 +12,7 @@ import { useStore } from '../store';
 type SettingsDraft = {
   receiverPort: string;
   hourlySync: boolean;
+  writeCostToAdo: boolean;
 };
 
 /** A number typed in a field, or null when it is blank or not a number (Number('') would be 0). */
@@ -45,6 +46,7 @@ function InvoicingPart() {
         setDraft({
           receiverPort: String(s.receiverPort),
           hourlySync: s.hourlySync,
+          writeCostToAdo: s.writeCostToAdo,
         });
     });
     const load = () =>
@@ -77,6 +79,7 @@ function InvoicingPart() {
         ...fresh,
         receiverPort,
         hourlySync: draft.hourlySync,
+        writeCostToAdo: draft.writeCostToAdo,
       };
       return api().invoke('settings:save', settings);
     }, notify);
@@ -100,10 +103,29 @@ function InvoicingPart() {
             }
           />
           <span />
+          <div className="cost-write">
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={draft.writeCostToAdo}
+                onChange={(e) =>
+                  setDraft({ ...draft, writeCostToAdo: e.target.checked })
+                }
+              />
+              Write AI cost to Azure DevOps
+            </label>
+            <span className="small muted">
+              The AI cost fields and a usage comment on the work item, and the
+              cost line in draft pull requests. Off: the cost stays in MIAC
+              (Usage tab, CSV export).
+            </span>
+          </div>
+          <span />
           <label className="checkbox">
             <input
               type="checkbox"
-              checked={draft.hourlySync}
+              checked={draft.writeCostToAdo && draft.hourlySync}
+              disabled={!draft.writeCostToAdo}
               onChange={(e) =>
                 setDraft({ ...draft, hourlySync: e.target.checked })
               }

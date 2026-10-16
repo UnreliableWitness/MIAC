@@ -7,6 +7,7 @@ import { api, tryInvoke } from '../api';
 import { ago, compact, eur } from '../format';
 import { useClock } from '../hooks/useClock';
 import { useTaskUsage } from '../hooks/useTaskUsage';
+import { useWriteCostToAdo } from '../hooks/useWriteCostToAdo';
 import { useStore } from '../store';
 import { RingGauge } from './ui';
 
@@ -81,9 +82,10 @@ export function UsagePanel({
   const [busy, setBusy] = useState(false);
   const connectionId = repo?.connectionId ?? null;
   const linked = Boolean(task?.workItem) && connectionId !== null;
+  const writeCost = useWriteCostToAdo();
 
   useEffect(() => {
-    if (!linked || !connectionId) return;
+    if (!linked || !connectionId || !writeCost) return;
     let live = true;
     void api()
       .invoke('usage:fieldsStatus', connectionId)
@@ -94,7 +96,7 @@ export function UsagePanel({
     return () => {
       live = false;
     };
-  }, [linked, connectionId]);
+  }, [linked, connectionId, writeCost]);
 
   if (!task) return <div className="empty">Task not found</div>;
   const typeFields = fields?.types.find(
@@ -279,64 +281,80 @@ export function UsagePanel({
         </div>
         <div className="card up-box up-workitem">
           <h3>On the work item</h3>
-          <span className="small muted">
-            {task.usageSyncError
-              ? `sync failed: ${task.usageSyncError}`
-              : task.usageSyncedAt
-                ? `synced ${ago(task.usageSyncedAt)}`
-                : 'not synced yet'}
-          </span>
-          {!linked && (
-            <p className="muted small">
-              Link the repository to an Azure DevOps connection in Settings and
-              create the task from a work item to write totals back.
-            </p>
+          {writeCost === false ? (
+            <>
+              <p className="muted small">
+                Writing AI cost to Azure DevOps is off (Settings, AI cost and
+                invoicing). The cost stays in MIAC: this tab and the CSV export.
+              </p>
+              <div className="actions">
+                <button type="button" className="btn" onClick={exportCsv}>
+                  CSV
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <span className="small muted">
+                {task.usageSyncError
+                  ? `sync failed: ${task.usageSyncError}`
+                  : task.usageSyncedAt
+                    ? `synced ${ago(task.usageSyncedAt)}`
+                    : 'not synced yet'}
+              </span>
+              {!linked && (
+                <p className="muted small">
+                  Link the repository to an Azure DevOps connection in Settings
+                  and create the task from a work item to write totals back.
+                </p>
+              )}
+              {values && (
+                <dl className="usage-fields">
+                  {AI_FIELDS.map((f) => (
+                    <div key={f}>
+                      <dt>{FIELD_LABEL[f]}</dt>
+                      <dd className="mono">
+                        {f === 'Custom.AITokens'
+                          ? values[f].toLocaleString('en-US')
+                          : values[f].toFixed(2)}
+                      </dd>
+                      {typeFields && !typeFields.present.includes(f) && (
+                        <dd className="small muted">{`not on ${typeFields.type}`}</dd>
+                      )}
+                    </div>
+                  ))}
+                </dl>
+              )}
+              <div className="label">
+                {task.usageCommentId
+                  ? `Comment posted (id ${task.usageCommentId})`
+                  : task.status === 'done'
+                    ? 'Comment added on the next write to the work item'
+                    : 'Comment added when the task is finished'}
+              </div>
+              {usage && (
+                <details>
+                  <summary>Comment preview</summary>
+                  <pre className="usage-comment">
+                    {renderUsageComment(usage, task.branch)}
+                  </pre>
+                </details>
+              )}
+              <div className="actions">
+                <button type="button" className="btn" onClick={exportCsv}>
+                  CSV
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={sync}
+                  disabled={!linked || busy}
+                >
+                  Write to work item
+                </button>
+              </div>
+            </>
           )}
-          {values && (
-            <dl className="usage-fields">
-              {AI_FIELDS.map((f) => (
-                <div key={f}>
-                  <dt>{FIELD_LABEL[f]}</dt>
-                  <dd className="mono">
-                    {f === 'Custom.AITokens'
-                      ? values[f].toLocaleString('en-US')
-                      : values[f].toFixed(2)}
-                  </dd>
-                  {typeFields && !typeFields.present.includes(f) && (
-                    <dd className="small muted">{`not on ${typeFields.type}`}</dd>
-                  )}
-                </div>
-              ))}
-            </dl>
-          )}
-          <div className="label">
-            {task.usageCommentId
-              ? `Comment posted (id ${task.usageCommentId})`
-              : task.status === 'done'
-                ? 'Comment added on the next write to the work item'
-                : 'Comment added when the task is finished'}
-          </div>
-          {usage && (
-            <details>
-              <summary>Comment preview</summary>
-              <pre className="usage-comment">
-                {renderUsageComment(usage, task.branch)}
-              </pre>
-            </details>
-          )}
-          <div className="actions">
-            <button type="button" className="btn" onClick={exportCsv}>
-              CSV
-            </button>
-            <button
-              type="button"
-              className="btn"
-              onClick={sync}
-              disabled={!linked || busy}
-            >
-              Write to work item
-            </button>
-          </div>
         </div>
       </div>
     </section>
