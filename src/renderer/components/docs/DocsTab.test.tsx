@@ -18,6 +18,8 @@ const task = {
   status: 'ready',
   terminals: [],
   worktreeMissing: false,
+  extraWorkspaces: [],
+  homeDropped: false,
 } as unknown as TaskView;
 const files = [
   { path: '.miac/task.md', changed: null },
@@ -370,5 +372,107 @@ describe('DocsTab', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+describe('DocsTab with several repos', () => {
+  const multi = {
+    ...task,
+    repoId: 'r1',
+    branch: 'b1',
+    extraWorkspaces: [{ id: 'w2', repoId: 'r2', branch: 'b2', dropped: false }],
+  } as unknown as TaskView;
+  const seed = () => {
+    useStore.setState({
+      repos: [
+        { id: 'r1', name: 'alpha' },
+        { id: 'r2', name: 'beta' },
+      ] as never,
+    });
+  };
+  it('has no repo switcher with one workspace', async () => {
+    mount();
+    await screen.findByRole('heading', { name: 'Task file' });
+    expect(screen.queryByRole('combobox', { name: 'Repository' })).toBeNull();
+  });
+  it('switches repo and lists that repo files', async () => {
+    seed();
+    const lists: string[] = [];
+    installFakeApi({
+      'docs:list': (t) => {
+        lists.push(t as string);
+        return {
+          files:
+            t === 't1#w2'
+              ? [{ path: 'beta.md', changed: null }]
+              : [{ path: 'alpha.md', changed: null }],
+        };
+      },
+      'docs:read': (_t, p) => ({ text: `# ${p}`, mtimeMs: 1 }),
+    });
+    render(<DocsTab task={multi} />);
+    await screen.findByRole('heading', { name: 'alpha.md' });
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: 'Repository' }),
+      'w2',
+    );
+    expect(
+      await screen.findByRole('heading', { name: 'beta.md' }),
+    ).toBeTruthy();
+    expect(lists).toEqual(['t1', 't1#w2']);
+  });
+  const multiApi = () =>
+    installFakeApi({
+      'docs:list': (t) => ({
+        files:
+          t === 't1#w2'
+            ? [
+                { path: 'beta.md', changed: null },
+                { path: 'x.md', changed: null },
+              ]
+            : [{ path: 'alpha.md', changed: null }],
+      }),
+      'docs:read': (_t, p) => ({ text: `# ${p}\n\nl2\n`, mtimeMs: 1 }),
+    });
+  it('opens a terminal link in the linked workspace at its line', async () => {
+    seed();
+    multiApi();
+    useStore.getState().openDoc('t1', 'x.md', 3, 'w2');
+    render(<DocsTab task={multi} />);
+    expect(await screen.findByText('# x.md')).toBeTruthy();
+    expect(
+      (
+        screen.getByRole('combobox', {
+          name: 'Repository',
+        }) as HTMLSelectElement
+      ).value,
+    ).toBe('w2');
+    expect(
+      JSON.parse(localStorage.getItem('miac.docs.t1#w2') ?? '{}'),
+    ).toMatchObject({
+      path: 'x.md',
+      view: 'source',
+    });
+  });
+  it('does not replay an old terminal link when the tab remounts', async () => {
+    seed();
+    multiApi();
+    useStore.getState().openDoc('t1', 'x.md', 3, 'w2');
+    const first = render(<DocsTab task={multi} />);
+    await screen.findByText('# x.md');
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: 'Repository' }),
+      'w2',
+    );
+    first.unmount();
+    localStorage.clear();
+    render(<DocsTab task={multi} />);
+    await screen.findByRole('heading', { name: 'alpha.md' });
+    expect(
+      (
+        screen.getByRole('combobox', {
+          name: 'Repository',
+        }) as HTMLSelectElement
+      ).value,
+    ).toBe('home');
   });
 });

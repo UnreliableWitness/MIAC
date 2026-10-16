@@ -310,6 +310,33 @@ button.projecttile:hover {
   color: var(--muted);
   font-size: 12px;
 }
+.navrow-repos {
+  flex: none;
+  white-space: nowrap;
+}
+.ws-chips {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 4px;
+}
+.ws-chips .chip svg {
+  margin-right: 4px;
+}
+.ws-warning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-card);
+  color: var(--text);
+  font-size: 13px;
+}
+.ws-warning svg {
+  flex: none;
+  color: var(--warn);
+}
 .railrow {
   position: relative;
   width: 100%;

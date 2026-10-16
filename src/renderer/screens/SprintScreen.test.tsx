@@ -33,6 +33,7 @@ const repo: Repo = {
   baseBranch: 'main',
   connectionId: 'c1',
   miacYmlFound: true,
+  discovered: false,
   workItemOnStart: {
     moveToInProgress: true,
     assignToMe: true,
@@ -122,6 +123,11 @@ const task = (over: Partial<TaskView>): TaskView => ({
   pullRequest: null,
   closedTerminals: [],
   reopen: null,
+  extraWorkspaces: [],
+  detachedPaths: [],
+  homeDropped: false,
+  connectionId: null,
+  mainCheckoutEdits: [],
   ...over,
 });
 
@@ -357,6 +363,49 @@ describe('Sprint page', () => {
       openShell: true,
       openCopilot: false,
     });
+  });
+
+  it('Start never picks a discovered repo', async () => {
+    const { calls } = fake({
+      'repos:config': () => ({
+        worktreeRoot: '/w',
+        config: {
+          base: 'main',
+          branch: '{type}/{id}-{slug}',
+          copy: [],
+          setup: [],
+          run: {},
+          found: true,
+        },
+      }),
+      'tasks:create': () => ({ id: 't5' }) as never,
+    });
+    useStore.setState({
+      repos: [{ ...repo, id: 'rd', name: 'found', discovered: true }, repo],
+    });
+    render(<Shell />);
+    const table = await grid();
+    await userEvent.click(
+      within(table).getByRole('button', {
+        name: 'Start a task for Task 5 Store the address',
+      }),
+    );
+    await waitFor(() =>
+      expect(calls.find((c) => c.channel === 'tasks:create')).toBeDefined(),
+    );
+    const created = calls.find((c) => c.channel === 'tasks:create');
+    expect(created?.args[0]).toMatchObject({ repoId: 'r1' });
+  });
+
+  it('disables Start when only a discovered repo is linked', async () => {
+    fake();
+    useStore.setState({ repos: [{ ...repo, discovered: true }] });
+    render(<Shell />);
+    const table = await grid();
+    const start = within(table).getByRole('button', {
+      name: 'Start a task for Issue 2 Estimated delivery date',
+    });
+    expect(start).toHaveAttribute('aria-disabled', 'true');
   });
 
   it('stays on the sprint and shows the error when creating the task fails', async () => {

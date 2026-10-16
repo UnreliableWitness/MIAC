@@ -43,6 +43,11 @@ const task: TaskView = {
   pullRequest: null,
   closedTerminals: [],
   reopen: null,
+  extraWorkspaces: [],
+  detachedPaths: [],
+  homeDropped: false,
+  connectionId: null,
+  mainCheckoutEdits: [],
   worktreeMissing: false,
 };
 const summary: TaskSummary = {
@@ -77,6 +82,7 @@ beforeEach(() =>
         baseBranch: 'main',
         connectionId: 'c1',
         miacYmlFound: true,
+        discovered: false,
         workItemOnStart: {
           moveToInProgress: true,
           assignToMe: true,
@@ -356,5 +362,89 @@ describe('DoneTaskPage', () => {
     await waitFor(() =>
       expect(fact('Time booked')).toHaveTextContent('Not booked'),
     );
+  });
+  describe('several repos', () => {
+    const pr = {
+      id: 9,
+      url: 'https://dev.azure.com/contoso/P/_git/api/pullrequest/9',
+      repositoryId: 'rid2',
+      project: 'P',
+      repo: 'api',
+      status: 'active' as const,
+      isDraft: true,
+    };
+    const multi: TaskView = {
+      ...task,
+      summary,
+      extraWorkspaces: [
+        {
+          id: 'w2',
+          repoId: 'r2',
+          branch: 'feature/api',
+          worktreePath: '/w/api',
+          baseRef: 'origin/main',
+          baseSha: 'abc',
+          source: 'detected',
+          summary: {
+            ...summary,
+            commits: [{ sha: '9999999', subject: 'API change' }],
+            commitCount: 1,
+            filesChanged: 2,
+          },
+          pullRequest: pr,
+          reopen: null,
+          dropped: false,
+        },
+        {
+          id: 'w3',
+          repoId: 'r3',
+          branch: 'feature/docs',
+          worktreePath: '/w/docs',
+          baseRef: 'origin/main',
+          baseSha: 'abc',
+          source: 'detected',
+          summary: null,
+          pullRequest: null,
+          reopen: null,
+          dropped: true,
+        },
+      ],
+    };
+    it('shows a section per repo, a note for the removed one, and the PR status per workspace', async () => {
+      useStore.setState({
+        repos: [
+          ...useStore.getState().repos,
+          { ...useStore.getState().repos[0], id: 'r2', name: 'api' },
+        ],
+      });
+      const { calls } = installFakeApi({
+        'usage:task': () => usage,
+        'tasks:prStatus': () => ({
+          ...pr,
+          status: 'completed' as const,
+          isDraft: false,
+        }),
+      });
+      render(<DoneTaskPage task={multi} />);
+      expect(
+        screen.getByRole('region', { name: 'webshop' }),
+      ).toBeInTheDocument();
+      const api = screen.getByRole('region', { name: 'api' });
+      expect(within(api).getByText('API change')).toBeInTheDocument();
+      expect(within(api).getByText('feature/api')).toBeInTheDocument();
+      await waitFor(() =>
+        expect(
+          within(api).getByRole('button', { name: /pull request 9/ }),
+        ).toHaveTextContent('PR 9 · Completed'),
+      );
+      expect(calls.find((c) => c.channel === 'tasks:prStatus')?.args).toEqual([
+        'a',
+        'w2',
+      ]);
+      expect(screen.getByText('docs: no changes, removed')).toBeInTheDocument();
+      expect(screen.queryByRole('region', { name: 'docs' })).toBeNull();
+      expect(screen.getAllByText('Duration')).toHaveLength(1);
+      expect(screen.getAllByText('AI cost')).toHaveLength(1);
+    });
   });
 });

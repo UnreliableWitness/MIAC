@@ -48,6 +48,7 @@ describe('TaskStore', () => {
         baseBranch: 'main',
         connectionId: null,
         miacYmlFound: true,
+        discovered: false,
         workItemOnStart: {
           moveToInProgress: true,
           assignToMe: true,
@@ -97,6 +98,60 @@ describe('TaskStore', () => {
     const store = new TaskStore(file);
     await store.load();
     expect(store.state.tasks[0].pullRequest).toBeNull();
+  });
+
+  it('loads the pre-workspace shape with defaults for the multi-repo fields', async () => {
+    const file = tmp();
+    mkdirSync(path.dirname(file), { recursive: true });
+    writeFileSync(
+      file,
+      JSON.stringify({
+        version: 1,
+        repos: [
+          {
+            id: 'r1',
+            name: 'webshop',
+            path: '/src/webshop',
+            baseBranch: 'main',
+            connectionId: null,
+            miacYmlFound: true,
+            discovered: false,
+          },
+        ],
+        tasks: [
+          {
+            id: 't1',
+            repoId: 'r1',
+            name: 'Old task',
+            workItem: null,
+            slug: 'old-task',
+            branch: 'task/old-task',
+            worktreePath: '/wt/old-task',
+            baseRef: 'origin/main',
+            status: 'ready',
+            setup: {
+              copy: false,
+              commands: [],
+              startClaude: false,
+              openShell: false,
+            },
+            terminals: [],
+            createdAt: '2026-10-01T00:00:00.000Z',
+            finishedAt: null,
+          },
+        ],
+      }),
+    );
+    const store = new TaskStore(file);
+    await store.load();
+    expect(store.state.tasks[0]).toMatchObject({
+      extraWorkspaces: [],
+      detachedPaths: [],
+      homeDropped: false,
+      connectionId: null,
+      mainCheckoutEdits: [],
+    });
+    expect(store.state.repos[0].discovered).toBe(false);
   });
 
   it('does not change state when the mutation produces an invalid state', async () => {
@@ -164,6 +219,7 @@ describe('TaskStore', () => {
             baseBranch: 'main',
             connectionId: null,
             miacYmlFound: false,
+            discovered: false,
             workItemOnStart: {
               moveToInProgress: true,
               assignToMe: true,

@@ -3,6 +3,11 @@ import { Fragment, type ReactNode, useState } from 'react';
 import type { TaskView } from '../../shared/types';
 import { api, tryInvoke } from '../api';
 import { ago, eur } from '../format';
+import {
+  activeHome,
+  activeWorkspaces,
+  taskConnectionId,
+} from '../../shared/workspaces';
 import { useGitSummary } from '../hooks/useGitSummary';
 import { useTaskUsage } from '../hooks/useTaskUsage';
 import { activeConnection, useStore } from '../store';
@@ -28,10 +33,14 @@ function TaskDetails({
   onClose: () => void;
 }) {
   const notify = useStore((s) => s.notify);
-  const repo = useStore((s) => s.repos.find((r) => r.id === task.repoId));
+  const repos = useStore((s) => s.repos);
+  const workspaces = activeWorkspaces(task);
+  // The task's folder: the home unless Finish dropped it, then the repo that took over.
+  const home = activeHome(task);
   const git = useGitSummary(task.id, task.worktreeMissing);
   const usage = useTaskUsage(task.id);
-  const linked = task.workItem !== null && Boolean(repo?.connectionId);
+  const linked =
+    task.workItem !== null && Boolean(taskConnectionId(task, repos));
   const syncLine = !linked
     ? 'Not linked to an Azure DevOps work item'
     : task.usageSyncError
@@ -78,7 +87,16 @@ function TaskDetails({
           {task.status === 'ready' ? 'Active' : task.status}
         </span>
       </div>
-      <div className="mono">{task.branch}</div>
+      {workspaces.length > 1 ? (
+        workspaces.map((w) => (
+          <div key={w.id} className="mono">
+            {repos.find((r) => r.id === w.repoId)?.name ?? w.id}{' '}
+            <span className="muted">{w.branch}</span>
+          </div>
+        ))
+      ) : (
+        <div className="mono">{home.branch}</div>
+      )}
       {git && (
         <div className="mono muted">
           <span>{`${UP}${git.ahead} ${DOWN}${git.behind}`}</span>{' '}
@@ -89,7 +107,7 @@ function TaskDetails({
           )}
         </div>
       )}
-      <div className="mono muted">{task.worktreePath}</div>
+      <div className="mono muted">{home.worktreePath}</div>
       {usage && (
         <div className="small muted">
           Claude {eur(usage.byTool['claude-code'].costEur)} {DOT} Copilot{' '}

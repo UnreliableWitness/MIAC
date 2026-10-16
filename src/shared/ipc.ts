@@ -4,6 +4,7 @@ import type {
   CreateTaskInput,
   FinishChecks,
   FinishOptions,
+  FinishRowResult,
   GitSummary,
   Iteration,
   MiacConfig,
@@ -22,6 +23,7 @@ import type {
   WorkItemSearch,
   WorkItemSummary,
   WorkItemTypeMeta,
+  Workspace,
 } from './types';
 import type {
   AppSettings,
@@ -58,15 +60,23 @@ export type Channels = {
     args: [repoId: string, settings: StartSettings];
     result: Repo;
   };
+  /** Clearing the mark makes a repo found in a task a normal repo. */
+  'repos:setDiscovered': {
+    args: [repoId: string, discovered: boolean];
+    result: Repo;
+  };
   'tasks:prAvailability': {
-    args: [taskId: string];
+    args: [taskId: string, workspaceId?: string];
     result: {
       available: boolean;
       reason: string | null;
       target: string | null;
     };
   };
-  'tasks:prStatus': { args: [taskId: string]; result: PullRequestRef | null };
+  'tasks:prStatus': {
+    args: [taskId: string, workspaceId?: string];
+    result: PullRequestRef | null;
+  };
   'workItems:currentIteration': {
     args: [connectionId: string];
     result: Iteration | null;
@@ -96,7 +106,7 @@ export type Channels = {
   'docs:asset': { args: [taskId: string, path: string]; result: string };
   'docs:resolve': {
     args: [taskId: string, path: string];
-    result: { path: string; kind: 'md' | 'file' } | null;
+    result: { path: string; kind: 'md' | 'file'; workspaceId?: string } | null;
   };
   'docs:openInEditor': {
     args: [taskId: string, path: string, line?: number, col?: number];
@@ -113,15 +123,38 @@ export type Channels = {
   'tasks:setupState': { args: [taskId: string]; result: SetupState | null };
   'tasks:retrySetup': { args: [taskId: string]; result: void };
   'tasks:cancelSetup': { args: [taskId: string]; result: void };
-  'tasks:gitSummary': { args: [taskId: string]; result: GitSummary };
+  'tasks:gitSummary': {
+    args: [taskId: string, workspaceId?: string];
+    result: GitSummary;
+  };
   'tasks:finishChecks': { args: [taskId: string]; result: FinishChecks };
+  /** Each row's outcome of the last Finish with workspaces (null before one ran); read after a failed Finish. */
+  'tasks:finishResults': {
+    args: [taskId: string];
+    result: FinishRowResult[] | null;
+  };
   /** Brings a finished task back: `setup` is true when its worktree is being made again (Setup page). */
   'tasks:reopen': { args: [taskId: string]; result: { setup: boolean } };
   'tasks:finish': {
     args: [taskId: string, options: FinishOptions];
     result: void;
   };
-  'tasks:openInEditor': { args: [taskId: string]; result: void };
+  'tasks:openInEditor': {
+    args: [taskId: string, workspaceId?: string];
+    result: void;
+  };
+  /** Looks for other repos' worktrees the task worked in and joins them; returns the ones added. */
+  'tasks:scanWorkspaces': { args: [taskId: string]; result: Workspace[] };
+  /** Joins the worktree containing a folder by hand. */
+  'tasks:addWorkspace': {
+    args: [taskId: string, folder: string];
+    result: Workspace;
+  };
+  /** Drops an extra workspace from the task; its worktree and branch stay on disk. */
+  'tasks:removeWorkspace': {
+    args: [taskId: string, workspaceId: string];
+    result: void;
+  };
   'terminals:open': {
     args: [taskId: string, def: NewTerminal];
     result: TerminalDef;

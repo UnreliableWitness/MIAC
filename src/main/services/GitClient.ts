@@ -156,6 +156,64 @@ export class GitClient {
     return true;
   }
 
+  /** `git worktree list --porcelain`: every worktree (the main checkout first) with its branch, null when detached. */
+  async worktreeList(
+    cwd: string,
+  ): Promise<{ path: string; branch: string | null }[]> {
+    const out = await this.run(cwd, ['worktree', 'list', '--porcelain']);
+    const list: { path: string; branch: string | null }[] = [];
+    for (const block of out.split(/\r?\n\r?\n/)) {
+      let wt: string | null = null;
+      let branch: string | null = null;
+      for (const line of block.split(/\r?\n/)) {
+        if (line.startsWith('worktree ')) wt = line.slice('worktree '.length);
+        else if (line.startsWith('branch '))
+          branch = line.slice('branch '.length).replace(/^refs\/heads\//, '');
+      }
+      if (wt) list.push({ path: nativePath(wt), branch });
+    }
+    return list;
+  }
+
+  async mergeBase(cwd: string, a: string, b: string): Promise<string | null> {
+    try {
+      return (await this.run(cwd, ['merge-base', a, b])).trim() || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** The ref a task branches from: origin's HEAD branch, else origin/main or origin/master, else local main or master, else HEAD. */
+  async defaultBaseRef(cwd: string): Promise<string> {
+    try {
+      const head = (
+        await this.run(cwd, [
+          'symbolic-ref',
+          '--short',
+          'refs/remotes/origin/HEAD',
+        ])
+      ).trim();
+      if (head && (await this.commitExists(cwd, `refs/remotes/${head}`)))
+        return head;
+    } catch {
+      // no origin/HEAD
+    }
+    for (const ref of ['origin/main', 'origin/master'])
+      if (await this.commitExists(cwd, `refs/remotes/${ref}`)) return ref;
+    for (const b of ['main', 'master'])
+      if (await this.branchExists(cwd, b)) return b;
+    return 'HEAD';
+  }
+
+  /** The checked-out branch, or null when detached. */
+  async currentBranch(cwd: string): Promise<string | null> {
+    try {
+      return (await this.run(cwd, ['branch', '--show-current'])).trim() || null;
+    } catch {
+      return null;
+    }
+  }
+
   async worktreeAdd(
     cwd: string,
     o: { branch: string; path: string; baseRef: string },

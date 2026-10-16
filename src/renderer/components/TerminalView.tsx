@@ -12,12 +12,15 @@ import { loadRenderer, terminalOptions, windowsBuild } from '../terminalSetup';
 export function TerminalView({
   terminalId,
   taskId,
+  workspaceId,
   active,
   resumes = false,
   autoStart = false,
 }: {
   terminalId: string;
   taskId: string;
+  /** The workspace the terminal runs in, for links; absent means the task's active home. */
+  workspaceId?: string;
   active: boolean;
   /** Claude Code: Restart resumes the conversation, so the button says so. */
   resumes?: boolean;
@@ -105,7 +108,9 @@ export function TerminalView({
       if (build) t.options.windowsPty = terminalOptions(build).windowsPty;
       t.open(el);
       loadRenderer(t);
-      links = t.registerLinkProvider(createLinkProvider(t, taskId));
+      links = t.registerLinkProvider(
+        createLinkProvider(t, taskId, { workspaceId }),
+      );
       observer.observe(el);
       sendSize();
     });
@@ -121,7 +126,7 @@ export function TerminalView({
       t.dispose();
       term.current = null;
     };
-  }, [terminalId, taskId]);
+  }, [terminalId, taskId, workspaceId]);
 
   useEffect(() => {
     if (active) {

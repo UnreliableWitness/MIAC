@@ -19,6 +19,8 @@ export const TerminalDefSchema = z.object({
   command: z.string().optional(),
   /** Claude Code's session id (a UUID), so Restart resumes the same conversation. Absent on older tasks. */
   sessionId: z.string().optional(),
+  /** The workspace (repo worktree) the tab runs in; absent means the task's active home. */
+  workspaceId: z.string().optional(),
   /** The Setup tab: a `run` tab that runs these setup commands in order. Never restarted by itself. */
   setupCommands: z.array(z.string()).optional(),
 });
@@ -75,6 +77,22 @@ export const PullRequestRefSchema = z.object({
 });
 export type PullRequestRef = z.infer<typeof PullRequestRefSchema>;
 
+/** One more repo's worktree and branch that belongs to a task, besides its home repo. */
+export const WorkspaceSchema = z.object({
+  id: z.string().min(1),
+  repoId: z.string().min(1),
+  branch: z.string().min(1),
+  worktreePath: z.string().min(1),
+  baseRef: z.string().min(1),
+  baseSha: z.string().nullable().default(null),
+  source: z.enum(['detected', 'manual']),
+  summary: TaskSummarySchema.nullable().default(null),
+  pullRequest: PullRequestRefSchema.nullable().default(null),
+  reopen: z.object({ from: z.string().nullable() }).nullable().default(null),
+  dropped: z.boolean().default(false),
+});
+export type Workspace = z.infer<typeof WorkspaceSchema>;
+
 export const TaskSchema = z.object({
   id: z.string().min(1),
   repoId: z.string().min(1),
@@ -104,6 +122,18 @@ export const TaskSchema = z.object({
    * null when the local branch still exists, else a ref or commit to make it from.
    */
   reopen: z.object({ from: z.string().nullable() }).nullable().default(null),
+  /** Worktrees in other repos that joined the task (the flat fields above are the home repo's). */
+  extraWorkspaces: z.array(WorkspaceSchema).default([]),
+  /** Worktree paths the user detached, so a scan does not attach them again. */
+  detachedPaths: z.array(z.string()).default([]),
+  /** The home workspace was dropped from the task. */
+  homeDropped: z.boolean().default(false),
+  /** The connection of the task's work item; null on older tasks (the home repo's connection applies). */
+  connectionId: z.string().nullable().default(null),
+  /** Repos whose main checkout Claude edited directly; shown as a warning, never touched. */
+  mainCheckoutEdits: z
+    .array(z.object({ repoPath: z.string(), branch: z.string().nullable() }))
+    .default([]),
   /** When the task was open, as ISO instants; `end: null` while it is. Empty on older tasks (time falls back to createdAt/finishedAt). */
   openPeriods: z
     .array(z.object({ start: z.string(), end: z.string().nullable() }))
@@ -120,6 +150,8 @@ export const RepoSchema = z.object({
   baseBranch: z.string().min(1),
   connectionId: z.string().nullable(),
   miacYmlFound: z.boolean(),
+  /** Added by MIAC when a task's Claude session worked in it, not by the user; Start never picks it. */
+  discovered: z.boolean().default(false),
   workItemOnStart: StartSettingsSchema.default({
     moveToInProgress: true,
     assignToMe: true,
@@ -161,12 +193,21 @@ export type CreateTaskInput = {
   openCopilot?: boolean;
 };
 
+/**
+ * What Finish does with one workspace: `pr` pushes and opens a draft PR, `push` only pushes, `keep` does
+ * neither (it is still cleaned up per the global options), `drop` takes it out of the task without a push
+ * and always removes its worktree and branch.
+ */
+export type WorkspaceAction = 'pr' | 'push' | 'keep' | 'drop';
+
 export type FinishOptions = {
   closeTerminals: boolean;
   removeWorktree: boolean;
   deleteBranch: boolean;
   syncUsage: boolean;
   createPullRequest?: boolean;
+  /** One entry per workspace; absent is the single-repo Finish (home: `pr` when createPullRequest, else `keep`). */
+  workspaces?: { workspaceId: string; action: WorkspaceAction }[];
   /** The time to book on the task (seconds); absent books nothing. */
   bookedSeconds?: number;
 };
@@ -179,10 +220,48 @@ export type GitSummary = {
   hasUpstream: boolean;
   files: GitFile[];
 };
+/** What Finish did with one workspace, kept so the page can show each row's state after a failure. */
+export type FinishRowResult = {
+  workspaceId: string;
+  action: WorkspaceAction;
+  ok: boolean;
+  /** The branch is on origin (pushed now or before). */
+  pushed: boolean;
+  /** `linked`: an existing PR, not one made by this Finish. */
+  pullRequest: { id: number; url: string; linked: boolean } | null;
+  error: string | null;
+};
+
+/** The Finish page's look at one workspace still in the task. */
+export type WorkspaceCheck = {
+  workspaceId: string;
+  repoId: string;
+  repoName: string;
+  branch: string;
+  /** The worktree folder is gone (removed by hand): Finish skips it. */
+  missing: boolean;
+  uncommitted: GitFile[];
+  unpushed: number;
+  /** Commits on the branch since it left its base. */
+  commits: number;
+  /** False when the branch's starting point could not be found: changes are unknown, so never "no changes". */
+  baseKnown: boolean;
+  pr: {
+    available: boolean;
+    reason: string | null;
+    target: string | null;
+    /** False when the repo is in another organization than the work item: the PR names it instead. */
+    linksWorkItem: boolean;
+  };
+};
+
 export type FinishChecks = {
+  /** The home worktree's (as before #48). */
   uncommitted: GitFile[];
   unpushed: number;
   runningTerminals: number;
+  /** Every workspace still in the task, home first. */
+  workspaces: WorkspaceCheck[];
 };
 
 export type SetupStepKind =
@@ -192,12 +271,17 @@ export type SetupStepKind =
   | 'task-file'
   | 'node-modules'
   | 'apm'
+  /** A setup command run by the setup itself; only a reopened extra workspace's commands (the home's go to its Setup tab). */
+  | 'command'
   | 'terminals'
   | 'work-item';
 export type SetupStepDef = {
   kind: SetupStepKind;
   label: string;
   detail: string;
+  command?: string;
+  /** The extra workspace a reopen step restores; absent for the home's steps. */
+  workspaceId?: string;
 };
 export type SetupStepStatus = 'todo' | 'running' | 'done' | 'warn' | 'failed';
 export type SetupEvent =

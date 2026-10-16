@@ -46,6 +46,11 @@ const task: TaskView = {
   pullRequest: null,
   closedTerminals: [],
   reopen: null,
+  extraWorkspaces: [],
+  detachedPaths: [],
+  homeDropped: false,
+  connectionId: null,
+  mainCheckoutEdits: [],
 };
 const repo = {
   id: 'r1',
@@ -54,6 +59,7 @@ const repo = {
   baseBranch: 'main',
   connectionId: null,
   miacYmlFound: true,
+  discovered: false,
   workItemOnStart: {
     moveToInProgress: true,
     assignToMe: true,
@@ -220,6 +226,7 @@ describe('full pages', () => {
         uncommitted: [],
         unpushed: 0,
         runningTerminals: 0,
+        workspaces: [],
       }),
     });
     useStore.setState({ repos: [repo], tasks: [task] });

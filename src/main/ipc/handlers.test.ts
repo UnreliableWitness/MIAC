@@ -27,6 +27,7 @@ import { NoopTelemetry, type Telemetry } from '../telemetry/AppInsightsClient';
 import { TerminalManager } from '../services/TerminalManager';
 import { DocsWatcher } from '../docs/DocsWatcher';
 import { TimeStore } from '../time/TimeStore';
+import type { WorkspaceDetector } from '../workspaces/WorkspaceDetector';
 import {
   addOrigin,
   cleanupTempRepos,
@@ -92,6 +93,8 @@ async function harness(
   const base = testPlatform();
   const platform = {
     ...base,
+    // The real lookup of `code` on PATH differs per platform and machine.
+    editorCommand: (p: string) => ({ command: 'code', args: [p] }),
     shellCommand: (c: string) =>
       c === 'apm --version'
         ? base.shellCommand(echoCmd('apm 1.0.0'))
@@ -252,6 +255,100 @@ describe('handlers: repos', () => {
     });
     await h['repos:remove'](added.id);
     expect(await h['repos:list']()).toEqual([]);
+  });
+});
+
+describe('handlers: workspaces', () => {
+  it('scans, joins, removes and marks repos, broadcasting each change', async () => {
+    const { h, setupDone, input, broadcasts } = await harness();
+    const finished = setupDone();
+    const task = await h['tasks:create'](input());
+    await finished;
+    const api = makeRepo('api');
+    const apiRepo = await h['repos:add'](api);
+    const apiWt = path.join(path.dirname(api), 'api-wt');
+    git(api, 'worktree', 'add', '-q', '-b', task.branch, apiWt);
+    broadcasts.length = 0;
+
+    const added = await h['tasks:scanWorkspaces'](task.id);
+
+    expect(added).toHaveLength(1);
+    expect(added[0]).toMatchObject({ repoId: apiRepo.id, source: 'detected' });
+    expect(broadcasts.map((b) => b.event)).toEqual(
+      expect.arrayContaining(['notice', 'repos:changed', 'tasks:changed']),
+    );
+    expect(broadcasts).toContainEqual({
+      event: 'notice',
+      payload: { level: 'info', message: 'Added api to this task' },
+    });
+    broadcasts.length = 0;
+    expect(await h['tasks:scanWorkspaces'](task.id)).toEqual([]);
+    expect(broadcasts).toEqual([]);
+
+    await h['tasks:removeWorkspace'](task.id, added[0].id);
+    const [view] = (await h['tasks:list']()).filter((t) => t.id === task.id);
+    expect(view.extraWorkspaces).toEqual([]);
+    expect(view.detachedPaths).toHaveLength(1);
+    expect(broadcasts.some((b) => b.event === 'tasks:changed')).toBe(true);
+    await expect(h['tasks:removeWorkspace'](task.id, 'home')).rejects.toThrow(
+      /home workspace/,
+    );
+
+    expect((await h['repos:setDiscovered'](apiRepo.id, true)).discovered).toBe(
+      true,
+    );
+    expect(broadcasts.at(-1)?.event).toBe('repos:changed');
+  });
+});
+
+describe('handlers: scans only a ready task', () => {
+  it('a scan during finishing or setup joins nothing and does not reach the detector', async () => {
+    const scan = vi.fn(async () => ({ added: [] }));
+    const hx = await harness(fakeCrypto(), {
+      workspaces: { scan } as unknown as WorkspaceDetector,
+    });
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](hx.input());
+    await done;
+    for (const status of ['finishing', 'setting-up'] as const) {
+      await hx.store.update((st) => {
+        st.tasks[0].status = status;
+      });
+      expect(await hx.h['tasks:scanWorkspaces'](t.id)).toEqual([]);
+    }
+    expect(scan).not.toHaveBeenCalled();
+    await hx.store.update((st) => {
+      st.tasks[0].status = 'ready';
+    });
+    await hx.h['tasks:scanWorkspaces'](t.id);
+    expect(scan).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('handlers: open in editor', () => {
+  it('opens the home worktree, or the chosen workspace', async () => {
+    const launched: { command: string; args: string[] }[] = [];
+    const { h, setupDone, input } = await harness(undefined, {
+      launch: async (c) => {
+        launched.push(c);
+      },
+    });
+    const finished = setupDone();
+    const task = await h['tasks:create'](input());
+    await finished;
+    const api = makeRepo('api');
+    await h['repos:add'](api);
+    const apiWt = path.join(path.dirname(api), 'api-wt');
+    git(api, 'worktree', 'add', '-q', '-b', task.branch, apiWt);
+    const [ws] = await h['tasks:scanWorkspaces'](task.id);
+
+    await h['tasks:openInEditor'](task.id);
+    await h['tasks:openInEditor'](task.id, ws.id);
+
+    expect(launched.map((c) => c.args[0])).toEqual([
+      task.worktreePath,
+      ws.worktreePath,
+    ]);
   });
 });
 
@@ -1091,6 +1188,132 @@ describe('handlers: reopen a finished task', () => {
     expect(hx.before.map((d) => d.kind)).toEqual(['claude', 'shell']);
   });
 
+  const withExtra = async (hx: Awaited<ReturnType<typeof finished>>) => {
+    const extraPath = mkdtempSync(path.join(os.tmpdir(), 'miac-extra-'));
+    git(extraPath, 'init', '-q');
+    git(extraPath, 'config', 'user.email', 'tests@miac.local');
+    git(extraPath, 'config', 'user.name', 'MIAC tests');
+    git(extraPath, 'config', 'core.autocrlf', 'false');
+    await hx.store.update((st) => {
+      st.tasks[0].extraWorkspaces.push({
+        id: 'w2',
+        repoId: 'other',
+        branch: 'b',
+        worktreePath: extraPath,
+        baseRef: 'HEAD',
+        baseSha: null,
+        source: 'detected',
+        summary: null,
+        pullRequest: null,
+        reopen: null,
+        dropped: false,
+      });
+    });
+    return extraPath;
+  };
+
+  it('Claude gets --add-dir for the extra worktree, on resume and on start; dropped ones are left out', async () => {
+    const hx = await finished({ removeWorktree: false, deleteBranch: false });
+    const extra = await withExtra(hx);
+    const id = hx.t.id;
+    const claude = hx.before.find((d) => d.kind === 'claude')!;
+    await hx.h['tasks:reopen'](id);
+    expect(hx.calls.at(-1)?.flags).toEqual([
+      '--resume',
+      claude.sessionId,
+      '--add-dir',
+      extra,
+    ]);
+    await hx.h['terminals:open'](id, { kind: 'claude', label: 'Claude Code' });
+    expect(hx.calls.at(-1)?.flags).toEqual([
+      '--session-id',
+      expect.any(String),
+      '--add-dir',
+      extra,
+    ]);
+    await hx.store.update((st) => {
+      st.tasks[0].extraWorkspaces[0].dropped = true;
+    });
+    await hx.h['terminals:open'](id, { kind: 'claude', label: 'Claude Code' });
+    expect(hx.calls.at(-1)?.flags).not.toContain('--add-dir');
+    await hx.terminals.killAllForTask(id);
+  });
+
+  it('Claude gets no --add-dir for a workspace whose folder is gone', async () => {
+    const hx = await finished({ removeWorktree: false, deleteBranch: false });
+    const extra = await withExtra(hx);
+    await hx.h['tasks:reopen'](hx.t.id);
+    rmSync(extra, { recursive: true, force: true });
+    await hx.h['terminals:open'](hx.t.id, {
+      kind: 'claude',
+      label: 'Claude Code',
+    });
+    expect(hx.calls.at(-1)?.flags).toEqual([
+      '--session-id',
+      expect.any(String),
+    ]);
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
+  it('opens a shell in the workspace asked for, else in the active home', async () => {
+    const hx = await finished({ removeWorktree: false, deleteBranch: false });
+    const extra = await withExtra(hx);
+    await hx.terminals.killAllForTask(hx.t.id);
+    await hx.store.update((st) => {
+      st.tasks[0].status = 'ready';
+    });
+    const spy = vi.spyOn(hx.terminals, 'spawn');
+    await hx.h['terminals:open'](hx.t.id, {
+      kind: 'shell',
+      label: 'sh',
+      workspaceId: 'w2',
+    });
+    await hx.h['terminals:open'](hx.t.id, { kind: 'shell', label: 'sh' });
+    expect(spy.mock.calls.map((c) => c[0].cwd)).toEqual([
+      extra,
+      hx.t.worktreePath,
+    ]);
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
+  it('summarises an extra worktree against its own baseRef', async () => {
+    const hx = await finished({ removeWorktree: false, deleteBranch: false });
+    const extra = await withExtra(hx);
+    commitFile(extra, 'a.txt', 'a\n', 'first');
+    commitFile(extra, 'b.txt', 'b\n', 'second');
+    await hx.store.update((st) => {
+      st.tasks[0].extraWorkspaces[0].baseRef = 'HEAD~1';
+    });
+    writeFileSync(path.join(extra, 'c.txt'), 'c\n');
+    const sum = await hx.h['tasks:gitSummary'](hx.t.id, 'w2');
+    expect(sum.files.map((f) => f.path)).toEqual(['c.txt']);
+    expect(sum.ahead).toBe(1);
+    const home = await hx.h['tasks:gitSummary'](hx.t.id);
+    expect(home.files.map((f) => f.path)).not.toContain('c.txt');
+  });
+
+  it('a terminal of a removed or dropped workspace runs in the active home', async () => {
+    const hx = await finished({ removeWorktree: false, deleteBranch: false });
+    await withExtra(hx);
+    await hx.terminals.killAllForTask(hx.t.id);
+    await hx.store.update((st) => {
+      st.tasks[0].status = 'ready';
+      st.tasks[0].extraWorkspaces[0].dropped = true;
+    });
+    const spy = vi.spyOn(hx.terminals, 'spawn');
+    for (const workspaceId of ['w2', 'gone'])
+      await hx.h['terminals:open'](hx.t.id, {
+        kind: 'shell',
+        label: 'sh',
+        workspaceId,
+      });
+    expect(spy.mock.calls.map((c) => c[0].cwd)).toEqual([
+      hx.t.worktreePath,
+      hx.t.worktreePath,
+    ]);
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
   it('reopens a task whose worktree was kept, without setup, resuming Claude', async () => {
     const hx = await finished({ removeWorktree: false, deleteBranch: false });
     expect(await hx.h['tasks:reopen'](hx.t.id)).toEqual({ setup: false });
@@ -1169,6 +1392,11 @@ describe('handlers: reopen a finished task', () => {
     expect(hx.store.state.tasks[0]).toMatchObject({
       status: 'ready',
       reopen: null,
+      extraWorkspaces: [],
+      detachedPaths: [],
+      homeDropped: false,
+      connectionId: null,
+      mainCheckoutEdits: [],
       finishedAt: null,
       baseSha: hx.t.baseSha ?? hx.store.state.tasks[0].baseSha,
     });
@@ -1249,6 +1477,11 @@ describe('handlers: reopen a finished task', () => {
     expect(hx.store.state.tasks[0]).toMatchObject({
       status: 'done',
       reopen: null,
+      extraWorkspaces: [],
+      detachedPaths: [],
+      homeDropped: false,
+      connectionId: null,
+      mainCheckoutEdits: [],
     });
     expect(
       hx.store.state.tasks[0].openPeriods.every((p) => p.end !== null),
@@ -1268,6 +1501,286 @@ describe('handlers: reopen a finished task', () => {
     await hx.h['tasks:reopen'](hx.t.id);
     expect(hx.calls.at(-1)).toEqual({ context: null, flags: ['--continue'] });
     await hx.terminals.killAllForTask(hx.t.id);
+  });
+  /**
+   * A task in `webshop` (home, no changes) plus a worktree on its branch in `api` with one commit, finished with
+   * its worktrees removed and branches kept. `api`'s .miac.yml copies .env and writes api.txt.
+   */
+  async function finishedMulti(
+    o: {
+      home?: 'keep' | 'drop';
+      extra?: 'keep' | 'drop';
+      apiSetup?: string[];
+      /** Created without tabs; one Claude tab is opened by hand before Finish. */
+      noInitialTabs?: boolean;
+    } = {},
+  ) {
+    const rec = recording();
+    const api = makeRepo('api');
+    writeFileSync(path.join(api, '.env'), 'API=1');
+    const apiSetup = o.apiSetup ?? [writeLineCmd('api', 'api.txt')];
+    const hx = await harness(fakeCrypto(), {
+      platform: rec.platform,
+      claudeSessionExists: () => true,
+      loadConfig: async (p) =>
+        p === api
+          ? { ...(await loadMiacConfig(p)), copy: ['.env'], setup: apiSetup }
+          : loadMiacConfig(p),
+    });
+    // The copied .env is ignored, as in a real repo, so a home without commits can be dropped.
+    commitFile(hx.repo, '.gitignore', '.env\n');
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](
+      hx.input({
+        startClaude: !o.noInitialTabs,
+        openShell: false,
+        commands: [],
+      }),
+    );
+    await done;
+    if (o.noInitialTabs)
+      await hx.h['terminals:open'](t.id, { kind: 'claude', label: 'Claude' });
+    const added = await hx.h['repos:add'](api);
+    const wt = path.join(path.dirname(api), 'api-wt');
+    git(api, 'worktree', 'add', '-q', '-b', t.branch, wt, 'main');
+    if (o.extra !== 'drop') commitFile(wt, 'api-work.txt', 'a\n', 'API work');
+    await hx.store.update((st) => {
+      st.tasks[0].extraWorkspaces.push({
+        id: 'w2',
+        repoId: added.id,
+        branch: t.branch,
+        worktreePath: wt,
+        baseRef: 'main',
+        baseSha: null,
+        source: 'detected',
+        summary: null,
+        pullRequest: null,
+        reopen: null,
+        dropped: false,
+      });
+    });
+    const before = hx.store.state.tasks[0].terminals;
+    await hx.h['tasks:finish'](t.id, {
+      ...finishWith({ removeWorktree: true, deleteBranch: false }),
+      workspaces: [
+        { workspaceId: 'home', action: o.home ?? 'keep' },
+        { workspaceId: 'w2', action: o.extra ?? 'keep' },
+      ],
+    });
+    expect(hx.store.state.tasks[0].status).toBe('done');
+    expect(existsSync(t.worktreePath)).toBe(false);
+    expect(existsSync(wt)).toBe(false);
+    return { ...hx, ...rec, t, before, api, wt };
+  }
+  const extraOf = (hx: { store: TaskStore }) =>
+    hx.store.state.tasks[0].extraWorkspaces[0];
+
+  it('reopens every repo: reopen.from on each, both worktrees made again with their own setup', async () => {
+    const hx = await finishedMulti();
+    const done = hx.setupDone();
+    expect(await hx.h['tasks:reopen'](hx.t.id)).toEqual({ setup: true });
+    expect(hx.store.state.tasks[0].reopen).toEqual({ from: null });
+    expect(extraOf(hx).reopen).toEqual({ from: null });
+    expect((await done).ok).toBe(true);
+    const state = await hx.h['tasks:setupState'](hx.t.id);
+    expect(state!.steps.map((x) => x.def.label)).toEqual([
+      'Restore worktree',
+      'Copy local files',
+      'Write task file',
+      'Restore api worktree',
+      'Copy local files (api)',
+      writeLineCmd('api', 'api.txt'),
+      'Restore terminals',
+    ]);
+    expect(existsSync(hx.t.worktreePath)).toBe(true);
+    expect(existsSync(path.join(hx.wt, 'api-work.txt'))).toBe(true);
+    expect(existsSync(path.join(hx.wt, '.env'))).toBe(true);
+    expect(existsSync(path.join(hx.wt, 'api.txt'))).toBe(true);
+    expect(existsSync(path.join(hx.t.worktreePath, 'api.txt'))).toBe(false);
+    expect(hx.store.state.tasks[0]).toMatchObject({
+      status: 'ready',
+      reopen: null,
+      finishedAt: null,
+    });
+    expect(extraOf(hx).reopen).toBeNull();
+    expect(hx.calls.at(-1)?.flags).toEqual([
+      '--resume',
+      hx.before[0].sessionId,
+      '--add-dir',
+      hx.wt,
+    ]);
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
+  it('a dropped repo is not restored', async () => {
+    const hx = await finishedMulti({ extra: 'drop' });
+    expect(extraOf(hx).dropped).toBe(true);
+    const done = hx.setupDone();
+    await hx.h['tasks:reopen'](hx.t.id);
+    expect(extraOf(hx).reopen).toBeNull();
+    expect((await done).ok).toBe(true);
+    const state = await hx.h['tasks:setupState'](hx.t.id);
+    expect(state!.steps.map((x) => x.def.label)).toEqual([
+      'Restore worktree',
+      'Copy local files',
+      'Write task file',
+      'Restore terminals',
+    ]);
+    expect(existsSync(hx.wt)).toBe(false);
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
+  it('a task whose home was dropped restores only the other repo, and Claude resumes there', async () => {
+    const hx = await finishedMulti({ home: 'drop' });
+    expect(hx.store.state.tasks[0].homeDropped).toBe(true);
+    const spy = vi.spyOn(hx.terminals, 'spawn');
+    const done = hx.setupDone();
+    await hx.h['tasks:reopen'](hx.t.id);
+    expect(hx.store.state.tasks[0].reopen).toBeNull();
+    expect(extraOf(hx).reopen).toEqual({ from: null });
+    expect((await done).ok).toBe(true);
+    const state = await hx.h['tasks:setupState'](hx.t.id);
+    expect(state!.steps.map((x) => x.def.label)).toEqual([
+      'Restore api worktree',
+      'Copy local files (api)',
+      writeLineCmd('api', 'api.txt'),
+      'Restore terminals',
+    ]);
+    expect(existsSync(hx.t.worktreePath)).toBe(false);
+    expect(existsSync(path.join(hx.wt, 'api-work.txt'))).toBe(true);
+    expect(hx.store.state.tasks[0].status).toBe('ready');
+    expect(spy.mock.calls.map((c) => c[0].cwd)).toEqual([hx.wt]);
+    expect(hx.calls.at(-1)?.flags).toEqual([
+      '--resume',
+      hx.before[0].sessionId,
+    ]);
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
+  it('a task whose home was dropped is not "folder missing" once reopened', async () => {
+    const hx = await finishedMulti({ home: 'drop' });
+    const done = hx.setupDone();
+    await hx.h['tasks:reopen'](hx.t.id);
+    expect((await done).ok).toBe(true);
+    expect(existsSync(hx.t.worktreePath)).toBe(false);
+    const [view] = await hx.h['tasks:list']();
+    expect(view.worktreeMissing).toBe(false);
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
+  it('a dropped-home reopen of a task created without tabs brings back the tabs it had at Finish', async () => {
+    const hx = await finishedMulti({ home: 'drop', noInitialTabs: true });
+    expect(hx.before.map((d) => d.kind)).toEqual(['claude']);
+    const done = hx.setupDone();
+    await hx.h['tasks:reopen'](hx.t.id);
+    expect((await done).ok).toBe(true);
+    const state = await hx.h['tasks:setupState'](hx.t.id);
+    expect(state!.steps.at(-1)!.def).toMatchObject({
+      label: 'Restore terminals',
+      detail: 'Claude',
+    });
+    // A reopen never touches the work item.
+    expect(state!.steps.map((x) => x.def.kind)).not.toContain('workitem');
+    expect(hx.store.state.tasks[0].terminals).toEqual(hx.before);
+    expect(hx.calls.at(-1)?.flags).toEqual([
+      '--resume',
+      hx.before[0].sessionId,
+    ]);
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
+  it('names the repo whose branch cannot be restored', async () => {
+    const hx = await finishedMulti();
+    git(hx.api, 'branch', '-D', hx.t.branch);
+    await hx.store.update((st) => {
+      st.tasks[0].extraWorkspaces[0].summary = null;
+    });
+    await expect(hx.h['tasks:reopen'](hx.t.id)).rejects.toThrow(
+      `api: branch ${hx.t.branch} cannot be restored`,
+    );
+    expect(hx.store.state.tasks[0].status).toBe('done');
+  });
+
+  it('a failing restore of a repo fails setup at its step, and Retry resumes there', async () => {
+    const hx = await finishedMulti({ apiSetup: [failCmd(3)] });
+    const failed = hx.setupDone();
+    await hx.h['tasks:reopen'](hx.t.id);
+    expect(await failed).toMatchObject({ ok: false, failedStep: 5 });
+    expect(hx.store.state.tasks[0].status).toBe('setup-failed');
+    const state = await hx.h['tasks:setupState'](hx.t.id);
+    expect(state!.steps[5].def).toMatchObject({
+      kind: 'command',
+      detail: 'in api',
+      workspaceId: 'w2',
+    });
+    // The repo's setup command is fixed; the retry starts at the failed step.
+    const runSpy = vi.spyOn(hx.services.runner, 'run');
+    const retried = hx.setupDone();
+    hx.services.loadConfig = async (p) =>
+      p === hx.api
+        ? {
+            ...(await loadMiacConfig(p)),
+            copy: ['.env'],
+            setup: [writeLineCmd('retried', 'api.txt')],
+          }
+        : loadMiacConfig(p);
+    await hx.h['tasks:retrySetup'](hx.t.id);
+    expect((await retried).ok).toBe(true);
+    expect(runSpy.mock.calls[0][1].fromStep).toBe(5);
+    expect(existsSync(path.join(hx.wt, 'api.txt'))).toBe(true);
+    expect(hx.store.state.tasks[0].status).toBe('ready');
+    expect(extraOf(hx).reopen).toBeNull();
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
+  it('cancelling a failed reopen removes every remade worktree and the task goes back to done', async () => {
+    const hx = await finishedMulti({ apiSetup: [failCmd(3)] });
+    const failed = hx.setupDone();
+    await hx.h['tasks:reopen'](hx.t.id);
+    expect((await failed).ok).toBe(false);
+    expect(existsSync(hx.wt)).toBe(true);
+    await hx.h['tasks:cancelSetup'](hx.t.id);
+    expect(hx.store.state.tasks[0]).toMatchObject({
+      status: 'done',
+      reopen: null,
+    });
+    expect(extraOf(hx).reopen).toBeNull();
+    expect(existsSync(hx.t.worktreePath)).toBe(false);
+    expect(existsSync(hx.wt)).toBe(false);
+    expect(await new GitClient().branchExists(hx.api, hx.t.branch)).toBe(true);
+    expect(await new GitClient().branchExists(hx.repo, hx.t.branch)).toBe(true);
+  });
+
+  it('a kept home with a removed repo goes through setup for that repo only', async () => {
+    const hx = await finishedMulti();
+    git(hx.repo, 'worktree', 'add', '-q', hx.t.worktreePath, hx.t.branch);
+    writeFileSync(path.join(hx.t.worktreePath, 'mine.txt'), 'x');
+    const done = hx.setupDone();
+    expect(await hx.h['tasks:reopen'](hx.t.id)).toEqual({ setup: true });
+    expect(hx.store.state.tasks[0].reopen).toBeNull();
+    expect((await done).ok).toBe(true);
+    const state = await hx.h['tasks:setupState'](hx.t.id);
+    expect(state!.steps[0].def.label).toBe('Restore api worktree');
+    expect(existsSync(path.join(hx.wt, 'api-work.txt'))).toBe(true);
+    expect(existsSync(path.join(hx.t.worktreePath, 'mine.txt'))).toBe(true);
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
+  it('reopens without setup when every repo kept its worktree', async () => {
+    const hx = await finishedMulti();
+    git(hx.repo, 'worktree', 'add', '-q', hx.t.worktreePath, hx.t.branch);
+    git(hx.api, 'worktree', 'add', '-q', hx.wt, hx.t.branch);
+    expect(await hx.h['tasks:reopen'](hx.t.id)).toEqual({ setup: false });
+    expect(hx.store.state.tasks[0].status).toBe('ready');
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
+  it('refuses when every repo was removed without changes', async () => {
+    const hx = await finishedMulti({ home: 'drop', extra: 'drop' });
+    await expect(hx.h['tasks:reopen'](hx.t.id)).rejects.toThrow(
+      'Nothing to reopen: every repo of this task was removed without changes',
+    );
+    expect(hx.store.state.tasks[0].status).toBe('done');
   });
 });
 
@@ -1354,6 +1867,11 @@ describe('recoverInterruptedTasks', () => {
       pullRequest: null,
       closedTerminals: [],
       reopen: null,
+      extraWorkspaces: [],
+      detachedPaths: [],
+      homeDropped: false,
+      connectionId: null,
+      mainCheckoutEdits: [],
     };
     await store.update((s) => {
       s.tasks.push(
@@ -2564,12 +3082,793 @@ describe('handlers: finish with a pull request', () => {
     expect(await hx.h['tasks:prStatus'](hx.t.id)).toEqual(next);
   });
 
+  it('refreshes and stores an extra workspace PR', async () => {
+    const hx = await prHarness();
+    const pr = {
+      id: 8,
+      url: 'u',
+      repositoryId: 'rid2',
+      project: 'P',
+      repo: 'api',
+      status: 'active' as const,
+      isDraft: true,
+    };
+    await hx.store.update((st) => {
+      st.tasks[0].extraWorkspaces.push({
+        id: 'x1',
+        repoId: hx.t.repoId,
+        branch: 'feature/x',
+        worktreePath: '/w/x',
+        baseRef: 'origin/main',
+        baseSha: null,
+        source: 'detected',
+        summary: null,
+        pullRequest: pr,
+        reopen: null,
+        dropped: false,
+      });
+    });
+    const refresh = vi.spyOn(hx.client, 'pullRequest').mockResolvedValue({
+      pullRequestId: 8,
+      status: 'completed',
+      isDraft: false,
+    });
+    const next = await hx.h['tasks:prStatus'](hx.t.id, 'x1');
+    expect(refresh).toHaveBeenCalledWith('P', 'rid2', 8);
+    expect(next).toMatchObject({ id: 8, status: 'completed' });
+    expect(hx.store.state.tasks[0].extraWorkspaces[0].pullRequest).toEqual(
+      next,
+    );
+    expect(hx.store.state.tasks[0].pullRequest).toBeNull();
+  });
+
+  it('refreshes a workspace PR through its own repo connection, not the task one', async () => {
+    const hx = await prHarness();
+    const other = await hx.connections.save({
+      organizationUrl: 'https://dev.azure.com/other',
+      project: 'Q',
+      pat: 'p',
+    });
+    const pr = {
+      id: 8,
+      url: 'u',
+      repositoryId: 'rid2',
+      project: 'P',
+      repo: 'api',
+      status: 'active' as const,
+      isDraft: true,
+    };
+    await hx.store.update((st) => {
+      st.tasks[0].connectionId = other.id;
+      st.tasks[0].extraWorkspaces.push({
+        id: 'x1',
+        repoId: hx.t.repoId,
+        branch: 'feature/x',
+        worktreePath: '/w/x',
+        baseRef: 'origin/main',
+        baseSha: null,
+        source: 'detected',
+        summary: null,
+        pullRequest: pr,
+        reopen: null,
+        dropped: false,
+      });
+    });
+    const own = vi.spyOn(hx.client, 'pullRequest').mockResolvedValue({
+      pullRequestId: 8,
+      status: 'completed',
+      isDraft: false,
+    });
+    const taskClient = vi.spyOn(
+      hx.services.ado.client(other.id),
+      'pullRequest',
+    );
+    await hx.h['tasks:prStatus'](hx.t.id, 'x1');
+    expect(own).toHaveBeenCalledWith('P', 'rid2', 8);
+    expect(taskClient).not.toHaveBeenCalled();
+  });
+
   it('finishChecks still reports unpushed commits as a count', async () => {
     const hx = await prHarness();
     commitFile(hx.t.worktreePath, 'feature.txt', 'a\n', 'Add the feature');
     const checks = await hx.h['tasks:finishChecks'](hx.t.id);
     expect(checks.unpushed).toBe(1);
     expect(checks.runningTerminals).toBe(0);
+  });
+});
+
+describe('handlers: task-level connection', () => {
+  it('stores the repo connection on the task when it is created', async () => {
+    const hx = await harness();
+    const { t } = await linkedTask(hx);
+    expect(t.connectionId).toBe(
+      hx.services.repos.get(hx.added.id).connectionId,
+    );
+    expect(t.connectionId).not.toBeNull();
+  });
+
+  it('syncs usage to the task connection even after the repo is unlinked', async () => {
+    const hx = await harness();
+    const { t } = await linkedTask(hx);
+    await hx.h['repos:setConnection'](hx.added.id, null);
+    expect(await hx.h['usage:sync'](t.id)).toMatchObject({ ok: true });
+  });
+
+  it('prefers the task connection over the home repo connection', async () => {
+    const hx = await harness();
+    const { t } = await linkedTask(hx);
+    await hx.store.update((st) => {
+      st.tasks[0].connectionId = 'c2';
+    });
+    // c2 does not exist: the sync target is gone, though the repo still links the real connection.
+    expect(await hx.h['usage:sync'](t.id)).toMatchObject({ ok: false });
+  });
+
+  it('refreshes the PR status through the task connection', async () => {
+    const hx = await harness();
+    const { t } = await linkedTask(hx);
+    const client = hx.services.ado.client(t.connectionId!);
+    const refresh = vi.spyOn(client, 'pullRequest').mockResolvedValue({
+      pullRequestId: 7,
+      status: 'completed',
+      isDraft: false,
+    });
+    await hx.store.update((st) => {
+      st.tasks[0].pullRequest = {
+        id: 7,
+        url: 'u',
+        repositoryId: 'repo-1',
+        project: 'P',
+        repo: 'R',
+        status: 'active',
+        isDraft: true,
+      };
+    });
+    await hx.h['repos:setConnection'](hx.added.id, null);
+    expect(await hx.h['tasks:prStatus'](t.id)).toMatchObject({
+      status: 'completed',
+    });
+    expect(refresh).toHaveBeenCalled();
+  });
+});
+
+describe('handlers: finish every workspace of a task', () => {
+  const HOME_REMOTE = 'https://dev.azure.com/contoso/P/_git/Web';
+  const opts = {
+    closeTerminals: true,
+    removeWorktree: true,
+    deleteBranch: true,
+    syncUsage: false,
+  };
+
+  /** A task in `webshop` (home, origin Web) plus worktrees on its branch in more repos, joined by a scan. */
+  async function multiHarness(
+    extras: { name: string; org?: string }[],
+    over: Partial<CreateTaskInput> = {},
+  ) {
+    const hx = await harness();
+    commitFile(hx.repo, '.gitignore', '.env\n');
+    addOrigin(hx.repo);
+    const c = await hx.connections.save({
+      organizationUrl: 'https://dev.azure.com/contoso',
+      project: 'P',
+      pat: 'p',
+    });
+    await hx.h['repos:setConnection'](hx.added.id, c.id);
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](
+      hx.input({
+        baseRef: 'origin/main',
+        openShell: false,
+        // The copied .env is ignored, as in a real repo; no generated files.
+        commands: [],
+        ...over,
+      }),
+    );
+    await done;
+    const remotes = new Map<string, string>([[hx.repo, HOME_REMOTE]]);
+    const repos: {
+      name: string;
+      path: string;
+      wt: string;
+      bare: string;
+      connectionId: string;
+    }[] = [];
+    for (const e of extras) {
+      const p = makeRepo(e.name);
+      const bare = addOrigin(p);
+      const org = e.org ?? 'contoso';
+      const conn =
+        org === 'contoso'
+          ? c
+          : await hx.connections.save({
+              organizationUrl: `https://dev.azure.com/${org}`,
+              project: 'P',
+              pat: 'p',
+            });
+      const added = await hx.h['repos:add'](p);
+      await hx.h['repos:setConnection'](added.id, conn.id);
+      remotes.set(p, `https://dev.azure.com/${org}/P/_git/${e.name}`);
+      const wt = path.join(path.dirname(p), `${e.name}-wt`);
+      git(p, 'worktree', 'add', '-q', '-b', t.branch, wt, 'origin/main');
+      repos.push({ name: e.name, path: p, wt, bare, connectionId: conn.id });
+    }
+    vi.spyOn(hx.services.git, 'remoteUrl').mockImplementation(
+      async (cwd) => remotes.get(cwd) ?? null,
+    );
+    await hx.h['tasks:scanWorkspaces'](t.id);
+    const ids = hx.store.state.tasks[0].extraWorkspaces.map((w) => w.id);
+    expect(ids).toHaveLength(extras.length);
+    // One fake Azure Repos per connection: PRs it created are found again as active.
+    const created: { connectionId: string; repo: string; args: unknown }[] = [];
+    const clients = new Map<
+      string,
+      ReturnType<typeof hx.services.ado.client>
+    >();
+    for (const id of new Set([c.id, ...repos.map((r) => r.connectionId)])) {
+      const client = hx.services.ado.client(id);
+      clients.set(id, client);
+      vi.spyOn(client, 'repositoryId').mockImplementation(
+        async (_p, name) => `id-${name}`,
+      );
+      vi.spyOn(client, 'findActivePullRequest').mockImplementation(
+        async (_p, repositoryId) => {
+          const n = created.findIndex(
+            (x) => x.connectionId === id && `id-${x.repo}` === repositoryId,
+          );
+          return n < 0
+            ? null
+            : { pullRequestId: 100 + n, status: 'active', isDraft: true };
+        },
+      );
+      vi.spyOn(client, 'createPullRequest').mockImplementation(
+        async (_p, repositoryId, args) => {
+          created.push({
+            connectionId: id,
+            repo: repositoryId.slice(3),
+            args,
+          });
+          return {
+            pullRequestId: 100 + created.length - 1,
+            status: 'active',
+            isDraft: true,
+          };
+        },
+      );
+    }
+    const push = vi.spyOn(hx.services.git, 'push');
+    return { ...hx, c, t, repos, ids, created, clients, push };
+  }
+
+  const ws = (hx: { store: TaskStore }, id: string) =>
+    hx.store.state.tasks[0].extraWorkspaces.find((w) => w.id === id)!;
+
+  it('checks every workspace: changes, PR target and whether the PR links the work item', async () => {
+    const hx = await multiHarness([
+      { name: 'api' },
+      { name: 'docs', org: 'fabrikam' },
+    ]);
+    commitFile(hx.repos[0].wt, 'api.txt', 'a\n', 'API change');
+    const checks = await hx.h['tasks:finishChecks'](hx.t.id);
+    expect(checks.workspaces.map((w) => w.workspaceId)).toEqual([
+      'home',
+      ...hx.ids,
+    ]);
+    expect(checks.workspaces[0]).toMatchObject({
+      repoName: 'webshop',
+      branch: hx.t.branch,
+      missing: false,
+      commits: 0,
+      pr: { available: true, target: 'main', linksWorkItem: true },
+    });
+    expect(checks.workspaces[1]).toMatchObject({
+      repoName: 'api',
+      commits: 1,
+      unpushed: 1,
+      pr: { available: true, target: 'main', linksWorkItem: true },
+    });
+    expect(checks.workspaces[2].pr).toMatchObject({
+      available: true,
+      linksWorkItem: false,
+    });
+    expect(await hx.h['tasks:prAvailability'](hx.t.id, hx.ids[0])).toEqual({
+      available: true,
+      reason: null,
+      target: 'main',
+    });
+  });
+
+  it('books the Time spent once and writes it once for a multi-repo Finish', async () => {
+    const hx = await multiHarness([{ name: 'api' }]);
+    await hx.settings.save({ ...hx.settings.get(), writeTimeToAdo: true });
+    commitFile(hx.repos[0].wt, 'api.txt', 'a\n', 'API change');
+    const client = hx.clients.get(hx.c.id)!;
+    vi.spyOn(client, 'workItemEstimate').mockResolvedValue({
+      type: 'User Story',
+      originalEstimate: null,
+      remainingWork: 5,
+      completedWork: 1,
+    });
+    vi.spyOn(client, 'workItemTypeFields').mockResolvedValue([
+      {
+        type: 'User Story',
+        fields: [
+          'Microsoft.VSTS.Scheduling.RemainingWork',
+          'Microsoft.VSTS.Scheduling.CompletedWork',
+        ],
+      },
+    ]);
+    const write = vi
+      .spyOn(client, 'updateWorkItemFields')
+      .mockResolvedValue(undefined as never);
+    await hx.h['tasks:finish'](hx.t.id, {
+      ...opts,
+      bookedSeconds: 7200,
+      workspaces: [
+        { workspaceId: 'home', action: 'drop' },
+        { workspaceId: hx.ids[0], action: 'push' },
+      ],
+    });
+    const task = hx.store.state.tasks[0];
+    expect(task.status).toBe('done');
+    expect(task.time).toMatchObject({
+      bookedSeconds: 7200,
+      writtenHours: 2,
+      syncError: null,
+    });
+    expect(task.openPeriods.at(-1)?.end).toBe(task.finishedAt);
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(write.mock.calls[0][0]).toBe(48231);
+  });
+
+  it('books nothing when a multi-repo Finish fails, and once on its retry', async () => {
+    const hx = await multiHarness([{ name: 'api' }]);
+    commitFile(hx.repos[0].wt, 'api.txt', 'a\n', 'API change');
+    const push = hx.push.mockRejectedValueOnce(new Error('rejected'));
+    const finish = () =>
+      hx.h['tasks:finish'](hx.t.id, {
+        ...opts,
+        bookedSeconds: 3600,
+        workspaces: [
+          { workspaceId: 'home', action: 'drop' },
+          { workspaceId: hx.ids[0], action: 'push' },
+        ],
+      });
+    await expect(finish()).rejects.toThrow('rejected');
+    expect(hx.store.state.tasks[0].status).toBe('ready');
+    expect(hx.store.state.tasks[0].time).toBeNull();
+    expect(hx.store.state.tasks[0].openPeriods.at(-1)?.end).toBeNull();
+    await finish();
+    expect(push).toHaveBeenCalledTimes(2);
+    expect(hx.store.state.tasks[0]).toMatchObject({
+      status: 'done',
+      time: { bookedSeconds: 3600 },
+    });
+  });
+
+  it('drops the home without a push and opens a PR for the repo with changes', async () => {
+    const hx = await multiHarness([{ name: 'api' }]);
+    commitFile(hx.repos[0].wt, 'api.txt', 'a\n', 'API change');
+    // The copied .env is gitignored, so the home still counts as unchanged.
+    expect(existsSync(path.join(hx.t.worktreePath, '.env'))).toBe(true);
+    await hx.h['tasks:finish'](hx.t.id, {
+      ...opts,
+      deleteBranch: false,
+      removeWorktree: false,
+      workspaces: [
+        { workspaceId: 'home', action: 'drop' },
+        { workspaceId: hx.ids[0], action: 'pr' },
+      ],
+    });
+    expect(hx.push.mock.calls.map((c) => c[0])).toEqual([hx.repos[0].wt]);
+    const task = hx.store.state.tasks[0];
+    expect(task.status).toBe('done');
+    expect(task.homeDropped).toBe(true);
+    // A dropped workspace is always removed, whatever the global options say.
+    expect(existsSync(hx.t.worktreePath)).toBe(false);
+    expect(await new GitClient().branchExists(hx.repo, hx.t.branch)).toBe(
+      false,
+    );
+    expect(existsSync(hx.repos[0].wt)).toBe(true);
+    expect(git(hx.repos[0].bare, 'branch', '--list', hx.t.branch)).toContain(
+      hx.t.branch,
+    );
+    expect(hx.created).toHaveLength(1);
+    expect(hx.created[0]).toMatchObject({
+      repo: 'api',
+      args: { source: hx.t.branch, target: 'main', workItemId: 48231 },
+    });
+    // One repo with changes: the cost line is the plain one.
+    expect(
+      (hx.created[0].args as { description: string }).description,
+    ).toContain('AI cost for this task: ');
+    expect(ws(hx, hx.ids[0]).pullRequest).toMatchObject({
+      id: 100,
+      repo: 'api',
+      url: 'https://dev.azure.com/contoso/P/_git/api/pullrequest/100',
+    });
+    expect(ws(hx, hx.ids[0]).summary).toMatchObject({
+      pushed: true,
+      commitCount: 1,
+    });
+    expect(task.pullRequest).toBeNull();
+    expect(hx.opened).toEqual([
+      'https://dev.azure.com/contoso/P/_git/api/pullrequest/100',
+    ]);
+  });
+
+  it("never removes a worktree that is not on the task's branch, nor deletes its branch", async () => {
+    const hx = await multiHarness([{ name: 'api' }]);
+    const tools = makeRepo('tools');
+    const toolsWt = path.join(path.dirname(tools), 'tools-dev');
+    git(tools, 'worktree', 'add', '-q', '-b', 'dev', toolsWt);
+    const dev = await hx.h['tasks:addWorkspace'](hx.t.id, toolsWt);
+    expect(dev.branch).toBe('dev');
+    const rows = (action: 'drop' | 'keep') => ({
+      ...opts,
+      workspaces: [
+        { workspaceId: 'home', action: 'keep' as const },
+        { workspaceId: hx.ids[0], action: 'keep' as const },
+        { workspaceId: dev.id, action },
+      ],
+    });
+    await expect(hx.h['tasks:finish'](hx.t.id, rows('drop'))).rejects.toThrow(
+      "tools is not on this task's branch (dev): it is kept as is",
+    );
+    expect(hx.store.state.tasks[0].status).toBe('ready');
+    expect(existsSync(toolsWt)).toBe(true);
+
+    // Remove worktrees and delete branches is on: the task's own go, `dev` stays.
+    await hx.h['tasks:finish'](hx.t.id, rows('keep'));
+    expect(hx.store.state.tasks[0].status).toBe('done');
+    expect(existsSync(hx.t.worktreePath)).toBe(false);
+    expect(existsSync(hx.repos[0].wt)).toBe(false);
+    expect(existsSync(toolsWt)).toBe(true);
+    expect(await new GitClient().branchExists(tools, 'dev')).toBe(true);
+  });
+
+  it('marks the cost line as the whole task when several repos have changes', async () => {
+    const hx = await multiHarness([{ name: 'api' }]);
+    commitFile(hx.t.worktreePath, 'web.txt', 'a\n', 'Web change');
+    commitFile(hx.repos[0].wt, 'api.txt', 'a\n', 'API change');
+    await hx.h['tasks:finish'](hx.t.id, {
+      ...opts,
+      workspaces: [
+        { workspaceId: 'home', action: 'pr' },
+        { workspaceId: hx.ids[0], action: 'pr' },
+      ],
+    });
+    expect(hx.created.map((x) => x.repo)).toEqual(['Web', 'api']);
+    for (const x of hx.created)
+      expect((x.args as { description: string }).description).toContain(
+        'AI cost (whole task, 2 repos): ',
+      );
+    const task = hx.store.state.tasks[0];
+    expect(task.pullRequest).toMatchObject({ repo: 'Web' });
+    expect(ws(hx, hx.ids[0]).pullRequest).toMatchObject({ repo: 'api' });
+    expect(existsSync(hx.t.worktreePath)).toBe(false);
+    expect(existsSync(hx.repos[0].wt)).toBe(false);
+    expect(
+      await new GitClient().branchExists(hx.repos[0].path, hx.t.branch),
+    ).toBe(false);
+  });
+
+  it('stops before cleanup when one PR fails, and a retry neither pushes again nor duplicates the PR', async () => {
+    const hx = await multiHarness([{ name: 'api' }, { name: 'docs' }]);
+    commitFile(hx.repos[0].wt, 'api.txt', 'a\n', 'API change');
+    commitFile(hx.repos[1].wt, 'docs.txt', 'a\n', 'Docs change');
+    const realPush = GitClient.prototype.push;
+    let failDocs = true;
+    hx.push.mockImplementation(
+      async function (this: GitClient, cwd, remote, branch) {
+        if (failDocs && cwd === hx.repos[1].wt)
+          throw new Error('! [rejected] (fetch first)');
+        return realPush.call(this, cwd, remote, branch);
+      },
+    );
+    const finishAll = {
+      ...opts,
+      workspaces: [
+        { workspaceId: 'home', action: 'drop' as const },
+        { workspaceId: hx.ids[0], action: 'pr' as const },
+        { workspaceId: hx.ids[1], action: 'pr' as const },
+      ],
+    };
+    await expect(hx.h['tasks:finish'](hx.t.id, finishAll)).rejects.toThrow(
+      /^Pull request not created for docs: [^]*rejected/,
+    );
+    const failed = hx.store.state.tasks[0];
+    expect(failed.status).toBe('ready');
+    expect(failed.homeDropped).toBe(false);
+    expect(ws(hx, hx.ids[0]).pullRequest).toMatchObject({ repo: 'api' });
+    expect(ws(hx, hx.ids[1]).pullRequest).toBeNull();
+    expect(existsSync(hx.t.worktreePath)).toBe(true);
+    expect(existsSync(hx.repos[0].wt)).toBe(true);
+    expect(existsSync(hx.repos[1].wt)).toBe(true);
+    expect(hx.opened).toEqual([
+      'https://dev.azure.com/contoso/P/_git/api/pullrequest/100',
+    ]);
+    expect(await hx.h['tasks:finishResults'](hx.t.id)).toEqual([
+      {
+        workspaceId: 'home',
+        action: 'drop',
+        ok: true,
+        pushed: false,
+        pullRequest: null,
+        error: null,
+      },
+      {
+        workspaceId: hx.ids[0],
+        action: 'pr',
+        ok: true,
+        pushed: true,
+        pullRequest: {
+          id: 100,
+          url: 'https://dev.azure.com/contoso/P/_git/api/pullrequest/100',
+          linked: false,
+        },
+        error: null,
+      },
+      {
+        workspaceId: hx.ids[1],
+        action: 'pr',
+        ok: false,
+        pushed: false,
+        pullRequest: null,
+        error: '! [rejected] (fetch first)',
+      },
+    ]);
+
+    failDocs = false;
+    hx.push.mockClear();
+    // The api PR was completed meanwhile: the retry keeps the stored one instead of making a second.
+    const findActive = vi.mocked(
+      hx.clients.get(hx.c.id)!.findActivePullRequest,
+    );
+    findActive.mockClear();
+    await hx.h['tasks:finish'](hx.t.id, finishAll);
+    expect(findActive.mock.calls.map((c) => c[1])).toEqual(['id-docs']);
+    expect(hx.push.mock.calls.map((c) => c[0])).toEqual([hx.repos[1].wt]);
+    expect(hx.created.map((x) => x.repo)).toEqual(['api', 'docs']);
+    expect(ws(hx, hx.ids[0]).pullRequest).toMatchObject({ id: 100 });
+    expect(ws(hx, hx.ids[1]).pullRequest).toMatchObject({ id: 101 });
+    const task = hx.store.state.tasks[0];
+    expect(task.status).toBe('done');
+    expect(task.homeDropped).toBe(true);
+    expect(existsSync(hx.repos[1].wt)).toBe(false);
+  });
+
+  it('finishes without the PR for the failed row only', async () => {
+    const hx = await multiHarness([{ name: 'api' }, { name: 'docs' }]);
+    commitFile(hx.repos[0].wt, 'api.txt', 'a\n', 'API change');
+    commitFile(hx.repos[1].wt, 'docs.txt', 'a\n', 'Docs change');
+    vi.mocked(hx.clients.get(hx.c.id)!.createPullRequest).mockRejectedValueOnce(
+      new Error('boom'),
+    );
+    const rows = (api: 'pr' | 'keep') => ({
+      ...opts,
+      workspaces: [
+        { workspaceId: 'home', action: 'drop' as const },
+        { workspaceId: hx.ids[0], action: api },
+        { workspaceId: hx.ids[1], action: 'pr' as const },
+      ],
+    });
+    await expect(hx.h['tasks:finish'](hx.t.id, rows('pr'))).rejects.toThrow(
+      'Pull request not created for api: boom',
+    );
+    expect(ws(hx, hx.ids[1]).pullRequest).toMatchObject({ repo: 'docs' });
+    // Finish without PR keeps api; docs' PR exists already, so it is linked, not created again.
+    await hx.h['tasks:finish'](hx.t.id, rows('keep'));
+    expect(hx.created.map((x) => x.repo)).toEqual(['docs']);
+    const task = hx.store.state.tasks[0];
+    expect(task.status).toBe('done');
+    expect(ws(hx, hx.ids[0]).pullRequest).toBeNull();
+    expect(existsSync(hx.repos[0].wt)).toBe(false);
+    expect(existsSync(hx.repos[1].wt)).toBe(false);
+  });
+
+  it('refuses to drop a repo that got changes after the checks, and cleans up nothing', async () => {
+    const hx = await multiHarness([{ name: 'api' }]);
+    commitFile(hx.repos[0].wt, 'api.txt', 'a\n', 'API change');
+    const checks = await hx.h['tasks:finishChecks'](hx.t.id);
+    expect(checks.workspaces[0]).toMatchObject({ commits: 0, uncommitted: [] });
+    // Claude keeps working while the Finish page is open.
+    commitFile(hx.t.worktreePath, 'late.txt', 'a\n', 'Late change');
+    await expect(
+      hx.h['tasks:finish'](hx.t.id, {
+        ...opts,
+        workspaces: [
+          { workspaceId: 'home', action: 'drop' },
+          { workspaceId: hx.ids[0], action: 'push' },
+        ],
+      }),
+    ).rejects.toThrow('webshop has changes now; reload Finish');
+    const task = hx.store.state.tasks[0];
+    expect(task.status).toBe('ready');
+    expect(task.homeDropped).toBe(false);
+    expect(existsSync(hx.t.worktreePath)).toBe(true);
+    expect(existsSync(hx.repos[0].wt)).toBe(true);
+    expect(await new GitClient().branchExists(hx.repo, hx.t.branch)).toBe(true);
+    // Uncommitted files count as changes too.
+    git(hx.t.worktreePath, 'reset', '-q', '--hard', 'HEAD~1');
+    writeFileSync(path.join(hx.t.worktreePath, 'draft.txt'), 'x');
+    await expect(
+      hx.h['tasks:finish'](hx.t.id, {
+        ...opts,
+        workspaces: [{ workspaceId: 'home', action: 'drop' }],
+      }),
+    ).rejects.toThrow('webshop has changes now; reload Finish');
+    expect(existsSync(path.join(hx.t.worktreePath, 'draft.txt'))).toBe(true);
+  });
+
+  it('keeps the summaries when cleanup fails midway', async () => {
+    const hx = await multiHarness([{ name: 'api' }]);
+    commitFile(hx.repos[0].wt, 'api.txt', 'a\n', 'API change');
+    vi.spyOn(hx.services.git, 'worktreeRemove').mockRejectedValueOnce(
+      new Error('folder locked'),
+    );
+    await expect(
+      hx.h['tasks:finish'](hx.t.id, {
+        ...opts,
+        workspaces: [
+          { workspaceId: 'home', action: 'keep' },
+          { workspaceId: hx.ids[0], action: 'push' },
+        ],
+      }),
+    ).rejects.toThrow('folder locked');
+    const task = hx.store.state.tasks[0];
+    expect(task.status).toBe('ready');
+    expect(task.summary).toMatchObject({ commitCount: 0 });
+    expect(ws(hx, hx.ids[0]).summary).toMatchObject({
+      commitCount: 1,
+      pushed: true,
+    });
+  });
+
+  it('a PR stored by an earlier Finish (before a Reopen) is looked up again, not kept', async () => {
+    const hx = await multiHarness([{ name: 'api' }]);
+    commitFile(hx.repos[0].wt, 'api.txt', 'a\n', 'API change');
+    await hx.store.update((st) => {
+      st.tasks[0].extraWorkspaces[0].pullRequest = {
+        id: 3,
+        url: 'https://dev.azure.com/contoso/P/_git/api/pullrequest/3',
+        repositoryId: 'id-api',
+        project: 'P',
+        repo: 'api',
+        status: 'completed',
+        isDraft: false,
+      };
+    });
+    const findActive = vi.mocked(
+      hx.clients.get(hx.c.id)!.findActivePullRequest,
+    );
+    await hx.h['tasks:finish'](hx.t.id, {
+      ...opts,
+      workspaces: [
+        { workspaceId: 'home', action: 'drop' },
+        { workspaceId: hx.ids[0], action: 'pr' },
+      ],
+    });
+    expect(findActive.mock.calls.map((c) => c[1])).toEqual(['id-api']);
+    expect(hx.created.map((x) => x.repo)).toEqual(['api']);
+    expect(ws(hx, hx.ids[0]).pullRequest).toMatchObject({
+      id: 100,
+      status: 'active',
+    });
+  });
+
+  it('a branch whose base cannot be found is never "no changes", and is not dropped', async () => {
+    const hx = await multiHarness([{ name: 'api' }]);
+    await hx.store.update((st) => {
+      st.tasks[0].extraWorkspaces[0].baseRef = 'no-such-base';
+      st.tasks[0].extraWorkspaces[0].baseSha = null;
+    });
+    const checks = await hx.h['tasks:finishChecks'](hx.t.id);
+    expect(checks.workspaces[0].baseKnown).toBe(true);
+    expect(checks.workspaces[1]).toMatchObject({
+      baseKnown: false,
+      uncommitted: [],
+    });
+    await expect(
+      hx.h['tasks:finish'](hx.t.id, {
+        ...opts,
+        workspaces: [
+          { workspaceId: 'home', action: 'keep' },
+          { workspaceId: hx.ids[0], action: 'drop' },
+        ],
+      }),
+    ).rejects.toThrow('api has changes now; reload Finish');
+    expect(existsSync(hx.repos[0].wt)).toBe(true);
+  });
+
+  it('a scan error does not break the Finish checks', async () => {
+    const hx = await harness(fakeCrypto(), {
+      workspaces: {
+        scan: async () => {
+          throw new Error('scan exploded');
+        },
+      } as unknown as WorkspaceDetector,
+    });
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](hx.input({ openShell: false }));
+    await done;
+    const checks = await hx.h['tasks:finishChecks'](t.id);
+    expect(checks.workspaces.map((w) => w.workspaceId)).toEqual(['home']);
+  });
+
+  it('a push-only row pushes without a PR, and records it as pushed', async () => {
+    const hx = await multiHarness([{ name: 'api' }]);
+    commitFile(hx.repos[0].wt, 'api.txt', 'a\n', 'API change');
+    await hx.h['tasks:finish'](hx.t.id, {
+      ...opts,
+      workspaces: [
+        { workspaceId: 'home', action: 'drop' },
+        { workspaceId: hx.ids[0], action: 'push' },
+      ],
+    });
+    expect(hx.created).toEqual([]);
+    expect(git(hx.repos[0].bare, 'branch', '--list', hx.t.branch)).toContain(
+      hx.t.branch,
+    );
+    expect(ws(hx, hx.ids[0]).summary).toMatchObject({ pushed: true });
+    expect(hx.store.state.tasks[0].status).toBe('done');
+  });
+
+  it('a worktree removed by hand is reported missing and skipped by Finish', async () => {
+    const hx = await multiHarness([{ name: 'api' }]);
+    commitFile(hx.t.worktreePath, 'web.txt', 'a\n', 'Web change');
+    rmSync(hx.repos[0].wt, { recursive: true, force: true });
+    const checks = await hx.h['tasks:finishChecks'](hx.t.id);
+    expect(checks.workspaces[1]).toMatchObject({
+      workspaceId: hx.ids[0],
+      missing: true,
+      uncommitted: [],
+      commits: 0,
+    });
+    const view = (await hx.h['tasks:list']())[0];
+    expect(view.extraWorkspaces.map((w) => w.id)).toEqual(hx.ids);
+    await hx.h['tasks:finish'](hx.t.id, {
+      ...opts,
+      workspaces: [
+        { workspaceId: 'home', action: 'pr' },
+        { workspaceId: hx.ids[0], action: 'pr' },
+      ],
+    });
+    expect(hx.push.mock.calls.map((c) => c[0])).toEqual([hx.t.worktreePath]);
+    expect(hx.created.map((x) => x.repo)).toEqual(['Web']);
+    expect(hx.store.state.tasks[0].status).toBe('done');
+  });
+
+  it('a repo in another organization gets a PR without the work item link, naming it instead', async () => {
+    const hx = await multiHarness([{ name: 'docs', org: 'fabrikam' }], {
+      workItem: {
+        id: '48231',
+        type: 'User Story',
+        title: 'Show estimated delivery date',
+        url: 'https://dev.azure.com/contoso/P/_workitems/edit/48231',
+      },
+    });
+    commitFile(hx.repos[0].wt, 'docs.txt', 'a\n', 'Docs change');
+    await hx.h['tasks:finish'](hx.t.id, {
+      ...opts,
+      workspaces: [
+        { workspaceId: 'home', action: 'drop' },
+        { workspaceId: hx.ids[0], action: 'pr' },
+      ],
+    });
+    expect(hx.created).toHaveLength(1);
+    expect(hx.created[0].connectionId).toBe(hx.repos[0].connectionId);
+    const args = hx.created[0].args as {
+      workItemId: number | null;
+      description: string;
+    };
+    expect(args.workItemId).toBeNull();
+    expect(args.description).toContain(
+      'Work item: https://dev.azure.com/contoso/P/_workitems/edit/48231',
+    );
+    expect(ws(hx, hx.ids[0]).pullRequest).toMatchObject({
+      url: 'https://dev.azure.com/fabrikam/P/_git/docs/pullrequest/100',
+    });
   });
 });
 

@@ -3,6 +3,7 @@ import { api } from './api';
 import { findLinks } from './docs/linkify';
 import { useStore } from './store';
 import { track } from './telemetry';
+import { docsTarget } from '../shared/workspaces';
 
 export type BufferLike = {
   getLine(
@@ -12,12 +13,22 @@ export type BufferLike = {
     | undefined;
 };
 export type LinkTarget =
-  | { type: 'md' | 'file'; path: string; line?: number; col?: number }
+  | {
+      type: 'md' | 'file';
+      path: string;
+      line?: number;
+      col?: number;
+      workspaceId?: string;
+    }
   | { type: 'url'; url: string };
 type Resolve = (
   taskId: string,
   path: string,
-) => Promise<{ path: string; kind: 'md' | 'file' } | null>;
+) => Promise<{
+  path: string;
+  kind: 'md' | 'file';
+  workspaceId?: string;
+} | null>;
 
 /** findLinks is quadratic on long lines: only the first 2,000 characters are scanned. */
 const MAX_SCAN = 2000;
@@ -55,12 +66,14 @@ export function openLink(taskId: string, target: LinkTarget): void {
       .invoke('links:open', target.url)
       .catch(() => undefined);
   else if (target.type === 'md')
-    useStore.getState().openDoc(taskId, target.path, target.line);
+    useStore
+      .getState()
+      .openDoc(taskId, target.path, target.line, target.workspaceId);
   else
     void api()
       .invoke(
         'docs:openInEditor',
-        taskId,
+        docsTarget(taskId, target.workspaceId),
         target.path,
         ...(target.line
           ? [target.line, ...(target.col ? [target.col] : [])]
@@ -91,14 +104,26 @@ const tooltip = (label: string) => ({
 export function createLinkProvider(
   term: Pick<Terminal, 'cols'> & { buffer: { active: BufferLike } },
   taskId: string,
-  deps: { resolve?: Resolve; open?: (t: LinkTarget) => void } = {},
+  deps: {
+    resolve?: Resolve;
+    open?: (t: LinkTarget) => void;
+    /** The workspace the terminal runs in, tried first; absent means the task's active home. */
+    workspaceId?: string;
+  } = {},
 ): ILinkProvider {
   const resolve: Resolve =
     deps.resolve ??
-    ((t, p) =>
-      api()
-        .invoke('docs:resolve', t, p)
-        .catch(() => null));
+    (async (t, p) => {
+      const invoke = (target: string) =>
+        api()
+          .invoke('docs:resolve', target, p)
+          .catch(() => null);
+      // The terminal's own workspace first, then the task's others (main tries active home, then the rest).
+      const own = deps.workspaceId
+        ? await invoke(docsTarget(t, deps.workspaceId))
+        : null;
+      return own ?? invoke(t);
+    });
   const open = deps.open ?? ((t: LinkTarget) => openLink(taskId, t));
   // Resolutions are cached per path (text-relative); null is never kept, so a
   // file created after its path was printed becomes a link on the next hover.

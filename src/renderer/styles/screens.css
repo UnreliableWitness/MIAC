@@ -358,6 +358,19 @@
   flex-direction: column;
   gap: 8px;
 }
+.finish-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.finish-workspace-head {
+  overflow-wrap: anywhere;
+}
+.finish-workspace-head .btn {
+  margin-left: 8px;
+}
 .check {
   display: flex;
   gap: 12px;
@@ -605,6 +618,22 @@
   margin: 8px 0 0;
 }
 .done-nosummary {
+  margin: 0;
+  padding: 16px 32px 0;
+}
+/* A task with several repos: one section per repo, aligned with the facts and commits around it. */
+.done-workspace {
+  flex: none;
+  padding-top: 24px;
+}
+.done-workspace > h2 {
+  margin: 0 0 4px;
+  padding: 0 32px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.done-dropped {
+  flex: none;
   margin: 0;
   padding: 16px 32px 0;
 }

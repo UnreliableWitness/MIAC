@@ -15,6 +15,7 @@ import {
   useState,
 } from 'react';
 import type { Repo, TaskStatus, TaskView } from '../../shared/types';
+import { activeHome, activeWorkspaces } from '../../shared/workspaces';
 import { statusText } from '../connectionStatus';
 import { eur } from '../format';
 import { useTaskUsage } from '../hooks/useTaskUsage';
@@ -25,7 +26,10 @@ export function groupTasks(tasks: TaskView[], repos: Repo[]) {
   const open = repos
     .map((repo) => ({
       repo,
-      tasks: tasks.filter((t) => t.repoId === repo.id && t.status !== 'done'),
+      // Under the task's active home: its own repo unless Finish dropped it.
+      tasks: tasks.filter(
+        (t) => activeHome(t).repoId === repo.id && t.status !== 'done',
+      ),
     }))
     .filter((g) => g.tasks.length > 0);
   const done = tasks.filter((t) => t.status === 'done');
@@ -71,6 +75,7 @@ function Row({ task }: { task: TaskView }) {
   const current = useIsCurrent(task.id);
   const openTask = useStore((s) => s.openTask);
   const usage = useTaskUsage(task.id);
+  const extras = activeWorkspaces(task).length - 1;
   const state = task.worktreeMissing
     ? { color: 'var(--red)', label: 'Worktree folder missing' }
     : NOT_READY[task.status];
@@ -84,6 +89,11 @@ function Row({ task }: { task: TaskView }) {
       <TypeIcon task={task} />
       {task.workItem && <span className="navrow-id">{task.workItem.id}</span>}
       <span className="navrow-title">{task.workItem?.title ?? task.name}</span>
+      {extras > 0 && (
+        <span className="navrow-repos small muted">
+          +{extras} {extras === 1 ? 'repo' : 'repos'}
+        </span>
+      )}
       {state && (
         <span
           className="dot"

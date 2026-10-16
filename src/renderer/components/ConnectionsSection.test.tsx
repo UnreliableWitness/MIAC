@@ -143,6 +143,7 @@ describe('ConnectionsSection', () => {
           baseBranch: 'main',
           connectionId: 'c1',
           miacYmlFound: true,
+          discovered: false,
           workItemOnStart: {
             moveToInProgress: true,
             assignToMe: true,

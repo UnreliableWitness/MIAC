@@ -24,16 +24,21 @@ export const NEW_TERMINALS: {
  */
 export function NewTerminalMenu({
   disabled,
+  workspaces = [],
   onOpen,
 }: {
   disabled?: boolean;
+  /** With more than one, choosing a terminal type asks for the repo to open it in. */
+  workspaces?: { id: string; name: string }[];
   onOpen: (def: NewTerminal) => void;
 }) {
   const [at, setAt] = useState<{ left: number; top: number } | null>(null);
+  const [choosing, setChoosing] = useState<NewTerminal | null>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const close = (refocus: boolean) => {
     setAt(null);
+    setChoosing(null);
     if (refocus) trigger.current?.focus();
   };
 
@@ -52,7 +57,7 @@ export function NewTerminalMenu({
       document.removeEventListener('mousedown', onDown);
       window.removeEventListener('resize', onResize);
     };
-  }, [at]);
+  }, [at, choosing]);
 
   const onKey = (e: KeyboardEvent) => {
     const items = [
@@ -87,6 +92,7 @@ export function NewTerminalMenu({
         disabled={disabled}
         onClick={() => {
           if (at) return close(false);
+          setChoosing(null);
           const r = trigger.current?.getBoundingClientRect();
           if (r) setAt({ left: r.left, top: r.bottom + 2 });
         }}
@@ -102,22 +108,40 @@ export function NewTerminalMenu({
           style={{ left: at.left, top: at.top }}
           onKeyDown={onKey}
         >
-          {NEW_TERMINALS.map((t) => (
-            <button
-              key={t.def.kind}
-              type="button"
-              role="menuitem"
-              tabIndex={-1}
-              className="menu-item"
-              onClick={() => {
-                close(false);
-                onOpen(t.def);
-              }}
-            >
-              <span className="menu-title">{t.title}</span>
-              {t.note && <span className="small muted">{t.note}</span>}
-            </button>
-          ))}
+          {choosing &&
+            workspaces.map((w) => (
+              <button
+                key={w.id}
+                type="button"
+                role="menuitem"
+                tabIndex={-1}
+                className="menu-item"
+                onClick={() => {
+                  close(false);
+                  onOpen({ ...choosing, workspaceId: w.id });
+                }}
+              >
+                <span className="menu-title">{w.name}</span>
+              </button>
+            ))}
+          {!choosing &&
+            NEW_TERMINALS.map((t) => (
+              <button
+                key={t.def.kind}
+                type="button"
+                role="menuitem"
+                tabIndex={-1}
+                className="menu-item"
+                onClick={() => {
+                  if (workspaces.length > 1) return setChoosing(t.def);
+                  close(false);
+                  onOpen(t.def);
+                }}
+              >
+                <span className="menu-title">{t.title}</span>
+                {t.note && <span className="small muted">{t.note}</span>}
+              </button>
+            ))}
         </div>
       )}
     </>

@@ -1,6 +1,7 @@
 import {
   Branch16Regular,
   Dismiss12Regular,
+  Warning16Regular,
   Code16Regular,
   DataPie16Regular,
   Document16Regular,
@@ -17,11 +18,19 @@ import { useTaskUsage } from '../hooks/useTaskUsage';
 import { holdDocsWatch } from '../docs/holdDocsWatch';
 import { DOCS_TAB, USAGE_TAB, useStore } from '../store';
 import { DocsTab } from './docs/DocsTab';
+import {
+  activeHome,
+  activeWorkspaces,
+  parseDocsTarget,
+  type WorkspaceView,
+} from '../../shared/workspaces';
 import { NewTerminalMenu } from './NewTerminalMenu';
 import { TerminalView } from './TerminalView';
 import { IconButton, MindMark, modKey } from './ui';
 import { UsagePanel } from './UsagePanel';
+import { TaskMenu, WorkspaceChips } from './WorkspaceChips';
 
+const SCAN_MS = 120000;
 const MARKDOWN = /\.(md|markdown)$/i;
 /** Build output and dependencies: Markdown there is not the task's documentation. */
 const OUTPUT_DIR = /^(dist|build|out|node_modules)\//;
@@ -30,6 +39,54 @@ const DOWN = String.fromCharCode(0x2193);
 const DOT = String.fromCharCode(0xb7);
 const DELTA = String.fromCharCode(0x394);
 const DASH = String.fromCharCode(0x2014);
+
+const folderName = (p: string) => p.split(/[\\/]/).filter(Boolean).at(-1) ?? p;
+
+/**
+ * One repo's `.miac.yml` run entries. A single-repo task shows them as before (run in the task's folder); with
+ * several repos each group is named after its repo and runs in that repo's worktree.
+ */
+function RunChips({
+  workspace,
+  repoName,
+  grouped,
+  disabled,
+  onOpen,
+}: {
+  workspace: WorkspaceView;
+  repoName: string;
+  grouped: boolean;
+  disabled: boolean;
+  onOpen: (def: NewTerminal) => void;
+}) {
+  const config = useRepoConfig(workspace.repoId);
+  const entries = Object.entries(config?.config.run ?? {});
+  if (entries.length === 0) return null;
+  return (
+    <span className="tabrow-run">
+      <span className="small muted">{grouped ? `Run ${repoName}` : 'Run'}</span>
+      {entries.map(([name, command]) => (
+        <button
+          key={name}
+          type="button"
+          className="btn btn-sm chip"
+          aria-label={grouped ? `Run ${name} in ${repoName}` : undefined}
+          onClick={() =>
+            onOpen({
+              kind: 'run',
+              label: name,
+              command,
+              ...(grouped ? { workspaceId: workspace.id } : {}),
+            })
+          }
+          disabled={disabled}
+        >
+          {name}
+        </button>
+      ))}
+    </span>
+  );
+}
 
 /** The task's AI cost; opens the Usage tab. */
 export function CostButton({ taskId }: { taskId: string }) {
@@ -60,7 +117,7 @@ export function TerminalTabs({
 }) {
   const notify = useStore((s) => s.notify);
   const go = useStore((s) => s.go);
-  const config = useRepoConfig(task.repoId);
+  const repos = useStore((s) => s.repos);
   const git = useGitSummary(task.id, task.worktreeMissing, visible);
   const active = useStore((s) => s.activeTab(task.id));
   const setTab = useStore((s) => s.setTab);
@@ -75,7 +132,8 @@ export function TerminalTabs({
     () =>
       api().on('docs:changed', (p) => {
         if (
-          p.taskId === task.id &&
+          // Any of the task's worktrees: `<taskId>` or `<taskId>#<workspace>`.
+          parseDocsTarget(p.taskId).taskId === task.id &&
           p.paths.some((f) => MARKDOWN.test(f) && !OUTPUT_DIR.test(f)) &&
           useStore.getState().activeTab(task.id) !== DOCS_TAB
         )
@@ -109,6 +167,28 @@ export function TerminalTabs({
     if (active === USAGE_TAB) setUnseen(false);
   }, [active]);
 
+  // The task page looks for other repos' worktrees when shown and every 2 minutes while the window is focused.
+  useEffect(() => {
+    if (!visible || !ready) return;
+    const scan = () => {
+      void api()
+        .invoke('tasks:scanWorkspaces', task.id)
+        .catch(() => undefined);
+    };
+    scan();
+    const timer = setInterval(() => {
+      if (document.hasFocus()) scan();
+    }, SCAN_MS);
+    return () => clearInterval(timer);
+  }, [task.id, visible, ready]);
+
+  const inTask = activeWorkspaces(task);
+  const home = activeHome(task);
+  const repoName = (w: WorkspaceView) =>
+    repos.find((r) => r.id === w.repoId)?.name ?? w.branch;
+  const workspaces = inTask.map((w) => ({ id: w.id, name: repoName(w) }));
+  const runFrom = inTask.length > 1 ? inTask : [home];
+
   const open = async (def: NewTerminal) => {
     const created = await tryInvoke(
       () => api().invoke('terminals:open', task.id, def),
@@ -119,8 +199,6 @@ export function TerminalTabs({
 
   const closeTerminal = (id: string) =>
     tryInvoke(() => api().invoke('terminals:kill', id), notify);
-
-  const runCommands = Object.entries(config?.config.run ?? {});
 
   return (
     <>
@@ -194,29 +272,25 @@ export function TerminalTabs({
           ))}
           <NewTerminalMenu
             disabled={task.worktreeMissing}
+            workspaces={workspaces}
             onOpen={(def) => void open(def)}
           />
-          {runCommands.length > 0 && (
-            <span className="tabrow-run">
-              <span className="small muted">Run</span>
-              {runCommands.map(([name, command]) => (
-                <button
-                  key={name}
-                  type="button"
-                  className="btn btn-sm chip"
-                  onClick={() => open({ kind: 'run', label: name, command })}
-                  disabled={task.worktreeMissing}
-                >
-                  {name}
-                </button>
-              ))}
-            </span>
-          )}
+          {runFrom.map((w) => (
+            <RunChips
+              key={w.id}
+              workspace={w}
+              repoName={repoName(w)}
+              grouped={runFrom.length > 1}
+              disabled={task.worktreeMissing}
+              onOpen={(def) => void open(def)}
+            />
+          ))}
         </div>
         <div className="taskbar-right">
-          <span className="mono taskbar-git" title={task.branch}>
+          <WorkspaceChips task={task} visible={visible} />
+          <span className="mono taskbar-git" title={home.branch}>
             <Branch16Regular aria-hidden="true" />
-            <span className="taskbar-branch">{task.branch}</span>
+            <span className="taskbar-branch">{home.branch}</span>
             {git &&
               ` ${UP}${git.ahead}${git.behind ? ` ${DOWN}${git.behind}` : ''} ${DOT} ${git.files.length ? `${git.files.length}${DELTA}` : 'clean'}`}
           </span>
@@ -245,6 +319,7 @@ export function TerminalTabs({
               >
                 Finish
               </button>
+              <TaskMenu task={task} />
               <IconButton
                 label={inFocus ? 'Exit focus' : 'Focus'}
                 shortcut={`${modKey}+Shift+F`}
@@ -260,6 +335,12 @@ export function TerminalTabs({
           )}
         </div>
       </div>
+      {task.mainCheckoutEdits.map((e) => (
+        <div key={e.repoPath} role="status" className="ws-warning">
+          <Warning16Regular aria-hidden="true" />
+          {`Changes made in ${folderName(e.repoPath)}'s main checkout${e.branch ? ` (branch ${e.branch})` : ''}`}
+        </div>
+      ))}
       <div className="termhost">
         {visible && active === USAGE_TAB && <UsagePanel taskId={task.id} />}
         {visible && active === DOCS_TAB && !task.worktreeMissing && (
@@ -270,6 +351,7 @@ export function TerminalTabs({
             key={t.id}
             terminalId={t.id}
             taskId={task.id}
+            workspaceId={t.workspaceId}
             resumes={t.kind === 'claude'}
             autoStart={t.kind === 'claude' || t.kind === 'shell'}
             active={visible && active === t.id}

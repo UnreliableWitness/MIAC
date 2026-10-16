@@ -58,6 +58,39 @@ export class RepoRegistry {
     return repo;
   }
 
+  /** Registers a repo MIAC found in a task (`discovered`); a repo already registered is returned unchanged. */
+  async addDiscovered(
+    folder: string,
+    connectionId: string | null,
+  ): Promise<Repo> {
+    const top = await this.git.toplevel(await fs.realpath(folder));
+    if (!top) throw new Error(`${folder} is not a git repository`);
+    const known = () =>
+      this.store.state.repos.find((r) => samePath(r.path, top));
+    const existing = known();
+    if (existing) return existing;
+    const repo = await this.describe({
+      id: randomUUID(),
+      path: top,
+      connectionId,
+      discovered: true,
+    });
+    await this.store.update((s) => {
+      if (!s.repos.some((r) => samePath(r.path, top))) s.repos.push(repo);
+    });
+    return known() ?? repo;
+  }
+
+  /** Clearing the mark makes a discovered repo a normal one. */
+  async setDiscovered(repoId: string, discovered: boolean): Promise<Repo> {
+    this.get(repoId);
+    await this.store.update((s) => {
+      const r = s.repos.find((x) => x.id === repoId);
+      if (r) r.discovered = discovered;
+    });
+    return this.get(repoId);
+  }
+
   /** Re-reads name, base branch and .miac.yml presence, e.g. after the user edits the file. */
   async setConnection(
     repoId: string,
@@ -109,7 +142,7 @@ export class RepoRegistry {
 
   private async describe(
     base: Pick<Repo, 'id' | 'path' | 'connectionId'> &
-      Partial<Pick<Repo, 'workItemOnStart'>>,
+      Partial<Pick<Repo, 'workItemOnStart' | 'discovered'>>,
   ): Promise<Repo> {
     const config = await this.loadConfig(base.path);
     return {
@@ -119,6 +152,7 @@ export class RepoRegistry {
       baseBranch: config.base,
       connectionId: base.connectionId,
       miacYmlFound: config.found,
+      discovered: base.discovered ?? false,
       workItemOnStart: base.workItemOnStart ?? {
         moveToInProgress: true,
         assignToMe: true,

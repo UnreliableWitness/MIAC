@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import type { Connection } from '../../shared/types';
 import {
+  matchConnection,
   organizationOf,
   parseAzureReposRemote,
   prAvailability,
@@ -129,6 +131,21 @@ describe('prDescription', () => {
     expect(text).not.toContain('AI cost');
     expect(text.endsWith('\n\nRecorded by MIAC')).toBe(true);
   });
+  it('marks the cost line as the whole task across repos', () => {
+    expect(prDescription({ ...base, costScope: { repos: 2 } })).toContain(
+      '\n\nAI cost (whole task, 2 repos): €1.00 (Claude €1.00, Copilot €0.00) · recorded by MIAC',
+    );
+  });
+  it('names the work item URL when the PR cannot link it', () => {
+    expect(
+      prDescription({
+        ...base,
+        workItemUrl: 'https://dev.azure.com/o/P/_workitems/edit/42',
+      }),
+    ).toMatch(
+      /^Bug 42: Fix it\n\nWork item: https:\/\/dev\.azure\.com\/o\/P\/_workitems\/edit\/42\n\n## Commits/,
+    );
+  });
   it('mentions commits beyond the list', () => {
     expect(prDescription({ ...base, commitCount: 5 })).toContain(
       '…and 3 more commits',
@@ -148,5 +165,60 @@ describe('prDescription', () => {
     expect(prDescription({ ...base, commits: [], commitCount: 0 })).toBe(
       'Bug 42: Fix it\n\nAI cost for this task: €1.00 (Claude €1.00, Copilot €0.00) · recorded by MIAC',
     );
+  });
+});
+
+describe('matchConnection', () => {
+  const conn = (
+    id: string,
+    organizationUrl: string,
+    project: string,
+  ): Connection => ({
+    id,
+    name: id,
+    organizationUrl,
+    project,
+    user: null,
+    status: 'ok',
+    checkedAt: null,
+    userUniqueName: null,
+  });
+  const other = conn('other', 'https://dev.azure.com/fabrikam', 'Web');
+  const sameOrg = conn('org', 'https://dev.azure.com/contoso', 'Intranet');
+  const sameProject = conn(
+    'proj',
+    'https://contoso.visualstudio.com',
+    'Web Shop',
+  );
+
+  it('matches the connection with the same organization', () => {
+    expect(
+      matchConnection('https://dev.azure.com/contoso/Web%20Shop/_git/DXP', [
+        other,
+        sameOrg,
+      ])?.id,
+    ).toBe('org');
+  });
+
+  it('prefers the connection with the same project', () => {
+    expect(
+      matchConnection('https://dev.azure.com/contoso/Web%20Shop/_git/DXP', [
+        sameOrg,
+        sameProject,
+      ])?.id,
+    ).toBe('proj');
+  });
+
+  it('returns null for GitHub, no remote and no matching organization', () => {
+    expect(
+      matchConnection('https://github.com/contoso/dxp.git', [sameOrg]),
+    ).toBeNull();
+    expect(matchConnection(null, [sameOrg])).toBeNull();
+    expect(
+      matchConnection('https://dev.azure.com/northwind/P/_git/R', [
+        other,
+        sameOrg,
+      ]),
+    ).toBeNull();
   });
 });

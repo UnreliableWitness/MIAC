@@ -8,6 +8,7 @@ import {
 } from '../../shared/usage';
 import type { AdoClient } from '../services/AdoClient';
 import { aiFieldValues, renderUsageComment } from '../../shared/workItemUsage';
+import { pushedBranches } from '../../shared/workspaces';
 
 export type UsageSyncDeps = {
   task: (taskId: string) => Task;
@@ -143,7 +144,7 @@ export class UsageSync {
           const { id } = await client.addComment(
             target.project,
             workItemId,
-            renderUsageComment(usage, task.branch),
+            renderUsageComment(usage, pushedBranches(task)),
           );
           await this.d.patchTask(taskId, { usageCommentId: id });
           commentPosted = true;

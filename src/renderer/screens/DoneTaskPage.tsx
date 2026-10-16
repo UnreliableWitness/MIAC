@@ -6,6 +6,7 @@ import type {
   TaskView,
   WorkItemSummary,
 } from '../../shared/types';
+import { taskWorkspaces, type WorkspaceView } from '../../shared/workspaces';
 import { api, tryInvoke } from '../api';
 import { TaskTypeIcon } from '../components/TaskTypeIcon';
 import { PageHeader, StateDot } from '../components/ui';
@@ -43,15 +44,19 @@ function useLiveWorkItem(
 }
 
 /** The pull request as Azure DevOps has it now; starts from the stored one and refreshes once. */
-function useLivePullRequest(task: TaskView): PullRequestRef | null {
-  const [pr, setPr] = useState<PullRequestRef | null>(task.pullRequest);
-  const has = task.pullRequest !== null;
+function useLivePullRequest(
+  taskId: string,
+  workspaceId: string,
+  stored: PullRequestRef | null,
+): PullRequestRef | null {
+  const [pr, setPr] = useState<PullRequestRef | null>(stored);
+  const has = stored !== null;
   useEffect(() => {
-    setPr(task.pullRequest);
+    setPr(stored);
     if (!has) return;
     let live = true;
     api()
-      .invoke('tasks:prStatus', task.id)
+      .invoke('tasks:prStatus', taskId, workspaceId)
       .then((p) => {
         if (live && p) setPr(p);
       })
@@ -60,7 +65,7 @@ function useLivePullRequest(task: TaskView): PullRequestRef | null {
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [task.id, has]);
+  }, [taskId, workspaceId, has]);
   return pr;
 }
 
@@ -85,6 +90,117 @@ function pushState(s: TaskSummary, branch: string): string {
     ? s.upstream.slice(0, -branch.length - 1)
     : s.upstream;
   return s.pushed ? `pushed to ${to}` : `not all pushed to ${to}`;
+}
+
+/** The facts of one workspace: its branch and push state, pull request and changes. */
+function WorkspaceFacts({ taskId, w }: { taskId: string; w: WorkspaceView }) {
+  const notify = useStore((s) => s.notify);
+  const pr = useLivePullRequest(taskId, w.id, w.pullRequest);
+  const s = w.summary;
+  return (
+    <>
+      <Fact label="Branch">
+        <span className="mono">{w.branch}</span>
+        {s && <span className="muted"> {pushState(s, w.branch)}</span>}
+      </Fact>
+      {pr && (
+        <Fact label="Pull request">
+          <button
+            type="button"
+            className="link"
+            aria-label={`Open pull request ${pr.id} in Azure DevOps`}
+            onClick={() =>
+              tryInvoke(
+                () => api().invoke('shell:openExternal', pr.url),
+                notify,
+              )
+            }
+          >
+            {`PR ${pr.id} · ${prLabel(pr)}`}
+          </button>
+        </Fact>
+      )}
+      {s && s.baseKnown && (
+        <Fact label="Changes">
+          {s.filesChanged} {s.filesChanged === 1 ? 'file' : 'files'},{' '}
+          <span className="text-green">+{s.insertions}</span>{' '}
+          <span className="text-red">
+            {MINUS}
+            {s.deletions}
+          </span>
+        </Fact>
+      )}
+    </>
+  );
+}
+
+/** The commits of one workspace, or why there is no summary. */
+function WorkspaceCommits({ w }: { w: WorkspaceView }) {
+  const s = w.summary;
+  if (!s)
+    return (
+      <p className="done-nosummary muted">
+        {w.baseSha
+          ? 'No summary: git could not read the branch when it finished.'
+          : 'Finished before MIAC recorded summaries.'}
+      </p>
+    );
+  return (
+    <section className="done-commits" aria-label="Commits">
+      <h2>
+        Commits {s.baseKnown && <span className="muted">{s.commitCount}</span>}
+      </h2>
+      {!s.baseKnown ? (
+        <p className="muted">
+          Commits unavailable: MIAC could not find where this branch started.
+        </p>
+      ) : s.commits.length === 0 ? (
+        <p className="muted">No commits on this branch.</p>
+      ) : (
+        <ol>
+          {s.commits.map((c) => (
+            <li key={c.sha}>
+              <span className="mono muted">{c.sha}</span>
+              <span className="done-subject">{c.subject}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+      {s.commitCount > s.commits.length && (
+        <p className="muted small">
+          and {s.commitCount - s.commits.length} more
+        </p>
+      )}
+    </section>
+  );
+}
+
+/** The repo's name, or its worktree folder when the repo was removed from MIAC. */
+function useRepoName(w: WorkspaceView): string {
+  const repos = useStore((s) => s.repos);
+  return (
+    repos.find((r) => r.id === w.repoId)?.name ??
+    w.worktreePath.split(/[\\/]/).filter(Boolean).pop() ??
+    w.repoId
+  );
+}
+
+function WorkspaceSection({ task, w }: { task: TaskView; w: WorkspaceView }) {
+  const name = useRepoName(w);
+  return (
+    <section className="done-workspace" aria-label={name}>
+      <h2>{name}</h2>
+      <dl className="facts">
+        <WorkspaceFacts taskId={task.id} w={w} />
+      </dl>
+      <WorkspaceCommits w={w} />
+    </section>
+  );
+}
+
+function DroppedNote({ w }: { w: WorkspaceView }) {
+  const name = useRepoName(w);
+  return <p className="muted done-dropped">{`${name}: no changes, removed`}</p>;
 }
 
 /** A finished task: what it was, how long it took, what it changed and pushed, what the AI cost, and its usage. */
@@ -118,9 +234,10 @@ export function DoneTaskPage({ task }: { task: TaskView }) {
     setRetrying(false);
   };
   const wi = task.workItem;
-  const pr = useLivePullRequest(task);
   const live = useLiveWorkItem(connectionId, wi?.id ?? null);
-  const s = task.summary;
+  const workspaces = taskWorkspaces(task);
+  // Every repo the task had, dropped ones included: those show as "no changes, removed".
+  const multi = workspaces.length > 1;
   const took = task.finishedAt
     ? duration(task.createdAt, task.finishedAt)
     : null;
@@ -195,37 +312,7 @@ export function DoneTaskPage({ task }: { task: TaskView }) {
           <Fact label="Finished">
             {task.finishedAt ? dateTime(task.finishedAt) : 'Unknown'}
           </Fact>
-          <Fact label="Branch">
-            <span className="mono">{task.branch}</span>
-            {s && <span className="muted"> {pushState(s, task.branch)}</span>}
-          </Fact>
-          {pr && (
-            <Fact label="Pull request">
-              <button
-                type="button"
-                className="link"
-                aria-label={`Open pull request ${pr.id} in Azure DevOps`}
-                onClick={() =>
-                  tryInvoke(
-                    () => api().invoke('shell:openExternal', pr.url),
-                    notify,
-                  )
-                }
-              >
-                {`PR ${pr.id} · ${prLabel(pr)}`}
-              </button>
-            </Fact>
-          )}
-          {s && s.baseKnown && (
-            <Fact label="Changes">
-              {s.filesChanged} {s.filesChanged === 1 ? 'file' : 'files'},{' '}
-              <span className="text-green">+{s.insertions}</span>{' '}
-              <span className="text-red">
-                {MINUS}
-                {s.deletions}
-              </span>
-            </Fact>
-          )}
+          {!multi && <WorkspaceFacts taskId={task.id} w={workspaces[0]} />}
           <Fact label="AI cost">
             {usage ? (
               <>
@@ -263,41 +350,21 @@ export function DoneTaskPage({ task }: { task: TaskView }) {
           </Fact>
           <Fact label="Logged on work item">{logged}</Fact>
         </dl>
-        {s ? (
-          <section className="done-commits" aria-label="Commits">
-            <h2>
-              Commits{' '}
-              {s.baseKnown && <span className="muted">{s.commitCount}</span>}
-            </h2>
-            {!s.baseKnown ? (
-              <p className="muted">
-                Commits unavailable: MIAC could not find where this branch
-                started.
-              </p>
-            ) : s.commits.length === 0 ? (
-              <p className="muted">No commits on this branch.</p>
-            ) : (
-              <ol>
-                {s.commits.map((c) => (
-                  <li key={c.sha}>
-                    <span className="mono muted">{c.sha}</span>
-                    <span className="done-subject">{c.subject}</span>
-                  </li>
-                ))}
-              </ol>
-            )}
-            {s.commitCount > s.commits.length && (
-              <p className="muted small">
-                and {s.commitCount - s.commits.length} more
-              </p>
-            )}
-          </section>
+        {multi ? (
+          <>
+            {workspaces
+              .filter((w) => !w.dropped)
+              .map((w) => (
+                <WorkspaceSection key={w.id} task={task} w={w} />
+              ))}
+            {workspaces
+              .filter((w) => w.dropped)
+              .map((w) => (
+                <DroppedNote key={w.id} w={w} />
+              ))}
+          </>
         ) : (
-          <p className="done-nosummary muted">
-            {task.baseSha
-              ? 'No summary: git could not read the branch when it finished.'
-              : 'Finished before MIAC recorded summaries.'}
-          </p>
+          <WorkspaceCommits w={workspaces[0]} />
         )}
         <UsagePanel taskId={task.id} />
       </div>

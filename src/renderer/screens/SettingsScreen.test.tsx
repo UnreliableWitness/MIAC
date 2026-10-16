@@ -16,6 +16,7 @@ const webshop: Repo = {
   baseBranch: 'main',
   connectionId: null,
   miacYmlFound: true,
+  discovered: false,
   workItemOnStart: {
     moveToInProgress: true,
     assignToMe: true,
@@ -46,6 +47,7 @@ describe('SettingsScreen', () => {
           path: '/src/api',
           baseBranch: 'develop',
           miacYmlFound: false,
+          discovered: false,
           workItemOnStart: {
             moveToInProgress: true,
             assignToMe: true,
@@ -63,6 +65,23 @@ describe('SettingsScreen', () => {
     expect(
       screen.getByText('No .miac.yml, using defaults'),
     ).toBeInTheDocument();
+  });
+
+  it('marks a discovered repo and lets the user make it normal', async () => {
+    const { calls } = installFakeApi({
+      'repos:setDiscovered': () => ({ ...webshop, discovered: false }),
+    });
+    useStore.setState({ repos: [{ ...webshop, discovered: true }] });
+    render(<SettingsScreen />);
+    expect(screen.getByText('Found in a task')).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Make it a normal repo' }),
+    );
+    await waitFor(() =>
+      expect(
+        calls.find((c) => c.channel === 'repos:setDiscovered')?.args,
+      ).toEqual(['r1', false]),
+    );
   });
 
   it('adds a folder through the native picker', async () => {

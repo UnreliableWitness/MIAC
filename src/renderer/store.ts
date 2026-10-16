@@ -37,7 +37,10 @@ type Store = {
   notices: Notice[];
   tabByTask: Record<string, string>;
   /** A document a terminal link asked the Docs tab to open; the nonce makes repeats count. */
-  docTarget: Record<string, { path: string; line?: number; nonce: number }>;
+  docTarget: Record<
+    string,
+    { path: string; line?: number; workspaceId?: string; nonce: number }
+  >;
   focus: boolean;
   navCollapsed: boolean;
   go(screen: Screen): void;
@@ -55,7 +58,12 @@ type Store = {
   setTab(taskId: string, tab: string): void;
   activeTab(taskId: string): string;
   openUsage(taskId: string): void;
-  openDoc(taskId: string, path: string, line?: number): void;
+  openDoc(
+    taskId: string,
+    path: string,
+    line?: number,
+    workspaceId?: string,
+  ): void;
   toggleFocus(): void;
   setNavCollapsed(v: boolean): void;
 };
@@ -144,14 +152,19 @@ export const useStore = create<Store>((set, get) => ({
     get().go({ kind: 'task' });
     set({ tabByTask: { ...get().tabByTask, [taskId]: USAGE_TAB } });
   },
-  openDoc: (taskId, path, line) => {
+  openDoc: (taskId, path, line, workspaceId) => {
     get().select(taskId);
     get().go({ kind: 'task' });
     set({
       tabByTask: { ...get().tabByTask, [taskId]: DOCS_TAB },
       docTarget: {
         ...get().docTarget,
-        [taskId]: { path, line, nonce: Date.now() + Math.random() },
+        [taskId]: {
+          path,
+          line,
+          workspaceId,
+          nonce: Date.now() + Math.random(),
+        },
       },
     });
   },
@@ -180,10 +193,14 @@ export const useStore = create<Store>((set, get) => ({
 }));
 
 /** The connection of a task's repo, for its work item icons and live state. */
-export const useTaskConnectionId = (task: { repoId: string } | null) =>
+export const useTaskConnectionId = (
+  task: { repoId: string; connectionId?: string | null } | null,
+) =>
   useStore((s) =>
     task
-      ? (s.repos.find((r) => r.id === task.repoId)?.connectionId ?? null)
+      ? (task.connectionId ??
+        s.repos.find((r) => r.id === task.repoId)?.connectionId ??
+        null)
       : null,
   );
 
@@ -212,8 +229,11 @@ export function activeConnection(s: ConnectionState): Connection | null {
     const task = s.tasks.find((t) => t.id === taskId);
     return s.repos.find((r) => r.id === task?.repoId);
   };
+  const taskConnection = (taskId: string | null) =>
+    s.tasks.find((t) => t.id === taskId)?.connectionId;
   const taskRepo = repoOf(s.selectedTaskId);
   return (
+    byId(taskConnection(pageTaskId(s))) ??
     byId(repoOf(pageTaskId(s))?.connectionId) ??
     byId(s.connectionId) ??
     byId(taskRepo?.connectionId) ??

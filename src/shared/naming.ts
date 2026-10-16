@@ -1,4 +1,5 @@
 import type { Task, WorkItemRef } from './types';
+import { taskWorkspaces } from './workspaces';
 
 export function slugify(text: string, max = 40): string {
   const base = text
@@ -40,7 +41,10 @@ export function taskTitle(task: Pick<Task, 'workItem' | 'name'>): string {
     : `Task: ${task.name}`;
 }
 
-export function renderTaskMd(task: Task): string {
+export function renderTaskMd(
+  task: Task,
+  repoPaths: Record<string, string> = {},
+): string {
   const lines = [
     `# ${taskTitle(task)}`,
     '',
@@ -49,16 +53,38 @@ export function renderTaskMd(task: Task): string {
     `- Worktree: \`${task.worktreePath}\``,
     `- Created: ${task.createdAt}`,
     '',
+    ...(task.extraWorkspaces.length > 0
+      ? [
+          '## Workspaces',
+          '',
+          ...taskWorkspaces(task).map(
+            (w) =>
+              `- Repo \`${repoPaths[w.repoId] ?? w.repoId}\`: branch \`${w.branch}\`, worktree \`${w.worktreePath}\`${w.dropped ? ' (left out)' : ''}`,
+          ),
+          '',
+        ]
+      : []),
+    otherReposInstruction(task),
+    '',
     'This file is written by MIAC and excluded from git. Put notes for the task here.',
     '',
   ];
   return lines.join('\n');
 }
 
+/** How Claude joins another repo to the task: a worktree on the task's branch, which MIAC detects. */
+export function otherReposInstruction(
+  task: Pick<Task, 'branch' | 'slug'>,
+): string {
+  return `If this task needs changes in another repository, do not edit that repository's main checkout. Create a worktree there on this task's branch: git -C <repo> worktree add <repo>.worktrees/${task.slug} -b ${task.branch} <base> (use the repo's default branch as base, from origin when it exists). MIAC picks it up automatically.`;
+}
+
 /** Appended to Claude Code's system prompt: the task, and that Claude waits for the user before working on it. */
-export function claudeContext(task: Pick<Task, 'workItem' | 'name'>): string {
+export function claudeContext(
+  task: Pick<Task, 'workItem' | 'name' | 'branch' | 'slug'>,
+): string {
   const head = task.workItem
     ? `${task.workItem.type} ${task.workItem.id}: ${task.workItem.title}`
     : `Task: ${task.name}`;
-  return `This folder is a MIAC task for ${head}. The details are in .miac/task.md. Do not start on the task by yourself: wait for the user's instructions.`;
+  return `This folder is a MIAC task for ${head}. The details are in .miac/task.md. Do not start on the task by yourself: wait for the user's instructions. ${otherReposInstruction(task)}`;
 }

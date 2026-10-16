@@ -12,9 +12,14 @@ import {
   addOrigin,
   cleanupTempRepos,
   commitFile,
+  git as gitCli,
   makeRepo,
 } from '../test-helpers/gitRepo';
-import { normaliseEol, testPlatform } from '../test-helpers/shell';
+import {
+  normaliseEol,
+  testPlatform,
+  writeLineCmd,
+} from '../test-helpers/shell';
 import { GitClient } from './GitClient';
 import {
   ensureExcluded,
@@ -601,3 +606,188 @@ describe('ensureExcluded', () => {
     expect(text.endsWith('\n')).toBe(true);
   });
 });
+
+describe('SetupRunner: reopen with more repos', () => {
+  const extra = (
+    over: Partial<NonNullable<SetupPlan['extraRestores']>[number]> = {},
+  ) => ({
+    workspaceId: 'w2',
+    repoName: 'api',
+    repoPath: '/api',
+    worktreePath: '/api-wt',
+    branch: 'feature/x',
+    from: null,
+    copy: [],
+    commands: [],
+    ...over,
+  });
+
+  it('lists each extra repo after the home and before the terminals', () => {
+    const steps = planSteps(
+      plan('/r', {
+        restore: { from: null },
+        commands: ['npm ci'],
+        startTerminalsLabel: 'Claude Code',
+        extraRestores: [
+          extra({
+            from: 'origin/feature/x',
+            copy: ['.env'],
+            commands: ['dotnet restore'],
+          }),
+          extra({ workspaceId: 'w3', repoName: 'docs', commands: ['make'] }),
+        ],
+      }),
+    );
+    expect(
+      steps.map((s) => [s.kind, s.label, s.detail, s.workspaceId]),
+    ).toEqual([
+      ['worktree', 'Restore worktree', 'feature/x', undefined],
+      ['task-file', 'Write task file', '.miac/task.md', undefined],
+      [
+        'worktree',
+        'Restore api worktree',
+        'feature/x from origin/feature/x',
+        'w2',
+      ],
+      ['copy', 'Copy local files (api)', '.env', 'w2'],
+      ['command', 'dotnet restore', 'in api', 'w2'],
+      ['worktree', 'Restore docs worktree', 'feature/x', 'w3'],
+      ['command', 'make', 'in docs', 'w3'],
+      [
+        'terminals',
+        'Restore terminals',
+        'Claude Code, Setup (npm ci)',
+        undefined,
+      ],
+    ]);
+  });
+
+  it('skips every home step when the home is not restored', () => {
+    const steps = planSteps(
+      plan('/r', {
+        restore: { from: null },
+        skipHome: true,
+        copy: ['.env'],
+        commands: ['npm ci'],
+        startTerminalsLabel: 'Claude Code',
+        extraRestores: [extra()],
+      }),
+    );
+    expect(steps.map((s) => [s.kind, s.label, s.detail])).toEqual([
+      ['worktree', 'Restore api worktree', 'feature/x'],
+      ['terminals', 'Restore terminals', 'Claude Code'],
+    ]);
+  });
+
+  it('opens no Setup tab for a home that is not restored', async () => {
+    const home = makeRepo();
+    let commands: string[] | null = null;
+    const result = await runner.run(
+      plan(home, {
+        restore: { from: null },
+        skipHome: true,
+        commands: ['npm ci'],
+        startTerminalsLabel: 'Claude Code',
+      }),
+      {
+        onEvent: () => {},
+        startTerminals: async (c) => {
+          commands = c;
+        },
+      },
+    );
+    expect(result).toEqual({ ok: true });
+    expect(commands).toEqual([]);
+  });
+
+  it('restores an extra worktree from origin/<branch> and runs its commands there', async () => {
+    const home = makeRepo();
+    const api = makeRepo('api');
+    addOrigin(api);
+    const wt = path.join(path.dirname(api), 'api-wt');
+    git_(api, 'worktree', 'add', '-q', '-b', 'feature/x', wt, 'main');
+    writeFileSync(path.join(wt, 'work.txt'), 'w\n');
+    git_(wt, 'add', 'work.txt');
+    git_(wt, 'commit', '-q', '-m', 'work');
+    git_(wt, 'push', '-q', 'origin', 'feature/x');
+    git_(api, 'worktree', 'remove', '--force', wt);
+    git_(api, 'branch', '-q', '-D', 'feature/x');
+    git_(api, 'fetch', '-q', 'origin');
+    writeFileSync(path.join(api, '.env'), 'API=1');
+    const p = plan(home, {
+      restore: { from: 'main' },
+      startTerminalsLabel: 'zsh',
+      extraRestores: [
+        {
+          workspaceId: 'w2',
+          repoName: 'api',
+          repoPath: api,
+          worktreePath: wt,
+          branch: 'feature/x',
+          from: 'origin/feature/x',
+          copy: ['.env'],
+          commands: [writeLineCmd('restored', 'built.txt')],
+        },
+      ],
+    });
+    const { onEvent } = collect();
+    let started = false;
+    const result = await runner.run(p, {
+      onEvent,
+      startTerminals: async () => {
+        started = true;
+      },
+    });
+    expect(result).toEqual({ ok: true });
+    expect(started).toBe(true);
+    expect(existsSync(path.join(p.worktreePath, '.miac', 'task.md'))).toBe(
+      true,
+    );
+    expect(readFileSync(path.join(wt, 'work.txt'), 'utf8')).toBe('w\n');
+    expect(readFileSync(path.join(wt, '.env'), 'utf8')).toBe('API=1');
+    expect(readFileSync(path.join(wt, 'built.txt'), 'utf8').trim()).toBe(
+      'restored',
+    );
+    expect(existsSync(path.join(p.worktreePath, 'built.txt'))).toBe(false);
+    expect(await git.branchExists(api, 'feature/x')).toBe(true);
+  });
+
+  it('fails at the extra worktree step and a retry resumes there', async () => {
+    const home = makeRepo();
+    const api = makeRepo('api');
+    const wt = path.join(path.dirname(api), 'api-wt');
+    const restore = {
+      workspaceId: 'w2',
+      repoName: 'api',
+      repoPath: api,
+      worktreePath: wt,
+      branch: 'feature/x',
+      from: 'does-not-exist',
+      copy: [],
+      commands: [],
+    };
+    const p = plan(home, {
+      restore: { from: 'main' },
+      extraRestores: [restore],
+    });
+    const failed = await runner.run(p, {
+      onEvent: () => {},
+      startTerminals: async () => {},
+    });
+    expect(failed).toEqual({ ok: false, failedStep: 2 });
+    const { events, onEvent } = collect();
+    const retried = await runner.run(
+      { ...p, extraRestores: [{ ...restore, from: 'main' }] },
+      { onEvent, startTerminals: async () => {}, fromStep: 2 },
+    );
+    expect(retried).toEqual({ ok: true });
+    expect(existsSync(wt)).toBe(true);
+    expect(
+      events.some((e) => e.type === 'log' && e.line.includes('reusing it')),
+    ).toBe(false);
+  });
+});
+
+function git_(cwd: string, ...args: string[]) {
+  return gitCli(cwd, ...args);
+}

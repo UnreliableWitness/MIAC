@@ -35,6 +35,30 @@ async function registry() {
 }
 
 describe('RepoRegistry', () => {
+  it('registers a discovered repo with a connection, returns an existing one as is, and clears the mark', async () => {
+    const reg = await registry();
+    const repo = makeRepo('found');
+    const added = await reg.addDiscovered(repo, 'c1');
+    expect(added).toMatchObject({
+      name: 'found',
+      path: repo,
+      connectionId: 'c1',
+      discovered: true,
+    });
+    expect(await reg.addDiscovered(path.join(repo), null)).toEqual(added);
+    expect(reg.list()).toHaveLength(1);
+    const cleared = await reg.setDiscovered(added.id, false);
+    expect(cleared.discovered).toBe(false);
+    expect(reg.get(added.id).discovered).toBe(false);
+  });
+
+  it('returns the registered repo when addDiscovered meets one added by hand', async () => {
+    const reg = await registry();
+    const repo = makeRepo('mine');
+    const added = await reg.add(repo);
+    expect(await reg.addDiscovered(repo, 'c1')).toEqual(added);
+  });
+
   it('adds a repo with its name, default base and .miac.yml flag', async () => {
     const reg = await registry();
     const repo = makeRepo('webshop');
@@ -45,6 +69,7 @@ describe('RepoRegistry', () => {
       baseBranch: 'main',
       connectionId: null,
       miacYmlFound: false,
+      discovered: false,
       workItemOnStart: {
         moveToInProgress: true,
         assignToMe: true,
@@ -70,6 +95,7 @@ describe('RepoRegistry', () => {
             baseBranch: 'main',
             connectionId: null,
             miacYmlFound: false,
+            discovered: false,
           },
         ],
         tasks: [],
@@ -114,6 +140,7 @@ describe('RepoRegistry', () => {
     expect(await reg.add(repo)).toMatchObject({
       baseBranch: 'develop',
       miacYmlFound: true,
+      discovered: false,
       workItemOnStart: {
         moveToInProgress: true,
         assignToMe: true,
@@ -201,6 +228,11 @@ describe('RepoRegistry', () => {
         pullRequest: null,
         closedTerminals: [],
         reopen: null,
+        extraWorkspaces: [],
+        detachedPaths: [],
+        homeDropped: false,
+        connectionId: null,
+        mainCheckoutEdits: [],
       });
     });
     await expect(reg.remove(again.id)).rejects.toThrow(/open task/);

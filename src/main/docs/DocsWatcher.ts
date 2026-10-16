@@ -2,7 +2,7 @@ import { watch, type FSWatcher } from 'node:fs';
 
 const IGNORED = /(^|\/)(node_modules|\.git)(\/|$)/;
 
-/** One recursive watcher per task worktree, shared by every open Docs tab, with changes debounced into one event. */
+/** One recursive watcher per docs target (a task's workspace worktree), shared by every open Docs tab, with changes debounced into one event. */
 export class DocsWatcher {
   private readonly entries = new Map<
     string,
@@ -64,7 +64,10 @@ export class DocsWatcher {
 
   /** Stops the task's watcher whatever its count, and reports it so the holders fall back to polling. */
   stopTask(taskId: string): void {
-    if (this.close(taskId)) this.onStopped(taskId);
+    const prefix = `${taskId}#`;
+    for (const key of this.entries.keys())
+      if (key === taskId || key.startsWith(prefix))
+        if (this.close(key)) this.onStopped(key);
   }
 
   stopAll(): void {

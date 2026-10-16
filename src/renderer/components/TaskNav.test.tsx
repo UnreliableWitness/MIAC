@@ -14,6 +14,7 @@ const repos: Repo[] = [
     baseBranch: 'main',
     connectionId: null,
     miacYmlFound: true,
+    discovered: false,
     workItemOnStart: {
       moveToInProgress: true,
       assignToMe: true,
@@ -27,6 +28,7 @@ const repos: Repo[] = [
     baseBranch: 'develop',
     connectionId: null,
     miacYmlFound: false,
+    discovered: false,
     workItemOnStart: {
       moveToInProgress: true,
       assignToMe: true,
@@ -54,6 +56,11 @@ const base = {
   pullRequest: null,
   closedTerminals: [],
   reopen: null,
+  extraWorkspaces: [],
+  detachedPaths: [],
+  homeDropped: false,
+  connectionId: null,
+  mainCheckoutEdits: [],
   worktreeMissing: false,
   baseRef: 'origin/main',
   baseSha: null,
@@ -104,6 +111,11 @@ const tasks: TaskView[] = [
     pullRequest: null,
     closedTerminals: [],
     reopen: null,
+    extraWorkspaces: [],
+    detachedPaths: [],
+    homeDropped: false,
+    connectionId: null,
+    mainCheckoutEdits: [],
   },
   {
     ...base,
@@ -139,6 +151,32 @@ describe('groupTasks', () => {
       ['webshop', ['a', 'b', 'd']],
     ]);
     expect(g.done.map((t) => t.id)).toEqual(['c']);
+  });
+
+  it('groups a task whose home was dropped under the repo that took over', () => {
+    const moved: TaskView = {
+      ...tasks[0],
+      homeDropped: true,
+      extraWorkspaces: [
+        {
+          id: 'w1',
+          repoId: 'r2',
+          branch: 'feature/48213-a',
+          worktreePath: '/w/a-api',
+          baseRef: 'origin/main',
+          baseSha: null,
+          source: 'detected',
+          summary: null,
+          pullRequest: null,
+          reopen: null,
+          dropped: false,
+        },
+      ],
+    };
+    const g = groupTasks([moved], repos);
+    expect(g.open.map((x) => [x.repo.id, x.tasks.map((t) => t.id)])).toEqual([
+      ['r2', ['a']],
+    ]);
   });
 });
 
@@ -351,5 +389,30 @@ describe('TaskNav', () => {
     const row = screen.getByRole('button', { name: /48213/ });
     expect(row).toHaveTextContent('Checkout: save address');
     expect(row).not.toHaveTextContent('feature/48213-a');
+  });
+});
+
+describe('TaskNav extra repos', () => {
+  it('shows +1 repo and +2 repos on a task with extras', () => {
+    installFakeApi({ 'usage:task': emptyUsage });
+    const w = (id: string, dropped = false) =>
+      ({ id, repoId: 'r2', dropped }) as never;
+    useStore.setState({
+      repos,
+      connections: [],
+      selectedTaskId: 'a',
+      screen: { kind: 'task' },
+      tasks: [
+        { ...tasks[0], extraWorkspaces: [w('w1')] },
+        {
+          ...tasks[0],
+          id: 'z',
+          extraWorkspaces: [w('w2'), w('w3'), w('w4', true)],
+        },
+      ],
+    });
+    render(<TaskNav />);
+    expect(screen.getByText('+1 repo')).toBeInTheDocument();
+    expect(screen.getByText('+2 repos')).toBeInTheDocument();
   });
 });

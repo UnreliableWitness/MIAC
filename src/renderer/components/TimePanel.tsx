@@ -2,7 +2,7 @@ import { AGENT_TOOLS, formatDuration, type AgentTool } from '../../shared/time';
 import { api, tryInvoke } from '../api';
 import { useEstimateHours } from '../hooks/useEstimateHours';
 import { useTaskTime } from '../hooks/useTaskTime';
-import { useStore } from '../store';
+import { useStore, useTaskConnectionId } from '../store';
 
 const TOOL_LABEL: Record<AgentTool, string> = {
   'claude-code': 'Claude Code',
@@ -13,11 +13,11 @@ const TOOL_LABEL: Record<AgentTool, string> = {
 /** The Time card on the Usage tab: measured time, agent time per tool, the estimate and the booking. */
 export function TimePanel({ taskId }: { taskId: string }) {
   const task = useStore((s) => s.tasks.find((t) => t.id === taskId));
-  const repo = useStore((s) => s.repos.find((r) => r.id === task?.repoId));
+  const connectionId = useTaskConnectionId(task ?? null);
   const notify = useStore((s) => s.notify);
   const { time } = useTaskTime(taskId);
   const estimateHours = useEstimateHours(
-    repo?.connectionId ?? null,
+    connectionId,
     task?.workItem?.id ?? null,
     time,
   );
