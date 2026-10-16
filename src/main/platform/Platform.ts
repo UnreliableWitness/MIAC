@@ -21,6 +21,13 @@ export interface Platform {
    */
   runCommand(cmd: string): Command;
   /**
+   * Run a task's setup command lines one after another in a terminal (the Setup tab), printing each before it runs
+   * and stopping at the first one that fails.
+   */
+  setupCommands(cmds: string[]): Command;
+  /** Copy a folder as a cheap copy-on-write clone; absent where the file system has none. `dest` must not exist. */
+  cloneDir?(src: string, dest: string): Command;
+  /**
    * Start Claude Code. `context` (the task) is appended to its system prompt, so Claude knows the task but waits
    * for the user's first message; null when resuming, as the session already has it. `flags` are MIAC's own
    * (session id, resume).

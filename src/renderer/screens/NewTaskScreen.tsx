@@ -341,6 +341,11 @@ export function NewTaskScreen({
                 <span className="mono">{c}</span>
               </label>
             ))}
+            {(config?.config.setup.length ?? 0) > 0 && (
+              <span className="muted small">
+                Commands run in a Setup tab while you work.
+              </span>
+            )}
             {config &&
               config.config.setup.length === 0 &&
               config.config.copy.length === 0 && (

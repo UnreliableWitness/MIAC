@@ -19,6 +19,8 @@ export const TerminalDefSchema = z.object({
   command: z.string().optional(),
   /** Claude Code's session id (a UUID), so Restart resumes the same conversation. Absent on older tasks. */
   sessionId: z.string().optional(),
+  /** The Setup tab: a `run` tab that runs these setup commands in order. Never restarted by itself. */
+  setupCommands: z.array(z.string()).optional(),
 });
 export type TerminalDef = z.infer<typeof TerminalDefSchema>;
 export type NewTerminal = Omit<TerminalDef, 'id'>;
@@ -139,6 +141,8 @@ export type MiacConfig = {
   copy: string[];
   setup: string[];
   run: Record<string, string>;
+  /** `apm install` targets; false turns the step off; absent means the harnesses of the task's tabs. */
+  apm?: string[] | false;
   found: boolean;
 };
 
@@ -186,14 +190,14 @@ export type SetupStepKind =
   | 'worktree'
   | 'copy'
   | 'task-file'
-  | 'command'
+  | 'node-modules'
+  | 'apm'
   | 'terminals'
   | 'work-item';
 export type SetupStepDef = {
   kind: SetupStepKind;
   label: string;
   detail: string;
-  command?: string;
 };
 export type SetupStepStatus = 'todo' | 'running' | 'done' | 'warn' | 'failed';
 export type SetupEvent =

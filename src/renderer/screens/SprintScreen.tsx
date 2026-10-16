@@ -488,6 +488,7 @@ function SprintPage({ connection }: { connection: Connection }) {
           (load.status === 'ok' ? 'No current sprint' : 'Sprint')
         }
         after={dates && <span className="muted">{dates}</span>}
+        inline
         commands={
           <>
             <label className="sprint-search">

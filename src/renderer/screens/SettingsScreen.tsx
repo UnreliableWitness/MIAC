@@ -27,6 +27,9 @@ function renderConfig(
     ...c.setup.map((s) => `  - ${s}`),
     'run:',
     ...Object.entries(c.run).map(([k, v]) => `  ${k}: ${v}`),
+    ...(c.apm === undefined
+      ? []
+      : [`apm: ${c.apm === false ? 'false' : `[${c.apm.join(', ')}]`}`]),
     '',
     `# worktrees go in ${worktreeRoot}`,
   ];

@@ -2,6 +2,7 @@ import {
   chmodSync,
   existsSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -86,7 +87,18 @@ async function harness(
   servers.push(server);
   const opened: string[] = [];
   const git = new GitClient();
-  const platform = testPlatform();
+  // `apm` is stubbed so tests can make the setup fail at the apm step (see failSetup).
+  const apm = { fail: false };
+  const base = testPlatform();
+  const platform = {
+    ...base,
+    shellCommand: (c: string) =>
+      c === 'apm --version'
+        ? base.shellCommand(echoCmd('apm 1.0.0'))
+        : c.startsWith('apm install')
+          ? base.shellCommand(apm.fail ? failCmd(7) : echoCmd(c))
+          : base.shellCommand(c),
+  };
   const terminals = new TerminalManager();
   allTerminals.push(terminals);
   const usageDir = mkdtempSync(path.join(os.tmpdir(), 'miac-usage-'));
@@ -181,12 +193,31 @@ async function harness(
     },
     branch: 'feature/48231-show-estimated-delivery-date',
     copy: true,
-    commands: [writeLineCmd('ok', 'ok.txt')],
+    commands: [],
     startClaude: false,
     openShell: true,
     ...over,
   });
+  /** The repo gets an apm.yml and `apm: [claude]`, so setup has an apm step at index 4, which fails until fixSetup. */
+  const prepareApm = () => {
+    if (!existsSync(path.join(repo, 'apm.yml')))
+      commitFile(repo, 'apm.yml', 'name: webshop\n');
+    writeFileSync(
+      path.join(repo, '.miac.yml'),
+      'copy: [.env]\napm: [claude]\n',
+    );
+  };
+  const failSetup = () => {
+    prepareApm();
+    apm.fail = true;
+  };
+  const fixSetup = () => {
+    apm.fail = false;
+  };
   return {
+    prepareApm,
+    failSetup,
+    fixSetup,
     h,
     store,
     terminals,
@@ -246,11 +277,9 @@ describe('handlers: create task', () => {
     expect(view.terminals[0].kind).toBe('shell');
     expect(terminals.runningCount(task.id)).toBe(1);
     expect(existsSync(path.join(task.worktreePath, '.env'))).toBe(true);
-    expect(existsSync(path.join(task.worktreePath, 'ok.txt'))).toBe(true);
     const state = await h['tasks:setupState'](task.id);
     expect(state?.finished).toBe(true);
     expect(state?.steps.map((s) => s.status)).toEqual([
-      'done',
       'done',
       'done',
       'done',
@@ -271,6 +300,89 @@ describe('handlers: create task', () => {
     ]);
     expect(store.state.tasks[0].time).toBeNull();
     await terminals.killAllForTask(task.id);
+  });
+
+  it('runs the setup commands in a Setup tab after the other tabs, without waiting for them', async () => {
+    const { h, terminals, setupDone, input } = await harness();
+    const finished = setupDone();
+    const task = await h['tasks:create'](
+      input({
+        commands: [
+          writeLineCmd('one', 'ok.txt', true),
+          writeLineCmd('two', 'ok.txt', true),
+        ],
+      }),
+    );
+    expect((await finished).ok).toBe(true);
+    const [view] = await h['tasks:list']();
+    expect(view.status).toBe('ready');
+    expect(view.terminals.map((d) => [d.kind, d.label])).toEqual([
+      ['shell', isWindows ? 'PowerShell' : 'sh'],
+      ['run', 'Setup'],
+    ]);
+    const setupTab = view.terminals[1];
+    expect(setupTab.setupCommands).toHaveLength(2);
+    await vi.waitFor(
+      () =>
+        expect(
+          readFileSync(
+            path.join(task.worktreePath, 'ok.txt'),
+            'utf8',
+          ).replaceAll('\r\n', '\n'),
+        ).toBe('one\ntwo\n'),
+      { timeout: 10_000 },
+    );
+    const state = await h['tasks:setupState'](task.id);
+    expect(state?.steps.at(-1)).toMatchObject({
+      def: { kind: 'terminals' },
+      status: 'done',
+      detail: expect.stringContaining('Setup ('),
+    });
+    await terminals.killAllForTask(task.id);
+  });
+
+  it('installs apm packages for the harnesses of the tabs setup opens', async () => {
+    const { h, terminals, setupDone, input, repo } = await harness();
+    commitFile(repo, 'apm.yml', 'name: webshop\n');
+    const finished = setupDone();
+    const task = await h['tasks:create'](
+      input({ startClaude: true, openCopilot: true, openShell: true }),
+    );
+    expect((await finished).ok).toBe(true);
+    const state = await h['tasks:setupState'](task.id);
+    const step = state?.steps.find((s) => s.def.kind === 'apm');
+    expect(step).toMatchObject({
+      def: { detail: 'apm install --target claude, copilot' },
+      status: 'done',
+    });
+    expect(state?.log).toContain('apm install --target copilot');
+    await terminals.killAllForTask(task.id);
+  });
+
+  it('has no apm step without apm.yml or with apm: false', async () => {
+    const { h, terminals, setupDone, input, repo } = await harness();
+    const first = setupDone();
+    const a = await h['tasks:create'](input({ startClaude: true }));
+    await first;
+    expect(
+      (await h['tasks:setupState'](a.id))?.steps.map((s) => s.def.kind),
+    ).not.toContain('apm');
+    await terminals.killAllForTask(a.id);
+    commitFile(repo, 'apm.yml', 'name: webshop\n');
+    writeFileSync(path.join(repo, '.miac.yml'), 'copy: [.env]\napm: false\n');
+    const second = setupDone();
+    const b = await h['tasks:create'](
+      input({
+        startClaude: true,
+        workItem: { id: '2', type: 'Bug', title: 'other', url: null },
+        branch: 'bug/2-other',
+      }),
+    );
+    await second;
+    expect(
+      (await h['tasks:setupState'](b.id))?.steps.map((s) => s.def.kind),
+    ).not.toContain('apm');
+    await terminals.killAllForTask(b.id);
   });
 
   it('rejects an invalid branch name', async () => {
@@ -298,18 +410,18 @@ describe('handlers: create task', () => {
     ).rejects.toThrow(/already exists/);
   });
 
-  it('marks the task setup-failed when a command fails, then retries from that step', async () => {
-    const { h, input, setupDone, terminals, store } = await harness();
+  it('marks the task setup-failed when a step fails, then retries from that step', async () => {
+    const { h, input, setupDone, terminals, store, failSetup, fixSetup } =
+      await harness();
+    failSetup();
     const done = setupDone();
-    const t = await h['tasks:create'](input({ commands: ['exit 7'] }));
+    const t = await h['tasks:create'](input());
     expect((await done).ok).toBe(false);
     expect(store.state.tasks[0].status).toBe('setup-failed');
     const state = await h['tasks:setupState'](t.id);
     expect(state?.failedStep).toBe(4);
-    writeFileSync(path.join(t.worktreePath, 'fix.txt'), 'fixed');
-    await store.update((s) => {
-      s.tasks[0].setup.commands = ['cat fix.txt'];
-    });
+    expect(state?.steps[4].def.kind).toBe('apm');
+    fixSetup();
     const retry = setupDone();
     await h['tasks:retrySetup'](t.id);
     expect((await retry).ok).toBe(true);
@@ -318,11 +430,10 @@ describe('handlers: create task', () => {
   });
 
   it('cancels a failed setup: removes worktree, branch and task', async () => {
-    const { h, input, setupDone, store, repo } = await harness();
+    const { h, input, setupDone, store, repo, failSetup } = await harness();
+    failSetup();
     const done = setupDone();
-    const t = await h['tasks:create'](
-      input({ commands: ['exit 1'], openShell: false }),
-    );
+    const t = await h['tasks:create'](input({ openShell: false }));
     await done;
     await h['tasks:cancelSetup'](t.id);
     expect(store.state.tasks).toHaveLength(0);
@@ -333,11 +444,10 @@ describe('handlers: create task', () => {
 
 describe('handlers: missing worktree folder', () => {
   it('cancelSetup succeeds on a setup-failed task whose folder was deleted', async () => {
-    const { h, input, setupDone, store, repo } = await harness();
+    const { h, input, setupDone, store, repo, failSetup } = await harness();
+    failSetup();
     const done = setupDone();
-    const t = await h['tasks:create'](
-      input({ commands: ['exit 1'], openShell: false }),
-    );
+    const t = await h['tasks:create'](input({ openShell: false }));
     await done;
     rmSync(t.worktreePath, { recursive: true, force: true });
     await h['tasks:cancelSetup'](t.id);
@@ -444,9 +554,11 @@ describe('handlers: finish', () => {
   });
 
   it('cancelSetup waits for the terminals to exit before removing the worktree', async () => {
-    const { h, input, setupDone, terminals, services } = await harness();
+    const { h, input, setupDone, terminals, services, failSetup } =
+      await harness();
+    failSetup();
     const done = setupDone();
-    const t = await h['tasks:create'](input({ commands: ['exit 1'] }));
+    const t = await h['tasks:create'](input());
     await done;
     const order: string[] = [];
     vi.spyOn(terminals, 'killAllForTask').mockImplementation(async () => {
@@ -516,10 +628,7 @@ describe('handlers: finish', () => {
     const t = await h['tasks:create'](input());
     await done;
     const checks = await h['tasks:finishChecks'](t.id);
-    expect(checks.uncommitted).toEqual([
-      { status: '?', path: '.env' },
-      { status: '?', path: 'ok.txt' },
-    ]);
+    expect(checks.uncommitted).toEqual([{ status: '?', path: '.env' }]);
     expect(checks.unpushed).toBe(0);
     expect(checks.runningTerminals).toBe(1);
     await h['tasks:finish'](t.id, {
@@ -635,11 +744,10 @@ describe('handlers: concurrency guards', () => {
     ).length;
 
   it('retrySetup twice at once runs setup once', async () => {
-    const { h, input, setupDone, broadcasts } = await harness();
+    const { h, input, setupDone, broadcasts, failSetup } = await harness();
+    failSetup();
     const first = setupDone();
-    const t = await h['tasks:create'](
-      input({ commands: ['exit 7'], openShell: false }),
-    );
+    const t = await h['tasks:create'](input({ openShell: false }));
     await first;
     expect(finishedCount(broadcasts)).toBe(1);
     const retry = setupDone();
@@ -948,6 +1056,7 @@ describe('handlers: reopen a finished task', () => {
   async function finished(
     o: { removeWorktree: boolean; deleteBranch: boolean },
     over: Partial<Services> = {},
+    opts: { commands?: string[]; beforeFinish?: (t: Task) => void } = {},
   ) {
     const rec = recording();
     const hx = await harness(fakeCrypto(), {
@@ -956,9 +1065,12 @@ describe('handlers: reopen a finished task', () => {
       ...over,
     });
     const done = hx.setupDone();
-    const t = await hx.h['tasks:create'](hx.input({ startClaude: true }));
+    const t = await hx.h['tasks:create'](
+      hx.input({ startClaude: true, commands: opts.commands ?? [] }),
+    );
     await done;
     commitFile(t.worktreePath, 'feature.txt', 'a\n', 'Add the feature');
+    opts.beforeFinish?.(t);
     const before = hx.store.state.tasks[0].terminals;
     await hx.h['tasks:finish'](t.id, finishWith(o));
     return { ...hx, ...rec, t, before };
@@ -1015,16 +1127,45 @@ describe('handlers: reopen a finished task', () => {
     await hx.terminals.killAllForTask(hx.t.id);
   });
 
+  it('does not run the Setup tab again when reopening a kept worktree', async () => {
+    const hx = await finished(
+      { removeWorktree: false, deleteBranch: false },
+      {},
+      { commands: [echoCmd('setup')] },
+    );
+    expect(hx.before.some((d) => d.setupCommands)).toBe(true);
+    expect(await hx.h['tasks:reopen'](hx.t.id)).toEqual({ setup: false });
+    expect(hx.store.state.tasks[0].terminals.map((d) => d.kind)).toEqual([
+      'claude',
+      'shell',
+    ]);
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
   it('makes the worktree again from the local branch and runs the setup again', async () => {
-    const hx = await finished({ removeWorktree: true, deleteBranch: false });
+    const hx = await finished(
+      { removeWorktree: true, deleteBranch: false },
+      {},
+      { commands: [writeLineCmd('ok', 'ok.txt')] },
+    );
     expect(existsSync(hx.t.worktreePath)).toBe(false);
+    const oldSetupTab = hx.before.find((d) => d.setupCommands)!;
+    expect(oldSetupTab).toBeDefined();
     const result = await reopenSetup(hx);
     expect(result.ok).toBe(true);
     expect(
       hx.store.state.tasks[0].openPeriods.map((p) => p.end === null),
     ).toEqual([false, true]);
     expect(existsSync(path.join(hx.t.worktreePath, 'feature.txt'))).toBe(true);
-    expect(existsSync(path.join(hx.t.worktreePath, 'ok.txt'))).toBe(true);
+    await vi.waitFor(
+      () =>
+        expect(existsSync(path.join(hx.t.worktreePath, 'ok.txt'))).toBe(true),
+      { timeout: 10_000 },
+    );
+    const tabs = hx.store.state.tasks[0].terminals;
+    // A fresh Setup tab; the one from before Finish is not brought back.
+    expect(tabs.filter((d) => d.setupCommands)).toHaveLength(1);
+    expect(tabs.map((d) => d.id)).not.toContain(oldSetupTab.id);
     expect(hx.store.state.tasks[0]).toMatchObject({
       status: 'ready',
       reopen: null,
@@ -1034,8 +1175,11 @@ describe('handlers: reopen a finished task', () => {
     expect(hx.store.state.tasks[0].terminals.map((d) => d.kind)).toEqual([
       'claude',
       'shell',
+      'run',
     ]);
-    expect(hx.calls.at(-1)?.flags[0]).toBe('--resume');
+    expect(hx.calls.findLast((c) => c.flags.length > 0)?.flags[0]).toBe(
+      '--resume',
+    );
     await hx.terminals.killAllForTask(hx.t.id);
   });
 
@@ -1088,10 +1232,15 @@ describe('handlers: reopen a finished task', () => {
   });
 
   it('cancelling a failed reopen puts the task back to done and keeps it', async () => {
-    const hx = await finished({ removeWorktree: true, deleteBranch: false });
-    await hx.store.update((st) => {
-      st.tasks[0].setup.commands = [failCmd(3)];
-    });
+    const hx = await finished(
+      { removeWorktree: true, deleteBranch: false },
+      {},
+      {
+        beforeFinish: (t) =>
+          commitFile(t.worktreePath, 'apm.yml', 'name: webshop\n'),
+      },
+    );
+    hx.failSetup();
     const result = await reopenSetup(hx);
     expect(result.ok).toBe(false);
     expect(hx.store.state.tasks[0].status).toBe('setup-failed');

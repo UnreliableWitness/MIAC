@@ -1,15 +1,20 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import path from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
-import type { SetupEvent } from '../../shared/types';
-import { addOrigin, cleanupTempRepos, makeRepo } from '../test-helpers/gitRepo';
 import {
-  echoCmd,
-  failCmd,
-  normaliseEol,
-  testPlatform,
-  writeLineCmd,
-} from '../test-helpers/shell';
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
+import path from 'node:path';
+import { afterAll, afterEach, describe, expect, it } from 'vitest';
+import type { SetupEvent } from '../../shared/types';
+import {
+  addOrigin,
+  cleanupTempRepos,
+  commitFile,
+  makeRepo,
+} from '../test-helpers/gitRepo';
+import { normaliseEol, testPlatform } from '../test-helpers/shell';
 import { GitClient } from './GitClient';
 import {
   ensureExcluded,
@@ -45,34 +50,57 @@ function collect() {
 }
 
 describe('planSteps', () => {
-  it('lists fetch, worktree, optional copy, task file, each command and optional terminals', () => {
+  it('lists fetch, worktree, optional copy, clone, task file, apm and terminals', () => {
     const steps = planSteps(
       plan('/r', {
         copy: ['.env'],
         commands: ['npm ci', 'npm run build'],
         startTerminalsLabel: 'Claude Code, zsh',
+        cloneNodeModules: true,
+        apmTargets: ['claude', 'copilot'],
       }),
     );
     expect(steps.map((s) => s.kind)).toEqual([
       'fetch',
       'worktree',
       'copy',
+      'node-modules',
       'task-file',
-      'command',
-      'command',
+      'apm',
       'terminals',
     ]);
-    expect(steps[4]).toEqual({
-      kind: 'command',
-      label: 'npm ci',
-      detail: 'in worktree',
-      command: 'npm ci',
+    expect(steps[3]).toEqual({
+      kind: 'node-modules',
+      label: 'Clone node_modules',
+      detail: 'from r',
+    });
+    expect(steps[5]).toEqual({
+      kind: 'apm',
+      label: 'Install agent packages',
+      detail: 'apm install --target claude, copilot',
+    });
+    expect(steps[6]).toEqual({
+      kind: 'terminals',
+      label: 'Start terminals',
+      detail: 'Claude Code, zsh, Setup (npm ci, npm run build)',
     });
     expect(planSteps(plan('/r')).map((s) => s.kind)).toEqual([
       'fetch',
       'worktree',
       'task-file',
     ]);
+  });
+
+  it('starts terminals for the Setup tab alone when no tab was asked for', () => {
+    const steps = planSteps(plan('/r', { commands: ['npm ci'] }));
+    expect(steps.at(-1)).toEqual({
+      kind: 'terminals',
+      label: 'Start terminals',
+      detail: 'Setup (npm ci)',
+    });
+    expect(
+      planSteps(plan('/r', { apmTargets: [] })).map((s) => s.kind),
+    ).not.toContain('apm');
   });
 
   it('puts the work item step right after the worktree when asked', () => {
@@ -164,33 +192,31 @@ describe('SetupRunner: work item step', () => {
 });
 
 describe('SetupRunner', () => {
-  it('creates the worktree, copies files, writes the task file, runs commands and starts terminals', async () => {
+  it('creates the worktree, copies files, writes the task file and starts terminals with the setup commands', async () => {
     const repo = makeRepo();
     addOrigin(repo);
     writeFileSync(path.join(repo, '.env'), 'SECRET=1');
     const p = plan(repo, {
       baseRef: 'origin/main',
       copy: ['.env', '.env.local'],
-      commands: [writeLineCmd('building', 'built.txt')],
+      commands: ['npm ci', 'npm run build'],
       startTerminalsLabel: 'zsh',
     });
     const { events, onEvent } = collect();
-    let started = false;
+    let started: string[] | null = null;
     const result = await runner.run(p, {
       onEvent,
-      startTerminals: async () => {
-        started = true;
+      startTerminals: async (commands) => {
+        started = commands;
       },
     });
 
     expect(result).toEqual({ ok: true });
-    expect(started).toBe(true);
+    // No node_modules in the worktree: npm ci stays.
+    expect(started).toEqual(['npm ci', 'npm run build']);
     expect(readFileSync(path.join(p.worktreePath, '.env'), 'utf8')).toBe(
       'SECRET=1',
     );
-    expect(
-      readFileSync(path.join(p.worktreePath, 'built.txt'), 'utf8').trim(),
-    ).toBe('building');
     expect(
       readFileSync(path.join(p.worktreePath, '.miac', 'task.md'), 'utf8'),
     ).toBe('# Task\n');
@@ -198,16 +224,13 @@ describe('SetupRunner', () => {
       readFileSync(path.join(repo, '.git', 'info', 'exclude'), 'utf8'),
     ).toContain('.miac/');
     expect(await git.summary(p.worktreePath, 'origin/main')).toMatchObject({
-      files: [
-        { status: '?', path: '.env' },
-        { status: '?', path: 'built.txt' },
-      ],
+      files: [{ status: '?', path: '.env' }],
     });
 
     const stepEvents = events.filter((e) => e.type === 'step');
     expect(
       stepEvents.filter((e) => e.type === 'step' && e.status === 'done'),
-    ).toHaveLength(6);
+    ).toHaveLength(5);
     expect(
       events.some(
         (e) => e.type === 'log' && e.line.includes('skipped .env.local'),
@@ -218,63 +241,6 @@ describe('SetupRunner', () => {
       type: 'finished',
       ok: true,
     });
-  });
-
-  it('stops at a failing command, keeps the worktree and reports the step', async () => {
-    const repo = makeRepo();
-    const p = plan(repo, {
-      commands: [echoCmd('before'), failCmd(3), echoCmd('never')],
-    });
-    const { events, onEvent } = collect();
-    const result = await runner.run(p, {
-      onEvent,
-      startTerminals: async () => {},
-    });
-    expect(result).toEqual({ ok: false, failedStep: 4 });
-    expect(existsSync(p.worktreePath)).toBe(true);
-    const failed = events.find(
-      (e) => e.type === 'step' && e.status === 'failed',
-    );
-    expect(failed).toMatchObject({
-      index: 4,
-      detail: expect.stringContaining('code 3'),
-    });
-    expect(events.some((e) => e.type === 'log' && e.line === 'before')).toBe(
-      true,
-    );
-    expect(events.some((e) => e.type === 'log' && e.line === 'never')).toBe(
-      false,
-    );
-  });
-
-  it('retries from a step, marking earlier steps done without re-running them', async () => {
-    const repo = makeRepo();
-    const p = plan(repo, {
-      commands: [writeLineCmd('one', 'log.txt', true), failCmd(1)],
-    });
-    await runner.run(p, { onEvent: () => {}, startTerminals: async () => {} });
-    const fixed = {
-      ...p,
-      commands: [
-        writeLineCmd('one', 'log.txt', true),
-        writeLineCmd('two', 'log.txt', true),
-      ],
-    };
-    const { events, onEvent } = collect();
-    const result = await runner.run(fixed, {
-      onEvent,
-      startTerminals: async () => {},
-      fromStep: 4,
-    });
-    expect(result).toEqual({ ok: true });
-    expect(
-      normaliseEol(readFileSync(path.join(p.worktreePath, 'log.txt'), 'utf8')),
-    ).toBe('one\ntwo\n');
-    expect(
-      events
-        .filter((e) => e.type === 'step' && e.index < 4)
-        .every((e) => e.type === 'step' && e.status === 'done'),
-    ).toBe(true);
   });
 
   it('reuses an existing worktree and branch when run again from step 0', async () => {
@@ -362,6 +328,260 @@ describe('SetupRunner', () => {
       existsSync(path.join(path.dirname(p.worktreePath), 'outside.txt')),
     ).toBe(false);
     expect(existsSync(path.join(p.worktreePath, 'hosts'))).toBe(false);
+  });
+});
+
+const LOCK = JSON.stringify({
+  lockfileVersion: 3,
+  packages: {
+    '': { name: 'app' },
+    'node_modules/a': {
+      version: '1.0.0',
+      resolved: 'https://registry.npmjs.org/a/-/a-1.0.0.tgz',
+      integrity: 'sha512-a',
+    },
+  },
+});
+
+/** Installs a fake node_modules in the repo whose hidden lockfile is `hidden`. */
+function installNodeModules(repo: string, hidden: string) {
+  const nm = path.join(repo, 'node_modules');
+  mkdirSync(path.join(nm, 'a'), { recursive: true });
+  writeFileSync(path.join(nm, 'a', 'index.js'), 'module.exports = 1;\n');
+  writeFileSync(path.join(nm, '.package-lock.json'), hidden);
+}
+
+/** The test platform with a folder clone that works everywhere (a plain recursive copy). */
+const cloningRunner = new SetupRunner(git, {
+  ...testPlatform(),
+  cloneDir: (src, dest) => ({
+    command: process.execPath,
+    args: [
+      '-e',
+      'require("fs").cpSync(process.argv[1], process.argv[2], { recursive: true })',
+      src,
+      dest,
+    ],
+    env: { ELECTRON_RUN_AS_NODE: '1' },
+  }),
+});
+
+describe('SetupRunner: node_modules clone', () => {
+  const stepOf = (events: SetupEvent[], kind: number) =>
+    events.filter((e) => e.type === 'step' && e.index === kind).at(-1);
+
+  it('clones an up-to-date node_modules and leaves npm ci out of the Setup tab', async () => {
+    const repo = makeRepo();
+    commitFile(repo, 'package-lock.json', LOCK);
+    installNodeModules(repo, LOCK);
+    const p = plan(repo, {
+      commands: ['npm ci', 'npm run build'],
+      cloneNodeModules: true,
+    });
+    const { events, onEvent } = collect();
+    let started: string[] | null = null;
+    const result = await cloningRunner.run(p, {
+      onEvent,
+      startTerminals: async (c) => {
+        started = c;
+      },
+    });
+    expect(result).toEqual({ ok: true });
+    expect(
+      readFileSync(
+        path.join(p.worktreePath, 'node_modules', 'a', 'index.js'),
+        'utf8',
+      ),
+    ).toContain('module.exports');
+    expect(
+      existsSync(`${path.join(p.worktreePath, 'node_modules')}.miac-clone`),
+    ).toBe(false);
+    expect(started).toEqual(['npm run build']);
+    expect(stepOf(events, 2)).toMatchObject({
+      status: 'done',
+      detail: 'Cloned from repo, npm ci skipped',
+    });
+    expect(stepOf(events, 4)).toMatchObject({
+      status: 'done',
+      detail: 'Setup (npm run build)',
+    });
+  });
+
+  it('does not clone an out-of-date node_modules, so npm ci runs', async () => {
+    const repo = makeRepo();
+    commitFile(repo, 'package-lock.json', LOCK);
+    installNodeModules(repo, LOCK.replace('1.0.0', '0.9.0'));
+    const p = plan(repo, { commands: ['npm ci'], cloneNodeModules: true });
+    const { events, onEvent } = collect();
+    let started: string[] | null = null;
+    await cloningRunner.run(p, {
+      onEvent,
+      startTerminals: async (c) => {
+        started = c;
+      },
+    });
+    expect(existsSync(path.join(p.worktreePath, 'node_modules'))).toBe(false);
+    expect(started).toEqual(['npm ci']);
+    expect(stepOf(events, 2)).toMatchObject({
+      status: 'done',
+      detail: expect.stringContaining('out of date, npm ci installs'),
+    });
+  });
+
+  it('warns and leaves no partial clone when the clone fails', async () => {
+    const repo = makeRepo();
+    commitFile(repo, 'package-lock.json', LOCK);
+    installNodeModules(repo, LOCK);
+    const failing = new SetupRunner(git, {
+      ...testPlatform(),
+      cloneDir: () => ({
+        command: process.execPath,
+        args: ['-e', 'process.exit(4)'],
+        env: { ELECTRON_RUN_AS_NODE: '1' },
+      }),
+    });
+    const p = plan(repo, { commands: ['npm ci'], cloneNodeModules: true });
+    const { events, onEvent } = collect();
+    let started: string[] | null = null;
+    const result = await failing.run(p, {
+      onEvent,
+      startTerminals: async (c) => {
+        started = c;
+      },
+    });
+    expect(result).toEqual({ ok: true });
+    expect(stepOf(events, 2)).toMatchObject({ status: 'warn' });
+    expect(existsSync(path.join(p.worktreePath, 'node_modules'))).toBe(false);
+    expect(started).toEqual(['npm ci']);
+  });
+});
+
+/** A fake `apm` on the PATH: logs its arguments, fails `--version` when missing, fails one target on request. */
+function fakeApm(dir: string) {
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    path.join(dir, 'apm'),
+    [
+      '#!/bin/sh',
+      '[ -n "$FAKE_APM_MISSING" ] && exit 127',
+      'echo "$*" >> "$FAKE_APM_LOG"',
+      'if [ -n "$FAKE_APM_FAIL" ] && [ "$3" = "$FAKE_APM_FAIL" ]; then echo "install failed" >&2; exit 2; fi',
+      'exit 0',
+      '',
+    ].join('\n'),
+  );
+  chmodSync(path.join(dir, 'apm'), 0o755);
+  writeFileSync(
+    path.join(dir, 'apm.cmd'),
+    [
+      '@echo off',
+      'if defined FAKE_APM_MISSING exit /b 127',
+      'echo %*>> "%FAKE_APM_LOG%"',
+      'if defined FAKE_APM_FAIL if "%3"=="%FAKE_APM_FAIL%" (echo install failed 1>&2 & exit /b 2)',
+      'exit /b 0',
+      '',
+    ].join('\r\n'),
+  );
+}
+
+describe('SetupRunner: apm step', () => {
+  const saved = { ...process.env };
+  afterEach(() => {
+    for (const k of [
+      'PATH',
+      'FAKE_APM_LOG',
+      'FAKE_APM_MISSING',
+      'FAKE_APM_FAIL',
+    ])
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+  });
+
+  const setup = (env: Record<string, string> = {}) => {
+    const repo = makeRepo();
+    commitFile(repo, 'apm.yml', 'name: test\n');
+    const bin = path.join(path.dirname(repo), 'bin');
+    fakeApm(bin);
+    const log = path.join(path.dirname(repo), 'apm.log');
+    process.env.PATH = `${bin}${path.delimiter}${process.env.PATH ?? ''}`;
+    process.env.FAKE_APM_LOG = log;
+    Object.assign(process.env, env);
+    const p = plan(repo, { apmTargets: ['claude', 'copilot'] });
+    const calls = () =>
+      existsSync(log)
+        ? normaliseEol(readFileSync(log, 'utf8'))
+            .split('\n')
+            .map((l) => l.trim())
+            .filter(Boolean)
+        : [];
+    return { p, calls };
+  };
+  const apmStep = (events: SetupEvent[]) =>
+    events.filter((e) => e.type === 'step' && e.index === 3).at(-1);
+
+  it('runs apm install once per target in the worktree', async () => {
+    const { p, calls } = setup();
+    const { events, onEvent } = collect();
+    const result = await runner.run(p, {
+      onEvent,
+      startTerminals: async () => {},
+    });
+    expect(result).toEqual({ ok: true });
+    expect(calls()).toEqual([
+      '--version',
+      'install --target claude',
+      'install --target copilot',
+    ]);
+    expect(apmStep(events)).toMatchObject({
+      status: 'done',
+      detail: 'Installed for claude, copilot',
+    });
+  });
+
+  it('warns and goes on when apm is not installed', async () => {
+    const { p, calls } = setup({ FAKE_APM_MISSING: '1' });
+    const { events, onEvent } = collect();
+    const result = await runner.run(p, {
+      onEvent,
+      startTerminals: async () => {},
+    });
+    expect(result).toEqual({ ok: true });
+    expect(calls()).toEqual([]);
+    expect(apmStep(events)).toMatchObject({
+      status: 'warn',
+      detail: 'apm is not installed, skipped',
+    });
+  });
+
+  it('fails the step when an install fails, and a retry runs it again', async () => {
+    const { p } = setup({ FAKE_APM_FAIL: 'copilot' });
+    const first = await runner.run(p, {
+      onEvent: () => {},
+      startTerminals: async () => {},
+    });
+    expect(first).toEqual({ ok: false, failedStep: 3 });
+    delete process.env.FAKE_APM_FAIL;
+    const { events, onEvent } = collect();
+    const retry = await runner.run(p, {
+      onEvent,
+      startTerminals: async () => {},
+      fromStep: 3,
+    });
+    expect(retry).toEqual({ ok: true });
+    expect(apmStep(events)).toMatchObject({ status: 'done' });
+  });
+
+  it('skips quietly when the worktree has no apm.yml', async () => {
+    const repo = makeRepo();
+    const { events, onEvent } = collect();
+    await runner.run(plan(repo, { apmTargets: ['claude'] }), {
+      onEvent,
+      startTerminals: async () => {},
+    });
+    expect(apmStep(events)).toMatchObject({
+      status: 'done',
+      detail: 'No apm.yml in the worktree',
+    });
   });
 });
 
