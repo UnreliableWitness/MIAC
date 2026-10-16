@@ -1,7 +1,11 @@
 import { promises as fs } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import type { Repo } from '../../shared/types';
+import {
+  StartSettingsSchema,
+  type Repo,
+  type StartSettings,
+} from '../../shared/types';
 import type { GitClient } from './GitClient';
 import { samePath } from '../paths';
 import { loadMiacConfig } from './MiacConfig';
@@ -67,6 +71,19 @@ export class RepoRegistry {
     return this.get(repoId);
   }
 
+  async setWorkItemOnStart(
+    repoId: string,
+    settings: StartSettings,
+  ): Promise<Repo> {
+    this.get(repoId);
+    const parsed = StartSettingsSchema.parse(settings);
+    await this.store.update((s) => {
+      const r = s.repos.find((x) => x.id === repoId);
+      if (r) r.workItemOnStart = parsed;
+    });
+    return this.get(repoId);
+  }
+
   async refresh(id: string): Promise<Repo> {
     const current = this.get(id);
     const repo = await this.describe(current);
@@ -91,7 +108,8 @@ export class RepoRegistry {
   }
 
   private async describe(
-    base: Pick<Repo, 'id' | 'path' | 'connectionId'>,
+    base: Pick<Repo, 'id' | 'path' | 'connectionId'> &
+      Partial<Pick<Repo, 'workItemOnStart'>>,
   ): Promise<Repo> {
     const config = await this.loadConfig(base.path);
     return {
@@ -101,6 +119,11 @@ export class RepoRegistry {
       baseBranch: config.base,
       connectionId: base.connectionId,
       miacYmlFound: config.found,
+      workItemOnStart: base.workItemOnStart ?? {
+        moveToInProgress: true,
+        assignToMe: true,
+        stateOverrides: {},
+      },
     };
   }
 }

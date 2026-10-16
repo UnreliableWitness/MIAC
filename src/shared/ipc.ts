@@ -7,9 +7,11 @@ import type {
   GitSummary,
   Iteration,
   MiacConfig,
+  PullRequestRef,
   NewTerminal,
   Repo,
   SetupEvent,
+  StartSettings,
   SetupState,
   Sprint,
   Task,
@@ -48,6 +50,19 @@ export type Channels = {
     args: [repoId: string, connectionId: string | null];
     result: Repo;
   };
+  'repos:setWorkItemOnStart': {
+    args: [repoId: string, settings: StartSettings];
+    result: Repo;
+  };
+  'tasks:prAvailability': {
+    args: [taskId: string];
+    result: {
+      available: boolean;
+      reason: string | null;
+      target: string | null;
+    };
+  };
+  'tasks:prStatus': { args: [taskId: string]; result: PullRequestRef | null };
   'workItems:currentIteration': {
     args: [connectionId: string];
     result: Iteration | null;

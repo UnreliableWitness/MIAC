@@ -6,6 +6,7 @@ import { claudePrompt, renderTaskMd, taskSlug } from '../../shared/naming';
 import type {
   Connection,
   MiacConfig,
+  PullRequestRef,
   SetupEvent,
   SetupState,
   Task,
@@ -28,6 +29,13 @@ import {
   TokenUnavailableError,
   type ConnectionStore,
 } from '../services/ConnectionStore';
+import {
+  prAvailability,
+  prDescription,
+  prTitle,
+  prWebUrl,
+  targetBranch,
+} from '../services/azureRepos';
 import type { GitClient } from '../services/GitClient';
 import type { RepoRegistry } from '../services/RepoRegistry';
 import {
@@ -37,6 +45,7 @@ import {
 } from '../services/SetupRunner';
 import type { TaskStore } from '../services/TaskStore';
 import type { TerminalManager } from '../services/TerminalManager';
+import { planStartUpdate } from '../services/workItemStart';
 import type { CopilotFileTailer } from '../usage/CopilotFileTailer';
 import { usageCsv } from '../usage/csv';
 import type { SettingsStore } from '../usage/SettingsStore';
@@ -46,6 +55,7 @@ import { telemetryEnv } from '../usage/telemetryEnv';
 import type { UsageReceiver } from '../usage/UsageReceiver';
 import type { UsageStore } from '../usage/UsageStore';
 import { UsageSync } from '../usage/UsageSync';
+import { renderCostLine } from '../../shared/workItemUsage';
 
 export type Services = {
   store: TaskStore;
@@ -75,6 +85,8 @@ export type Services = {
   finishFlushMs: number;
   /** App telemetry (usage, errors, timings); see docs/telemetry.md. Defaults to sending nothing. */
   telemetry?: Telemetry;
+  /** Adds values telemetry must scrub from now on, such as the project and repo of a remote. */
+  rememberSensitive?: (values: string[]) => void;
 };
 
 async function exists(p: string): Promise<boolean> {
@@ -176,10 +188,15 @@ export function createHandlers(s: Services): Handlers {
     connectionId: string,
   ): Promise<Connection> => {
     const c = s.connections.get(connectionId);
-    const { user } = await withConnection(connectionId, () =>
+    const { user, uniqueName } = await withConnection(connectionId, () =>
       s.ado.client(connectionId).verify(c.project),
     );
-    const updated = await s.connections.setStatus(connectionId, 'ok', user);
+    const updated = await s.connections.setStatus(
+      connectionId,
+      'ok',
+      user,
+      uniqueName,
+    );
     connectionsChanged();
     return updated;
   };
@@ -242,6 +259,36 @@ export function createHandlers(s: Services): Handlers {
     });
     await tasksChanged();
   };
+
+  /** Where a task's pull request would go: the repo's connection and its `origin` parsed as Azure Repos. */
+  const prContext = async (task: Task) => {
+    const repo = s.repos.get(task.repoId);
+    const connection = repo.connectionId
+      ? s.connections.get(repo.connectionId)
+      : null;
+    const remotes = await s.git.remotes(repo.path).catch(() => [] as string[]);
+    const remoteUrl = remotes.includes('origin')
+      ? await s.git.remoteUrl(repo.path, 'origin')
+      : null;
+    const availability = prAvailability({
+      remoteUrl,
+      connectionOrgUrl: connection?.organizationUrl ?? null,
+    });
+    // ADO 404 messages and git push errors name them; they may differ from the connection and folder names.
+    if (availability.target)
+      s.rememberSensitive?.([
+        availability.target.project,
+        availability.target.repo,
+      ]);
+    return {
+      connection,
+      availability,
+      target: targetBranch(task.baseRef, remotes),
+    };
+  };
+
+  const costLineFor = (taskId: string) =>
+    renderCostLine(s.usage.summarize(taskId));
 
   const usageSync = new UsageSync({
     task: taskById,
@@ -359,6 +406,12 @@ export function createHandlers(s: Services): Handlers {
       taskMd: renderTaskMd(task),
       startTerminalsLabel:
         defs.length > 0 ? defs.map((d) => d.label).join(', ') : null,
+      updateWorkItem: Boolean(
+        task.workItem &&
+        repo.connectionId &&
+        (repo.workItemOnStart.moveToInProgress ||
+          repo.workItemOnStart.assignToMe),
+      ),
     };
   };
 
@@ -420,6 +473,44 @@ export function createHandlers(s: Services): Handlers {
             tel.event('terminal.opened', { kind: def.kind, initial: true });
           }
           await updateTerminals(taskId, (list) => [...list, ...defs]);
+        },
+        updateWorkItem: async () => {
+          try {
+            const repo = s.repos.get(task.repoId);
+            const connection = s.connections.get(repo.connectionId!);
+            const client = s.ado.client(connection.id);
+            const id = Number(task.workItem!.id);
+            const current = await client.workItemForStart(id);
+            const states = await client.typeStates(
+              connection.project,
+              current.type,
+            );
+            // Connections saved before the unique name was stored have none; look it up once.
+            let user = connection.userUniqueName;
+            if (!user && repo.workItemOnStart.assignToMe)
+              user = await verifyConnection(connection.id)
+                .then((c) => c.userUniqueName)
+                .catch(() => null);
+            const plan = planStartUpdate(
+              current,
+              states,
+              repo.workItemOnStart,
+              user,
+            );
+            if (plan.state || plan.assignTo)
+              await client.updateWorkItem(id, {
+                ...(plan.state ? { state: plan.state } : {}),
+                ...(plan.assignTo ? { assignedTo: plan.assignTo } : {}),
+              });
+            tel.event('workitem.startUpdated', {
+              moved: Boolean(plan.state),
+              assigned: Boolean(plan.assignTo),
+            });
+            return { detail: plan.detail, warn: false };
+          } catch (e) {
+            tel.event('workitem.startUpdated', { failed: true });
+            throw e;
+          }
         },
       });
       await patchTask(taskId, { status: result.ok ? 'ready' : 'setup-failed' });
@@ -532,6 +623,7 @@ export function createHandlers(s: Services): Handlers {
         usageSyncError: null,
         usageCommentId: null,
         summary: null,
+        pullRequest: null,
       };
       inFlight.add(task.id);
       try {
@@ -620,6 +712,78 @@ export function createHandlers(s: Services): Handlers {
               branch: task.branch,
             })
             .catch(() => null);
+        // Push and open the PR before any cleanup: a failure leaves the task ready with its worktree.
+        if (options.createPullRequest) {
+          let pullRequest: PullRequestRef;
+          try {
+            const c = await prContext(task);
+            if (
+              !c.availability.available ||
+              !c.availability.target ||
+              !c.connection
+            )
+              throw new Error(
+                c.availability.reason ?? 'pull requests are not available',
+              );
+            const connection = c.connection;
+            const { project, repo: repoName } = c.availability.target;
+            await s.git.push(task.worktreePath, 'origin', task.branch);
+            // The summary was taken before this push; the Done page would otherwise say "local only".
+            if (summary)
+              summary = {
+                ...summary,
+                pushed: true,
+                upstream: `origin/${task.branch}`,
+              };
+            const client = s.ado.client(connection.id);
+            const repositoryId = await client.repositoryId(project, repoName);
+            const existing = await client.findActivePullRequest(
+              project,
+              repositoryId,
+              task.branch,
+            );
+            const raw =
+              existing ??
+              (await client.createPullRequest(project, repositoryId, {
+                source: task.branch,
+                target: c.target,
+                title: prTitle(task),
+                description: prDescription({
+                  heading: task.workItem
+                    ? `${task.workItem.type} ${task.workItem.id}: ${task.workItem.title}`
+                    : task.name,
+                  commits: summary?.commits ?? [],
+                  commitCount: summary?.commitCount ?? 0,
+                  costLine: costLineFor(taskId),
+                }),
+                workItemId: task.workItem ? Number(task.workItem.id) : null,
+              }));
+            pullRequest = {
+              id: raw.pullRequestId,
+              url: prWebUrl(
+                connection.organizationUrl,
+                project,
+                repoName,
+                raw.pullRequestId,
+              ),
+              repositoryId,
+              project,
+              repo: repoName,
+              status: raw.status,
+              isDraft: raw.isDraft,
+            };
+            await patchTask(taskId, { pullRequest });
+            tel.event(existing ? 'pr.linked' : 'pr.created');
+          } catch (e) {
+            await patchTask(taskId, { status: 'ready' });
+            const message = e instanceof Error ? e.message : String(e);
+            tel.event('pr.failed', {
+              kind: e instanceof AdoError ? e.kind : 'git',
+            });
+            throw new Error(`Pull request not created: ${message}`);
+          }
+          void s.openExternal(pullRequest.url).catch(() => undefined);
+        }
         // A terminal running in the folder blocks its removal on Windows (and a terminal without its
         // folder is useless), so removing the worktree closes the terminals even when that was unticked.
         const killTerminals = options.closeTerminals || options.removeWorktree;
@@ -743,11 +907,17 @@ export function createHandlers(s: Services): Handlers {
       const probe = new AdoClient(organizationUrl, async () =>
         input.pat.trim(),
       );
-      const { user } = await probe.verify(input.project.trim());
+      const { user, uniqueName } = await probe.verify(input.project.trim());
       const saved = await s.connections.save(input);
       s.ado.invalidate(saved.id);
       dropTypes(saved.id);
-      const verified = await s.connections.setStatus(saved.id, 'ok', user);
+      // The unique name is what "assign to me" writes on start; without it a new connection never assigns.
+      const verified = await s.connections.setStatus(
+        saved.id,
+        'ok',
+        user,
+        uniqueName,
+      );
       connectionsChanged();
       tel.event('connection.saved', {
         connections: s.connections.list().length,
@@ -772,6 +942,36 @@ export function createHandlers(s: Services): Handlers {
       s.broadcast('repos:changed', s.repos.list());
       tel.event('repo.connectionLinked', { linked: connectionId !== null });
       return repo;
+    },
+    'repos:setWorkItemOnStart': async (repoId, settings) => {
+      const repo = await s.repos.setWorkItemOnStart(repoId, settings);
+      s.broadcast('repos:changed', s.repos.list());
+      return repo;
+    },
+    'tasks:prAvailability': async (taskId) => {
+      const c = await prContext(taskById(taskId));
+      return {
+        available: c.availability.available,
+        reason: c.availability.reason,
+        target: c.availability.available ? c.target : null,
+      };
+    },
+    'tasks:prStatus': async (taskId) => {
+      const task = taskById(taskId);
+      const pr = task.pullRequest;
+      if (!pr) return null;
+      const connectionId = s.repos.get(task.repoId).connectionId;
+      if (!connectionId) return pr;
+      try {
+        const raw = await s.ado
+          .client(connectionId)
+          .pullRequest(pr.project, pr.repositoryId, pr.id);
+        const next = { ...pr, status: raw.status, isDraft: raw.isDraft };
+        await patchTask(taskId, { pullRequest: next });
+        return next;
+      } catch {
+        return pr;
+      }
     },
     'workItems:currentIteration': async (connectionId) => {
       const c = s.connections.get(connectionId);

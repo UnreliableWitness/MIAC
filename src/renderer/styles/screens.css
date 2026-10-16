@@ -332,6 +332,14 @@
   color: var(--red);
   border-color: transparent;
 }
+.step[data-status='warn'] .step-icon {
+  background: var(--warn-bg);
+  color: var(--warn);
+  border-color: transparent;
+}
+.step[data-status='warn'] .step-text .muted {
+  color: var(--warn);
+}
 .step-text {
   display: flex;
   flex-direction: column;

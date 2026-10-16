@@ -34,6 +34,7 @@ function plan(repo: string, over: Partial<SetupPlan> = {}): SetupPlan {
     commands: [],
     taskMd: '# Task\n',
     startTerminalsLabel: null,
+    updateWorkItem: false,
     ...over,
   };
 }
@@ -72,6 +73,93 @@ describe('planSteps', () => {
       'worktree',
       'task-file',
     ]);
+  });
+
+  it('puts the work item step right after the worktree when asked', () => {
+    const steps = planSteps(plan('/r', { updateWorkItem: true }));
+    expect(steps.map((s) => s.kind)).toEqual([
+      'fetch',
+      'worktree',
+      'work-item',
+      'task-file',
+    ]);
+    expect(steps[2]).toEqual({
+      kind: 'work-item',
+      label: 'Update work item',
+      detail: 'Move to In Progress',
+    });
+    expect(
+      planSteps(plan('/r', { updateWorkItem: false })).map((s) => s.kind),
+    ).not.toContain('work-item');
+  });
+});
+
+describe('SetupRunner: work item step', () => {
+  const stepEvents = (events: SetupEvent[], index: number) =>
+    events.filter((e) => e.type === 'step' && e.index === index);
+
+  it('ends done with the hook detail', async () => {
+    const repo = makeRepo();
+    const { events, onEvent } = collect();
+    const result = await runner.run(plan(repo, { updateWorkItem: true }), {
+      onEvent,
+      startTerminals: async () => {},
+      updateWorkItem: async () => ({ detail: 'New → Doing', warn: false }),
+    });
+    expect(result).toEqual({ ok: true });
+    expect(stepEvents(events, 2).at(-1)).toMatchObject({
+      status: 'done',
+      detail: 'New → Doing',
+    });
+  });
+
+  it('ends as warn when the hook says so, and the later steps still run', async () => {
+    const repo = makeRepo();
+    const p = plan(repo, { updateWorkItem: true });
+    const { events, onEvent } = collect();
+    const detail =
+      'The token cannot update work items (needs Work Items: Read & write)';
+    const result = await runner.run(p, {
+      onEvent,
+      startTerminals: async () => {},
+      updateWorkItem: async () => ({ detail, warn: true }),
+    });
+    expect(result).toEqual({ ok: true });
+    expect(stepEvents(events, 2).at(-1)).toMatchObject({
+      status: 'warn',
+      detail,
+    });
+    expect(stepEvents(events, 3).at(-1)).toMatchObject({ status: 'done' });
+    expect(existsSync(path.join(p.worktreePath, '.miac', 'task.md'))).toBe(
+      true,
+    );
+    expect(events.at(-1)).toEqual({
+      taskId: 'task1',
+      type: 'finished',
+      ok: true,
+    });
+  });
+
+  it('turns a throwing hook into a warn with the error message', async () => {
+    const repo = makeRepo();
+    const { events, onEvent } = collect();
+    const result = await runner.run(plan(repo, { updateWorkItem: true }), {
+      onEvent,
+      startTerminals: async () => {},
+      updateWorkItem: async () => {
+        throw new Error('Azure DevOps is unreachable');
+      },
+    });
+    expect(result).toEqual({ ok: true });
+    expect(stepEvents(events, 2).at(-1)).toMatchObject({
+      status: 'warn',
+      detail: 'Azure DevOps is unreachable',
+    });
+    expect(
+      events.some(
+        (e) => e.type === 'log' && e.line === 'Azure DevOps is unreachable',
+      ),
+    ).toBe(true);
   });
 });
 

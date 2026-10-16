@@ -31,6 +31,10 @@ This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 
 | `app.quit` | session length in minutes |
 | `task.created` | has a work item; copy files, start Claude, open shell, open Copilot (booleans); number of setup commands |
 | `task.finished` | remove worktree, delete branch, close terminals, sync usage, has a work item (booleans); task age in hours |
+| `workitem.startUpdated` | setup moved the work item to In Progress (`moved`), assigned it (`assigned`), or the update failed (`failed`) |
+| `pr.created` | Finish created a draft pull request; none |
+| `pr.linked` | Finish linked an existing active pull request instead of creating one; none |
+| `pr.failed` | Finish stopped because the push or pull request failed; `kind` (`git`, or the Azure DevOps error kind: `unauthorized`, `not-found`, `unreachable`, `http`) |
 | `setup.finished` | ok; retry; kind of the failed step (`fetch`, `worktree`, `copy`, `task-file`, `command`, `terminals`); duration; step count |
 | `setup.retried`, `setup.cancelled` | none |
 | `terminal.opened` | kind (`claude`, `copilot`, `shell`, `run`); opened by setup or by hand |

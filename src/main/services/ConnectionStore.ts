@@ -170,6 +170,7 @@ export class ConnectionStore {
       user: null,
       status: 'unknown',
       checkedAt: null,
+      userUniqueName: null,
       tokenCiphertext,
     };
     await this.update((f) => {
@@ -193,6 +194,7 @@ export class ConnectionStore {
     id: string,
     status: ConnectionStatus,
     user?: string | null,
+    uniqueName?: string | null,
   ): Promise<Connection> {
     await this.update((f) => {
       const c = f.connections.find((x) => x.id === id);
@@ -200,6 +202,7 @@ export class ConnectionStore {
       c.status = status;
       c.checkedAt = new Date().toISOString();
       if (user !== undefined) c.user = user;
+      if (uniqueName !== undefined) c.userUniqueName = uniqueName;
     });
     return this.get(id);
   }
@@ -251,5 +254,6 @@ function strip(c: Stored): Connection {
     user: c.user,
     status: c.status,
     checkedAt: c.checkedAt,
+    userUniqueName: c.userUniqueName,
   };
 }

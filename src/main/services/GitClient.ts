@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, type ExecFileOptions } from 'node:child_process';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import type { GitSummary, TaskSummary } from '../../shared/types';
@@ -6,6 +6,14 @@ import { realWait, withRetry, type Wait } from '../fsRetry';
 import { nativePath } from '../paths';
 
 const execFileAsync = promisify(execFile);
+
+/** Long enough for an interactive Git Credential Manager sign-in, short enough that Finish never hangs. */
+const PUSH_TIMEOUT_MS = 120_000;
+
+/** Fails ssh instead of waiting on a passphrase or host-key question no one can see. Agent keys still work. */
+const BATCH_SSH = 'ssh -o BatchMode=yes';
+
+class GitTimeoutError extends Error {}
 
 export class GitError extends Error {
   constructor(
@@ -37,18 +45,32 @@ const MAX_SUMMARY_COMMITS = 50;
 
 /** Thin wrapper over the git CLI. Every method takes the directory to run in. */
 export class GitClient {
-  constructor(private readonly wait: Wait = realWait) {}
+  readonly pushTimeoutMs: number;
 
-  async run(cwd: string, args: string[]): Promise<string> {
+  constructor(
+    private readonly wait: Wait = realWait,
+    opts: { pushTimeoutMs?: number } = {},
+  ) {
+    this.pushTimeoutMs = opts.pushTimeoutMs ?? PUSH_TIMEOUT_MS;
+  }
+
+  async run(
+    cwd: string,
+    args: string[],
+    opts: { timeoutMs?: number; env?: Record<string, string> } = {},
+  ): Promise<string> {
     try {
-      const { stdout } = await execFileAsync('git', args, {
+      const options = {
         cwd,
-        env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+        env: { ...process.env, ...opts.env, GIT_TERMINAL_PROMPT: '0' },
         maxBuffer: 16 * 1024 * 1024,
         windowsHide: true,
-      });
-      return stdout;
+      };
+      if (opts.timeoutMs === undefined)
+        return (await execFileAsync('git', args, options)).stdout;
+      return await execWithTimeout(args, options, opts.timeoutMs);
     } catch (e) {
+      if (e instanceof GitTimeoutError) throw e;
       const err = e as {
         stderr?: string;
         code?: number | string;
@@ -166,6 +188,50 @@ export class GitClient {
 
   async deleteBranch(cwd: string, branch: string): Promise<void> {
     await this.run(cwd, ['branch', '-D', branch]);
+  }
+
+  /** The URL of a remote, or null when there is no such remote. */
+  async remoteUrl(cwd: string, remote: string): Promise<string | null> {
+    try {
+      return (
+        (await this.run(cwd, ['remote', 'get-url', remote])).trim() || null
+      );
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Pushes a branch and sets its upstream. Never forces; a failure throws git's own stderr. Runs without a
+   * console, so ssh runs in batch mode (unless the user set their own ssh command) and the push gives up
+   * after `pushTimeoutMs`. Git Credential Manager stays on: users sign in through it.
+   */
+  async push(cwd: string, remote: string, branch: string): Promise<void> {
+    const env: Record<string, string> = (await this.hasOwnSshCommand(cwd))
+      ? {}
+      : { GIT_SSH_COMMAND: BATCH_SSH };
+    try {
+      await this.run(cwd, ['push', '-u', remote, branch], {
+        timeoutMs: this.pushTimeoutMs,
+        env,
+      });
+    } catch (e) {
+      if (e instanceof GitTimeoutError)
+        throw new Error(
+          `git push timed out after ${this.pushTimeoutMs / 1000} s (a credential prompt may be waiting)`,
+        );
+      throw e instanceof GitError ? new Error(e.stderr.trim()) : e;
+    }
+  }
+
+  private async hasOwnSshCommand(cwd: string): Promise<boolean> {
+    if (process.env.GIT_SSH_COMMAND || process.env.GIT_SSH) return true;
+    const configured = await this.run(cwd, [
+      'config',
+      '--get',
+      'core.sshCommand',
+    ]).catch(() => '');
+    return configured.trim() !== '';
   }
 
   async summary(worktree: string, baseRef: string): Promise<GitSummary> {
@@ -348,4 +414,36 @@ export class GitClient {
       return { upstream, pushed: false };
     }
   }
+}
+
+/**
+ * execFile with a deadline. On timeout it kills git and stops reading its pipes at once: a helper git
+ * started (a credential prompt, ssh, a hook) can keep the pipes open long after git itself is gone.
+ */
+function execWithTimeout(
+  args: string[],
+  options: ExecFileOptions,
+  timeoutMs: number,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let timedOut = false;
+    const child = execFile(
+      'git',
+      args,
+      { ...options, windowsHide: true },
+      (err, stdout, stderr) => {
+        clearTimeout(timer);
+        if (timedOut) return;
+        if (err) reject(Object.assign(err, { stderr: String(stderr) }));
+        else resolve(String(stdout));
+      },
+    );
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill();
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      reject(new GitTimeoutError(`git ${args[0]} timed out`));
+    }, timeoutMs);
+  });
 }

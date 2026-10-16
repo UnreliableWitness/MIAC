@@ -81,7 +81,43 @@ export function buildWiql(opts: {
 export const WRITE_DENIED =
   'The token cannot write work items (needs Work Items: Read & write)';
 
+export const CODE_READ_DENIED =
+  'The token cannot read repositories or pull requests (needs Code: Read & write)';
+
+export const CODE_WRITE_DENIED =
+  'The token cannot create pull requests (needs Code: Read & write)';
+
+export type RawPr = {
+  pullRequestId: number;
+  status: 'active' | 'completed' | 'abandoned';
+  isDraft: boolean;
+};
+
 type Json = Record<string, unknown>;
+
+const PR_STATUSES: readonly RawPr['status'][] = [
+  'active',
+  'completed',
+  'abandoned',
+];
+
+/** Azure DevOps answers are not trusted as is: an unknown status reads as active, a missing isDraft as false. */
+function toRawPr(data: unknown, path: string): RawPr {
+  const d = (data ?? {}) as Json;
+  if (typeof d.pullRequestId !== 'number')
+    throw new AdoError(
+      'http',
+      path,
+      'Azure DevOps returned a pull request without a pull request id',
+    );
+  return {
+    pullRequestId: d.pullRequestId,
+    status: PR_STATUSES.includes(d.status as RawPr['status'])
+      ? (d.status as RawPr['status'])
+      : 'active',
+    isDraft: d.isDraft === true,
+  };
+}
 
 /** Read calls and three write calls (work item fields, comment, type field listing) against one Azure DevOps organization. The token provider is called per request so a re-entered PAT takes effect immediately. */
 export class AdoClient {
@@ -109,18 +145,25 @@ export class AdoClient {
     );
   }
 
-  async verify(project: string): Promise<{ user: string }> {
+  async verify(
+    project: string,
+  ): Promise<{ user: string; uniqueName: string | null }> {
     const data = await this.request<Json>(
       '/_apis/connectionData?api-version=7.1-preview',
     );
+    const auth = data.authenticatedUser as Json | undefined;
     const user =
-      ((data.authenticatedUser as Json | undefined)?.providerDisplayName as
-        | string
-        | undefined) ?? 'unknown user';
+      (auth?.providerDisplayName as string | undefined) ?? 'unknown user';
+    const account = (
+      (auth?.properties as Json | undefined)?.Account as Json | undefined
+    )?.$value;
     await this.request<Json>(
       `/_apis/projects/${encodeURIComponent(project)}?${API}`,
     );
-    return { user };
+    return {
+      user,
+      uniqueName: typeof account === 'string' && account ? account : null,
+    };
   }
 
   async currentIteration(project: string): Promise<SprintIteration | null> {
@@ -430,10 +473,143 @@ export class AdoClient {
     return { id: data.id };
   }
 
+  /** Type, state and assignee (unique name, else display name) of a work item. */
+  async workItemForStart(
+    id: number,
+  ): Promise<{ type: string; state: string; assignedTo: string | null }> {
+    const data = await this.request<{ fields?: Json }>(
+      `/_apis/wit/workitems/${id}?fields=System.WorkItemType,System.State,System.AssignedTo&${API}`,
+    );
+    const f = data.fields ?? {};
+    const a = f['System.AssignedTo'] as Json | string | undefined;
+    const name =
+      typeof a === 'string' ? a : (a?.uniqueName ?? a?.displayName ?? null);
+    return {
+      type: String(f['System.WorkItemType'] ?? ''),
+      state: String(f['System.State'] ?? ''),
+      assignedTo: typeof name === 'string' && name ? name : null,
+    };
+  }
+
+  async typeStates(
+    project: string,
+    type: string,
+  ): Promise<{ name: string; category: string | null }[]> {
+    const data = await this.request<{
+      value?: { name?: string; category?: string }[];
+    }>(
+      `/${encodeURIComponent(project)}/_apis/wit/workitemtypes/${encodeURIComponent(type)}/states?${API}`,
+    );
+    return (data.value ?? []).flatMap((s) =>
+      s.name ? [{ name: s.name, category: s.category ?? null }] : [],
+    );
+  }
+
+  async updateWorkItem(
+    id: number,
+    change: { state?: string; assignedTo?: string },
+  ): Promise<void> {
+    const ops = [
+      ...(change.state
+        ? [{ op: 'add', path: '/fields/System.State', value: change.state }]
+        : []),
+      ...(change.assignedTo
+        ? [
+            {
+              op: 'add',
+              path: '/fields/System.AssignedTo',
+              value: change.assignedTo,
+            },
+          ]
+        : []),
+    ];
+    if (ops.length === 0) return;
+    await this.request<Json>(
+      `/_apis/wit/workitems/${id}?${API}`,
+      {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json-patch+json' },
+        body: JSON.stringify(ops),
+      },
+      { write: true },
+    );
+  }
+
+  async repositoryId(project: string, repo: string): Promise<string> {
+    const data = await this.request<{ id: string }>(
+      `/${encodeURIComponent(project)}/_apis/git/repositories/${encodeURIComponent(repo)}?${API}`,
+      {},
+      { code: true },
+    );
+    return data.id;
+  }
+
+  async findActivePullRequest(
+    project: string,
+    repositoryId: string,
+    branch: string,
+  ): Promise<RawPr | null> {
+    const path = `/${encodeURIComponent(project)}/_apis/git/repositories/${encodeURIComponent(repositoryId)}/pullrequests`;
+    const data = await this.request<{ value?: unknown[] }>(
+      `${path}?searchCriteria.sourceRefName=${encodeURIComponent(`refs/heads/${branch}`)}&searchCriteria.status=active&${API}`,
+      {},
+      { code: true },
+    );
+    const first = (data.value ?? [])[0];
+    return first === undefined ? null : toRawPr(first, path);
+  }
+
+  async createPullRequest(
+    project: string,
+    repositoryId: string,
+    input: {
+      source: string;
+      target: string;
+      title: string;
+      description: string;
+      workItemId: number | null;
+    },
+  ): Promise<RawPr> {
+    const path = `/${encodeURIComponent(project)}/_apis/git/repositories/${encodeURIComponent(repositoryId)}/pullrequests`;
+    const data = await this.request<unknown>(
+      `${path}?${API}`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          sourceRefName: `refs/heads/${input.source}`,
+          targetRefName: `refs/heads/${input.target}`,
+          title: input.title,
+          description: input.description,
+          isDraft: true,
+          workItemRefs: input.workItemId
+            ? [{ id: String(input.workItemId) }]
+            : [],
+        }),
+      },
+      { write: true, code: true },
+    );
+    return toRawPr(data, path);
+  }
+
+  async pullRequest(
+    project: string,
+    repositoryId: string,
+    id: number,
+  ): Promise<RawPr> {
+    const path = `/${encodeURIComponent(project)}/_apis/git/repositories/${encodeURIComponent(repositoryId)}/pullrequests/${id}`;
+    const data = await this.request<unknown>(
+      `${path}?${API}`,
+      {},
+      { code: true },
+    );
+    return toRawPr(data, path);
+  }
+
   private async request<T>(
     path: string,
     init: RequestInit = {},
-    opts: { write?: boolean; retried?: boolean } = {},
+    opts: { write?: boolean; code?: boolean; retried?: boolean } = {},
   ): Promise<T> {
     const url = `${this.organizationUrl}${path}`;
     const pat = await this.token();
@@ -472,8 +648,12 @@ export class AdoClient {
       throw new AdoError(
         'unauthorized',
         path,
-        opts.write && (res.status === 401 || res.status === 403)
-          ? WRITE_DENIED
+        (res.status === 401 || res.status === 403) && (opts.code || opts.write)
+          ? opts.code
+            ? opts.write
+              ? CODE_WRITE_DENIED
+              : CODE_READ_DENIED
+            : WRITE_DENIED
           : 'Azure DevOps rejected the token (check that it is valid and has Work Items read scope)',
         res.status,
       );
@@ -492,13 +672,22 @@ export class AdoClient {
       throw this.unreachable(path, e);
     }
     const text = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
-    if (!res.ok)
+    if (!res.ok) {
+      let message: unknown;
+      try {
+        message = (JSON.parse(text) as Json).message;
+      } catch {
+        message = undefined;
+      }
       throw new AdoError(
         'http',
         path,
-        `Azure DevOps returned ${res.status} for ${path.split('?')[0]}`,
+        typeof message === 'string' && message
+          ? `Azure DevOps returned ${res.status}: ${message}`
+          : `Azure DevOps returned ${res.status} for ${path.split('?')[0]}`,
         res.status,
       );
+    }
     try {
       return JSON.parse(text) as T;
     } catch {

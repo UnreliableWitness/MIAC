@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react';
 import type { AppSettings } from '../../shared/usage';
-import type { MiacConfig, Repo } from '../../shared/types';
+import type {
+  MiacConfig,
+  Repo,
+  StartSettings,
+  WorkItemTypeMeta,
+} from '../../shared/types';
 import { api, tryInvoke } from '../api';
 import { ConnectionsSection } from '../components/ConnectionsSection';
 import { CostSection } from '../components/CostSection';
@@ -25,6 +30,93 @@ function renderConfig(
     `# worktrees go in ${worktreeRoot}`,
   ];
   return lines.join('\n');
+}
+
+function StartOptions({ repo }: { repo: Repo }) {
+  const notify = useStore((s) => s.notify);
+  const [types, setTypes] = useState<WorkItemTypeMeta[] | null>(null);
+  const settings = repo.workItemOnStart;
+  const connectionId = repo.connectionId;
+
+  // repos:changed is broadcast by the handler and refreshes the store.
+  const save = (next: StartSettings) =>
+    tryInvoke(
+      () => api().invoke('repos:setWorkItemOnStart', repo.id, next),
+      notify,
+    );
+
+  const loadTypes = async (open: boolean) => {
+    if (!open || types !== null || !connectionId) return;
+    const result = await tryInvoke(
+      () => api().invoke('workItems:types', connectionId),
+      notify,
+    );
+    if (result) setTypes(result);
+  };
+
+  const choose = (type: string, state: string) => {
+    const { [type]: _removed, ...rest } = settings.stateOverrides;
+    void save({
+      ...settings,
+      stateOverrides: state ? { ...rest, [type]: state } : rest,
+    });
+  };
+
+  return (
+    <div className="list-row" style={{ display: 'block' }}>
+      <div>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={settings.moveToInProgress}
+            onChange={(e) =>
+              void save({ ...settings, moveToInProgress: e.target.checked })
+            }
+          />{' '}
+          Move the work item to In Progress on start
+        </label>
+      </div>
+      <div>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={settings.assignToMe}
+            onChange={(e) =>
+              void save({ ...settings, assignToMe: e.target.checked })
+            }
+          />{' '}
+          Assign it to me if unassigned
+        </label>
+      </div>
+      <details
+        onToggle={(e) =>
+          void loadTypes((e.currentTarget as HTMLDetailsElement).open)
+        }
+      >
+        <summary>Override per type</summary>
+        {types?.map((t) => (
+          <div key={t.name} className="small" style={{ marginTop: 4 }}>
+            <span>{t.name}</span>{' '}
+            <select
+              className="field"
+              aria-label={`In Progress state for ${t.name}`}
+              value={settings.stateOverrides[t.name] ?? ''}
+              onChange={(e) => choose(t.name, e.target.value)}
+            >
+              <option value="">Default</option>
+              {t.states
+                .filter((s) => s.category === 'InProgress')
+                .map((s) => (
+                  <option key={s.name} value={s.name}>
+                    {s.name}
+                  </option>
+                ))}
+            </select>
+          </div>
+        ))}
+      </details>
+    </div>
+  );
 }
 
 function RepoRow({ repo }: { repo: Repo }) {
@@ -91,6 +183,7 @@ function RepoRow({ repo }: { repo: Repo }) {
           Remove
         </button>
       </div>
+      {repo.connectionId && <StartOptions repo={repo} />}
       {shown !== null && (
         <div
           className="codeblock"

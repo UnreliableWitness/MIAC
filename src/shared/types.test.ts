@@ -76,6 +76,7 @@ describe('ConnectionsFileSchema', () => {
       user: null,
       status: 'unknown',
       checkedAt: null,
+      userUniqueName: null,
       tokenCiphertext: 'AAAA',
     };
     expect(
@@ -96,6 +97,7 @@ describe('ConnectionsFileSchema', () => {
             user: null,
             status: 'weird',
             checkedAt: null,
+            userUniqueName: null,
             tokenCiphertext: 'x',
           },
         ],
@@ -126,6 +128,7 @@ it('accepts a task saved before sub-project 3 and defaults the usage fields', as
     usageSyncError: null,
     usageCommentId: null,
     summary: null,
+    pullRequest: null,
     baseSha: null,
   });
 });

@@ -16,6 +16,11 @@ const webshop: Repo = {
   baseBranch: 'main',
   connectionId: null,
   miacYmlFound: true,
+  workItemOnStart: {
+    moveToInProgress: true,
+    assignToMe: true,
+    stateOverrides: {},
+  },
 };
 
 beforeEach(() => {
@@ -41,6 +46,11 @@ describe('SettingsScreen', () => {
           path: '/src/api',
           baseBranch: 'develop',
           miacYmlFound: false,
+          workItemOnStart: {
+            moveToInProgress: true,
+            assignToMe: true,
+            stateOverrides: {},
+          },
         },
       ],
     });
@@ -138,6 +148,7 @@ describe('SettingsScreen', () => {
           user: null,
           status: 'ok',
           checkedAt: null,
+          userUniqueName: null,
         },
       ],
     });
@@ -151,6 +162,140 @@ describe('SettingsScreen', () => {
         calls.find((c) => c.channel === 'repos:setConnection')?.args,
       ).toEqual(['r1', 'c1']),
     );
+  });
+
+  describe('start options', () => {
+    const conn = {
+      id: 'c1',
+      name: 'unreliablewitness',
+      organizationUrl: 'https://dev.azure.com/unreliablewitness',
+      project: 'MIAC',
+      user: null,
+      status: 'ok' as const,
+      checkedAt: null,
+      userUniqueName: null,
+    };
+    const linked: Repo = { ...webshop, connectionId: 'c1' };
+    const types = [
+      {
+        name: 'Task',
+        color: null,
+        icon: null,
+        states: [
+          { name: 'To Do', color: null, category: 'Proposed' },
+          { name: 'Doing', color: null, category: 'InProgress' },
+          { name: 'Done', color: null, category: 'Completed' },
+        ],
+      },
+    ];
+    const handlers = () => ({
+      'repos:setWorkItemOnStart': (_id: string, s: unknown) => ({
+        ...linked,
+        workItemOnStart: s,
+      }),
+      'workItems:types': () => types,
+    });
+
+    it('shows both options checked for a repo with a connection', () => {
+      installFakeApi(handlers() as never);
+      useStore.setState({ repos: [linked], connections: [conn] });
+      render(<SettingsScreen />);
+      expect(
+        screen.getByRole('checkbox', {
+          name: 'Move the work item to In Progress on start',
+        }),
+      ).toBeChecked();
+      expect(
+        screen.getByRole('checkbox', { name: 'Assign it to me if unassigned' }),
+      ).toBeChecked();
+    });
+
+    it('shows neither option without a connection', () => {
+      installFakeApi(handlers() as never);
+      useStore.setState({ repos: [webshop], connections: [conn] });
+      render(<SettingsScreen />);
+      expect(
+        screen.queryByRole('checkbox', {
+          name: 'Move the work item to In Progress on start',
+        }),
+      ).toBeNull();
+      expect(
+        screen.queryByRole('checkbox', {
+          name: 'Assign it to me if unassigned',
+        }),
+      ).toBeNull();
+    });
+
+    it('saves when the move option is unticked', async () => {
+      const { calls } = installFakeApi(handlers() as never);
+      useStore.setState({ repos: [linked], connections: [conn] });
+      render(<SettingsScreen />);
+      await userEvent.click(
+        screen.getByRole('checkbox', {
+          name: 'Move the work item to In Progress on start',
+        }),
+      );
+      await waitFor(() =>
+        expect(
+          calls.find((c) => c.channel === 'repos:setWorkItemOnStart')?.args,
+        ).toEqual([
+          'r1',
+          { moveToInProgress: false, assignToMe: true, stateOverrides: {} },
+        ]),
+      );
+    });
+
+    it('loads types on open and sets and clears an override', async () => {
+      const { calls } = installFakeApi(handlers() as never);
+      useStore.setState({ repos: [linked], connections: [conn] });
+      render(<SettingsScreen />);
+      expect(calls.some((c) => c.channel === 'workItems:types')).toBe(false);
+      await userEvent.click(screen.getByText('Override per type'));
+      const select = await screen.findByLabelText('In Progress state for Task');
+      expect(
+        Array.from((select as HTMLSelectElement).options).map((o) => o.text),
+      ).toEqual(['Default', 'Doing']);
+      await userEvent.selectOptions(select, 'Doing');
+      await waitFor(() =>
+        expect(
+          calls.filter((c) => c.channel === 'repos:setWorkItemOnStart').at(-1)
+            ?.args,
+        ).toEqual([
+          'r1',
+          {
+            moveToInProgress: true,
+            assignToMe: true,
+            stateOverrides: { Task: 'Doing' },
+          },
+        ]),
+      );
+    });
+
+    it('removes the key when Default is chosen', async () => {
+      const withOverride: Repo = {
+        ...linked,
+        workItemOnStart: {
+          moveToInProgress: true,
+          assignToMe: true,
+          stateOverrides: { Task: 'Doing' },
+        },
+      };
+      const { calls } = installFakeApi(handlers() as never);
+      useStore.setState({ repos: [withOverride], connections: [conn] });
+      render(<SettingsScreen />);
+      await userEvent.click(screen.getByText('Override per type'));
+      const select = await screen.findByLabelText('In Progress state for Task');
+      await userEvent.selectOptions(select, 'Default');
+      await waitFor(() =>
+        expect(
+          calls.find((c) => c.channel === 'repos:setWorkItemOnStart')?.args[1],
+        ).toEqual({
+          moveToInProgress: true,
+          assignToMe: true,
+          stateOverrides: {},
+        }),
+      );
+    });
   });
 
   it('turns anonymous usage and error data off', async () => {

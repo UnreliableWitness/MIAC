@@ -46,3 +46,8 @@ export function renderUsageComment(u: TaskUsage, branch: string): string {
   lines.push(`Branch ${branch}`);
   return lines.join('\n\n');
 }
+
+/** The one-line cost summary for a pull request description, in the same EUR format as the comment and fields. */
+export function renderCostLine(u: TaskUsage): string {
+  return `AI cost for this task: ${eur(u.billable.costEur)} (Claude ${eur(u.byTool['claude-code'].costEur)}, Copilot ${eur(u.byTool['copilot-cli'].costEur)})`;
+}

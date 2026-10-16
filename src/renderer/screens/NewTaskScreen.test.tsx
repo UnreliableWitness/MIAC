@@ -13,6 +13,11 @@ const webshop: Repo = {
   baseBranch: 'main',
   connectionId: null,
   miacYmlFound: true,
+  workItemOnStart: {
+    moveToInProgress: true,
+    assignToMe: true,
+    stateOverrides: {},
+  },
 };
 const config = {
   worktreeRoot: '/src/webshop.worktrees',
@@ -199,6 +204,7 @@ describe('NewTaskScreen', () => {
           user: 'D',
           status: 'ok',
           checkedAt: null,
+          userUniqueName: null,
         },
       ],
     });
@@ -268,6 +274,7 @@ describe('NewTaskScreen', () => {
           user: 'D',
           status: 'ok',
           checkedAt: null,
+          userUniqueName: null,
         },
       ],
     });
@@ -303,6 +310,7 @@ describe('NewTaskScreen', () => {
     user: 'D',
     status: 'ok' as const,
     checkedAt: null,
+    userUniqueName: null,
   };
   const pickerApi = {
     'repos:config': () => config,

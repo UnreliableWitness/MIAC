@@ -39,6 +39,7 @@ const task: TaskView = {
   usageSyncError: null,
   usageCommentId: null,
   summary: null,
+  pullRequest: null,
   worktreeMissing: false,
 };
 const git: GitSummary = {
@@ -84,6 +85,11 @@ beforeEach(() => {
         baseBranch: 'main',
         connectionId: 'c1',
         miacYmlFound: true,
+        workItemOnStart: {
+          moveToInProgress: true,
+          assignToMe: true,
+          stateOverrides: {},
+        },
       },
     ],
     connections: [
@@ -95,6 +101,7 @@ beforeEach(() => {
         user: 'D',
         status: 'ok',
         checkedAt: null,
+        userUniqueName: null,
       },
     ],
   });

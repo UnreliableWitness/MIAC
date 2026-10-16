@@ -43,11 +43,13 @@ export function adoOperation(
   const kept = at >= 0 ? segments.slice(at) : ['(other)'];
   const route = kept
     .map((s, i) =>
-      kept[i - 1] === 'projects'
-        ? '{project}'
-        : /^\d+$/.test(s) || /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(s)
-          ? '{id}'
-          : s,
+      /^\d+$/.test(s) || /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(s)
+        ? '{id}'
+        : kept[i - 1] === 'projects'
+          ? '{project}'
+          : kept[i - 1] === 'repositories'
+            ? '{repo}'
+            : s,
     )
     .join('/');
   const host = u.hostname.endsWith('.visualstudio.com')
@@ -149,6 +151,7 @@ export function sensitiveValues(src: {
     slug: string;
     worktreePath: string;
     workItem: { title: string } | null;
+    pullRequest?: { project: string; repo: string } | null;
   }[];
   connections: {
     name: string;
@@ -157,12 +160,15 @@ export function sensitiveValues(src: {
     user: string | null;
   }[];
   username?: string;
+  /** Values learned at run time, such as the project and repo of an Azure Repos remote. */
+  extra?: Iterable<string>;
 }): string[] {
   const out: string[] = [];
   for (const r of src.repos) out.push(r.name, r.path);
   for (const t of src.tasks) {
     out.push(t.name, t.branch, t.slug, t.worktreePath);
     if (t.workItem) out.push(t.workItem.title);
+    if (t.pullRequest) out.push(t.pullRequest.project, t.pullRequest.repo);
   }
   for (const c of src.connections) {
     out.push(c.name, c.organizationUrl, c.project);
@@ -171,5 +177,6 @@ export function sensitiveValues(src: {
     if (c.user) out.push(c.user);
   }
   if (src.username) out.push(src.username);
+  out.push(...(src.extra ?? []));
   return out.filter((v) => v.trim().length > 0);
 }

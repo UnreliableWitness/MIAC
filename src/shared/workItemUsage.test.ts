@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { SessionSummary, TaskUsage } from './usage';
-import { aiFieldValues, renderUsageComment, round2 } from './workItemUsage';
+import {
+  aiFieldValues,
+  renderCostLine,
+  renderUsageComment,
+  round2,
+} from './workItemUsage';
 
 const EURO = String.fromCharCode(0x20ac);
 const session = (over: Partial<SessionSummary>): SessionSummary => ({
@@ -95,6 +100,11 @@ describe('workItemUsage', () => {
         'plus 3 requests with unpriced models',
         'Branch b',
       ].join('\n\n'),
+    );
+  });
+  it('renders the cost line for a pull request description', () => {
+    expect(renderCostLine(usage([]))).toBe(
+      `AI cost for this task: ${EURO}23.85 (Claude ${EURO}21.10, Copilot ${EURO}2.75)`,
     );
   });
 });

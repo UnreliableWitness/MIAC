@@ -6,8 +6,10 @@ import { useTaskUsage } from '../hooks/useTaskUsage';
 import { PageHeader } from '../components/ui';
 import { useEscape } from '../hooks/useEscape';
 import { useStore } from '../store';
+import { readPrChoice, writePrChoice } from '../uiPrefs';
 
 const ELLIPSIS = String.fromCharCode(0x2026);
+const PR_FAILED = 'Pull request not created: ';
 const G = {
   WARN: String.fromCharCode(0x26a0),
   OK: String.fromCharCode(0x2713),
@@ -27,6 +29,18 @@ export function FinishScreen({ taskId }: { taskId: string }) {
   const [deleteBranch, setDeleteBranch] = useState(true);
   const [busy, setBusy] = useState(false);
   const [checksFailed, setChecksFailed] = useState<string | null>(null);
+  const [pr, setPr] = useState<{
+    available: boolean;
+    reason: string | null;
+    target: string | null;
+  } | null>(null);
+  // MIAC asks every time: unchecked until the user has chosen once for this repo.
+  const [prChoice, setPrChoice] = useState(() =>
+    readPrChoice(task?.repoId ?? ''),
+  );
+  const [finishError, setFinishError] = useState<string | null>(null);
+  // Finish waits for the PR availability, else a stored yes would be sent as no.
+  const [prLoaded, setPrLoaded] = useState(false);
   const ready = task?.status === 'ready';
   const usage = useTaskUsage(ready ? taskId : null);
   const repo = useStore((s) => s.repos.find((r) => r.id === task?.repoId));
@@ -35,23 +49,42 @@ export function FinishScreen({ taskId }: { taskId: string }) {
   const [syncChoice, setSyncUsage] = useState<boolean | null>(null);
   const syncUsage = syncChoice ?? !(usage && usage.sessions.length === 0);
 
-  useEffect(() => {
-    if (!ready) return;
-    let live = true;
-    void tryInvoke(async () => {
+  const loadChecks = async (isLive: () => boolean) => {
+    const c = await tryInvoke(async () => {
       try {
         return await api().invoke('tasks:finishChecks', taskId);
       } catch (e) {
-        if (live)
+        if (isLive()) {
+          setChecks(null);
           setChecksFailed(e instanceof Error ? e.message : 'unknown error');
+        }
         throw e;
       }
-    }, notify).then((c) => {
-      if (live && c) setChecks(c);
+    }, notify);
+    if (isLive() && c) {
+      setChecks(c);
+      setChecksFailed(null);
+    }
+    return c ?? null;
+  };
+
+  useEffect(() => {
+    if (!ready) return;
+    let live = true;
+    void loadChecks(() => live);
+    void tryInvoke(
+      () => api().invoke('tasks:prAvailability', taskId),
+      notify,
+    ).then((a) => {
+      if (!live) return;
+      if (a) setPr(a);
+      setPrLoaded(true);
     });
     return () => {
       live = false;
     };
+    // loadChecks only closes over taskId and notify, which are listed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taskId, notify, ready]);
 
   useEscape(back);
@@ -91,17 +124,47 @@ export function FinishScreen({ taskId }: { taskId: string }) {
     }
   };
 
-  const finish = async () => {
+  const createPr = Boolean(pr?.available && prChoice);
+
+  /** Whether finishing without the PR path would discard work, exactly as the main button judges it. */
+  const dirtyWith = (
+    c: FinishChecks | null,
+    failed: boolean,
+    withPr: boolean,
+  ) =>
+    failed
+      ? true
+      : c
+        ? c.uncommitted.length > 0 || (c.unpushed > 0 && !withPr)
+        : false;
+
+  const finish = async (withoutPr = false) => {
+    const withPr = createPr && !withoutPr;
     setBusy(true);
+    setFinishError(null);
+    // The choice is saved when Finish is clicked, not on every toggle.
+    if (pr?.available && !withoutPr) writePrChoice(task.repoId, prChoice);
+    let prFailed = false;
     const ok = await tryInvoke(async () => {
-      await api().invoke('tasks:finish', taskId, {
-        closeTerminals: closeTerminals && nTerm > 0,
-        removeWorktree,
-        deleteBranch,
-        syncUsage: canSync && syncUsage,
-      });
+      try {
+        await api().invoke('tasks:finish', taskId, {
+          closeTerminals: closeTerminals && nTerm > 0,
+          removeWorktree,
+          deleteBranch,
+          syncUsage: canSync && syncUsage,
+          createPullRequest: withPr,
+        });
+      } catch (e) {
+        const m = e instanceof Error ? e.message : '';
+        if (!m.includes(PR_FAILED)) throw e;
+        prFailed = true;
+        setFinishError(m.slice(m.indexOf(PR_FAILED)));
+        return false;
+      }
       return true;
     }, notify);
+    // A push that went through changes what is unpushed; the fallback below must judge fresh checks.
+    if (prFailed) await loadChecks(stillHere);
     setBusy(false);
     // Only when the user is still here: Escape or the nav may have taken them elsewhere meanwhile.
     if (ok && stillHere()) {
@@ -110,11 +173,21 @@ export function FinishScreen({ taskId }: { taskId: string }) {
     }
   };
 
-  const dirty = checksFailed
-    ? true
-    : checks
-      ? checks.uncommitted.length > 0 || checks.unpushed > 0
-      : false;
+  /**
+   * Without the PR, unpushed commits are a risk again. When dropping the PR would discard work, untick
+   * the box instead of finishing: the page then shows the same warnings and danger button as a normal
+   * Finish, and that button is the confirmation.
+   */
+  const finishWithoutPr = async () => {
+    if (dirtyWith(checks, Boolean(checksFailed), false)) {
+      setPrChoice(false);
+      setFinishError(null);
+      return;
+    }
+    await finish(true);
+  };
+
+  const dirty = dirtyWith(checks, Boolean(checksFailed), createPr);
   const nTerm = task.terminals.length;
   const terminalLabels = task.terminals.map((t) => t.label).join(', ');
 
@@ -169,7 +242,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
               </div>
             ))}
           {checks &&
-            (checks.unpushed > 0 ? (
+            (checks.unpushed > 0 && !createPr ? (
               <div className="check check-warn">
                 <span aria-hidden="true">{G.UP}</span>
                 <div className="body">
@@ -184,6 +257,13 @@ export function FinishScreen({ taskId }: { taskId: string }) {
                 >
                   Push
                 </button>
+              </div>
+            ) : checks.unpushed > 0 ? (
+              <div className="check check-ok">
+                <span aria-hidden="true">{G.UP}</span>
+                <div className="body">
+                  {`${checks.unpushed} commit${checks.unpushed === 1 ? '' : 's'} will be pushed for the pull request`}
+                </div>
               </div>
             ) : (
               <div className="check check-ok">
@@ -243,6 +323,29 @@ export function FinishScreen({ taskId }: { taskId: string }) {
 
         <div className="finish-section">
           <h2>Clean up</h2>
+          {pr && (
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={createPr}
+                disabled={!pr.available}
+                onChange={(e) => {
+                  setPrChoice(e.target.checked);
+                  // A stale error's Retry would otherwise run with the new choice and no fresh look.
+                  setFinishError(null);
+                }}
+              />
+              {pr.available
+                ? `Create a draft pull request into ${pr.target}`
+                : 'Create a draft pull request'}
+              {!pr.available && pr.reason && (
+                <>
+                  {' '}
+                  <span className="muted small">{pr.reason}</span>
+                </>
+              )}
+            </label>
+          )}
           <label className="checkbox">
             <input
               type="checkbox"
@@ -282,6 +385,29 @@ export function FinishScreen({ taskId }: { taskId: string }) {
           </label>
         </div>
 
+        {finishError && (
+          <div className="check check-warn" role="alert">
+            <span aria-hidden="true">{G.WARN}</span>
+            <div className="body">{finishError}</div>
+            <button
+              type="button"
+              className="btn btn-sm"
+              disabled={busy}
+              onClick={() => finish()}
+            >
+              Retry
+            </button>
+            <button
+              type="button"
+              className="btn btn-subtle btn-sm"
+              disabled={busy}
+              onClick={() => void finishWithoutPr()}
+            >
+              Finish without PR
+            </button>
+          </div>
+        )}
+
         <div className="finish-foot">
           <button type="button" className="btn" onClick={back}>
             Keep task
@@ -289,8 +415,8 @@ export function FinishScreen({ taskId }: { taskId: string }) {
           <button
             type="button"
             className={dirty ? 'btn btn-danger' : 'btn btn-primary'}
-            disabled={busy || (!checks && !checksFailed)}
-            onClick={finish}
+            disabled={busy || !prLoaded || (!checks && !checksFailed)}
+            onClick={() => finish()}
           >
             {checksFailed
               ? 'Clean up without checks'

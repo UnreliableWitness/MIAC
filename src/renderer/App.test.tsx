@@ -40,6 +40,7 @@ const task: TaskView = {
   usageSyncError: null,
   usageCommentId: null,
   summary: null,
+  pullRequest: null,
 };
 const repo = {
   id: 'r1',
@@ -48,6 +49,11 @@ const repo = {
   baseBranch: 'main',
   connectionId: null,
   miacYmlFound: true,
+  workItemOnStart: {
+    moveToInProgress: true,
+    assignToMe: true,
+    stateOverrides: {},
+  },
 };
 
 beforeEach(() =>

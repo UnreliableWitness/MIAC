@@ -5,6 +5,7 @@ const ICON = {
   todo: String.fromCharCode(0x25cb),
   running: String.fromCharCode(0x25cf),
   done: String.fromCharCode(0x2713),
+  warn: String.fromCharCode(0x26a0),
   failed: String.fromCharCode(0x2715),
 } as const;
 

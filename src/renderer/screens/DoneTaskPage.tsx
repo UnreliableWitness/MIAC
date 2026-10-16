@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect, useState } from 'react';
 import type {
+  PullRequestRef,
   TaskSummary,
   TaskView,
   WorkItemSummary,
@@ -37,6 +38,33 @@ function useLiveWorkItem(
   return item;
 }
 
+/** The pull request as Azure DevOps has it now; starts from the stored one and refreshes once. */
+function useLivePullRequest(task: TaskView): PullRequestRef | null {
+  const [pr, setPr] = useState<PullRequestRef | null>(task.pullRequest);
+  const has = task.pullRequest !== null;
+  useEffect(() => {
+    setPr(task.pullRequest);
+    if (!has) return;
+    let live = true;
+    api()
+      .invoke('tasks:prStatus', task.id)
+      .then((p) => {
+        if (live && p) setPr(p);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [task.id, has]);
+  return pr;
+}
+
+function prLabel(pr: PullRequestRef): string {
+  if (pr.isDraft && pr.status === 'active') return 'Draft';
+  return pr.status.charAt(0).toUpperCase() + pr.status.slice(1);
+}
+
 function Fact({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div>
@@ -61,6 +89,7 @@ export function DoneTaskPage({ task }: { task: TaskView }) {
   const connectionId = useTaskConnectionId(task);
   const usage = useTaskUsage(task.id);
   const wi = task.workItem;
+  const pr = useLivePullRequest(task);
   const live = useLiveWorkItem(connectionId, wi?.id ?? null);
   const s = task.summary;
   const took = task.finishedAt
@@ -126,6 +155,23 @@ export function DoneTaskPage({ task }: { task: TaskView }) {
             <span className="mono">{task.branch}</span>
             {s && <span className="muted"> {pushState(s, task.branch)}</span>}
           </Fact>
+          {pr && (
+            <Fact label="Pull request">
+              <button
+                type="button"
+                className="link"
+                aria-label={`Open pull request ${pr.id} in Azure DevOps`}
+                onClick={() =>
+                  tryInvoke(
+                    () => api().invoke('shell:openExternal', pr.url),
+                    notify,
+                  )
+                }
+              >
+                {`PR ${pr.id} · ${prLabel(pr)}`}
+              </button>
+            </Fact>
+          )}
           {s && s.baseKnown && (
             <Fact label="Changes">
               {s.filesChanged} {s.filesChanged === 1 ? 'file' : 'files'},{' '}

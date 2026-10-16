@@ -14,6 +14,7 @@ const ok: Connection = {
   user: 'Dries Hoebeke',
   status: 'ok',
   checkedAt: '2026-10-14T10:00:00.000Z',
+  userUniqueName: null,
 };
 
 beforeEach(() =>
@@ -51,6 +52,17 @@ describe('ConnectionsSection', () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText('Token rejected, enter it again'),
+    ).toBeInTheDocument();
+  });
+
+  it('tells which token scopes are needed', async () => {
+    installFakeApi();
+    render(<ConnectionsSection />);
+    await userEvent.click(
+      screen.getByRole('button', { name: /Add connection/ }),
+    );
+    expect(
+      screen.getByText(/Work Items \(Read & write\) and Code \(Read & write\)/),
     ).toBeInTheDocument();
   });
 
@@ -131,6 +143,11 @@ describe('ConnectionsSection', () => {
           baseBranch: 'main',
           connectionId: 'c1',
           miacYmlFound: true,
+          workItemOnStart: {
+            moveToInProgress: true,
+            assignToMe: true,
+            stateOverrides: {},
+          },
         },
       ],
     });
