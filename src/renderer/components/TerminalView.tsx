@@ -164,7 +164,7 @@ export function TerminalView({
 
   return (
     <div className="termview" hidden={!active}>
-      <div ref={host} style={{ width: '100%', height: '100%' }} />
+      <div ref={host} className="termview-xterm" />
       {exitCode !== null && (
         <div className="term-exit" role="status">
           <span>
