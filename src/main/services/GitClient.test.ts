@@ -569,3 +569,21 @@ describe('GitClient push from the GUI', () => {
     expect(new GitClient().pushTimeoutMs).toBe(120_000);
   });
 });
+
+describe('GitClient worktree helpers', () => {
+  it('worktreeList, mergeBase, defaultBaseRef and currentBranch', async () => {
+    const repo = makeRepo();
+    const wt = path.join(path.dirname(repo), 'wt-list');
+    git(repo, 'worktree', 'add', '-q', '-b', 'feat/y', wt);
+    commitFile(wt, 'f.txt', 'f');
+    const list = await client.worktreeList(repo);
+    expect(list).toHaveLength(2);
+    expect(list[0]).toEqual({ path: repo, branch: 'main' });
+    expect(list[1]?.branch).toBe('feat/y');
+    const fork = git(repo, 'rev-parse', 'main').trim();
+    expect(await client.mergeBase(repo, 'main', 'feat/y')).toBe(fork);
+    expect(await client.mergeBase(repo, 'main', 'nope')).toBeNull();
+    expect(await client.defaultBaseRef(repo)).toBe('main');
+    expect(await client.currentBranch(wt)).toBe('feat/y');
+  });
+});
