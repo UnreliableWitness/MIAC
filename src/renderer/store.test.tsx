@@ -14,6 +14,8 @@ const task = (id: string, terms: string[]): TaskView => ({
   worktreePath: '/w',
   baseRef: 'main',
   baseSha: null,
+  openPeriods: [],
+  time: null,
   status: 'ready',
   setup: {
     copy: false,

@@ -21,6 +21,8 @@ const task = (over: Partial<Task> = {}): Task => ({
   worktreePath: '/w',
   baseRef: 'origin/main',
   baseSha: null,
+  openPeriods: [],
+  time: null,
   status: 'ready',
   setup: {
     copy: false,

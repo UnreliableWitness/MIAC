@@ -1144,6 +1144,8 @@ describe('recoverInterruptedTasks', () => {
       worktreePath: '/w',
       baseRef: 'main',
       baseSha: null,
+      openPeriods: [],
+      time: null,
       setup: {
         copy: false,
         commands: [],

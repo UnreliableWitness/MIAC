@@ -21,6 +21,8 @@ const task: TaskView = {
   worktreePath: '/src/webshop.worktrees/48231-show',
   baseRef: 'origin/main',
   baseSha: null,
+  openPeriods: [],
+  time: null,
   status: 'setting-up',
   setup: {
     copy: true,

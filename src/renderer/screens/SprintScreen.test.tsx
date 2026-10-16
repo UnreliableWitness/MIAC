@@ -99,6 +99,8 @@ const task = (over: Partial<TaskView>): TaskView => ({
   worktreePath: '/w/2',
   baseRef: 'origin/main',
   baseSha: null,
+  openPeriods: [],
+  time: null,
   status: 'ready',
   setup: {
     copy: false,

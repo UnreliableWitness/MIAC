@@ -712,6 +712,7 @@ export function createHandlers(s: Services): Handlers {
       )
         throw new Error(`Branch ${branch} is already being created`);
       for (const k of keys) creating.add(k);
+      const createdAt = new Date().toISOString();
       const task: Task = {
         id: randomUUID(),
         repoId: repo.id,
@@ -731,7 +732,7 @@ export function createHandlers(s: Services): Handlers {
           openCopilot: input.openCopilot ?? false,
         },
         terminals: [],
-        createdAt: new Date().toISOString(),
+        createdAt,
         finishedAt: null,
         usageSyncedAt: null,
         usageSyncError: null,
@@ -740,6 +741,8 @@ export function createHandlers(s: Services): Handlers {
         pullRequest: null,
         closedTerminals: [],
         reopen: null,
+        openPeriods: [{ start: createdAt, end: null }],
+        time: null,
       };
       inFlight.add(task.id);
       try {

@@ -23,6 +23,8 @@ const task: TaskView = {
   worktreePath: '/w/a',
   baseRef: 'origin/main',
   baseSha: null,
+  openPeriods: [],
+  time: null,
   status: 'done',
   setup: {
     copy: false,
