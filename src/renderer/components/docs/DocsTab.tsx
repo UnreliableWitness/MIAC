@@ -11,6 +11,11 @@ import {
   type ReactNode,
 } from 'react';
 import type { DocFile, TaskView } from '../../../shared/types';
+import {
+  activeHome,
+  activeWorkspaces,
+  docsTarget,
+} from '../../../shared/workspaces';
 import { api, tryInvoke } from '../../api';
 import {
   readDocState,
@@ -22,11 +27,6 @@ import {
 import { holdDocsWatch } from '../../docs/holdDocsWatch';
 import { useStore } from '../../store';
 import { track } from '../../telemetry';
-import {
-  activeHome,
-  activeWorkspaces,
-  docsTarget,
-} from '../../../shared/workspaces';
 import { modKey, Pivots } from '../ui';
 import { DocsList, TASK_FILE } from './DocsList';
 import { SendTo } from './SendTo';
@@ -62,7 +62,7 @@ function DocsPane({
   switcher: ReactNode;
 }) {
   const notify = useStore((s) => s.notify);
-  const target = useStore((s) => s.docTarget[tid]);
+  const target = useStore((s) => s.docTarget[task.id]);
   const [files, setFiles] = useState<DocFile[] | null>(null);
   const [filter, setFilter] = useState('');
   const [listCollapsed, setListCollapsed] = useState(readListCollapsed);
@@ -452,13 +452,14 @@ export function DocsTab({ task }: { task: TaskView }) {
   const repos = useStore((s) => s.repos);
   const asked = useStore((s) => s.docTarget[task.id]);
   const workspaces = activeWorkspaces(task);
-  const [picked, setPicked] = useState<string | undefined>(undefined);
-  const seen = useRef<number | null>(null);
-  // A terminal link in another workspace switches to it.
+  // A terminal link not yet acted on picks its workspace (also on mount); a handled one is stale.
+  const fresh = (a: typeof asked) =>
+    a && handledTargets.get(task.id) !== a.nonce ? a.workspaceId : undefined;
+  const [picked, setPicked] = useState<string | undefined>(() => fresh(asked));
   useEffect(() => {
-    if (!asked || seen.current === asked.nonce) return;
-    seen.current = asked.nonce;
-    setPicked(asked.workspaceId);
+    const w = fresh(asked);
+    if (w !== undefined) setPicked(w);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [asked]);
   const chosen =
     picked !== undefined && workspaces.some((w) => w.id === picked)

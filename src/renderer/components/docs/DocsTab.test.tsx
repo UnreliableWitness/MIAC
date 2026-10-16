@@ -420,4 +420,59 @@ describe('DocsTab with several repos', () => {
     ).toBeTruthy();
     expect(lists).toEqual(['t1', 't1#w2']);
   });
+  const multiApi = () =>
+    installFakeApi({
+      'docs:list': (t) => ({
+        files:
+          t === 't1#w2'
+            ? [
+                { path: 'beta.md', changed: null },
+                { path: 'x.md', changed: null },
+              ]
+            : [{ path: 'alpha.md', changed: null }],
+      }),
+      'docs:read': (_t, p) => ({ text: `# ${p}\n\nl2\n`, mtimeMs: 1 }),
+    });
+  it('opens a terminal link in the linked workspace at its line', async () => {
+    seed();
+    multiApi();
+    useStore.getState().openDoc('t1', 'x.md', 3, 'w2');
+    render(<DocsTab task={multi} />);
+    expect(await screen.findByText('# x.md')).toBeTruthy();
+    expect(
+      (
+        screen.getByRole('combobox', {
+          name: 'Repository',
+        }) as HTMLSelectElement
+      ).value,
+    ).toBe('w2');
+    expect(
+      JSON.parse(localStorage.getItem('miac.docs.t1#w2') ?? '{}'),
+    ).toMatchObject({
+      path: 'x.md',
+      view: 'source',
+    });
+  });
+  it('does not replay an old terminal link when the tab remounts', async () => {
+    seed();
+    multiApi();
+    useStore.getState().openDoc('t1', 'x.md', 3, 'w2');
+    const first = render(<DocsTab task={multi} />);
+    await screen.findByText('# x.md');
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: 'Repository' }),
+      'w2',
+    );
+    first.unmount();
+    localStorage.clear();
+    render(<DocsTab task={multi} />);
+    await screen.findByRole('heading', { name: 'alpha.md' });
+    expect(
+      (
+        screen.getByRole('combobox', {
+          name: 'Repository',
+        }) as HTMLSelectElement
+      ).value,
+    ).toBe('home');
+  });
 });
