@@ -182,7 +182,7 @@ describe('TaskScreen', () => {
     );
   });
 
-  it('opens a Copilot CLI terminal from the tab bar', async () => {
+  it('opens a Copilot CLI terminal from the + menu', async () => {
     const { calls } = installFakeApi({
       'repos:config': () => config,
       'tasks:gitSummary': () => ({
@@ -200,7 +200,10 @@ describe('TaskScreen', () => {
     });
     render(<Shell />);
     await userEvent.click(
-      await screen.findByRole('button', { name: 'Copilot CLI' }),
+      await screen.findByRole('button', { name: 'New terminal' }),
+    );
+    await userEvent.click(
+      screen.getByRole('menuitem', { name: 'Copilot CLI' }),
     );
     await waitFor(() =>
       expect(calls.find((c) => c.channel === 'terminals:open')?.args).toEqual([
@@ -208,6 +211,56 @@ describe('TaskScreen', () => {
         { kind: 'copilot', label: 'Copilot CLI' },
       ]),
     );
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('offers Claude Code, a shell, Copilot CLI and OpenCode, and works from the keyboard', async () => {
+    const { calls } = installFakeApi({
+      'repos:config': () => config,
+      'terminals:open': (_id, def) => ({ id: 'n3', ...def }),
+    });
+    render(<Shell />);
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'New terminal' }),
+    );
+    const items = within(screen.getByRole('menu')).getAllByRole('menuitem');
+    expect(items.map((i) => i.textContent)).toEqual([
+      'Claude Code',
+      'Shell',
+      'Copilot CLI',
+      'OpenCodeAI cost not tracked',
+    ]);
+    expect(items[0]).toHaveFocus();
+    await userEvent.keyboard('{ArrowUp}');
+    expect(items[3]).toHaveFocus();
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() =>
+      expect(calls.find((c) => c.channel === 'terminals:open')?.args).toEqual([
+        'a',
+        { kind: 'opencode', label: 'OpenCode' },
+      ]),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'New terminal' }));
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(screen.getByRole('button', { name: 'New terminal' })).toHaveFocus();
+  });
+
+  it('closes a terminal tab with its close button or a middle click', async () => {
+    const { calls } = installFakeApi({
+      'repos:config': () => config,
+      'terminals:kill': () => undefined,
+    });
+    render(<Shell />);
+    const tabs = await screen.findAllByRole('tab');
+    const terminal = tabs.find((t) => !/Usage|Docs/.test(t.textContent ?? ''));
+    const label = terminal?.textContent ?? '';
+    await userEvent.click(
+      screen.getByRole('button', { name: `Close ${label}` }),
+    );
+    expect(calls.filter((c) => c.channel === 'terminals:kill')).toHaveLength(1);
+    await userEvent.pointer({ keys: '[MouseMiddle]', target: terminal! });
+    expect(calls.filter((c) => c.channel === 'terminals:kill')).toHaveLength(2);
   });
 
   it('opens the editor and the Finish page from the task row', async () => {
