@@ -16,7 +16,7 @@ Claude writes specs, plans and notes as Markdown in the worktree. The developer 
 
 ## 1. Docs tab
 
-**Place.** A new pivot in the task row, after the terminal pivots and before Usage: icon `Document16Regular`, label "Docs". Its tab id is the constant `DOCS_TAB = 'docs'`, next to `USAGE_TAB`.
+**Place.** A new pivot in the task row, right after Usage (the first pivot) and before the terminal pivots: icon `Document16Regular`, label "Docs". Its tab id is the constant `DOCS_TAB = 'docs'`, next to `USAGE_TAB`.
 - A dot on the pivot when a listed file changed since the tab was last active.
 - Shortcut **Mod+Shift+D** (Cmd on macOS, Ctrl on Windows), in `useShortcuts`, only for a ready task on the task page.
 - Done tasks have no Docs tab, because the worktree is gone.
@@ -109,10 +109,10 @@ Failure throws `Error('Outside the worktree')` or `Error('Not found')`.
 | `docs:resolve(taskId, path)` | `{ path, kind: 'md' \| 'file' } \| null`, with `path` relative to the worktree, `/` separators. |
 | `docs:openInEditor(taskId, path, line?, col?)` | void; runs `Platform.editorGotoCommand(worktree, file, line, col)`, a new `Platform` method (`code -g`). |
 | `docs:reveal(taskId, path)` | void; `shell.showItemInFolder`. |
-| `docs:watch(taskId, on: boolean)` | void; starts or stops the watcher for the task. |
+| `docs:watch(taskId, on: boolean)` | `{ live: boolean }`; starts or stops the watcher for the task. `live: false` means no watcher could start, and the renderer polls the open file with `docs:read` every 2 s. |
 | `links:open(url)` | void; only `http:` and `https:` URLs without username or password. `shell:openExternal` stays limited to Azure DevOps hosts. |
 
-**Watcher.** One recursive `fs.watch` per task worktree, reference-counted by `docs:watch`, ignoring `node_modules/` and `.git/`. It sends `docs:changed { taskId, paths }` with relative `/` paths, debounced to 150 ms. It stops when the task finishes or the window closes. On platforms where recursive watch fails, fall back to polling the open file's `mtime` every 2 s.
+**Watcher.** One recursive `fs.watch` per task worktree, reference-counted by `docs:watch`, ignoring `node_modules/` and `.git/`. It sends `docs:changed { taskId, paths }` with relative `/` paths, debounced to 150 ms. It stops when the window closes, and Cancel setup and Finish stop it before they remove the worktree, because Windows will not delete a watched folder.
 
 ## 5. Renderer pieces
 
