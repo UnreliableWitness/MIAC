@@ -3,7 +3,11 @@ import { Fragment, type ReactNode, useState } from 'react';
 import type { TaskView } from '../../shared/types';
 import { api, tryInvoke } from '../api';
 import { ago, eur } from '../format';
-import { activeWorkspaces } from '../../shared/workspaces';
+import {
+  activeHome,
+  activeWorkspaces,
+  taskConnectionId,
+} from '../../shared/workspaces';
 import { useGitSummary } from '../hooks/useGitSummary';
 import { useTaskUsage } from '../hooks/useTaskUsage';
 import { activeConnection, useStore } from '../store';
@@ -30,11 +34,13 @@ function TaskDetails({
 }) {
   const notify = useStore((s) => s.notify);
   const repos = useStore((s) => s.repos);
-  const repo = repos.find((r) => r.id === task.repoId);
   const workspaces = activeWorkspaces(task);
+  // The task's folder: the home unless Finish dropped it, then the repo that took over.
+  const home = activeHome(task);
   const git = useGitSummary(task.id, task.worktreeMissing);
   const usage = useTaskUsage(task.id);
-  const linked = task.workItem !== null && Boolean(repo?.connectionId);
+  const linked =
+    task.workItem !== null && Boolean(taskConnectionId(task, repos));
   const syncLine = !linked
     ? 'Not linked to an Azure DevOps work item'
     : task.usageSyncError
@@ -89,7 +95,7 @@ function TaskDetails({
           </div>
         ))
       ) : (
-        <div className="mono">{task.branch}</div>
+        <div className="mono">{home.branch}</div>
       )}
       {git && (
         <div className="mono muted">
@@ -101,7 +107,7 @@ function TaskDetails({
           )}
         </div>
       )}
-      <div className="mono muted">{task.worktreePath}</div>
+      <div className="mono muted">{home.worktreePath}</div>
       {usage && (
         <div className="small muted">
           Claude {eur(usage.byTool['claude-code'].costEur)} {DOT} Copilot{' '}

@@ -5,8 +5,13 @@ import {
 } from '@fluentui/react-icons';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import type { TaskView } from '../../shared/types';
-import { activeWorkspaces, HOME_ID } from '../../shared/workspaces';
+import {
+  activeWorkspaces,
+  HOME_ID,
+  type WorkspaceView,
+} from '../../shared/workspaces';
 import { api, tryInvoke } from '../api';
+import { useGitSummary } from '../hooks/useGitSummary';
 import { useStore } from '../store';
 
 /** A button that opens a small menu under itself; fixed-positioned because the task row clips overflow. */
@@ -98,8 +103,38 @@ function Item({
   );
 }
 
+const UP = String.fromCharCode(0x2191);
+const DOWN = String.fromCharCode(0x2193);
+const BULLET = String.fromCharCode(0x2022);
+
+/** "↑ahead ↓behind •changes" of one repo's worktree, polled like the task's own git state. */
+function ChipGit({
+  task,
+  w,
+  visible,
+}: {
+  task: TaskView;
+  w: WorkspaceView;
+  visible: boolean;
+}) {
+  const git = useGitSummary(task.id, task.worktreeMissing, visible, w.id);
+  if (!git) return null;
+  return (
+    <span className="mono small muted ws-chip-git">
+      {`${UP}${git.ahead} ${DOWN}${git.behind} ${BULLET}${git.files.length}`}
+    </span>
+  );
+}
+
 /** One chip per repo of a task with more than one; shown only then, so a single-repo task looks as before. */
-export function WorkspaceChips({ task }: { task: TaskView }) {
+export function WorkspaceChips({
+  task,
+  visible = true,
+}: {
+  task: TaskView;
+  /** False while the task page is hidden: git is not polled. */
+  visible?: boolean;
+}) {
   const notify = useStore((s) => s.notify);
   const repos = useStore((s) => s.repos);
   const setTab = useStore((s) => s.setTab);
@@ -118,7 +153,7 @@ export function WorkspaceChips({ task }: { task: TaskView }) {
             trigger={
               <>
                 <Folder16Regular aria-hidden="true" />
-                {name}
+                {name} <ChipGit task={task} w={w} visible={visible} />
               </>
             }
           >

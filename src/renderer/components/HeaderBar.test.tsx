@@ -326,4 +326,39 @@ describe('HeaderBar workspaces', () => {
     expect(within(card).getByText('api')).toBeInTheDocument();
     expect(within(card).getByText('feature/api-side')).toBeInTheDocument();
   });
+
+  it("shows the remaining repo's branch and folder once the home was dropped", async () => {
+    installFakeApi({
+      'tasks:gitSummary': () => git,
+      'usage:task': () => usage,
+    });
+    useStore.setState({
+      tasks: [
+        {
+          ...task,
+          homeDropped: true,
+          extraWorkspaces: [
+            {
+              id: 'w1',
+              repoId: 'r2',
+              branch: 'feature/api-side',
+              worktreePath: '/api.wt',
+              baseRef: 'origin/main',
+              baseSha: null,
+              source: 'detected',
+              summary: null,
+              pullRequest: null,
+              reopen: null,
+              dropped: false,
+            } as never,
+          ],
+        },
+      ],
+    });
+    render(<HeaderBar />);
+    const card = await openCard();
+    expect(within(card).getByText('feature/api-side')).toBeInTheDocument();
+    expect(within(card).getByText('/api.wt')).toBeInTheDocument();
+    expect(within(card).queryByText(task.worktreePath)).toBeNull();
+  });
 });

@@ -5,7 +5,11 @@ import type {
   WorkspaceAction,
   WorkspaceCheck,
 } from '../../shared/types';
-import { activeWorkspaces, HOME_ID } from '../../shared/workspaces';
+import {
+  activeWorkspaces,
+  HOME_ID,
+  taskConnectionId,
+} from '../../shared/workspaces';
 import { api, tryInvoke } from '../api';
 import { eur } from '../format';
 import { useTaskUsage } from '../hooks/useTaskUsage';
@@ -29,18 +33,36 @@ type Choices = Record<string, boolean>;
 const noChanges = (c: WorkspaceCheck) =>
   c.baseKnown && c.commits === 0 && c.uncommitted.length === 0;
 
-/** The row's checkbox: as the user set it, else its default (remove, or the last PR or push choice for the repo). */
-const choiceOf = (c: WorkspaceCheck, choices: Choices): boolean =>
-  choices[c.workspaceId] ??
-  (noChanges(c)
-    ? true
-    : c.pr.available
-      ? readPrChoice(c.repoId)
-      : readPushChoice(c.repoId));
+/**
+ * A worktree on another branch than the task's (a long-lived `dev` joined by hand): Finish never removes it or its
+ * branch, and pushes or opens a PR for it only when the user ticks that.
+ */
+const foreign = (c: WorkspaceCheck, taskBranch: string) =>
+  c.branch !== taskBranch;
 
-const actionOf = (c: WorkspaceCheck, choices: Choices): WorkspaceAction => {
+/** The row's checkbox: as the user set it, else its default (remove, or the last PR or push choice for the repo). */
+const choiceOf = (
+  c: WorkspaceCheck,
+  choices: Choices,
+  taskBranch: string,
+): boolean =>
+  choices[c.workspaceId] ??
+  (foreign(c, taskBranch)
+    ? false
+    : noChanges(c)
+      ? true
+      : c.pr.available
+        ? readPrChoice(c.repoId)
+        : readPushChoice(c.repoId));
+
+const actionOf = (
+  c: WorkspaceCheck,
+  choices: Choices,
+  taskBranch: string,
+): WorkspaceAction => {
   if (c.missing) return 'keep';
-  const on = choiceOf(c, choices);
+  if (foreign(c, taskBranch) && noChanges(c)) return 'keep';
+  const on = choiceOf(c, choices, taskBranch);
   if (!on) return 'keep';
   return noChanges(c) ? 'drop' : c.pr.available ? 'pr' : 'push';
 };
@@ -83,11 +105,12 @@ export function FinishScreen({ taskId }: { taskId: string }) {
   const [results, setResults] = useState<FinishRowResult[] | null>(null);
   const ready = task?.status === 'ready';
   const usage = useTaskUsage(ready ? taskId : null);
-  const repo = useStore((s) => s.repos.find((r) => r.id === task?.repoId));
+  const repos = useStore((s) => s.repos);
   const writeCost = useWriteCostToAdo();
+  // The work item's connection is the task's own; the home repo may have none or have been dropped.
   const canSync =
     Boolean(task?.workItem) &&
-    Boolean(repo?.connectionId) &&
+    Boolean(task && taskConnectionId(task, repos)) &&
     writeCost === true;
   // Untouched (null) defaults to on, except when no usage was captured.
   const [syncChoice, setSyncUsage] = useState<boolean | null>(null);
@@ -240,8 +263,10 @@ export function FinishScreen({ taskId }: { taskId: string }) {
     await finish(true);
   };
 
-  // A task with other repos finishes per workspace; a single-repo task keeps the page as it was.
-  const multi = task.extraWorkspaces.length > 0;
+  // A task with other repos finishes per workspace; a single-repo task keeps the page as it was. Repos dropped at
+  // an earlier Finish do not count, but a dropped home does: the single-repo path works on the home.
+  const multi = activeWorkspaces(task).length > 1 || task.homeDropped;
+  const taskBranch = task.branch;
   const rows = checks?.workspaces ?? [];
 
   /** Whether finishing with these row choices would discard uncommitted work or unpushed commits. */
@@ -252,8 +277,10 @@ export function FinishScreen({ taskId }: { taskId: string }) {
   ) =>
     failed ||
     list.some((c) => {
-      const action = actionOf(c, choices);
-      if (c.missing || action === 'drop') return false;
+      const action = actionOf(c, choices, taskBranch);
+      // A row on another branch is kept as is: nothing of it is discarded.
+      if (c.missing || action === 'drop' || foreign(c, taskBranch))
+        return false;
       return c.uncommitted.length > 0 || (c.unpushed > 0 && action === 'keep');
     });
 
@@ -264,16 +291,16 @@ export function FinishScreen({ taskId }: { taskId: string }) {
     // The choices are saved when Finish is clicked; leaving out a failed PR is not a new preference.
     if (!withoutPr)
       for (const c of rows)
-        if (!c.missing && !noChanges(c))
+        if (!c.missing && !noChanges(c) && !foreign(c, taskBranch))
           (c.pr.available ? writePrChoice : writePushChoice)(
             c.repoId,
-            choiceOf(c, choices),
+            choiceOf(c, choices, taskBranch),
           );
     const workspaces =
       rows.length > 0
         ? rows.map((c) => ({
             workspaceId: c.workspaceId,
-            action: actionOf(c, choices),
+            action: actionOf(c, choices, taskBranch),
           }))
         : // Without checks nothing is pushed: every workspace is kept and cleaned up per the options.
           activeWorkspaces(task).map((w) => ({
@@ -397,8 +424,9 @@ export function FinishScreen({ taskId }: { taskId: string }) {
               <WorkspaceRow
                 key={c.workspaceId}
                 check={c}
-                on={choiceOf(c, rowChoice)}
-                action={actionOf(c, rowChoice)}
+                on={choiceOf(c, rowChoice, taskBranch)}
+                action={actionOf(c, rowChoice, taskBranch)}
+                otherBranch={foreign(c, taskBranch)}
                 onToggle={(on) => setRow(c.workspaceId, on)}
                 openGit={openGit}
                 result={results?.find((r) => r.workspaceId === c.workspaceId)}
@@ -583,7 +611,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
             !removeWorktree &&
             !closeTerminals &&
             nTerm > 0 &&
-            rows.some((c) => actionOf(c, rowChoice) === 'drop') && (
+            rows.some((c) => actionOf(c, rowChoice, taskBranch) === 'drop') && (
               <div className="muted small">
                 Removing a repo without changes closes the terminals too.
               </div>
@@ -672,10 +700,13 @@ function WorkspaceRow({
   result,
   busy,
   onRemove,
+  otherBranch,
 }: {
   check: WorkspaceCheck;
   on: boolean;
   action: WorkspaceAction;
+  /** Not on the task's branch: kept as is, never removed; push or PR only when ticked. */
+  otherBranch: boolean;
   onToggle: (on: boolean) => void;
   openGit: (label: string, command: string, workspaceId?: string) => void;
   /** What the last Finish did with this row, when it stopped before cleanup. */
@@ -758,7 +789,10 @@ function WorkspaceRow({
               </button>
             </div>
           )}
-          {c.unpushed > 0 && action === 'keep' && (
+          {otherBranch && (
+            <div className="muted small">{`Not this task's branch (${c.branch}): kept as is`}</div>
+          )}
+          {c.unpushed > 0 && action === 'keep' && !otherBranch && (
             <div className="check check-warn">
               <span aria-hidden="true">{G.UP}</span>
               <div className="body">
@@ -779,18 +813,20 @@ function WorkspaceRow({
               </button>
             </div>
           )}
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={on}
-              onChange={(e) => onToggle(e.target.checked)}
-            />
-            {noChanges(c)
-              ? 'Remove, no changes (no push)'
-              : c.pr.available
-                ? `Create a draft pull request into ${c.pr.target}`
-                : 'Push the branch'}
-          </label>
+          {!(otherBranch && noChanges(c)) && (
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={on}
+                onChange={(e) => onToggle(e.target.checked)}
+              />
+              {noChanges(c)
+                ? 'Remove, no changes (no push)'
+                : c.pr.available
+                  ? `Create a draft pull request into ${c.pr.target}`
+                  : 'Push the branch'}
+            </label>
+          )}
           {!noChanges(c) && !c.pr.available && c.pr.reason && (
             <div className="muted small">{`No pull request: ${c.pr.reason}`}</div>
           )}

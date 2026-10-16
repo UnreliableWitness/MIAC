@@ -15,7 +15,7 @@ import {
   useState,
 } from 'react';
 import type { Repo, TaskStatus, TaskView } from '../../shared/types';
-import { activeWorkspaces } from '../../shared/workspaces';
+import { activeHome, activeWorkspaces } from '../../shared/workspaces';
 import { statusText } from '../connectionStatus';
 import { eur } from '../format';
 import { useTaskUsage } from '../hooks/useTaskUsage';
@@ -26,7 +26,10 @@ export function groupTasks(tasks: TaskView[], repos: Repo[]) {
   const open = repos
     .map((repo) => ({
       repo,
-      tasks: tasks.filter((t) => t.repoId === repo.id && t.status !== 'done'),
+      // Under the task's active home: its own repo unless Finish dropped it.
+      tasks: tasks.filter(
+        (t) => activeHome(t).repoId === repo.id && t.status !== 'done',
+      ),
     }))
     .filter((g) => g.tasks.length > 0);
   const done = tasks.filter((t) => t.status === 'done');

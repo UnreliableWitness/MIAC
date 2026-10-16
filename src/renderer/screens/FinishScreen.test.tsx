@@ -337,6 +337,35 @@ describe('FinishScreen AI usage', () => {
       ).toMatchObject({ syncUsage: true }),
     );
   });
+  it("offers the write-back through the task's own connection when the home repo has none", async () => {
+    useStore.setState({
+      repos: [
+        {
+          id: task.repoId,
+          name: 'webshop',
+          path: '/r',
+          baseBranch: 'main',
+          connectionId: null,
+          miacYmlFound: true,
+          discovered: false,
+          workItemOnStart: {
+            moveToInProgress: true,
+            assignToMe: true,
+            stateOverrides: {},
+          },
+        },
+      ],
+      tasks: [{ ...task, connectionId: 'c1' }],
+    });
+    installFakeApi({ 'tasks:finishChecks': () => clean });
+    render(<FinishScreen taskId={task.id} />);
+    expect(
+      await screen.findByRole('checkbox', {
+        name: /Write final totals to the work item/,
+      }),
+    ).toBeInTheDocument();
+  });
+
   it('leaves the checkbox unticked when no usage was captured, and still writes when ticked', async () => {
     useStore.setState({
       repos: [
@@ -788,6 +817,124 @@ describe('FinishScreen with several repos', () => {
 
   beforeEach(() => {
     useStore.setState({ tasks: [multi] });
+  });
+
+  it("keeps a repo that is not on the task's branch as is: no remove, a push or PR only when ticked", async () => {
+    // A PR was the last choice for r3; a repo on another branch still starts unticked.
+    writePrChoice('r3', true);
+    const { calls } = installFakeApi({
+      'tasks:finishChecks': () => ({
+        ...clean,
+        workspaces: [
+          row('home', 'r1', 'webshop'),
+          row('w2', 'r2', 'api', { branch: 'dev' }),
+          row('w3', 'r3', 'docs', { branch: 'dev2', commits: 1, unpushed: 1 }),
+        ],
+      }),
+      'tasks:finish': () => undefined,
+    });
+    render(<FinishScreen taskId="a" />);
+    await screen.findByRole('group', { name: 'api' });
+    expect(
+      within(group('api')).getByText(
+        "Not this task's branch (dev): kept as is",
+      ),
+    ).toBeInTheDocument();
+    expect(within(group('api')).queryByRole('checkbox')).toBeNull();
+    expect(
+      within(group('docs')).getByText(
+        "Not this task's branch (dev2): kept as is",
+      ),
+    ).toBeInTheDocument();
+    const docsPr = within(group('docs')).getByLabelText(
+      'Create a draft pull request into main',
+    );
+    expect(docsPr).not.toBeChecked();
+    // Kept as is, so its unpushed commit is not discarded.
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Finish and clean up' }),
+    );
+    await waitFor(() => expect(finishArgs(calls)).toHaveLength(1));
+    expect(
+      (finishArgs(calls)[0] as { workspaces: unknown }).workspaces,
+    ).toEqual([
+      { workspaceId: 'home', action: 'drop' },
+      { workspaceId: 'w2', action: 'keep' },
+      { workspaceId: 'w3', action: 'keep' },
+    ]);
+  });
+
+  it('pushes or opens a PR for a repo on another branch once ticked', async () => {
+    const { calls } = installFakeApi({
+      'tasks:finishChecks': () => ({
+        ...clean,
+        workspaces: [
+          row('home', 'r1', 'webshop'),
+          row('w3', 'r3', 'docs', { branch: 'dev2', commits: 1, unpushed: 1 }),
+        ],
+      }),
+      'tasks:finish': () => undefined,
+    });
+    render(<FinishScreen taskId="a" />);
+    await screen.findByRole('group', { name: 'docs' });
+    await userEvent.click(
+      within(group('docs')).getByLabelText(
+        'Create a draft pull request into main',
+      ),
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Finish and clean up' }),
+    );
+    await waitFor(() => expect(finishArgs(calls)).toHaveLength(1));
+    expect(
+      (finishArgs(calls)[0] as { workspaces: unknown }).workspaces,
+    ).toEqual([
+      { workspaceId: 'home', action: 'drop' },
+      { workspaceId: 'w3', action: 'pr' },
+    ]);
+  });
+
+  it('a task whose other repos were all dropped finishes like a single repo', async () => {
+    useStore.setState({
+      tasks: [
+        { ...task, extraWorkspaces: [{ ...extra('w2', 'r2'), dropped: true }] },
+      ],
+    });
+    const { calls } = installFakeApi({
+      'tasks:finishChecks': () => ({
+        ...clean,
+        workspaces: [row('home', 'r1', 'webshop')],
+      }),
+      'tasks:finish': () => undefined,
+    });
+    render(<FinishScreen taskId="a" />);
+    expect(
+      await screen.findByLabelText('Remove worktree folder'),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'webshop' })).toBeNull();
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Finish and clean up' }),
+    );
+    await waitFor(() => expect(finishArgs(calls)).toHaveLength(1));
+    expect(finishArgs(calls)[0]).not.toHaveProperty('workspaces');
+  });
+
+  it('a task whose home was dropped finishes per repo, even with one repo left', async () => {
+    useStore.setState({
+      tasks: [
+        { ...task, homeDropped: true, extraWorkspaces: [extra('w2', 'r2')] },
+      ],
+    });
+    installFakeApi({
+      'tasks:finishChecks': () => ({
+        ...clean,
+        workspaces: [row('w2', 'r2', 'api', { commits: 1, unpushed: 1 })],
+      }),
+    });
+    render(<FinishScreen taskId="a" />);
+    expect(
+      await screen.findByRole('group', { name: 'api' }),
+    ).toBeInTheDocument();
   });
 
   it('shows a row per workspace with its default action', async () => {

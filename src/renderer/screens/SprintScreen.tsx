@@ -86,7 +86,7 @@ export function visibleRows(
 
 /**
  * The MIAC task for a work item: an open one first, else the latest finished one. Ids are per organization, so
- * only tasks whose repo is linked to this sprint's connection match; unlinked repos and other projects never do.
+ * only tasks whose work item connection (else their repo's) is this sprint's match; unlinked ones never do.
  */
 function taskFor(
   id: string,
@@ -96,7 +96,10 @@ function taskFor(
 ): TaskView | null {
   const matches = tasks.filter((t) => {
     if (t.workItem?.id !== id) return false;
-    return (repoConnection.get(t.repoId) ?? null) === connectionId;
+    // The work item's own connection; tasks from before it was stored use their repo's.
+    return (
+      (t.connectionId ?? repoConnection.get(t.repoId) ?? null) === connectionId
+    );
   });
   return (
     matches.find((t) => t.status !== 'done') ??

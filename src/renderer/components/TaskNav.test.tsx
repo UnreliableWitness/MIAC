@@ -150,6 +150,32 @@ describe('groupTasks', () => {
     ]);
     expect(g.done.map((t) => t.id)).toEqual(['c']);
   });
+
+  it('groups a task whose home was dropped under the repo that took over', () => {
+    const moved: TaskView = {
+      ...tasks[0],
+      homeDropped: true,
+      extraWorkspaces: [
+        {
+          id: 'w1',
+          repoId: 'r2',
+          branch: 'feature/48213-a',
+          worktreePath: '/w/a-api',
+          baseRef: 'origin/main',
+          baseSha: null,
+          source: 'detected',
+          summary: null,
+          pullRequest: null,
+          reopen: null,
+          dropped: false,
+        },
+      ],
+    };
+    const g = groupTasks([moved], repos);
+    expect(g.open.map((x) => [x.repo.id, x.tasks.map((t) => t.id)])).toEqual([
+      ['r2', ['a']],
+    ]);
+  });
 });
 
 describe('TaskNav', () => {

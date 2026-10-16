@@ -226,7 +226,8 @@ export function DoneTaskPage({ task }: { task: TaskView }) {
   const wi = task.workItem;
   const live = useLiveWorkItem(connectionId, wi?.id ?? null);
   const workspaces = taskWorkspaces(task);
-  const multi = task.extraWorkspaces.length > 0;
+  // Every repo the task had, dropped ones included: those show as "no changes, removed".
+  const multi = workspaces.length > 1;
   const took = task.finishedAt
     ? duration(task.createdAt, task.finishedAt)
     : null;

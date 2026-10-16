@@ -13,6 +13,7 @@ import type { TaskView } from '../../shared/types';
 import { useStore } from '../store';
 import { installFakeApi } from '../test-helpers/fakeApi';
 import { Shell } from '../App';
+import { invalidateRepoConfig } from '../hooks/useRepoConfig';
 
 const mounts = vi.hoisted(() => ({ count: 0 }));
 
@@ -670,6 +671,18 @@ describe('tabs and focus', () => {
     ).toBeInTheDocument();
   });
 
+  it("lights the Docs dot for a change in another repo's worktree", async () => {
+    const { emit } = setup({ extraWorkspaces: [extra] });
+    render(<Shell />);
+    await screen.findByTestId('term-c1');
+    act(() => emit('docs:changed', { taskId: 'b#w1', paths: ['README.md'] }));
+    expect(screen.queryByRole('tab', { name: 'Docs, changed' })).toBeNull();
+    act(() => emit('docs:changed', { taskId: 'a#w1', paths: ['README.md'] }));
+    expect(
+      screen.getByRole('tab', { name: 'Docs, changed' }),
+    ).toBeInTheDocument();
+  });
+
   it('does not light the Docs dot for Markdown in build output folders', async () => {
     const { emit } = setup();
     render(<Shell />);
@@ -886,8 +899,8 @@ describe('TaskScreen workspaces', () => {
     expect(
       within(group)
         .getAllByRole('button')
-        .map((b) => b.textContent),
-    ).toEqual(['webshop', 'api']);
+        .map((b) => b.getAttribute('aria-label')),
+    ).toEqual(['Repo webshop', 'Repo api']);
 
     await userEvent.click(
       within(group).getByRole('button', { name: /webshop/ }),
@@ -922,6 +935,112 @@ describe('TaskScreen workspaces', () => {
       expect(
         calls.find((c) => c.channel === 'tasks:removeWorkspace')?.args,
       ).toEqual(['a', 'w1']),
+    );
+  });
+
+  it('shows ahead, behind and changes on each repo chip', async () => {
+    two();
+    installFakeApi({
+      ...handlers,
+      'tasks:gitSummary': (_t, workspaceId) => ({
+        branch: 'x',
+        ahead: workspaceId === 'w1' ? 3 : 0,
+        behind: workspaceId === 'w1' ? 1 : 0,
+        hasUpstream: true,
+        files: workspaceId === 'w1' ? [{ status: 'M', path: 'a' }] : [],
+      }),
+    });
+    render(<Shell />);
+    const group = screen.getByRole('group', { name: 'Repos of this task' });
+    const up = String.fromCharCode(0x2191);
+    const down = String.fromCharCode(0x2193);
+    const dot = String.fromCharCode(0x2022);
+    await waitFor(() =>
+      expect(
+        within(group).getByRole('button', { name: /api/ }),
+      ).toHaveTextContent(`api ${up}3 ${down}1 ${dot}1`),
+    );
+    expect(
+      within(group).getByRole('button', { name: /webshop/ }),
+    ).toHaveTextContent(`webshop ${up}0 ${down}0 ${dot}0`);
+  });
+
+  it("shows each repo's run commands, grouped by repo, and runs them there", async () => {
+    // The config cache outlives a test; these repos' configs differ from the other tests'.
+    invalidateRepoConfig();
+    two();
+    const { calls } = installFakeApi({
+      ...handlers,
+      'repos:config': (repoId) =>
+        repoId === 'r2'
+          ? {
+              ...config,
+              config: { ...config.config, run: { serve: 'npm run serve' } },
+            }
+          : config,
+      'terminals:open': (_t, def) => ({ id: 'n1', ...def }),
+    });
+    render(<Shell />);
+    expect(await screen.findByText('Run api')).toBeInTheDocument();
+    expect(screen.getByText('Run webshop')).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Run serve in api' }),
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Run dev in webshop' }),
+    );
+    await waitFor(() =>
+      expect(
+        calls.filter((c) => c.channel === 'terminals:open').map((c) => c.args),
+      ).toEqual([
+        [
+          'a',
+          {
+            kind: 'run',
+            label: 'serve',
+            command: 'npm run serve',
+            workspaceId: 'w1',
+          },
+        ],
+        [
+          'a',
+          {
+            kind: 'run',
+            label: 'dev',
+            command: 'npm run dev',
+            workspaceId: 'home',
+          },
+        ],
+      ]),
+    );
+  });
+
+  it("after the home was dropped, the run commands are the remaining repo's", async () => {
+    // The config cache outlives a test; these repos' configs differ from the other tests'.
+    invalidateRepoConfig();
+    useStore.setState({
+      repos: [...useStore.getState().repos, api2],
+      tasks: [{ ...task, homeDropped: true, extraWorkspaces: [extra] }],
+    });
+    const { calls } = installFakeApi({
+      ...handlers,
+      'repos:config': (repoId) =>
+        repoId === 'r2'
+          ? {
+              ...config,
+              config: { ...config.config, run: { serve: 'npm run serve' } },
+            }
+          : config,
+      'terminals:open': (_t, def) => ({ id: 'n1', ...def }),
+    });
+    render(<Shell />);
+    await userEvent.click(await screen.findByRole('button', { name: 'serve' }));
+    expect(screen.queryByRole('button', { name: 'dev' })).toBeNull();
+    await waitFor(() =>
+      expect(calls.find((c) => c.channel === 'terminals:open')?.args).toEqual([
+        'a',
+        { kind: 'run', label: 'serve', command: 'npm run serve' },
+      ]),
     );
   });
 
