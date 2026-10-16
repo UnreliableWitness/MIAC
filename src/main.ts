@@ -56,6 +56,7 @@ import {
 } from './main/telemetry/helpers';
 import { TELEMETRY_CHANNEL } from './shared/telemetry';
 import { startAutoUpdate } from './main/autoUpdate';
+import { appUrlMatcher, guardWindow, trustedSender } from './main/windowGuards';
 
 if (started) app.quit();
 
@@ -107,6 +108,17 @@ const docsWatcher = new DocsWatcher((taskId, paths) =>
   broadcast('docs:changed', { taskId, paths }),
 );
 
+// The app's own pages, from the same values the windows are loaded with (dev server or renderer folder).
+const isMainPage = appUrlMatcher({
+  devServerUrl: MAIN_WINDOW_VITE_DEV_SERVER_URL,
+  dir: path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}`),
+});
+const isSplashPage = appUrlMatcher({
+  devServerUrl: SPLASH_WINDOW_VITE_DEV_SERVER_URL,
+  dir: path.join(__dirname, `../renderer/${SPLASH_WINDOW_VITE_NAME}`),
+});
+const openLink = (url: string) => shell.openExternal(url);
+
 function broadcast<K extends keyof Events>(event: K, payload: Events[K]): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   mainWindow.webContents.send(`${EVENT_PREFIX}${event}`, payload);
@@ -128,6 +140,7 @@ function createWindow(): BrowserWindow {
       nodeIntegration: false,
     },
   });
+  guardWindow(win.webContents, isMainPage, openLink);
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     win.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
     win.webContents.openDevTools({ mode: 'detach' });
@@ -174,9 +187,14 @@ async function boot(): Promise<void> {
   const settings = new SettingsStore(path.join(userData, 'settings.json'));
   const settingsLoaded = await settings.load();
   splashWin = settings.get().showSplash ? createSplashWindow(windowIcon) : null;
+  if (splashWin) guardWindow(splashWin.webContents, isSplashPage, openLink);
   const reporter = new SplashReporter(splashWin);
-  ipcMain.on('splash:skip', () => reporter.skip());
-  ipcMain.on('splash:quit', () => app.quit());
+  ipcMain.on('splash:skip', (e) => {
+    if (trustedSender(e, isSplashPage)) reporter.skip();
+  });
+  ipcMain.on('splash:quit', (e) => {
+    if (trustedSender(e, isSplashPage)) app.quit();
+  });
   // Boot step timings (ms), measured around the real work, not the splash pacing.
   const timings: Record<string, number> = {
     settingsMs: performance.now() - bootStart,
@@ -210,9 +228,10 @@ async function boot(): Promise<void> {
       console.error('[telemetry] disabled:', e);
     }
   }
-  ipcMain.on(TELEMETRY_CHANNEL, (_e, payload: unknown) =>
-    forwardRendererTelemetry(payload, telemetry),
-  );
+  ipcMain.on(TELEMETRY_CHANNEL, (e, payload: unknown) => {
+    if (trustedSender(e, isMainPage))
+      forwardRendererTelemetry(payload, telemetry);
+  });
   lap('telemetryMs');
   try {
     reporter.step('Loading tasks');
@@ -323,7 +342,7 @@ async function boot(): Promise<void> {
         }),
       broadcast,
     });
-    registerIpc(ipcMain, trackHandlerFailures(handlers, telemetry));
+    registerIpc(ipcMain, trackHandlerFailures(handlers, telemetry), isMainPage);
     reporter.step(
       `Starting usage receiver 127.0.0.1:${settings.get().receiverPort}`,
     );

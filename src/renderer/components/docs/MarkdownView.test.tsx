@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { installFakeApi } from '../../test-helpers/fakeApi';
@@ -10,6 +10,16 @@ vi.mock('mermaid', () => ({
     initialize: vi.fn(),
     render: vi.fn(async (_id: string, code: string) => {
       if (code.includes('bad')) throw new Error('Parse error on line 1');
+      if (code.includes('click'))
+        return {
+          svg:
+            '<svg data-testid="diagram" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">' +
+            '<a xlink:href="https://x.dev/page" target="_blank"><text>Web</text></a>' +
+            '<a href="file:///etc/passwd" target="_top"><text>File</text></a>' +
+            '<a xlink:href="javascript:alert(1)"><text>Js</text></a>' +
+            '<a xlink:href="http://u:p@x.dev/"><text>Creds</text></a>' +
+            '</svg>',
+        };
       return { svg: '<svg data-testid="diagram"></svg>' };
     }),
   },
@@ -145,5 +155,66 @@ describe('MarkdownView', () => {
     await userEvent.click(screen.getByText('c'));
     expect(onOpenFile).not.toHaveBeenCalled();
     expect(onOpenDoc).toHaveBeenCalledWith('docs/x.md', '%E0%A4%25A');
+  });
+
+  it('routes links inside a Mermaid diagram: default prevented, only http(s) to links:open', async () => {
+    const { api } = view(
+      '```mermaid\ngraph TD; A-->B; click A "https://x.dev/page"\n```\n',
+    );
+    await screen.findByTestId('diagram');
+    const opened = () =>
+      api.calls.filter((c) => c.channel === 'links:open').map((c) => c.args[0]);
+    // fireEvent returns false when a handler called preventDefault.
+    expect(fireEvent.click(screen.getByText('Web'))).toBe(false);
+    expect(opened()).toEqual(['https://x.dev/page']);
+    expect(fireEvent.click(screen.getByText('File'))).toBe(false);
+    expect(fireEvent.click(screen.getByText('Js'))).toBe(false);
+    expect(fireEvent.click(screen.getByText('Creds'))).toBe(false);
+    expect(
+      fireEvent(
+        screen.getByText('Web'),
+        new MouseEvent('auxclick', {
+          bubbles: true,
+          cancelable: true,
+          button: 1,
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      fireEvent(
+        screen.getByText('File'),
+        new MouseEvent('auxclick', {
+          bubbles: true,
+          cancelable: true,
+          button: 1,
+        }),
+      ),
+    ).toBe(false);
+    expect(opened()).toEqual(['https://x.dev/page', 'https://x.dev/page']);
+    expect(document.querySelector('.doc-mermaid [target]')).toBeNull();
+  });
+  it('handles a middle click on a Markdown link like a click', async () => {
+    const { api, onOpenDoc } = view('[w](https://x.dev) [p](b.md)');
+    const aux = (el: Element) =>
+      fireEvent(
+        el,
+        new MouseEvent('auxclick', {
+          bubbles: true,
+          cancelable: true,
+          button: 1,
+        }),
+      );
+    expect(aux(screen.getByText('w'))).toBe(false);
+    expect(aux(screen.getByText('p'))).toBe(false);
+    expect(
+      api.calls.filter((c) => c.channel === 'links:open').map((c) => c.args[0]),
+    ).toEqual(['https://x.dev/']);
+    expect(onOpenDoc).toHaveBeenCalledWith('docs/b.md', undefined);
+  });
+  it('does nothing for a web link that is not a valid URL', async () => {
+    const { api } = view('[bad](http://[) ![img](http://[)');
+    expect(fireEvent.click(screen.getByText('bad'))).toBe(false);
+    expect(fireEvent.click(screen.getByText('img'))).toBe(false);
+    expect(api.calls.filter((c) => c.channel === 'links:open')).toEqual([]);
   });
 });

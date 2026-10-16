@@ -83,3 +83,15 @@ export function resolveRelative(fromDoc: string, href: string): string | null {
   }
   return parts.length ? parts.join('/') : null;
 }
+
+/** A web link `links:open` accepts (http or https, no username or password), normalized; null for anything else. */
+export function webLink(href: string): string | null {
+  try {
+    const u = new URL(href);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+    if (u.username || u.password) return null;
+    return u.toString();
+  } catch {
+    return null;
+  }
+}

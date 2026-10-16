@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type ComponentProps,
+  type MouseEvent,
   type ReactNode,
 } from 'react';
 import Markdown, { type Components } from 'react-markdown';
@@ -13,7 +14,7 @@ import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import rehypeSlug from 'rehype-slug';
 import remarkGfm from 'remark-gfm';
 import { api } from '../../api';
-import { resolveRelative } from '../../docs/linkify';
+import { resolveRelative, webLink } from '../../docs/linkify';
 import { rehypeLines } from '../../docs/rehypeLines';
 import { MermaidBlock } from './MermaidBlock';
 
@@ -42,6 +43,15 @@ function decodeAnchor(a: string): string {
   } catch {
     return a;
   }
+}
+
+/** Opens a web link in the browser; a malformed or disallowed one does nothing. */
+function openWeb(href: string): void {
+  const url = webLink(href);
+  if (url)
+    void api()
+      .invoke('links:open', url)
+      .catch(() => {});
 }
 
 function textOf(node: ReactNode): string {
@@ -99,33 +109,34 @@ export function MarkdownView({
   // Stable element types: new component functions would remount every MermaidBlock and LocalImage.
   const components = useMemo<Components>(
     () => ({
-      a: ({ href = '', children, node: _n, ...rest }) => (
-        <a
-          {...rest}
-          href={href}
-          onClick={(e) => {
-            e.preventDefault();
-            if (!href) return;
-            if (href.startsWith('#')) {
-              document
-                .getElementById(decodeAnchor(href.slice(1)))
-                ?.scrollIntoView?.({ block: 'start' });
-            } else if (isWeb(href)) {
-              void api().invoke('links:open', new URL(href).toString());
-            } else if (!hasScheme(href)) {
-              const target = resolveRelative(path, href);
-              if (!target) return;
-              const raw = href.includes('#') ? href.split('#')[1] : undefined;
-              const anchor = raw === undefined ? undefined : decodeAnchor(raw);
-              if (/\.(md|markdown)$/i.test(target))
-                cb.current.onOpenDoc(target, anchor);
-              else cb.current.onOpenFile(target);
-            }
-          }}
-        >
-          {children}
-        </a>
-      ),
+      a: ({ href = '', children, node: _n, ...rest }) => {
+        const follow = (e: MouseEvent<HTMLAnchorElement>) => {
+          e.preventDefault();
+          // auxclick also fires for the right button; only a middle click follows the link.
+          if (e.type === 'auxclick' && e.button !== 1) return;
+          if (!href) return;
+          if (href.startsWith('#')) {
+            document
+              .getElementById(decodeAnchor(href.slice(1)))
+              ?.scrollIntoView?.({ block: 'start' });
+          } else if (isWeb(href)) {
+            openWeb(href);
+          } else if (!hasScheme(href)) {
+            const target = resolveRelative(path, href);
+            if (!target) return;
+            const raw = href.includes('#') ? href.split('#')[1] : undefined;
+            const anchor = raw === undefined ? undefined : decodeAnchor(raw);
+            if (/\.(md|markdown)$/i.test(target))
+              cb.current.onOpenDoc(target, anchor);
+            else cb.current.onOpenFile(target);
+          }
+        };
+        return (
+          <a {...rest} href={href} onClick={follow} onAuxClick={follow}>
+            {children}
+          </a>
+        );
+      },
       img: ({ src = '', alt = '' }) => {
         const s = String(src);
         if (isWeb(s) || hasScheme(s))
@@ -134,8 +145,11 @@ export function MarkdownView({
               href={s}
               onClick={(e) => {
                 e.preventDefault();
-                if (isWeb(s))
-                  void api().invoke('links:open', new URL(s).toString());
+                openWeb(s);
+              }}
+              onAuxClick={(e) => {
+                e.preventDefault();
+                if (e.button === 1) openWeb(s);
               }}
             >
               {alt || s}
