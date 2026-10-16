@@ -138,7 +138,7 @@ export function writeHitsFromBash(
   cwd: string | null,
 ): WriteHit[] {
   const hits: WriteHit[] = [];
-  let dir = cwd;
+  let dir = cwd ? path.resolve(cwd) : null;
   for (const words of tokenize(command)) {
     if (words[0] === 'cd' && words[1] && !words[1].startsWith('-')) {
       dir = resolveIn(dir, words[1]);
