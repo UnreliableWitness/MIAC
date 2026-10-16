@@ -440,10 +440,37 @@ function execWithTimeout(
     );
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill();
       child.stdout?.destroy();
       child.stderr?.destroy();
-      reject(new GitTimeoutError(`git ${args[0]} timed out`));
+      const fail = () =>
+        reject(new GitTimeoutError(`git ${args[0]} timed out`));
+      killTree(child.pid, () => child.kill(), fail);
     }, timeoutMs);
   });
+}
+
+/**
+ * Kills a process and everything it started. On Windows, killing git.exe leaves its helpers (a credential
+ * prompt, ssh, a hook's shell) running, and they keep the worktree locked, so taskkill /T takes the whole
+ * tree; `done` runs once it has finished. Elsewhere `kill` is enough: open folders do not block removal.
+ */
+function killTree(
+  pid: number | undefined,
+  kill: () => void,
+  done: () => void,
+): void {
+  if (process.platform !== 'win32' || pid === undefined) {
+    kill();
+    done();
+    return;
+  }
+  execFile(
+    'taskkill',
+    ['/pid', String(pid), '/T', '/F'],
+    { windowsHide: true },
+    () => {
+      kill();
+      done();
+    },
+  );
 }

@@ -1,4 +1,10 @@
-import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -548,6 +554,15 @@ describe('GitClient push from the GUI', () => {
     expect((err as Error).message).toBe(
       'git push timed out after 0.3 s (a credential prompt may be waiting)',
     );
+    // The hook's shell is gone too, so nothing holds the repo: on Windows a leftover process would lock it
+    // for the rest of its 10 s sleep. The short retry only covers handles closing after the kill.
+    rmSync(path.dirname(repo), {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 100,
+    });
+    expect(existsSync(repo)).toBe(false);
   });
 
   it('waits 120 s for a push by default', () => {

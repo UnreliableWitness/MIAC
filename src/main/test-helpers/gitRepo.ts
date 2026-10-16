@@ -61,5 +61,11 @@ export function addOrigin(repo: string): string {
 /** Removes every temp folder created by makeRepo. */
 export function cleanupTempRepos(): void {
   for (const root of tempRoots.splice(0))
-    rmSync(root, { recursive: true, force: true });
+    // Windows: a git or terminal process that just exited can hold the folder for a moment.
+    rmSync(root, {
+      recursive: true,
+      force: true,
+      maxRetries: 10,
+      retryDelay: 200,
+    });
 }
