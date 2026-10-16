@@ -187,19 +187,19 @@ describe('DocsTab', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       let release: () => void = () => undefined;
-      let hold = false;
+      let mode: 'normal' | 'held' | 'stale' = 'normal';
       mount({
         'docs:watch': () => ({ live: false }),
         'docs:read': async (_t: string, p: string) => {
-          if (p === '.miac/task.md' && hold) {
-            await new Promise<void>((r) => (release = r));
+          if (p === '.miac/task.md' && mode !== 'normal') {
+            if (mode === 'held') await new Promise<void>((r) => (release = r));
             return { text: '# OLD STALE', mtimeMs: 9 };
           }
           return { text: texts[p], mtimeMs: 1 };
         },
       });
       await screen.findByRole('heading', { name: 'Task file' });
-      hold = true;
+      mode = 'held';
       await act(async () => {
         await vi.advanceTimersByTimeAsync(2100);
       });
@@ -208,8 +208,9 @@ describe('DocsTab', () => {
         await screen.findByRole('heading', { name: 'Readme' }),
       ).toBeTruthy();
       await act(async () => {
+        mode = 'stale';
         release();
-        await vi.advanceTimersByTimeAsync(10);
+        await vi.advanceTimersByTimeAsync(50);
       });
       expect(screen.queryByText('OLD STALE')).toBeNull();
       expect(screen.getByRole('heading', { name: 'Readme' })).toBeTruthy();
