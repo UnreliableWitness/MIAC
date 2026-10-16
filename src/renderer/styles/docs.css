@@ -253,3 +253,7 @@
   opacity: 0.45;
   cursor: default;
 }
+
+.docs-repo {
+  max-width: 160px;
+}

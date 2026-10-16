@@ -306,6 +306,7 @@ export function TerminalTabs({
             key={t.id}
             terminalId={t.id}
             taskId={task.id}
+            workspaceId={t.workspaceId}
             resumes={t.kind === 'claude'}
             autoStart={t.kind === 'claude' || t.kind === 'shell'}
             active={visible && active === t.id}

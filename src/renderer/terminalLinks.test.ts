@@ -191,8 +191,20 @@ describe('openLink', () => {
     const openDoc = vi.fn();
     useStore.setState({ openDoc });
     openLink('t1', { type: 'md', path: 'docs/a.md', line: 3 });
-    expect(openDoc).toHaveBeenCalledWith('t1', 'docs/a.md', 3);
+    expect(openDoc).toHaveBeenCalledWith('t1', 'docs/a.md', 3, undefined);
     expect(JSON.stringify(tracked)).toContain('terminal.linkOpened');
+  });
+  it('opens Markdown of another workspace and sends the editor its target', () => {
+    const { calls } = installFakeApi({ 'docs:openInEditor': () => undefined });
+    const openDoc = vi.fn();
+    useStore.setState({ openDoc });
+    openLink('t1', { type: 'md', path: 'a.md', workspaceId: 'w2' });
+    expect(openDoc).toHaveBeenCalledWith('t1', 'a.md', undefined, 'w2');
+    openLink('t1', { type: 'file', path: 'a.ts', workspaceId: 'w2' });
+    expect(calls).toContainEqual({
+      channel: 'docs:openInEditor',
+      args: ['t1#w2', 'a.ts'],
+    });
   });
   it('opens other files in the editor', () => {
     const { calls } = installFakeApi({ 'docs:openInEditor': () => undefined });

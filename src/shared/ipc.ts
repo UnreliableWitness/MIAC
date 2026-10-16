@@ -104,7 +104,7 @@ export type Channels = {
   'docs:asset': { args: [taskId: string, path: string]; result: string };
   'docs:resolve': {
     args: [taskId: string, path: string];
-    result: { path: string; kind: 'md' | 'file' } | null;
+    result: { path: string; kind: 'md' | 'file'; workspaceId?: string } | null;
   };
   'docs:openInEditor': {
     args: [taskId: string, path: string, line?: number, col?: number];

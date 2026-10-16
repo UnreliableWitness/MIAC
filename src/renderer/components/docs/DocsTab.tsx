@@ -3,7 +3,13 @@ import {
   PanelLeftContract16Regular,
   PanelLeftExpand16Regular,
 } from '@fluentui/react-icons';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import type { DocFile, TaskView } from '../../../shared/types';
 import { api, tryInvoke } from '../../api';
 import {
@@ -16,6 +22,11 @@ import {
 import { holdDocsWatch } from '../../docs/holdDocsWatch';
 import { useStore } from '../../store';
 import { track } from '../../telemetry';
+import {
+  activeHome,
+  activeWorkspaces,
+  docsTarget,
+} from '../../../shared/workspaces';
 import { modKey, Pivots } from '../ui';
 import { DocsList, TASK_FILE } from './DocsList';
 import { SendTo } from './SendTo';
@@ -40,15 +51,24 @@ export const affectsList = (paths: string[]): boolean =>
 const handledTargets = new Map<string, number>();
 export const resetDocTargetsForTests = () => handledTargets.clear();
 
-export function DocsTab({ task }: { task: TaskView }) {
+function DocsPane({
+  task,
+  tid,
+  switcher,
+}: {
+  task: TaskView;
+  /** The docs target: the task id, or `<taskId>#<workspaceId>`. */
+  tid: string;
+  switcher: ReactNode;
+}) {
   const notify = useStore((s) => s.notify);
-  const target = useStore((s) => s.docTarget[task.id]);
+  const target = useStore((s) => s.docTarget[tid]);
   const [files, setFiles] = useState<DocFile[] | null>(null);
   const [filter, setFilter] = useState('');
   const [listCollapsed, setListCollapsed] = useState(readListCollapsed);
   const [current, setCurrent] = useState<string | null>(null);
   const [doc, setDoc] = useState<Doc | null>(null);
-  const [view, setView] = useState<DocView>(() => readDocState(task.id).view);
+  const [view, setView] = useState<DocView>(() => readDocState(tid).view);
   const [highlight, setHighlight] = useState<{
     line: number;
     n: number;
@@ -65,7 +85,7 @@ export function DocsTab({ task }: { task: TaskView }) {
   const mtime = useRef<number | null>(null);
   const pending = useRef<{ scroll?: number; anchor?: string }>({});
   // Start from what is stored so an early persist cannot erase the remembered file.
-  const saved = useRef(readDocState(task.id));
+  const saved = useRef(readDocState(tid));
   const timers = useRef<{ chip?: number; save?: number }>({});
   const currentRef = useRef(current);
   currentRef.current = current;
@@ -74,8 +94,8 @@ export function DocsTab({ task }: { task: TaskView }) {
 
   const persist = useCallback(() => {
     const s = saved.current;
-    writeDocState(task.id, { path: s.path, view: s.view, scroll: s.scroll });
-  }, [task.id]);
+    writeDocState(tid, { path: s.path, view: s.view, scroll: s.scroll });
+  }, [tid]);
 
   /** Loads the file list; a call while one is in flight runs once more after it instead of overlapping. */
   const loadFiles = useCallback(async () => {
@@ -89,7 +109,7 @@ export function DocsTab({ task }: { task: TaskView }) {
       do {
         l.again = false;
         try {
-          setFiles((await api().invoke('docs:list', task.id)).files);
+          setFiles((await api().invoke('docs:list', tid)).files);
         } catch (e) {
           notify('error', errorText(e));
           setFiles((f) => f ?? []);
@@ -98,7 +118,7 @@ export function DocsTab({ task }: { task: TaskView }) {
     } finally {
       l.busy = false;
     }
-  }, [task.id, notify]);
+  }, [tid, notify]);
 
   /** Reads a document. A first load shows a spinner; a reload keeps the old text until the new arrives. */
   const read = useCallback(
@@ -110,7 +130,7 @@ export function DocsTab({ task }: { task: TaskView }) {
         spin = window.setTimeout(() => setSlow(true), 150);
       }
       try {
-        const r = await api().invoke('docs:read', task.id, path);
+        const r = await api().invoke('docs:read', tid, path);
         if (mine !== token.current) return;
         if (path !== currentRef.current) return;
         mtime.current = r.mtimeMs;
@@ -149,7 +169,7 @@ export function DocsTab({ task }: { task: TaskView }) {
         if (first) setSlow(false);
       }
     },
-    [task.id],
+    [tid],
   );
 
   const openPath = useCallback(
@@ -182,27 +202,28 @@ export function DocsTab({ task }: { task: TaskView }) {
   useEffect(() => {
     void loadFiles();
     return api().on('docs:changed', (p) => {
-      if (p.taskId !== task.id) return;
+      if (p.taskId !== tid) return;
       if (affectsList(p.paths)) void loadFiles();
       const open = currentRef.current;
       if (open && p.paths.includes(open)) void read(open, false);
     });
-  }, [task.id, loadFiles, read]);
+  }, [tid, loadFiles, read]);
 
   // Learn whether the watcher is live; a watcher main stops makes the tab poll.
-  useEffect(() => holdDocsWatch(task.id, setLive), [task.id]);
+  useEffect(() => holdDocsWatch(tid, setLive), [tid]);
 
   // A target from a terminal link wins over the remembered file.
   useEffect(() => {
     if (!target || handledTargets.get(task.id) === target.nonce) return;
+    if (targetFor(task, target.workspaceId) !== tid) return;
     handledTargets.set(task.id, target.nonce);
     openPath(target.path, { from: 'terminal', line: target.line });
-  }, [target, task.id, openPath]);
+  }, [target, task.id, tid, openPath]);
 
   // The first file: remembered, else the task file, README, or the first listed.
   useEffect(() => {
     if (current !== null || !files || files.length === 0) return;
-    const remembered = readDocState(task.id);
+    const remembered = readDocState(tid);
     const has = (p: string | null) => !!p && files.some((f) => f.path === p);
     const pick = has(remembered.path)
       ? remembered.path!
@@ -219,7 +240,7 @@ export function DocsTab({ task }: { task: TaskView }) {
       scroll: pick === remembered.path ? remembered.scroll : 0,
     };
     setCurrent(pick);
-  }, [files, current, task.id]);
+  }, [files, current, tid]);
 
   useEffect(() => {
     if (current === null) return;
@@ -257,7 +278,7 @@ export function DocsTab({ task }: { task: TaskView }) {
     const id = window.setInterval(() => {
       void (async () => {
         try {
-          const r = await api().invoke('docs:read', task.id, current);
+          const r = await api().invoke('docs:read', tid, current);
           if (current !== currentRef.current) return;
           if (mtime.current !== null && r.mtimeMs !== mtime.current)
             void read(current, false);
@@ -268,7 +289,7 @@ export function DocsTab({ task }: { task: TaskView }) {
       })();
     }, 2000);
     return () => window.clearInterval(id);
-  }, [live, current, task.id, read, loadFiles]);
+  }, [live, current, tid, read, loadFiles]);
 
   useEffect(
     () => () => {
@@ -296,8 +317,8 @@ export function DocsTab({ task }: { task: TaskView }) {
     tryInvoke(
       () =>
         line
-          ? api().invoke('docs:openInEditor', task.id, path, line)
-          : api().invoke('docs:openInEditor', task.id, path),
+          ? api().invoke('docs:openInEditor', tid, path, line)
+          : api().invoke('docs:openInEditor', tid, path),
       notify,
     );
 
@@ -318,6 +339,7 @@ export function DocsTab({ task }: { task: TaskView }) {
       />
       <section className="docs-doc">
         <div className="docs-bar">
+          {switcher}
           <button
             type="button"
             className="btn btn-subtle btn-sm"
@@ -372,7 +394,7 @@ export function DocsTab({ task }: { task: TaskView }) {
             onClick={() =>
               current &&
               void tryInvoke(
-                () => api().invoke('docs:reveal', task.id, current),
+                () => api().invoke('docs:reveal', tid, current),
                 notify,
               )
             }
@@ -392,7 +414,7 @@ export function DocsTab({ task }: { task: TaskView }) {
           onScroll={onScroll}
         >
           <DocsBody
-            taskId={task.id}
+            taskId={tid}
             empty={files !== null && files.length === 0}
             doc={doc}
             current={current}
@@ -418,6 +440,52 @@ export function DocsTab({ task }: { task: TaskView }) {
       </section>
     </div>
   );
+}
+
+/** The active home is the plain task id; any other workspace is `<taskId>#<workspaceId>`. */
+const targetFor = (task: TaskView, workspaceId: string | undefined): string =>
+  workspaceId === undefined || workspaceId === activeHome(task).id
+    ? task.id
+    : docsTarget(task.id, workspaceId);
+
+export function DocsTab({ task }: { task: TaskView }) {
+  const repos = useStore((s) => s.repos);
+  const asked = useStore((s) => s.docTarget[task.id]);
+  const workspaces = activeWorkspaces(task);
+  const [picked, setPicked] = useState<string | undefined>(undefined);
+  const seen = useRef<number | null>(null);
+  // A terminal link in another workspace switches to it.
+  useEffect(() => {
+    if (!asked || seen.current === asked.nonce) return;
+    seen.current = asked.nonce;
+    setPicked(asked.workspaceId);
+  }, [asked]);
+  const chosen =
+    picked !== undefined && workspaces.some((w) => w.id === picked)
+      ? picked
+      : activeHome(task).id;
+  const tid = targetFor(task, chosen);
+  const names = workspaces.map(
+    (w) => repos.find((r) => r.id === w.repoId)?.name ?? w.branch,
+  );
+  const switcher =
+    workspaces.length > 1 ? (
+      <select
+        className="docs-repo"
+        aria-label="Repository"
+        value={chosen}
+        onChange={(e) => setPicked(e.target.value)}
+      >
+        {workspaces.map((w, i) => (
+          <option key={w.id} value={w.id}>
+            {names.indexOf(names[i]) === names.lastIndexOf(names[i])
+              ? names[i]
+              : `${names[i]} (${w.branch})`}
+          </option>
+        ))}
+      </select>
+    ) : null;
+  return <DocsPane key={tid} task={task} tid={tid} switcher={switcher} />;
 }
 
 function scrollToAnchor(root: HTMLElement | null, anchor?: string) {

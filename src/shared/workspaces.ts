@@ -72,3 +72,18 @@ export function taskConnectionId(
     null
   );
 }
+
+/** A docs target: the task id alone (its active home) or `<taskId>#<workspaceId>` (one workspace's worktree). */
+export function docsTarget(taskId: string, workspaceId?: string): string {
+  return workspaceId === undefined ? taskId : `${taskId}#${workspaceId}`;
+}
+
+export function parseDocsTarget(target: string): {
+  taskId: string;
+  workspaceId?: string;
+} {
+  const i = target.indexOf('#');
+  return i < 0
+    ? { taskId: target }
+    : { taskId: target.slice(0, i), workspaceId: target.slice(i + 1) };
+}

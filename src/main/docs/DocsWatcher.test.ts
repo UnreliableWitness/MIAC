@@ -33,6 +33,24 @@ describe('DocsWatcher', () => {
       events.flatMap((e) => e.paths).some((p) => p.startsWith('node_modules')),
     ).toBe(false);
   });
+  it('stopTask stops every target of the task and no other', () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'miac-watch-'));
+    const stopped: string[] = [];
+    const w = new DocsWatcher(
+      () => undefined,
+      10,
+      (id) => stopped.push(id),
+    );
+    w.start('t', dir);
+    w.start('t#w2', dir);
+    w.start('t2#w2', dir);
+    w.stopTask('t');
+    expect(w.active('t')).toBe(false);
+    expect(w.active('t#w2')).toBe(false);
+    expect(w.active('t2#w2')).toBe(true);
+    expect(stopped.sort()).toEqual(['t', 't#w2']);
+    w.stopAll();
+  });
   it('is reference-counted, and stopTask closes regardless', () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'miac-watch-'));
     const w = new DocsWatcher(() => undefined, 10);
