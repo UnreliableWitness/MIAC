@@ -17,6 +17,7 @@ import { useStore } from '../../store';
 import { track } from '../../telemetry';
 import { modKey, Pivots } from '../ui';
 import { DocsList, TASK_FILE } from './DocsList';
+import { SendTo } from './SendTo';
 import { DocsBody, type Doc } from './DocsBody';
 
 type From = 'list' | 'link' | 'terminal';
@@ -44,7 +45,8 @@ export function DocsTab({ task }: { task: TaskView }) {
   const [updated, setUpdated] = useState(false);
   const [slow, setSlow] = useState(false);
   const [live, setLive] = useState<boolean | null>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
   const token = useRef(0);
   const mtime = useRef<number | null>(null);
   const pending = useRef<{ scroll?: number; anchor?: string }>({});
@@ -365,7 +367,14 @@ export function DocsTab({ task }: { task: TaskView }) {
         {doc?.deleted && (
           <div className="notice warn">This file was deleted.</div>
         )}
-        <div className="docs-scroll" ref={scrollRef} onScroll={onScroll}>
+        <div
+          className="docs-scroll"
+          ref={(el) => {
+            scrollRef.current = el;
+            setScrollEl(el);
+          }}
+          onScroll={onScroll}
+        >
           <DocsBody
             taskId={task.id}
             empty={files !== null && files.length === 0}
@@ -382,7 +391,14 @@ export function DocsTab({ task }: { task: TaskView }) {
           />
           {updated && <span className="docs-updated">Updated</span>}
         </div>
-        {/* SendTo: Task 6 */}
+        {doc?.path && doc.text !== null && (
+          <SendTo
+            task={task}
+            container={scrollEl}
+            path={doc.path}
+            view={view}
+          />
+        )}
       </section>
     </div>
   );

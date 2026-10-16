@@ -4,6 +4,7 @@ import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { api, tryInvoke } from '../api';
 import { useStore } from '../store';
+import { registerTerminal } from '../terminalRegistry';
 import {
   loadRenderer,
   terminalFontReady,
@@ -31,6 +32,7 @@ export function TerminalView({
     const f = new FitAddon();
     t.loadAddon(f);
     term.current = t;
+    const unregister = registerTerminal(terminalId, t);
     fit.current = f;
     let live = true;
 
@@ -103,6 +105,7 @@ export function TerminalView({
       onData.dispose();
       offData();
       offExit();
+      unregister();
       t.dispose();
       term.current = null;
     };
