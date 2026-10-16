@@ -18,6 +18,8 @@ export const TerminalDefSchema = z.object({
   command: z.string().optional(),
   /** Claude Code's session id (a UUID), so Restart resumes the same conversation. Absent on older tasks. */
   sessionId: z.string().optional(),
+  /** The workspace (repo worktree) the tab runs in; absent means the task's active home. */
+  workspaceId: z.string().optional(),
 });
 export type TerminalDef = z.infer<typeof TerminalDefSchema>;
 export type NewTerminal = Omit<TerminalDef, 'id'>;
@@ -72,6 +74,22 @@ export const PullRequestRefSchema = z.object({
 });
 export type PullRequestRef = z.infer<typeof PullRequestRefSchema>;
 
+/** One more repo's worktree and branch that belongs to a task, besides its home repo. */
+export const WorkspaceSchema = z.object({
+  id: z.string().min(1),
+  repoId: z.string().min(1),
+  branch: z.string().min(1),
+  worktreePath: z.string().min(1),
+  baseRef: z.string().min(1),
+  baseSha: z.string().nullable().default(null),
+  source: z.enum(['detected', 'manual']),
+  summary: TaskSummarySchema.nullable().default(null),
+  pullRequest: PullRequestRefSchema.nullable().default(null),
+  reopen: z.object({ from: z.string().nullable() }).nullable().default(null),
+  dropped: z.boolean().default(false),
+});
+export type Workspace = z.infer<typeof WorkspaceSchema>;
+
 export const TaskSchema = z.object({
   id: z.string().min(1),
   repoId: z.string().min(1),
@@ -101,6 +119,18 @@ export const TaskSchema = z.object({
    * null when the local branch still exists, else a ref or commit to make it from.
    */
   reopen: z.object({ from: z.string().nullable() }).nullable().default(null),
+  /** Worktrees in other repos that joined the task (the flat fields above are the home repo's). */
+  extraWorkspaces: z.array(WorkspaceSchema).default([]),
+  /** Worktree paths the user detached, so a scan does not attach them again. */
+  detachedPaths: z.array(z.string()).default([]),
+  /** The home workspace was dropped from the task. */
+  homeDropped: z.boolean().default(false),
+  /** The connection of the task's work item; null on older tasks (the home repo's connection applies). */
+  connectionId: z.string().nullable().default(null),
+  /** Repos whose main checkout Claude edited directly; shown as a warning, never touched. */
+  mainCheckoutEdits: z
+    .array(z.object({ repoPath: z.string(), branch: z.string().nullable() }))
+    .default([]),
 });
 export type Task = z.infer<typeof TaskSchema>;
 
@@ -111,6 +141,8 @@ export const RepoSchema = z.object({
   baseBranch: z.string().min(1),
   connectionId: z.string().nullable(),
   miacYmlFound: z.boolean(),
+  /** Added by MIAC when a task's Claude session worked in it, not by the user; Start never picks it. */
+  discovered: z.boolean().default(false),
   workItemOnStart: StartSettingsSchema.default({
     moveToInProgress: true,
     assignToMe: true,

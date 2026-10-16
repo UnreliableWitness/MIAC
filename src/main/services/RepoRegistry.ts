@@ -109,7 +109,7 @@ export class RepoRegistry {
 
   private async describe(
     base: Pick<Repo, 'id' | 'path' | 'connectionId'> &
-      Partial<Pick<Repo, 'workItemOnStart'>>,
+      Partial<Pick<Repo, 'workItemOnStart' | 'discovered'>>,
   ): Promise<Repo> {
     const config = await this.loadConfig(base.path);
     return {
@@ -119,6 +119,7 @@ export class RepoRegistry {
       baseBranch: config.base,
       connectionId: base.connectionId,
       miacYmlFound: config.found,
+      discovered: base.discovered ?? false,
       workItemOnStart: base.workItemOnStart ?? {
         moveToInProgress: true,
         assignToMe: true,

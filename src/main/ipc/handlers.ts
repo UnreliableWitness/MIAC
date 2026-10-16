@@ -20,6 +20,7 @@ import type {
   TerminalDef,
   WorkItemTypeMeta,
 } from '../../shared/types';
+import { taskConnectionId } from '../../shared/workspaces';
 import { worktreeRoot } from '../paths';
 import { DocsWatcher } from '../docs/DocsWatcher';
 import { createDocsHandlers } from '../docs/docsHandlers';
@@ -318,8 +319,7 @@ export function createHandlers(s: Services): Handlers {
     task: taskById,
     tasks: () => s.store.state.tasks,
     target: (task) => {
-      const connectionId =
-        s.repos.list().find((r) => r.id === task.repoId)?.connectionId ?? null;
+      const connectionId = taskConnectionId(task, s.repos.list());
       if (!connectionId) return null;
       try {
         return {
@@ -487,7 +487,7 @@ export function createHandlers(s: Services): Handlers {
         !task.reopen &&
         Boolean(
           task.workItem &&
-          repo.connectionId &&
+          taskConnectionId(task, [repo]) &&
           (repo.workItemOnStart.moveToInProgress ||
             repo.workItemOnStart.assignToMe),
         ),
@@ -563,7 +563,9 @@ export function createHandlers(s: Services): Handlers {
         updateWorkItem: async () => {
           try {
             const repo = s.repos.get(task.repoId);
-            const connection = s.connections.get(repo.connectionId!);
+            const connection = s.connections.get(
+              taskConnectionId(task, [repo])!,
+            );
             const client = s.ado.client(connection.id);
             const id = Number(task.workItem!.id);
             const current = await client.workItemForStart(id);
@@ -740,6 +742,11 @@ export function createHandlers(s: Services): Handlers {
         pullRequest: null,
         closedTerminals: [],
         reopen: null,
+        extraWorkspaces: [],
+        detachedPaths: [],
+        homeDropped: false,
+        connectionId: repo.connectionId,
+        mainCheckoutEdits: [],
       };
       inFlight.add(task.id);
       try {
@@ -1167,7 +1174,7 @@ export function createHandlers(s: Services): Handlers {
       const task = taskById(taskId);
       const pr = task.pullRequest;
       if (!pr) return null;
-      const connectionId = s.repos.get(task.repoId).connectionId;
+      const connectionId = taskConnectionId(task, s.repos.list());
       if (!connectionId) return pr;
       try {
         const raw = await s.ado

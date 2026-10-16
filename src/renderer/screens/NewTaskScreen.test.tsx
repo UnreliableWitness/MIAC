@@ -13,6 +13,7 @@ const webshop: Repo = {
   baseBranch: 'main',
   connectionId: null,
   miacYmlFound: true,
+  discovered: false,
   workItemOnStart: {
     moveToInProgress: true,
     assignToMe: true,

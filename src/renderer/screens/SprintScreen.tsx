@@ -268,7 +268,9 @@ function SprintGrid({
     () => new Map(repos.map((r) => [r.id, r.connectionId])),
     [repos],
   );
-  const repoId = repos.find((r) => r.connectionId === connectionId)?.id ?? null;
+  const repoId =
+    repos.find((r) => r.connectionId === connectionId && !r.discovered)?.id ??
+    null;
   return (
     <div role="table" aria-label={label} className="grid sprint-grid">
       <div role="row" className="grid-head">

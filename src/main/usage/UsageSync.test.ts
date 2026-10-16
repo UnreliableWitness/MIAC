@@ -39,6 +39,11 @@ const task = (over: Partial<Task> = {}): Task => ({
   pullRequest: null,
   closedTerminals: [],
   reopen: null,
+  extraWorkspaces: [],
+  detachedPaths: [],
+  homeDropped: false,
+  connectionId: null,
+  mainCheckoutEdits: [],
   ...over,
 });
 const usage: TaskUsage = {

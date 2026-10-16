@@ -39,6 +39,11 @@ const task: TaskView = {
   pullRequest: null,
   closedTerminals: [],
   reopen: null,
+  extraWorkspaces: [],
+  detachedPaths: [],
+  homeDropped: false,
+  connectionId: null,
+  mainCheckoutEdits: [],
   worktreeMissing: false,
 };
 const state: SetupState = {
@@ -82,6 +87,7 @@ beforeEach(() =>
         baseBranch: 'main',
         connectionId: null,
         miacYmlFound: true,
+        discovered: false,
         workItemOnStart: {
           moveToInProgress: true,
           assignToMe: true,

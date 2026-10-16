@@ -120,6 +120,11 @@ const task: Task = {
   pullRequest: null,
   closedTerminals: [],
   reopen: null,
+  extraWorkspaces: [],
+  detachedPaths: [],
+  homeDropped: false,
+  connectionId: null,
+  mainCheckoutEdits: [],
 };
 
 describe('renderTaskMd', () => {

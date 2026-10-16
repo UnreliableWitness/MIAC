@@ -33,6 +33,11 @@ const task = (id: string, terms: string[]): TaskView => ({
   pullRequest: null,
   closedTerminals: [],
   reopen: null,
+  extraWorkspaces: [],
+  detachedPaths: [],
+  homeDropped: false,
+  connectionId: null,
+  mainCheckoutEdits: [],
 });
 
 beforeEach(() => {
@@ -153,6 +158,7 @@ describe('activeConnection', () => {
     baseBranch: 'main',
     connectionId,
     miacYmlFound: true,
+    discovered: false,
     workItemOnStart: {
       moveToInProgress: true,
       assignToMe: true,

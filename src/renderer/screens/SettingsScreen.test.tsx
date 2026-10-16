@@ -16,6 +16,7 @@ const webshop: Repo = {
   baseBranch: 'main',
   connectionId: null,
   miacYmlFound: true,
+  discovered: false,
   workItemOnStart: {
     moveToInProgress: true,
     assignToMe: true,
@@ -46,6 +47,7 @@ describe('SettingsScreen', () => {
           path: '/src/api',
           baseBranch: 'develop',
           miacYmlFound: false,
+          discovered: false,
           workItemOnStart: {
             moveToInProgress: true,
             assignToMe: true,

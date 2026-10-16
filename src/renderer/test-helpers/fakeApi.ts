@@ -56,6 +56,7 @@ const defaults: FakeHandlers = {
     baseBranch: 'main',
     connectionId: null,
     miacYmlFound: false,
+    discovered: false,
     workItemOnStart: settings,
   }),
   'terminals:buffer': () => '',

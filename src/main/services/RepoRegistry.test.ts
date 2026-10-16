@@ -45,6 +45,7 @@ describe('RepoRegistry', () => {
       baseBranch: 'main',
       connectionId: null,
       miacYmlFound: false,
+      discovered: false,
       workItemOnStart: {
         moveToInProgress: true,
         assignToMe: true,
@@ -70,6 +71,7 @@ describe('RepoRegistry', () => {
             baseBranch: 'main',
             connectionId: null,
             miacYmlFound: false,
+            discovered: false,
           },
         ],
         tasks: [],
@@ -114,6 +116,7 @@ describe('RepoRegistry', () => {
     expect(await reg.add(repo)).toMatchObject({
       baseBranch: 'develop',
       miacYmlFound: true,
+      discovered: false,
       workItemOnStart: {
         moveToInProgress: true,
         assignToMe: true,
@@ -199,6 +202,11 @@ describe('RepoRegistry', () => {
         pullRequest: null,
         closedTerminals: [],
         reopen: null,
+        extraWorkspaces: [],
+        detachedPaths: [],
+        homeDropped: false,
+        connectionId: null,
+        mainCheckoutEdits: [],
       });
     });
     await expect(reg.remove(again.id)).rejects.toThrow(/open task/);

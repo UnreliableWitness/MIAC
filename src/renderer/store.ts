@@ -180,10 +180,14 @@ export const useStore = create<Store>((set, get) => ({
 }));
 
 /** The connection of a task's repo, for its work item icons and live state. */
-export const useTaskConnectionId = (task: { repoId: string } | null) =>
+export const useTaskConnectionId = (
+  task: { repoId: string; connectionId?: string | null } | null,
+) =>
   useStore((s) =>
     task
-      ? (s.repos.find((r) => r.id === task.repoId)?.connectionId ?? null)
+      ? (task.connectionId ??
+        s.repos.find((r) => r.id === task.repoId)?.connectionId ??
+        null)
       : null,
   );
 
@@ -212,8 +216,11 @@ export function activeConnection(s: ConnectionState): Connection | null {
     const task = s.tasks.find((t) => t.id === taskId);
     return s.repos.find((r) => r.id === task?.repoId);
   };
+  const taskConnection = (taskId: string | null) =>
+    s.tasks.find((t) => t.id === taskId)?.connectionId;
   const taskRepo = repoOf(s.selectedTaskId);
   return (
+    byId(taskConnection(pageTaskId(s))) ??
     byId(repoOf(pageTaskId(s))?.connectionId) ??
     byId(s.connectionId) ??
     byId(taskRepo?.connectionId) ??

@@ -989,6 +989,11 @@ describe('handlers: reopen a finished task', () => {
     expect(hx.store.state.tasks[0]).toMatchObject({
       status: 'ready',
       reopen: null,
+      extraWorkspaces: [],
+      detachedPaths: [],
+      homeDropped: false,
+      connectionId: null,
+      mainCheckoutEdits: [],
       finishedAt: null,
       baseSha: hx.t.baseSha ?? hx.store.state.tasks[0].baseSha,
     });
@@ -1061,6 +1066,11 @@ describe('handlers: reopen a finished task', () => {
     expect(hx.store.state.tasks[0]).toMatchObject({
       status: 'done',
       reopen: null,
+      extraWorkspaces: [],
+      detachedPaths: [],
+      homeDropped: false,
+      connectionId: null,
+      mainCheckoutEdits: [],
     });
     expect(existsSync(hx.t.worktreePath)).toBe(false);
     expect(await new GitClient().branchExists(hx.repo, hx.t.branch)).toBe(true);
@@ -1161,6 +1171,11 @@ describe('recoverInterruptedTasks', () => {
       pullRequest: null,
       closedTerminals: [],
       reopen: null,
+      extraWorkspaces: [],
+      detachedPaths: [],
+      homeDropped: false,
+      connectionId: null,
+      mainCheckoutEdits: [],
     };
     await store.update((s) => {
       s.tasks.push(
@@ -2377,5 +2392,60 @@ describe('handlers: finish with a pull request', () => {
     const checks = await hx.h['tasks:finishChecks'](hx.t.id);
     expect(checks.unpushed).toBe(1);
     expect(checks.runningTerminals).toBe(0);
+  });
+});
+
+describe('handlers: task-level connection', () => {
+  it('stores the repo connection on the task when it is created', async () => {
+    const hx = await harness();
+    const { t } = await linkedTask(hx);
+    expect(t.connectionId).toBe(
+      hx.services.repos.get(hx.added.id).connectionId,
+    );
+    expect(t.connectionId).not.toBeNull();
+  });
+
+  it('syncs usage to the task connection even after the repo is unlinked', async () => {
+    const hx = await harness();
+    const { t } = await linkedTask(hx);
+    await hx.h['repos:setConnection'](hx.added.id, null);
+    expect(await hx.h['usage:sync'](t.id)).toMatchObject({ ok: true });
+  });
+
+  it('prefers the task connection over the home repo connection', async () => {
+    const hx = await harness();
+    const { t } = await linkedTask(hx);
+    await hx.store.update((st) => {
+      st.tasks[0].connectionId = 'c2';
+    });
+    // c2 does not exist: the sync target is gone, though the repo still links the real connection.
+    expect(await hx.h['usage:sync'](t.id)).toMatchObject({ ok: false });
+  });
+
+  it('refreshes the PR status through the task connection', async () => {
+    const hx = await harness();
+    const { t } = await linkedTask(hx);
+    const client = hx.services.ado.client(t.connectionId!);
+    const refresh = vi.spyOn(client, 'pullRequest').mockResolvedValue({
+      pullRequestId: 7,
+      status: 'completed',
+      isDraft: false,
+    });
+    await hx.store.update((st) => {
+      st.tasks[0].pullRequest = {
+        id: 7,
+        url: 'u',
+        repositoryId: 'repo-1',
+        project: 'P',
+        repo: 'R',
+        status: 'active',
+        isDraft: true,
+      };
+    });
+    await hx.h['repos:setConnection'](hx.added.id, null);
+    expect(await hx.h['tasks:prStatus'](t.id)).toMatchObject({
+      status: 'completed',
+    });
+    expect(refresh).toHaveBeenCalled();
   });
 });
