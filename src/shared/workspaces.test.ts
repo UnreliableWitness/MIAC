@@ -3,6 +3,7 @@ import { TaskSchema, type Task, type Workspace } from './types';
 import {
   activeHome,
   activeWorkspaces,
+  isReopening,
   pushedBranches,
   taskConnectionId,
   taskWorkspaces,
@@ -69,6 +70,26 @@ describe('workspaces', () => {
     });
     expect(activeHome(t).id).toBe('w2');
     expect(activeWorkspaces(t).map((w) => w.id)).toEqual(['w2']);
+  });
+
+  it('isReopening: the home or a kept extra marked by Reopen, never a dropped one', () => {
+    expect(isReopening(mkTask())).toBe(false);
+    expect(isReopening(mkTask({ reopen: { from: null } }))).toBe(true);
+    expect(
+      isReopening(
+        mkTask({
+          homeDropped: true,
+          extraWorkspaces: [extra({ reopen: { from: 'origin/feature/b' } })],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isReopening(
+        mkTask({
+          extraWorkspaces: [extra({ reopen: { from: null }, dropped: true })],
+        }),
+      ),
+    ).toBe(false);
   });
 
   it('workspaceById resolves undefined to the active home and rejects unknown ids', () => {

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { SetupEvent, SetupState } from '../../shared/types';
+import { isReopening } from '../../shared/workspaces';
 import { api, tryInvoke } from '../api';
 import { StepList } from '../components/StepList';
 import { TaskTypeIcon } from '../components/TaskTypeIcon';
@@ -145,7 +146,7 @@ export function SetupScreen({ taskId }: { taskId: string }) {
 
   if (!task) return <div className="empty">Task not found.</div>;
   const back = () => go({ kind: 'sprint' });
-  const reopening = task.reopen !== null;
+  const reopening = isReopening(task);
 
   return (
     <div className="page">

@@ -30,6 +30,7 @@ import {
   activeHome,
   activeWorkspaces,
   HOME_ID,
+  isReopening,
   taskConnectionId,
   taskWorkspaces,
   workspaceById,
@@ -62,6 +63,7 @@ import type { GitClient } from '../services/GitClient';
 import type { RepoRegistry } from '../services/RepoRegistry';
 import {
   planSteps,
+  type ExtraRestore,
   type SetupPlan,
   type SetupRunner,
 } from '../services/SetupRunner';
@@ -521,6 +523,65 @@ export function createHandlers(s: Services): Handlers {
     }
   };
 
+  /** The other repos a reopen makes again, each with its own .miac.yml copies and setup commands. */
+  const extraRestores = async (task: Task): Promise<ExtraRestore[]> => {
+    const out: ExtraRestore[] = [];
+    for (const w of task.extraWorkspaces) {
+      if (w.dropped || w.reopen === null) continue;
+      const repo = s.repos.get(w.repoId);
+      const config = await s.loadConfig(repo.path);
+      out.push({
+        workspaceId: w.id,
+        repoName: repo.name,
+        repoPath: repo.path,
+        worktreePath: w.worktreePath,
+        branch: w.branch,
+        from: w.reopen.from,
+        copy: task.setup.copy ? config.copy : [],
+        commands: config.setup,
+      });
+    }
+    return out;
+  };
+
+  /** Clears every workspace's reopen mark, in the same store write as `patch`. */
+  const endReopen = async (taskId: string, patch: Partial<Task>) => {
+    await s.store.update((st) => {
+      const t = st.tasks.find((x) => x.id === taskId);
+      if (!t) return;
+      Object.assign(t, patch, { reopen: null });
+      for (const w of t.extraWorkspaces) w.reopen = null;
+    });
+    await tasksChanged();
+  };
+
+  /**
+   * Where a reopened workspace's branch comes from: the local branch (null), else `origin/<branch>`, else the last
+   * commit of its Finish summary, else its base when the branch had no commits.
+   */
+  const restoreSource = async (
+    repoPath: string,
+    ws: Pick<WorkspaceView, 'branch' | 'summary' | 'baseSha' | 'baseRef'>,
+  ): Promise<{
+    from: string | null;
+    via: 'branch' | 'origin' | 'commit' | 'base';
+  }> => {
+    if (await s.git.branchExists(repoPath, ws.branch))
+      return { from: null, via: 'branch' };
+    const remote = `origin/${ws.branch}`;
+    await s.git.fetch(repoPath, remote).catch(() => false);
+    const head = ws.summary?.commits[0]?.sha;
+    if (await s.git.commitExists(repoPath, `refs/remotes/${remote}`))
+      return { from: remote, via: 'origin' };
+    if (head && (await s.git.commitExists(repoPath, head)))
+      return { from: head, via: 'commit' };
+    if (ws.summary && ws.summary.commitCount === 0)
+      return { from: ws.baseSha ?? ws.baseRef, via: 'base' };
+    throw new Error(
+      `Branch ${ws.branch} cannot be restored: it was deleted and is not on origin`,
+    );
+  };
+
   const buildPlan = async (task: Task): Promise<SetupPlan> => {
     const repo = s.repos.get(task.repoId);
     const config = await s.loadConfig(repo.path);
@@ -557,6 +618,13 @@ export function createHandlers(s: Services): Handlers {
             repo.workItemOnStart.assignToMe),
         ),
       ...(task.reopen ? { restore: { from: task.reopen.from } } : {}),
+      ...(isReopening(task)
+        ? {
+            // Only workspaces Reopen marked are made again; the home's mark is absent when dropped or kept.
+            skipHome: task.reopen === null,
+            extraRestores: await extraRestores(task),
+          }
+        : {}),
     };
   };
 
@@ -612,7 +680,7 @@ export function createHandlers(s: Services): Handlers {
           await patchTask(taskId, { baseSha });
         },
         startTerminals: async () => {
-          if (task.reopen) {
+          if (isReopening(task)) {
             const defs = restoredTerminals(task);
             startRestored(task, defs);
             await updateTerminals(taskId, () => defs);
@@ -666,17 +734,16 @@ export function createHandlers(s: Services): Handlers {
           }
         },
       });
-      await patchTask(
-        taskId,
-        result.ok
-          ? {
-              status: 'ready',
-              ...(task.reopen
-                ? { reopen: null, finishedAt: null, closedTerminals: [] }
-                : {}),
-            }
-          : { status: 'setup-failed' },
-      );
+      if (result.ok && isReopening(task))
+        await endReopen(taskId, {
+          status: 'ready',
+          finishedAt: null,
+          closedTerminals: [],
+        });
+      else
+        await patchTask(taskId, {
+          status: result.ok ? 'ready' : 'setup-failed',
+        });
       report(result.ok, result.ok ? null : current.failedStep);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
@@ -1290,20 +1357,33 @@ export function createHandlers(s: Services): Handlers {
         // Windows will not remove a folder that a running process has as its cwd.
         docsWatcher.stopTask(taskId);
         await s.terminals.killAllForTask(taskId);
-        if (await exists(task.worktreePath))
-          await s.git.worktreeRemove(repo.path, task.worktreePath, true);
-        await s.git.worktreePrune(repo.path);
-        if (task.reopen) {
-          // A failed reopen goes back to Done; the task, its branch and its history stay.
+        if (isReopening(task)) {
+          // A failed reopen goes back to Done; the task, its branches and its history stay. Only the worktrees
+          // this reopen made are removed: a kept one stays as it was.
+          const remade = [
+            ...(task.reopen
+              ? [{ repoPath: repo.path, worktreePath: task.worktreePath }]
+              : []),
+            ...task.extraWorkspaces
+              .filter((w) => !w.dropped && w.reopen !== null)
+              .map((w) => ({
+                repoPath: s.repos.get(w.repoId).path,
+                worktreePath: w.worktreePath,
+              })),
+          ];
+          for (const r of remade) {
+            if (await exists(r.worktreePath))
+              await s.git.worktreeRemove(r.repoPath, r.worktreePath, true);
+            await s.git.worktreePrune(r.repoPath);
+          }
           setupStates.delete(taskId);
-          await patchTask(taskId, {
-            status: 'done',
-            reopen: null,
-            terminals: [],
-          });
+          await endReopen(taskId, { status: 'done', terminals: [] });
           tel.event('task.reopenCancelled');
           return;
         }
+        if (await exists(task.worktreePath))
+          await s.git.worktreeRemove(repo.path, task.worktreePath, true);
+        await s.git.worktreePrune(repo.path);
         if (await s.git.branchExists(repo.path, task.branch))
           await s.git.deleteBranch(repo.path, task.branch);
         setupStates.delete(taskId);
@@ -1347,14 +1427,32 @@ export function createHandlers(s: Services): Handlers {
       let setup = false;
       try {
         const task = taskById(taskId);
-        const repo = s.repos.get(task.repoId);
-        const hasBranch = await s.git.branchExists(repo.path, task.branch);
-        if (await exists(task.worktreePath)) {
-          if (!hasBranch)
-            throw new Error(
-              `${task.worktreePath} exists but branch ${task.branch} is gone`,
-            );
-          // The worktree was kept: back to ready with the tabs it had.
+        const active = activeWorkspaces(task);
+        if (active.length === 0)
+          throw new Error(
+            'Nothing to reopen: every repo of this task was removed without changes',
+          );
+        // Per workspace still in the task: kept (folder there) or to be made again, and from where.
+        const restores = new Map<string, { from: string | null }>();
+        let via: string | null = null;
+        for (const w of active) {
+          if (await exists(w.worktreePath)) {
+            // A kept worktree is used as it is; the home's branch must still be there, as before #48.
+            if (
+              w.id === HOME_ID &&
+              !(await s.git.branchExists(s.repos.get(w.repoId).path, w.branch))
+            )
+              throw new Error(
+                `${w.worktreePath} exists but branch ${w.branch} is gone`,
+              );
+            continue;
+          }
+          const source = await restoreSource(s.repos.get(w.repoId).path, w);
+          restores.set(w.id, { from: source.from });
+          via ??= source.via;
+        }
+        if (restores.size === 0) {
+          // Every worktree was kept: back to ready with the tabs it had.
           const defs =
             task.terminals.length > 0
               ? task.terminals
@@ -1369,34 +1467,19 @@ export function createHandlers(s: Services): Handlers {
           tel.event('task.reopened', { from: 'folder' });
           return { setup: false };
         }
-        let from: string | null = null;
-        let via = 'branch';
-        if (!hasBranch) {
-          const remote = `origin/${task.branch}`;
-          await s.git.fetch(repo.path, remote).catch(() => false);
-          const head = task.summary?.commits[0]?.sha;
-          if (await s.git.commitExists(repo.path, `refs/remotes/${remote}`)) {
-            from = remote;
-            via = 'origin';
-          } else if (head && (await s.git.commitExists(repo.path, head))) {
-            from = head;
-            via = 'commit';
-          } else if (task.summary && task.summary.commitCount === 0) {
-            from = task.baseSha ?? task.baseRef;
-            via = 'base';
-          } else
-            throw new Error(
-              `Branch ${task.branch} cannot be restored: it was deleted and is not on origin`,
-            );
-        }
-        await patchTask(taskId, {
-          status: 'setting-up',
-          reopen: { from },
-          terminals: [],
+        await s.store.update((st) => {
+          const t = st.tasks.find((x) => x.id === taskId);
+          if (!t) return;
+          t.status = 'setting-up';
+          t.terminals = [];
+          t.reopen = restores.get(HOME_ID) ?? null;
+          for (const w of t.extraWorkspaces)
+            w.reopen = restores.get(w.id) ?? null;
         });
+        await tasksChanged();
         setup = true;
         startSetupInBackground(taskId);
-        tel.event('task.reopened', { from: via });
+        tel.event('task.reopened', { from: via ?? 'branch' });
         return { setup: true };
       } finally {
         // The setup releases the task when it ends.

@@ -264,6 +264,8 @@ export type SetupStepDef = {
   label: string;
   detail: string;
   command?: string;
+  /** The extra workspace a reopen step restores; absent for the home's steps. */
+  workspaceId?: string;
 };
 export type SetupStepStatus = 'todo' | 'running' | 'done' | 'warn' | 'failed';
 export type SetupEvent =

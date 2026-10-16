@@ -35,6 +35,14 @@ export function activeHome(task: Task): WorkspaceView {
   return all.find((w) => !w.dropped) ?? all[0];
 }
 
+/** The task is being reopened: Reopen marked at least one workspace (home or extra) to be made again. */
+export function isReopening(task: Task): boolean {
+  return (
+    task.reopen !== null ||
+    task.extraWorkspaces.some((w) => !w.dropped && w.reopen !== null)
+  );
+}
+
 /** The branches Finish pushed, for the usage comment; the home branch when none was pushed (as before #48). */
 export function pushedBranches(task: Task): string[] {
   const pushed = activeWorkspaces(task)

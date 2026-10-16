@@ -1266,6 +1266,234 @@ describe('handlers: reopen a finished task', () => {
     expect(hx.calls.at(-1)).toEqual({ context: null, flags: ['--continue'] });
     await hx.terminals.killAllForTask(hx.t.id);
   });
+  /**
+   * A task in `webshop` (home, no changes) plus a worktree on its branch in `api` with one commit, finished with
+   * its worktrees removed and branches kept. `api`'s .miac.yml copies .env and writes api.txt.
+   */
+  async function finishedMulti(
+    o: {
+      home?: 'keep' | 'drop';
+      extra?: 'keep' | 'drop';
+      apiSetup?: string[];
+    } = {},
+  ) {
+    const rec = recording();
+    const api = makeRepo('api');
+    writeFileSync(path.join(api, '.env'), 'API=1');
+    const apiSetup = o.apiSetup ?? [writeLineCmd('api', 'api.txt')];
+    const hx = await harness(fakeCrypto(), {
+      platform: rec.platform,
+      claudeSessionExists: () => true,
+      loadConfig: async (p) =>
+        p === api
+          ? { ...(await loadMiacConfig(p)), copy: ['.env'], setup: apiSetup }
+          : loadMiacConfig(p),
+    });
+    // The copied .env is ignored, as in a real repo, so a home without commits can be dropped.
+    commitFile(hx.repo, '.gitignore', '.env\n');
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](
+      hx.input({ startClaude: true, openShell: false, commands: [] }),
+    );
+    await done;
+    const added = await hx.h['repos:add'](api);
+    const wt = path.join(path.dirname(api), 'api-wt');
+    git(api, 'worktree', 'add', '-q', '-b', t.branch, wt, 'main');
+    if (o.extra !== 'drop') commitFile(wt, 'api-work.txt', 'a\n', 'API work');
+    await hx.store.update((st) => {
+      st.tasks[0].extraWorkspaces.push({
+        id: 'w2',
+        repoId: added.id,
+        branch: t.branch,
+        worktreePath: wt,
+        baseRef: 'main',
+        baseSha: null,
+        source: 'detected',
+        summary: null,
+        pullRequest: null,
+        reopen: null,
+        dropped: false,
+      });
+    });
+    const before = hx.store.state.tasks[0].terminals;
+    await hx.h['tasks:finish'](t.id, {
+      ...finishWith({ removeWorktree: true, deleteBranch: false }),
+      workspaces: [
+        { workspaceId: 'home', action: o.home ?? 'keep' },
+        { workspaceId: 'w2', action: o.extra ?? 'keep' },
+      ],
+    });
+    expect(hx.store.state.tasks[0].status).toBe('done');
+    expect(existsSync(t.worktreePath)).toBe(false);
+    expect(existsSync(wt)).toBe(false);
+    return { ...hx, ...rec, t, before, api, wt };
+  }
+  const extraOf = (hx: { store: TaskStore }) =>
+    hx.store.state.tasks[0].extraWorkspaces[0];
+
+  it('reopens every repo: reopen.from on each, both worktrees made again with their own setup', async () => {
+    const hx = await finishedMulti();
+    const done = hx.setupDone();
+    expect(await hx.h['tasks:reopen'](hx.t.id)).toEqual({ setup: true });
+    expect(hx.store.state.tasks[0].reopen).toEqual({ from: null });
+    expect(extraOf(hx).reopen).toEqual({ from: null });
+    expect((await done).ok).toBe(true);
+    const state = await hx.h['tasks:setupState'](hx.t.id);
+    expect(state!.steps.map((x) => x.def.label)).toEqual([
+      'Restore worktree',
+      'Copy local files',
+      'Write task file',
+      'Restore api worktree',
+      'Copy local files (api)',
+      writeLineCmd('api', 'api.txt'),
+      'Restore terminals',
+    ]);
+    expect(existsSync(hx.t.worktreePath)).toBe(true);
+    expect(existsSync(path.join(hx.wt, 'api-work.txt'))).toBe(true);
+    expect(existsSync(path.join(hx.wt, '.env'))).toBe(true);
+    expect(existsSync(path.join(hx.wt, 'api.txt'))).toBe(true);
+    expect(existsSync(path.join(hx.t.worktreePath, 'api.txt'))).toBe(false);
+    expect(hx.store.state.tasks[0]).toMatchObject({
+      status: 'ready',
+      reopen: null,
+      finishedAt: null,
+    });
+    expect(extraOf(hx).reopen).toBeNull();
+    expect(hx.calls.at(-1)?.flags).toEqual([
+      '--resume',
+      hx.before[0].sessionId,
+      '--add-dir',
+      hx.wt,
+    ]);
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
+  it('a dropped repo is not restored', async () => {
+    const hx = await finishedMulti({ extra: 'drop' });
+    expect(extraOf(hx).dropped).toBe(true);
+    const done = hx.setupDone();
+    await hx.h['tasks:reopen'](hx.t.id);
+    expect(extraOf(hx).reopen).toBeNull();
+    expect((await done).ok).toBe(true);
+    const state = await hx.h['tasks:setupState'](hx.t.id);
+    expect(state!.steps.map((x) => x.def.label)).toEqual([
+      'Restore worktree',
+      'Copy local files',
+      'Write task file',
+      'Restore terminals',
+    ]);
+    expect(existsSync(hx.wt)).toBe(false);
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
+  it('a task whose home was dropped restores only the other repo, and Claude resumes there', async () => {
+    const hx = await finishedMulti({ home: 'drop' });
+    expect(hx.store.state.tasks[0].homeDropped).toBe(true);
+    const spy = vi.spyOn(hx.terminals, 'spawn');
+    const done = hx.setupDone();
+    await hx.h['tasks:reopen'](hx.t.id);
+    expect(hx.store.state.tasks[0].reopen).toBeNull();
+    expect(extraOf(hx).reopen).toEqual({ from: null });
+    expect((await done).ok).toBe(true);
+    const state = await hx.h['tasks:setupState'](hx.t.id);
+    expect(state!.steps.map((x) => x.def.label)).toEqual([
+      'Restore api worktree',
+      'Copy local files (api)',
+      writeLineCmd('api', 'api.txt'),
+      'Restore terminals',
+    ]);
+    expect(existsSync(hx.t.worktreePath)).toBe(false);
+    expect(existsSync(path.join(hx.wt, 'api-work.txt'))).toBe(true);
+    expect(hx.store.state.tasks[0].status).toBe('ready');
+    expect(spy.mock.calls.map((c) => c[0].cwd)).toEqual([hx.wt]);
+    expect(hx.calls.at(-1)?.flags).toEqual([
+      '--resume',
+      hx.before[0].sessionId,
+    ]);
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
+  it('a failing restore of a repo fails setup at its step, and Retry resumes there', async () => {
+    const hx = await finishedMulti({ apiSetup: [failCmd(3)] });
+    const failed = hx.setupDone();
+    await hx.h['tasks:reopen'](hx.t.id);
+    expect(await failed).toMatchObject({ ok: false, failedStep: 5 });
+    expect(hx.store.state.tasks[0].status).toBe('setup-failed');
+    const state = await hx.h['tasks:setupState'](hx.t.id);
+    expect(state!.steps[5].def).toMatchObject({
+      kind: 'command',
+      detail: 'in api',
+      workspaceId: 'w2',
+    });
+    // The repo's setup command is fixed; the retry starts at the failed step.
+    const runSpy = vi.spyOn(hx.services.runner, 'run');
+    const retried = hx.setupDone();
+    hx.services.loadConfig = async (p) =>
+      p === hx.api
+        ? {
+            ...(await loadMiacConfig(p)),
+            copy: ['.env'],
+            setup: [writeLineCmd('retried', 'api.txt')],
+          }
+        : loadMiacConfig(p);
+    await hx.h['tasks:retrySetup'](hx.t.id);
+    expect((await retried).ok).toBe(true);
+    expect(runSpy.mock.calls[0][1].fromStep).toBe(5);
+    expect(existsSync(path.join(hx.wt, 'api.txt'))).toBe(true);
+    expect(hx.store.state.tasks[0].status).toBe('ready');
+    expect(extraOf(hx).reopen).toBeNull();
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
+  it('cancelling a failed reopen removes every remade worktree and the task goes back to done', async () => {
+    const hx = await finishedMulti({ apiSetup: [failCmd(3)] });
+    const failed = hx.setupDone();
+    await hx.h['tasks:reopen'](hx.t.id);
+    expect((await failed).ok).toBe(false);
+    expect(existsSync(hx.wt)).toBe(true);
+    await hx.h['tasks:cancelSetup'](hx.t.id);
+    expect(hx.store.state.tasks[0]).toMatchObject({
+      status: 'done',
+      reopen: null,
+    });
+    expect(extraOf(hx).reopen).toBeNull();
+    expect(existsSync(hx.t.worktreePath)).toBe(false);
+    expect(existsSync(hx.wt)).toBe(false);
+    expect(await new GitClient().branchExists(hx.api, hx.t.branch)).toBe(true);
+    expect(await new GitClient().branchExists(hx.repo, hx.t.branch)).toBe(true);
+  });
+
+  it('a kept home with a removed repo goes through setup for that repo only', async () => {
+    const hx = await finishedMulti();
+    git(hx.repo, 'worktree', 'add', '-q', hx.t.worktreePath, hx.t.branch);
+    writeFileSync(path.join(hx.t.worktreePath, 'mine.txt'), 'x');
+    const done = hx.setupDone();
+    expect(await hx.h['tasks:reopen'](hx.t.id)).toEqual({ setup: true });
+    expect(hx.store.state.tasks[0].reopen).toBeNull();
+    expect((await done).ok).toBe(true);
+    const state = await hx.h['tasks:setupState'](hx.t.id);
+    expect(state!.steps[0].def.label).toBe('Restore api worktree');
+    expect(existsSync(path.join(hx.wt, 'api-work.txt'))).toBe(true);
+    expect(existsSync(path.join(hx.t.worktreePath, 'mine.txt'))).toBe(true);
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
+  it('reopens without setup when every repo kept its worktree', async () => {
+    const hx = await finishedMulti();
+    git(hx.repo, 'worktree', 'add', '-q', hx.t.worktreePath, hx.t.branch);
+    git(hx.api, 'worktree', 'add', '-q', hx.wt, hx.t.branch);
+    expect(await hx.h['tasks:reopen'](hx.t.id)).toEqual({ setup: false });
+    expect(hx.store.state.tasks[0].status).toBe('ready');
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
+  it('refuses when every repo was removed without changes', async () => {
+    const hx = await finishedMulti({ home: 'drop', extra: 'drop' });
+    await expect(hx.h['tasks:reopen'](hx.t.id)).rejects.toThrow(
+      'Nothing to reopen: every repo of this task was removed without changes',
+    );
+    expect(hx.store.state.tasks[0].status).toBe('done');
+  });
 });
 
 describe('handlers: run terminal command', () => {
