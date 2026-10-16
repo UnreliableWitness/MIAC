@@ -124,4 +124,63 @@ describe('SendTo', () => {
       ).toBeNull(),
     );
   });
+  it('does not send to an exited default terminal', async () => {
+    const { container } = mount({ sh: true, cl: false, oc: true });
+    act(() =>
+      select(
+        container.querySelector('p')!.firstChild!,
+        container.querySelector('p')!.firstChild!,
+      ),
+    );
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Send to Claude' }),
+    );
+    expect(pastes.cl).not.toHaveBeenCalled();
+    expect(
+      useStore
+        .getState()
+        .notices.some((n) => n.message === 'That terminal is not running'),
+    ).toBe(true);
+    expect(useStore.getState().activeTab('t1')).not.toBe('cl');
+    expect(localStorage.getItem('miac.docs.sendTo.t1')).toBeNull();
+  });
+  it('gives exact lines from the Source view', async () => {
+    installFakeApi({ 'terminals:isRunning': () => true });
+    const { getByTestId } = render(
+      <div data-testid="src">
+        <div className="src-line" data-line="10">
+          alpha
+        </div>
+        <div className="src-line" data-line="11">
+          beta
+        </div>
+      </div>,
+    );
+    const container = getByTestId('src');
+    render(
+      <SendTo task={task} container={container} path="a.md" view="source" />,
+    );
+    const [l1, l2] = container.querySelectorAll('.src-line');
+    act(() => select(l1.firstChild!, l2.firstChild!));
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Send to Claude' }),
+    );
+    expect(pastes.cl.mock.calls[0][0].startsWith('a.md:10-11\n')).toBe(true);
+  });
+  it('sends a single line when bracketed paste is off', async () => {
+    const plain = vi.fn();
+    registerTerminal('cl', {
+      paste: plain,
+      focus: vi.fn(),
+      modes: { bracketedPasteMode: false },
+    } as never);
+    const { container } = mount();
+    const [p1, p2] = container.querySelectorAll('p');
+    act(() => select(p1.firstChild!, p2.firstChild!));
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Send to Claude' }),
+    );
+    expect(plain).toHaveBeenCalledTimes(1);
+    expect(plain.mock.calls[0][0]).not.toMatch(/[\n\r]/);
+  });
 });

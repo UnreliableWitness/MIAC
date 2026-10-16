@@ -117,11 +117,21 @@ export function SendTo({
     terminals.find((t) => t.kind === 'claude' || t.kind === 'copilot') ??
     terminals[0];
 
-  const send = (id: string) => {
+  const send = async (id: string) => {
     const target = terminals.find((t) => t.id === id);
     if (!target) return;
     const sel = window.getSelection();
     const text = sel ? selectionText(sel) : '';
+    let running = false;
+    try {
+      running = Boolean(await api().invoke('terminals:isRunning', id));
+    } catch {
+      running = false;
+    }
+    if (!running) {
+      notify('warn', 'That terminal is not running');
+      return;
+    }
     const ok = pasteInto(id, (b) =>
       buildQuote(path, shown.start, shown.end, text, { singleLine: !b }),
     );
@@ -167,7 +177,7 @@ export function SendTo({
       <button
         type="button"
         className="btn btn-primary btn-sm"
-        onClick={() => send(defaultTarget.id)}
+        onClick={() => void send(defaultTarget.id)}
       >
         Send to {defaultTarget.label}
       </button>
@@ -193,7 +203,7 @@ export function SendTo({
                 className="docs-sendto-item"
                 aria-disabled={off ? 'true' : undefined}
                 onClick={() => {
-                  if (!off) send(t.id);
+                  if (!off) void send(t.id);
                 }}
               >
                 {t.label}
