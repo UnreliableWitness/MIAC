@@ -55,9 +55,10 @@ export function renderTaskMd(task: Task): string {
   return lines.join('\n');
 }
 
-export function claudePrompt(task: Pick<Task, 'workItem' | 'name'>): string {
+/** Appended to Claude Code's system prompt: the task, and that Claude waits for the user before working on it. */
+export function claudeContext(task: Pick<Task, 'workItem' | 'name'>): string {
   const head = task.workItem
-    ? `Work item ${task.workItem.id}: ${task.workItem.title}`
+    ? `${task.workItem.type} ${task.workItem.id}: ${task.workItem.title}`
     : `Task: ${task.name}`;
-  return `${head}. Details are in .miac/task.md.`;
+  return `This folder is a MIAC task for ${head}. The details are in .miac/task.md. Do not start on the task by yourself: wait for the user's instructions.`;
 }

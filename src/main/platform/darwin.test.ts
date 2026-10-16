@@ -19,16 +19,24 @@ describe('darwinPlatform', () => {
       args: ['-l', '-c', 'npm run dev'],
     });
   });
-  it('starts claude with a quoted prompt', () => {
+  it('starts claude with the task appended to its system prompt, quoted', () => {
     expect(p.claudeCommand("Work item 1: it's done")).toEqual({
       command: '/bin/zsh',
-      args: ['-l', '-c', "exec claude 'Work item 1: it'\\''s done'"],
+      args: [
+        '-l',
+        '-c',
+        "exec claude '--append-system-prompt' 'Work item 1: it'\\''s done'",
+      ],
     });
   });
-  it('passes session flags before the prompt, and no prompt when resuming', () => {
+  it('passes session flags first, and no context when resuming', () => {
     expect(p.claudeCommand('go', ['--session-id', 'abc'])).toEqual({
       command: '/bin/zsh',
-      args: ['-l', '-c', "exec claude '--session-id' 'abc' 'go'"],
+      args: [
+        '-l',
+        '-c',
+        "exec claude '--session-id' 'abc' '--append-system-prompt' 'go'",
+      ],
     });
     expect(p.claudeCommand(null, ['--continue'])).toEqual({
       command: '/bin/zsh',

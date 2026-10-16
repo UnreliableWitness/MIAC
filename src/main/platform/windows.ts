@@ -111,7 +111,13 @@ export function windowsPlatform(
     }),
     shellCommand: (cmd) => nonInteractive(psSetupWrapper(cmd)),
     runCommand: (cmd) => nonInteractive(psRunWrapper(cmd)),
-    claudeCommand: (prompt, flags = []) => tool('claude', flags, prompt),
+    // The context is the value of the last flag, so it can travel in the env var like any prompt.
+    claudeCommand: (context, flags = []) =>
+      tool(
+        'claude',
+        context === null ? flags : [...flags, '--append-system-prompt'],
+        context,
+      ),
     copilotCommand: () => tool('copilot', []),
     editorCommand: (p) => {
       if (!deps.which('code')) throw new Error('VS Code (code) is not on PATH');

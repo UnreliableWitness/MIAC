@@ -21,10 +21,11 @@ export interface Platform {
    */
   runCommand(cmd: string): Command;
   /**
-   * Start Claude Code: with a first prompt, or none when resuming. `flags` are MIAC's own (session id, resume),
-   * passed before the prompt.
+   * Start Claude Code. `context` (the task) is appended to its system prompt, so Claude knows the task but waits
+   * for the user's first message; null when resuming, as the session already has it. `flags` are MIAC's own
+   * (session id, resume).
    */
-  claudeCommand(prompt: string | null, flags?: string[]): Command;
+  claudeCommand(context: string | null, flags?: string[]): Command;
   /** Start GitHub Copilot CLI. */
   copilotCommand(): Command;
   /** Open a folder in the editor. */
