@@ -76,7 +76,7 @@ describe('workItemUsage', () => {
         billable: false,
       }),
     ]);
-    expect(renderUsageComment(u, 'feature/48213-save-delivery-address')).toBe(
+    expect(renderUsageComment(u, ['feature/48213-save-delivery-address'])).toBe(
       [
         `AI usage for this work item (MIAC): ${EURO}23.85`,
         `Claude Code: ${EURO}21.10 over 4 sessions (claude-opus-5-5, claude-sonnet-5-5)`,
@@ -93,7 +93,7 @@ describe('workItemUsage', () => {
       },
       billable: { costUsd: 1, costEur: 1, tokens: 10 },
     });
-    expect(renderUsageComment(u, 'b')).toBe(
+    expect(renderUsageComment(u, ['b'])).toBe(
       [
         `AI usage for this work item (MIAC): ${EURO}1.00`,
         `Claude Code: ${EURO}1.00 over 1 session (claude-opus-5-5)`,
@@ -101,6 +101,10 @@ describe('workItemUsage', () => {
         'Branch b',
       ].join('\n\n'),
     );
+  });
+  it('names every pushed branch, once each', () => {
+    const text = renderUsageComment(usage([]), ['a', 'b', 'a']);
+    expect(text.endsWith('\n\nBranches a, b')).toBe(true);
   });
   it('renders the cost line for a pull request description', () => {
     expect(renderCostLine(usage([]))).toBe(

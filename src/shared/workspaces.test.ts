@@ -3,6 +3,7 @@ import { TaskSchema, type Task, type Workspace } from './types';
 import {
   activeHome,
   activeWorkspaces,
+  pushedBranches,
   taskConnectionId,
   taskWorkspaces,
   workspaceById,
@@ -82,5 +83,32 @@ describe('workspaces', () => {
     expect(taskConnectionId(mkTask({ connectionId: 'c2' }), repos)).toBe('c2');
     expect(taskConnectionId(mkTask(), repos)).toBe('c1');
     expect(taskConnectionId(mkTask(), [])).toBeNull();
+  });
+
+  it('pushedBranches names the pushed branches of the workspaces still in the task, else the home branch', () => {
+    const summary = {
+      commits: [],
+      commitCount: 1,
+      filesChanged: 1,
+      insertions: 1,
+      deletions: 0,
+      pushed: true,
+      upstream: 'origin/x',
+      baseKnown: true,
+    };
+    expect(pushedBranches(mkTask())).toEqual(['feature/a']);
+    const t = mkTask({
+      homeDropped: true,
+      summary,
+      extraWorkspaces: [
+        extra({ summary }),
+        extra({
+          id: 'w3',
+          branch: 'feature/c',
+          summary: { ...summary, pushed: false },
+        }),
+      ],
+    });
+    expect(pushedBranches(t)).toEqual(['feature/b']);
   });
 });

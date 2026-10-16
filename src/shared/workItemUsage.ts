@@ -19,8 +19,11 @@ export function aiFieldValues(u: TaskUsage): Record<AiField, number> {
   };
 }
 
-/** The usage comment posted once on finish. Only billable sessions count; tools without usage are left out. */
-export function renderUsageComment(u: TaskUsage, branch: string): string {
+/**
+ * The usage comment posted once on finish, naming the task's pushed branches. Only billable sessions count;
+ * tools without usage are left out.
+ */
+export function renderUsageComment(u: TaskUsage, branches: string[]): string {
   const billable = u.sessions.filter((s) => s.billable);
   const lines = [
     `AI usage for this work item (MIAC): ${eur(u.billable.costEur)}`,
@@ -43,11 +46,16 @@ export function renderUsageComment(u: TaskUsage, branch: string): string {
     lines.push(
       `plus ${unpriced} request${unpriced === 1 ? '' : 's'} with unpriced models`,
     );
-  lines.push(`Branch ${branch}`);
+  const names = [...new Set(branches)];
+  lines.push(
+    names.length === 1 ? `Branch ${names[0]}` : `Branches ${names.join(', ')}`,
+  );
   return lines.join('\n\n');
 }
 
+export const COST_LINE_PREFIX = 'AI cost for this task: ';
+
 /** The one-line cost summary for a pull request description, in the same EUR format as the comment and fields. */
 export function renderCostLine(u: TaskUsage): string {
-  return `AI cost for this task: ${eur(u.billable.costEur)} (Claude ${eur(u.byTool['claude-code'].costEur)}, Copilot ${eur(u.byTool['copilot-cli'].costEur)})`;
+  return `${COST_LINE_PREFIX}${eur(u.billable.costEur)} (Claude ${eur(u.byTool['claude-code'].costEur)}, Copilot ${eur(u.byTool['copilot-cli'].costEur)})`;
 }

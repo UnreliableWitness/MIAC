@@ -63,7 +63,7 @@ export type Channels = {
     result: Repo;
   };
   'tasks:prAvailability': {
-    args: [taskId: string];
+    args: [taskId: string, workspaceId?: string];
     result: {
       available: boolean;
       reason: string | null;

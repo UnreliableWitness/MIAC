@@ -1,8 +1,8 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
-import type { TaskView } from '../../shared/types';
-import { readPrChoice, writePrChoice } from '../uiPrefs';
+import type { TaskView, WorkspaceCheck } from '../../shared/types';
+import { readPrChoice, readPushChoice, writePrChoice } from '../uiPrefs';
 import { useStore } from '../store';
 import { emptyUsage, installFakeApi } from '../test-helpers/fakeApi';
 import { FinishScreen } from './FinishScreen';
@@ -57,8 +57,14 @@ const dirty = {
   ],
   unpushed: 2,
   runningTerminals: 2,
+  workspaces: [],
 };
-const clean = { uncommitted: [], unpushed: 0, runningTerminals: 0 };
+const clean = {
+  uncommitted: [],
+  unpushed: 0,
+  runningTerminals: 0,
+  workspaces: [],
+};
 
 beforeEach(() => {
   localStorage.clear();
@@ -710,5 +716,225 @@ describe('FinishScreen pull request failure with unpushed commits', () => {
       name: 'Finish and clean up',
     });
     await waitFor(() => expect(btn).toBeEnabled());
+  });
+});
+
+describe('FinishScreen with several repos', () => {
+  const extra = (id: string, repoId: string) => ({
+    id,
+    repoId,
+    branch: task.branch,
+    worktreePath: `/w/${id}`,
+    baseRef: 'origin/main',
+    baseSha: null,
+    source: 'detected' as const,
+    summary: null,
+    pullRequest: null,
+    reopen: null,
+    dropped: false,
+  });
+  const multi: TaskView = {
+    ...task,
+    extraWorkspaces: [extra('w2', 'r2'), extra('w3', 'r3'), extra('w4', 'r4')],
+  };
+  const row = (
+    workspaceId: string,
+    repoId: string,
+    repoName: string,
+    over: Partial<WorkspaceCheck> = {},
+  ): WorkspaceCheck => ({
+    workspaceId,
+    repoId,
+    repoName,
+    branch: task.branch,
+    missing: false,
+    uncommitted: [],
+    unpushed: 0,
+    commits: 0,
+    pr: {
+      available: true,
+      reason: null,
+      target: 'main',
+      linksWorkItem: true,
+    },
+    ...over,
+  });
+  const checks = (api: Partial<WorkspaceCheck> = {}) => ({
+    ...clean,
+    workspaces: [
+      row('home', 'r1', 'webshop'),
+      row('w2', 'r2', 'api', { commits: 2, unpushed: 2, ...api }),
+      row('w3', 'r3', 'docs', {
+        commits: 1,
+        unpushed: 0,
+        pr: {
+          available: false,
+          reason: 'origin is not an Azure Repos URL',
+          target: null,
+          linksWorkItem: false,
+        },
+      }),
+      row('w4', 'r4', 'tools', { missing: true }),
+    ],
+  });
+  const finishArgs = (calls: { channel: string; args: unknown[] }[]) =>
+    calls.filter((c) => c.channel === 'tasks:finish').map((c) => c.args[1]);
+  const group = (name: string) => screen.getByRole('group', { name });
+
+  beforeEach(() => {
+    useStore.setState({ tasks: [multi] });
+  });
+
+  it('shows a row per workspace with its default action', async () => {
+    writePrChoice('r2', false);
+    installFakeApi({ 'tasks:finishChecks': () => checks() });
+    render(<FinishScreen taskId="a" />);
+    await screen.findByRole('group', { name: 'webshop' });
+    expect(
+      within(group('webshop')).getByLabelText('Remove, no changes (no push)'),
+    ).toBeChecked();
+    expect(
+      within(group('api')).getByLabelText(
+        'Create a draft pull request into main',
+      ),
+    ).not.toBeChecked();
+    expect(within(group('api')).getByText('2 commits')).toBeInTheDocument();
+    expect(
+      within(group('docs')).getByLabelText('Push the branch'),
+    ).not.toBeChecked();
+    expect(
+      within(group('tools')).getByText('Folder missing, skipped'),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText('Remove worktree folders')).toBeChecked();
+    expect(screen.getByLabelText('Delete local branches')).toBeChecked();
+  });
+
+  it('remembers the PR and push choices per repo and sends an action per workspace', async () => {
+    writePrChoice('r2', true);
+    const { calls } = installFakeApi({
+      'tasks:finishChecks': () => checks(),
+      'tasks:finish': () => undefined,
+    });
+    render(<FinishScreen taskId="a" />);
+    await screen.findByRole('group', { name: 'api' });
+    expect(
+      within(group('api')).getByLabelText(
+        'Create a draft pull request into main',
+      ),
+    ).toBeChecked();
+    await userEvent.click(
+      within(group('docs')).getByLabelText('Push the branch'),
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Finish and clean up' }),
+    );
+    await waitFor(() => expect(finishArgs(calls)).toHaveLength(1));
+    expect(finishArgs(calls)[0]).toEqual({
+      closeTerminals: true,
+      removeWorktree: true,
+      deleteBranch: true,
+      syncUsage: false,
+      workspaces: [
+        { workspaceId: 'home', action: 'drop' },
+        { workspaceId: 'w2', action: 'pr' },
+        { workspaceId: 'w3', action: 'push' },
+        { workspaceId: 'w4', action: 'keep' },
+      ],
+    });
+    expect(readPushChoice('r3')).toBe(true);
+    expect(readPrChoice('r2')).toBe(true);
+    await waitFor(() =>
+      expect(useStore.getState().screen).toEqual({ kind: 'task' }),
+    );
+  });
+
+  it('warns about unpushed commits of a row that is neither pushed nor PR', async () => {
+    installFakeApi({ 'tasks:finishChecks': () => checks() });
+    render(<FinishScreen taskId="a" />);
+    await screen.findByRole('group', { name: 'api' });
+    expect(
+      within(group('api')).getByText('2 commits not pushed'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Discard changes and clean up' }),
+    ).toBeInTheDocument();
+  });
+
+  it('opens commit in a terminal in that workspace', async () => {
+    const { calls } = installFakeApi({
+      'tasks:finishChecks': () =>
+        checks({ uncommitted: [{ status: 'M', path: 'src/x.ts' }] }),
+      'terminals:open': () => ({
+        id: 'g1',
+        kind: 'run',
+        label: 'git commit',
+        command: 'x',
+      }),
+    });
+    render(<FinishScreen taskId="a" />);
+    await screen.findByRole('group', { name: 'api' });
+    await userEvent.click(
+      within(group('api')).getByRole('button', {
+        name: 'Commit' + String.fromCharCode(0x2026),
+      }),
+    );
+    await waitFor(() =>
+      expect(calls.find((c) => c.channel === 'terminals:open')?.args).toEqual([
+        'a',
+        {
+          kind: 'run',
+          label: 'git commit',
+          command: 'git add -A && git commit',
+          workspaceId: 'w2',
+        },
+      ]),
+    );
+  });
+
+  it('on a failed PR offers Retry, and Finish without PR keeps only the failed rows', async () => {
+    writePrChoice('r2', true);
+    const message =
+      'Pull request not created for api: The token cannot create pull requests';
+    let n = 0;
+    const { calls } = installFakeApi({
+      'tasks:finishChecks': () => checks({ unpushed: 0 }),
+      'tasks:finish': () => {
+        if (n++ < 2)
+          throw new Error(
+            `Error invoking remote method 'tasks:finish': Error: ${message}`,
+          );
+        return undefined;
+      },
+    });
+    render(<FinishScreen taskId="a" />);
+    await screen.findByRole('group', { name: 'api' });
+    await userEvent.click(
+      within(group('docs')).getByLabelText('Push the branch'),
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Finish and clean up' }),
+    );
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(finishArgs(calls)).toHaveLength(2));
+    expect(finishArgs(calls)[1]).toEqual(finishArgs(calls)[0]);
+    await screen.findByText(message);
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Finish without PR' }),
+    );
+    await waitFor(() => expect(finishArgs(calls)).toHaveLength(3));
+    expect(finishArgs(calls)[2]).toMatchObject({
+      workspaces: [
+        { workspaceId: 'home', action: 'drop' },
+        { workspaceId: 'w2', action: 'keep' },
+        { workspaceId: 'w3', action: 'push' },
+        { workspaceId: 'w4', action: 'keep' },
+      ],
+    });
+    // Leaving out the failed PR is not a new preference for the repo.
+    expect(readPrChoice('r2')).toBe(true);
+    await waitFor(() =>
+      expect(useStore.getState().screen).toEqual({ kind: 'task' }),
+    );
   });
 });

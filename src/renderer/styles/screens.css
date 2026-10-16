@@ -358,6 +358,16 @@
   flex-direction: column;
   gap: 8px;
 }
+.finish-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.finish-workspace-head {
+  overflow-wrap: anywhere;
+}
 .check {
   display: flex;
   gap: 12px;

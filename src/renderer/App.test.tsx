@@ -201,6 +201,7 @@ describe('full pages', () => {
         uncommitted: [],
         unpushed: 0,
         runningTerminals: 0,
+        workspaces: [],
       }),
     });
     useStore.setState({ repos: [repo], tasks: [task] });

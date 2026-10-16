@@ -182,12 +182,21 @@ export type CreateTaskInput = {
   openCopilot?: boolean;
 };
 
+/**
+ * What Finish does with one workspace: `pr` pushes and opens a draft PR, `push` only pushes, `keep` does
+ * neither (it is still cleaned up per the global options), `drop` takes it out of the task without a push
+ * and always removes its worktree and branch.
+ */
+export type WorkspaceAction = 'pr' | 'push' | 'keep' | 'drop';
+
 export type FinishOptions = {
   closeTerminals: boolean;
   removeWorktree: boolean;
   deleteBranch: boolean;
   syncUsage: boolean;
   createPullRequest?: boolean;
+  /** One entry per workspace; absent is the single-repo Finish (home: `pr` when createPullRequest, else `keep`). */
+  workspaces?: { workspaceId: string; action: WorkspaceAction }[];
 };
 
 export type GitFile = { status: string; path: string };
@@ -198,10 +207,34 @@ export type GitSummary = {
   hasUpstream: boolean;
   files: GitFile[];
 };
+/** The Finish page's look at one workspace still in the task. */
+export type WorkspaceCheck = {
+  workspaceId: string;
+  repoId: string;
+  repoName: string;
+  branch: string;
+  /** The worktree folder is gone (removed by hand): Finish skips it. */
+  missing: boolean;
+  uncommitted: GitFile[];
+  unpushed: number;
+  /** Commits on the branch since it left its base. */
+  commits: number;
+  pr: {
+    available: boolean;
+    reason: string | null;
+    target: string | null;
+    /** False when the repo is in another organization than the work item: the PR names it instead. */
+    linksWorkItem: boolean;
+  };
+};
+
 export type FinishChecks = {
+  /** The home worktree's (as before #48). */
   uncommitted: GitFile[];
   unpushed: number;
   runningTerminals: number;
+  /** Every workspace still in the task, home first. */
+  workspaces: WorkspaceCheck[];
 };
 
 export type SetupStepKind =

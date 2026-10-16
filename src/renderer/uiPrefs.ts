@@ -31,17 +31,34 @@ export function writePref<K extends keyof UiPrefs>(
 }
 
 const prKey = (repoId: string) => `miac.ui.pr.${repoId}`;
+const pushKey = (repoId: string) => `miac.ui.push.${repoId}`;
+
+const readFlag = (key: string, storage: Storage | undefined): boolean => {
+  try {
+    return storage?.getItem(key) === 'true';
+  } catch {
+    return false;
+  }
+};
+
+const writeFlag = (
+  key: string,
+  value: boolean,
+  storage: Storage | undefined,
+): void => {
+  try {
+    storage?.setItem(key, String(value));
+  } catch {
+    /* preferences are best effort */
+  }
+};
 
 /** Whether the last Finish of this repo asked for a pull request; false until then. */
 export function readPrChoice(
   repoId: string,
   storage: Storage | undefined = local(),
 ): boolean {
-  try {
-    return storage?.getItem(prKey(repoId)) === 'true';
-  } catch {
-    return false;
-  }
+  return readFlag(prKey(repoId), storage);
 }
 
 export function writePrChoice(
@@ -49,9 +66,21 @@ export function writePrChoice(
   value: boolean,
   storage: Storage | undefined = local(),
 ): void {
-  try {
-    storage?.setItem(prKey(repoId), String(value));
-  } catch {
-    /* preferences are best effort */
-  }
+  writeFlag(prKey(repoId), value, storage);
+}
+
+/** Whether the last Finish of this repo (without pull requests) pushed its branch; false until then. */
+export function readPushChoice(
+  repoId: string,
+  storage: Storage | undefined = local(),
+): boolean {
+  return readFlag(pushKey(repoId), storage);
+}
+
+export function writePushChoice(
+  repoId: string,
+  value: boolean,
+  storage: Storage | undefined = local(),
+): void {
+  writeFlag(pushKey(repoId), value, storage);
 }

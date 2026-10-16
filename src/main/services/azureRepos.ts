@@ -1,6 +1,7 @@
 /** Azure Repos remotes, PR availability and PR text. Pure: no I/O. */
 
 import type { Connection } from '../../shared/types';
+import { COST_LINE_PREFIX } from '../../shared/workItemUsage';
 
 export type AzureRepoRef = { org: string; project: string; repo: string };
 export type PrAvailability = {
@@ -126,25 +127,38 @@ export type PrDescriptionInput = {
   commitCount: number;
   /** e.g. "AI cost for this task: €1.00 (Claude €1.00, Copilot €0.00)"; null leaves the cost out. */
   costLine: string | null;
+  /** Set when the task spans several repos: the cost line is then the whole task's, and says so. */
+  costScope?: { repos: number };
+  /** Named in the description when the PR cannot link the work item (another organization). */
+  workItemUrl?: string | null;
 };
 
 export function prDescription(input: PrDescriptionInput): string {
-  const footer = input.costLine
-    ? `${input.costLine} · recorded by MIAC`
+  const costLine =
+    input.costLine &&
+    input.costScope &&
+    input.costLine.startsWith(COST_LINE_PREFIX)
+      ? `AI cost (whole task, ${input.costScope.repos} repos): ${input.costLine.slice(COST_LINE_PREFIX.length)}`
+      : input.costLine;
+  const footer = costLine
+    ? `${costLine} · recorded by MIAC`
     : 'Recorded by MIAC';
+  const head = input.workItemUrl
+    ? `${input.heading}\n\nWork item: ${input.workItemUrl}`
+    : input.heading;
   const build = (n: number): string => {
     if (input.commits.length === 0 && input.commitCount === 0)
-      return `${input.heading}\n\n${footer}`;
+      return `${head}\n\n${footer}`;
     const lines = input.commits
       .slice(0, n)
       .map((c) => `- ${c.sha} ${c.subject}`);
     const more = input.commitCount - n;
     if (more > 0) lines.push(`- …and ${more} more commits`);
-    return `${input.heading}\n\n## Commits\n${lines.join('\n')}\n\n${footer}`;
+    return `${head}\n\n## Commits\n${lines.join('\n')}\n\n${footer}`;
   };
   for (let n = input.commits.length; n >= 0; n--) {
     const text = build(n);
     if (text.length <= PR_DESCRIPTION_MAX) return text;
   }
-  return `${input.heading}\n\n${footer}`.slice(0, PR_DESCRIPTION_MAX);
+  return `${head}\n\n${footer}`.slice(0, PR_DESCRIPTION_MAX);
 }

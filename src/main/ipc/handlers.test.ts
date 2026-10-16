@@ -2626,3 +2626,371 @@ describe('handlers: task-level connection', () => {
     expect(refresh).toHaveBeenCalled();
   });
 });
+
+describe('handlers: finish every workspace of a task', () => {
+  const HOME_REMOTE = 'https://dev.azure.com/contoso/P/_git/Web';
+  const opts = {
+    closeTerminals: true,
+    removeWorktree: true,
+    deleteBranch: true,
+    syncUsage: false,
+  };
+
+  /** A task in `webshop` (home, origin Web) plus worktrees on its branch in more repos, joined by a scan. */
+  async function multiHarness(
+    extras: { name: string; org?: string }[],
+    over: Partial<CreateTaskInput> = {},
+  ) {
+    const hx = await harness();
+    addOrigin(hx.repo);
+    const c = await hx.connections.save({
+      organizationUrl: 'https://dev.azure.com/contoso',
+      project: 'P',
+      pat: 'p',
+    });
+    await hx.h['repos:setConnection'](hx.added.id, c.id);
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](
+      hx.input({ baseRef: 'origin/main', openShell: false, ...over }),
+    );
+    await done;
+    const remotes = new Map<string, string>([[hx.repo, HOME_REMOTE]]);
+    const repos: {
+      name: string;
+      path: string;
+      wt: string;
+      bare: string;
+      connectionId: string;
+    }[] = [];
+    for (const e of extras) {
+      const p = makeRepo(e.name);
+      const bare = addOrigin(p);
+      const org = e.org ?? 'contoso';
+      const conn =
+        org === 'contoso'
+          ? c
+          : await hx.connections.save({
+              organizationUrl: `https://dev.azure.com/${org}`,
+              project: 'P',
+              pat: 'p',
+            });
+      const added = await hx.h['repos:add'](p);
+      await hx.h['repos:setConnection'](added.id, conn.id);
+      remotes.set(p, `https://dev.azure.com/${org}/P/_git/${e.name}`);
+      const wt = path.join(path.dirname(p), `${e.name}-wt`);
+      git(p, 'worktree', 'add', '-q', '-b', t.branch, wt, 'origin/main');
+      repos.push({ name: e.name, path: p, wt, bare, connectionId: conn.id });
+    }
+    vi.spyOn(hx.services.git, 'remoteUrl').mockImplementation(
+      async (cwd) => remotes.get(cwd) ?? null,
+    );
+    await hx.h['tasks:scanWorkspaces'](t.id);
+    const ids = hx.store.state.tasks[0].extraWorkspaces.map((w) => w.id);
+    expect(ids).toHaveLength(extras.length);
+    // One fake Azure Repos per connection: PRs it created are found again as active.
+    const created: { connectionId: string; repo: string; args: unknown }[] = [];
+    const clients = new Map<
+      string,
+      ReturnType<typeof hx.services.ado.client>
+    >();
+    for (const id of new Set([c.id, ...repos.map((r) => r.connectionId)])) {
+      const client = hx.services.ado.client(id);
+      clients.set(id, client);
+      vi.spyOn(client, 'repositoryId').mockImplementation(
+        async (_p, name) => `id-${name}`,
+      );
+      vi.spyOn(client, 'findActivePullRequest').mockImplementation(
+        async (_p, repositoryId) => {
+          const n = created.findIndex(
+            (x) => x.connectionId === id && `id-${x.repo}` === repositoryId,
+          );
+          return n < 0
+            ? null
+            : { pullRequestId: 100 + n, status: 'active', isDraft: true };
+        },
+      );
+      vi.spyOn(client, 'createPullRequest').mockImplementation(
+        async (_p, repositoryId, args) => {
+          created.push({
+            connectionId: id,
+            repo: repositoryId.slice(3),
+            args,
+          });
+          return {
+            pullRequestId: 100 + created.length - 1,
+            status: 'active',
+            isDraft: true,
+          };
+        },
+      );
+    }
+    const push = vi.spyOn(hx.services.git, 'push');
+    return { ...hx, c, t, repos, ids, created, clients, push };
+  }
+
+  const ws = (hx: { store: TaskStore }, id: string) =>
+    hx.store.state.tasks[0].extraWorkspaces.find((w) => w.id === id)!;
+
+  it('checks every workspace: changes, PR target and whether the PR links the work item', async () => {
+    const hx = await multiHarness([
+      { name: 'api' },
+      { name: 'docs', org: 'fabrikam' },
+    ]);
+    commitFile(hx.repos[0].wt, 'api.txt', 'a\n', 'API change');
+    const checks = await hx.h['tasks:finishChecks'](hx.t.id);
+    expect(checks.workspaces.map((w) => w.workspaceId)).toEqual([
+      'home',
+      ...hx.ids,
+    ]);
+    expect(checks.workspaces[0]).toMatchObject({
+      repoName: 'webshop',
+      branch: hx.t.branch,
+      missing: false,
+      commits: 0,
+      pr: { available: true, target: 'main', linksWorkItem: true },
+    });
+    expect(checks.workspaces[1]).toMatchObject({
+      repoName: 'api',
+      commits: 1,
+      unpushed: 1,
+      pr: { available: true, target: 'main', linksWorkItem: true },
+    });
+    expect(checks.workspaces[2].pr).toMatchObject({
+      available: true,
+      linksWorkItem: false,
+    });
+    expect(await hx.h['tasks:prAvailability'](hx.t.id, hx.ids[0])).toEqual({
+      available: true,
+      reason: null,
+      target: 'main',
+    });
+  });
+
+  it('drops the home without a push and opens a PR for the repo with changes', async () => {
+    const hx = await multiHarness([{ name: 'api' }]);
+    commitFile(hx.repos[0].wt, 'api.txt', 'a\n', 'API change');
+    await hx.h['tasks:finish'](hx.t.id, {
+      ...opts,
+      deleteBranch: false,
+      removeWorktree: false,
+      workspaces: [
+        { workspaceId: 'home', action: 'drop' },
+        { workspaceId: hx.ids[0], action: 'pr' },
+      ],
+    });
+    expect(hx.push.mock.calls.map((c) => c[0])).toEqual([hx.repos[0].wt]);
+    const task = hx.store.state.tasks[0];
+    expect(task.status).toBe('done');
+    expect(task.homeDropped).toBe(true);
+    // A dropped workspace is always removed, whatever the global options say.
+    expect(existsSync(hx.t.worktreePath)).toBe(false);
+    expect(await new GitClient().branchExists(hx.repo, hx.t.branch)).toBe(
+      false,
+    );
+    expect(existsSync(hx.repos[0].wt)).toBe(true);
+    expect(git(hx.repos[0].bare, 'branch', '--list', hx.t.branch)).toContain(
+      hx.t.branch,
+    );
+    expect(hx.created).toHaveLength(1);
+    expect(hx.created[0]).toMatchObject({
+      repo: 'api',
+      args: { source: hx.t.branch, target: 'main', workItemId: 48231 },
+    });
+    // One repo with changes: the cost line is the plain one.
+    expect(
+      (hx.created[0].args as { description: string }).description,
+    ).toContain('AI cost for this task: ');
+    expect(ws(hx, hx.ids[0]).pullRequest).toMatchObject({
+      id: 100,
+      repo: 'api',
+      url: 'https://dev.azure.com/contoso/P/_git/api/pullrequest/100',
+    });
+    expect(ws(hx, hx.ids[0]).summary).toMatchObject({
+      pushed: true,
+      commitCount: 1,
+    });
+    expect(task.pullRequest).toBeNull();
+    expect(hx.opened).toEqual([
+      'https://dev.azure.com/contoso/P/_git/api/pullrequest/100',
+    ]);
+  });
+
+  it('marks the cost line as the whole task when several repos have changes', async () => {
+    const hx = await multiHarness([{ name: 'api' }]);
+    commitFile(hx.t.worktreePath, 'web.txt', 'a\n', 'Web change');
+    commitFile(hx.repos[0].wt, 'api.txt', 'a\n', 'API change');
+    await hx.h['tasks:finish'](hx.t.id, {
+      ...opts,
+      workspaces: [
+        { workspaceId: 'home', action: 'pr' },
+        { workspaceId: hx.ids[0], action: 'pr' },
+      ],
+    });
+    expect(hx.created.map((x) => x.repo)).toEqual(['Web', 'api']);
+    for (const x of hx.created)
+      expect((x.args as { description: string }).description).toContain(
+        'AI cost (whole task, 2 repos): ',
+      );
+    const task = hx.store.state.tasks[0];
+    expect(task.pullRequest).toMatchObject({ repo: 'Web' });
+    expect(ws(hx, hx.ids[0]).pullRequest).toMatchObject({ repo: 'api' });
+    expect(existsSync(hx.t.worktreePath)).toBe(false);
+    expect(existsSync(hx.repos[0].wt)).toBe(false);
+    expect(
+      await new GitClient().branchExists(hx.repos[0].path, hx.t.branch),
+    ).toBe(false);
+  });
+
+  it('stops before cleanup when one PR fails, and a retry neither pushes again nor duplicates the PR', async () => {
+    const hx = await multiHarness([{ name: 'api' }, { name: 'docs' }]);
+    commitFile(hx.repos[0].wt, 'api.txt', 'a\n', 'API change');
+    commitFile(hx.repos[1].wt, 'docs.txt', 'a\n', 'Docs change');
+    const realPush = GitClient.prototype.push;
+    let failDocs = true;
+    hx.push.mockImplementation(
+      async function (this: GitClient, cwd, remote, branch) {
+        if (failDocs && cwd === hx.repos[1].wt)
+          throw new Error('! [rejected] (fetch first)');
+        return realPush.call(this, cwd, remote, branch);
+      },
+    );
+    const finishAll = {
+      ...opts,
+      workspaces: [
+        { workspaceId: 'home', action: 'drop' as const },
+        { workspaceId: hx.ids[0], action: 'pr' as const },
+        { workspaceId: hx.ids[1], action: 'pr' as const },
+      ],
+    };
+    await expect(hx.h['tasks:finish'](hx.t.id, finishAll)).rejects.toThrow(
+      /^Pull request not created for docs: [^]*rejected/,
+    );
+    const failed = hx.store.state.tasks[0];
+    expect(failed.status).toBe('ready');
+    expect(failed.homeDropped).toBe(false);
+    expect(ws(hx, hx.ids[0]).pullRequest).toMatchObject({ repo: 'api' });
+    expect(ws(hx, hx.ids[1]).pullRequest).toBeNull();
+    expect(existsSync(hx.t.worktreePath)).toBe(true);
+    expect(existsSync(hx.repos[0].wt)).toBe(true);
+    expect(existsSync(hx.repos[1].wt)).toBe(true);
+    expect(hx.opened).toEqual([
+      'https://dev.azure.com/contoso/P/_git/api/pullrequest/100',
+    ]);
+
+    failDocs = false;
+    hx.push.mockClear();
+    await hx.h['tasks:finish'](hx.t.id, finishAll);
+    expect(hx.push.mock.calls.map((c) => c[0])).toEqual([hx.repos[1].wt]);
+    expect(hx.created.map((x) => x.repo)).toEqual(['api', 'docs']);
+    expect(ws(hx, hx.ids[0]).pullRequest).toMatchObject({ id: 100 });
+    expect(ws(hx, hx.ids[1]).pullRequest).toMatchObject({ id: 101 });
+    const task = hx.store.state.tasks[0];
+    expect(task.status).toBe('done');
+    expect(task.homeDropped).toBe(true);
+    expect(existsSync(hx.repos[1].wt)).toBe(false);
+  });
+
+  it('finishes without the PR for the failed row only', async () => {
+    const hx = await multiHarness([{ name: 'api' }, { name: 'docs' }]);
+    commitFile(hx.repos[0].wt, 'api.txt', 'a\n', 'API change');
+    commitFile(hx.repos[1].wt, 'docs.txt', 'a\n', 'Docs change');
+    vi.mocked(hx.clients.get(hx.c.id)!.createPullRequest).mockRejectedValueOnce(
+      new Error('boom'),
+    );
+    const rows = (api: 'pr' | 'keep') => ({
+      ...opts,
+      workspaces: [
+        { workspaceId: 'home', action: 'drop' as const },
+        { workspaceId: hx.ids[0], action: api },
+        { workspaceId: hx.ids[1], action: 'pr' as const },
+      ],
+    });
+    await expect(hx.h['tasks:finish'](hx.t.id, rows('pr'))).rejects.toThrow(
+      'Pull request not created for api: boom',
+    );
+    expect(ws(hx, hx.ids[1]).pullRequest).toMatchObject({ repo: 'docs' });
+    // Finish without PR keeps api; docs' PR exists already, so it is linked, not created again.
+    await hx.h['tasks:finish'](hx.t.id, rows('keep'));
+    expect(hx.created.map((x) => x.repo)).toEqual(['docs']);
+    const task = hx.store.state.tasks[0];
+    expect(task.status).toBe('done');
+    expect(ws(hx, hx.ids[0]).pullRequest).toBeNull();
+    expect(existsSync(hx.repos[0].wt)).toBe(false);
+    expect(existsSync(hx.repos[1].wt)).toBe(false);
+  });
+
+  it('a push-only row pushes without a PR, and records it as pushed', async () => {
+    const hx = await multiHarness([{ name: 'api' }]);
+    commitFile(hx.repos[0].wt, 'api.txt', 'a\n', 'API change');
+    await hx.h['tasks:finish'](hx.t.id, {
+      ...opts,
+      workspaces: [
+        { workspaceId: 'home', action: 'drop' },
+        { workspaceId: hx.ids[0], action: 'push' },
+      ],
+    });
+    expect(hx.created).toEqual([]);
+    expect(git(hx.repos[0].bare, 'branch', '--list', hx.t.branch)).toContain(
+      hx.t.branch,
+    );
+    expect(ws(hx, hx.ids[0]).summary).toMatchObject({ pushed: true });
+    expect(hx.store.state.tasks[0].status).toBe('done');
+  });
+
+  it('a worktree removed by hand is reported missing and skipped by Finish', async () => {
+    const hx = await multiHarness([{ name: 'api' }]);
+    commitFile(hx.t.worktreePath, 'web.txt', 'a\n', 'Web change');
+    rmSync(hx.repos[0].wt, { recursive: true, force: true });
+    const checks = await hx.h['tasks:finishChecks'](hx.t.id);
+    expect(checks.workspaces[1]).toMatchObject({
+      workspaceId: hx.ids[0],
+      missing: true,
+      uncommitted: [],
+      commits: 0,
+    });
+    const view = (await hx.h['tasks:list']())[0];
+    expect(view.extraWorkspaces.map((w) => w.id)).toEqual(hx.ids);
+    await hx.h['tasks:finish'](hx.t.id, {
+      ...opts,
+      workspaces: [
+        { workspaceId: 'home', action: 'pr' },
+        { workspaceId: hx.ids[0], action: 'pr' },
+      ],
+    });
+    expect(hx.push.mock.calls.map((c) => c[0])).toEqual([hx.t.worktreePath]);
+    expect(hx.created.map((x) => x.repo)).toEqual(['Web']);
+    expect(hx.store.state.tasks[0].status).toBe('done');
+  });
+
+  it('a repo in another organization gets a PR without the work item link, naming it instead', async () => {
+    const hx = await multiHarness([{ name: 'docs', org: 'fabrikam' }], {
+      workItem: {
+        id: '48231',
+        type: 'User Story',
+        title: 'Show estimated delivery date',
+        url: 'https://dev.azure.com/contoso/P/_workitems/edit/48231',
+      },
+    });
+    commitFile(hx.repos[0].wt, 'docs.txt', 'a\n', 'Docs change');
+    await hx.h['tasks:finish'](hx.t.id, {
+      ...opts,
+      workspaces: [
+        { workspaceId: 'home', action: 'drop' },
+        { workspaceId: hx.ids[0], action: 'pr' },
+      ],
+    });
+    expect(hx.created).toHaveLength(1);
+    expect(hx.created[0].connectionId).toBe(hx.repos[0].connectionId);
+    const args = hx.created[0].args as {
+      workItemId: number | null;
+      description: string;
+    };
+    expect(args.workItemId).toBeNull();
+    expect(args.description).toContain(
+      'Work item: https://dev.azure.com/contoso/P/_workitems/edit/48231',
+    );
+    expect(ws(hx, hx.ids[0]).pullRequest).toMatchObject({
+      url: 'https://dev.azure.com/fabrikam/P/_git/docs/pullrequest/100',
+    });
+  });
+});

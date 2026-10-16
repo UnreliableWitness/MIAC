@@ -3,6 +3,7 @@ import type { FieldsStatus, UsageTool } from '../../shared/usage';
 import { AI_FIELDS } from '../../shared/usage';
 import { isLive, timeline, tokenMix, type Bin } from '../../shared/usageViews';
 import { aiFieldValues, renderUsageComment } from '../../shared/workItemUsage';
+import { pushedBranches } from '../../shared/workspaces';
 import { api, tryInvoke } from '../api';
 import { ago, compact, eur } from '../format';
 import { useClock } from '../hooks/useClock';
@@ -336,7 +337,7 @@ export function UsagePanel({
                 <details>
                   <summary>Comment preview</summary>
                   <pre className="usage-comment">
-                    {renderUsageComment(usage, task.branch)}
+                    {renderUsageComment(usage, pushedBranches(task))}
                   </pre>
                 </details>
               )}

@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'react';
-import type { FinishChecks } from '../../shared/types';
+import type {
+  FinishChecks,
+  WorkspaceAction,
+  WorkspaceCheck,
+} from '../../shared/types';
+import { activeWorkspaces } from '../../shared/workspaces';
 import { api, tryInvoke } from '../api';
 import { eur } from '../format';
 import { useTaskUsage } from '../hooks/useTaskUsage';
@@ -7,10 +12,41 @@ import { useWriteCostToAdo } from '../hooks/useWriteCostToAdo';
 import { PageHeader } from '../components/ui';
 import { useEscape } from '../hooks/useEscape';
 import { useStore } from '../store';
-import { readPrChoice, writePrChoice } from '../uiPrefs';
+import {
+  readPrChoice,
+  readPushChoice,
+  writePrChoice,
+  writePushChoice,
+} from '../uiPrefs';
 
 const ELLIPSIS = String.fromCharCode(0x2026);
 const PR_FAILED = 'Pull request not created: ';
+/** How main names a row that failed when the task has several repos. */
+const ROW_FAILED = /(Pull request not created|Branch not pushed) for /;
+
+type Choices = Record<string, boolean>;
+
+/** No commits and a clean worktree: the wrong first guess, removed without a push by default. */
+const noChanges = (c: WorkspaceCheck) =>
+  c.commits === 0 && c.uncommitted.length === 0;
+
+/** The row's checkbox: as the user set it, else its default (remove, or the last PR or push choice for the repo). */
+const choiceOf = (c: WorkspaceCheck, choices: Choices): boolean =>
+  choices[c.workspaceId] ??
+  (noChanges(c)
+    ? true
+    : c.pr.available
+      ? readPrChoice(c.repoId)
+      : readPushChoice(c.repoId));
+
+const actionOf = (c: WorkspaceCheck, choices: Choices): WorkspaceAction => {
+  if (c.missing) return 'keep';
+  const on = choiceOf(c, choices);
+  if (!on) return 'keep';
+  return noChanges(c) ? 'drop' : c.pr.available ? 'pr' : 'push';
+};
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const G = {
   WARN: String.fromCharCode(0x26a0),
   OK: String.fromCharCode(0x2713),
@@ -42,6 +78,9 @@ export function FinishScreen({ taskId }: { taskId: string }) {
   const [finishError, setFinishError] = useState<string | null>(null);
   // Finish waits for the PR availability, else a stored yes would be sent as no.
   const [prLoaded, setPrLoaded] = useState(false);
+  // With several repos: each row's checkbox once the user touched it.
+  const [rowChoice, setRowChoice] = useState<Choices>({});
+  const [failedRows, setFailedRows] = useState<string[]>([]);
   const ready = task?.status === 'ready';
   const usage = useTaskUsage(ready ? taskId : null);
   const repo = useStore((s) => s.repos.find((r) => r.id === task?.repoId));
@@ -117,10 +156,19 @@ export function FinishScreen({ taskId }: { taskId: string }) {
     );
   }
 
-  const openGit = async (label: string, command: string) => {
+  const openGit = async (
+    label: string,
+    command: string,
+    workspaceId?: string,
+  ) => {
     const opened = await tryInvoke(
       () =>
-        api().invoke('terminals:open', taskId, { kind: 'run', label, command }),
+        api().invoke('terminals:open', taskId, {
+          kind: 'run',
+          label,
+          command,
+          ...(workspaceId ? { workspaceId } : {}),
+        }),
       notify,
     );
     if (opened && stillHere()) {
@@ -192,7 +240,104 @@ export function FinishScreen({ taskId }: { taskId: string }) {
     await finish(true);
   };
 
-  const dirty = dirtyWith(checks, Boolean(checksFailed), createPr);
+  // A task with other repos finishes per workspace; a single-repo task keeps the page as it was.
+  const multi = task.extraWorkspaces.length > 0;
+  const rows = checks?.workspaces ?? [];
+
+  /** Whether finishing with these row choices would discard uncommitted work or unpushed commits. */
+  const dirtyRows = (
+    list: WorkspaceCheck[],
+    failed: boolean,
+    choices: Choices,
+  ) =>
+    failed ||
+    list.some((c) => {
+      const action = actionOf(c, choices);
+      if (c.missing || action === 'drop') return false;
+      return c.uncommitted.length > 0 || (c.unpushed > 0 && action === 'keep');
+    });
+
+  const finishRows = async (choices: Choices, withoutPr = false) => {
+    setBusy(true);
+    setFinishError(null);
+    setFailedRows([]);
+    // The choices are saved when Finish is clicked; leaving out a failed PR is not a new preference.
+    if (!withoutPr)
+      for (const c of rows)
+        if (!c.missing && !noChanges(c))
+          (c.pr.available ? writePrChoice : writePushChoice)(
+            c.repoId,
+            choiceOf(c, choices),
+          );
+    const workspaces =
+      rows.length > 0
+        ? rows.map((c) => ({
+            workspaceId: c.workspaceId,
+            action: actionOf(c, choices),
+          }))
+        : // Without checks nothing is pushed: every workspace is kept and cleaned up per the options.
+          activeWorkspaces(task).map((w) => ({
+            workspaceId: w.id,
+            action: 'keep' as const,
+          }));
+    let rowFailed = false;
+    const ok = await tryInvoke(async () => {
+      try {
+        await api().invoke('tasks:finish', taskId, {
+          closeTerminals: closeTerminals && nTerm > 0,
+          removeWorktree,
+          deleteBranch,
+          syncUsage: canSync && syncUsage,
+          workspaces,
+        });
+      } catch (e) {
+        const m = e instanceof Error ? e.message : '';
+        const at = m.search(ROW_FAILED);
+        if (at < 0) throw e;
+        rowFailed = true;
+        const text = m.slice(at);
+        setFinishError(text);
+        setFailedRows(
+          rows
+            .filter((c) => text.includes(`for ${c.repoName}: `))
+            .map((c) => c.workspaceId),
+        );
+        return false;
+      }
+      return true;
+    }, notify);
+    // A push that went through changes what is unpushed; the fallback below must judge fresh checks.
+    if (rowFailed) await loadChecks(stillHere);
+    setBusy(false);
+    if (ok && stillHere()) {
+      select(taskId);
+      go({ kind: 'task' });
+    }
+  };
+
+  /** Like the single-repo Finish without PR, for the failed rows only: untick them, and finish if nothing is lost. */
+  const finishRowsWithoutPr = async () => {
+    const next = { ...rowChoice };
+    for (const id of failedRows) next[id] = false;
+    setRowChoice(next);
+    if (dirtyRows(rows, Boolean(checksFailed), next)) {
+      setFinishError(null);
+      setFailedRows([]);
+      return;
+    }
+    await finishRows(next, true);
+  };
+
+  const setRow = (id: string, on: boolean) => {
+    setRowChoice((c) => ({ ...c, [id]: on }));
+    // A stale error's Retry would otherwise run with the new choice and no fresh look.
+    setFinishError(null);
+    setFailedRows([]);
+  };
+
+  const dirty = multi
+    ? dirtyRows(rows, Boolean(checksFailed), rowChoice)
+    : dirtyWith(checks, Boolean(checksFailed), createPr);
   const nTerm = task.terminals.length;
   const terminalLabels = task.terminals.map((t) => t.label).join(', ');
 
@@ -219,6 +364,19 @@ export function FinishScreen({ taskId }: { taskId: string }) {
             </div>
           )}
           {checks &&
+            multi &&
+            rows.map((c) => (
+              <WorkspaceRow
+                key={c.workspaceId}
+                check={c}
+                on={choiceOf(c, rowChoice)}
+                action={actionOf(c, rowChoice)}
+                onToggle={(on) => setRow(c.workspaceId, on)}
+                openGit={openGit}
+              />
+            ))}
+          {checks &&
+            !multi &&
             (checks.uncommitted.length > 0 ? (
               <div className="check check-warn">
                 <span aria-hidden="true">{G.WARN}</span>
@@ -247,6 +405,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
               </div>
             ))}
           {checks &&
+            !multi &&
             (checks.unpushed > 0 && !createPr ? (
               <div className="check check-warn">
                 <span aria-hidden="true">{G.UP}</span>
@@ -328,7 +487,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
 
         <div className="finish-section">
           <h2>Clean up</h2>
-          {pr && (
+          {pr && !multi && (
             <label className="checkbox">
               <input
                 type="checkbox"
@@ -366,7 +525,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
               checked={removeWorktree}
               onChange={(e) => setRemoveWorktree(e.target.checked)}
             />
-            Remove worktree folder
+            {multi ? 'Remove worktree folders' : 'Remove worktree folder'}
           </label>
           {removeWorktree && !closeTerminals && nTerm > 0 && (
             <div className="muted small">
@@ -385,8 +544,14 @@ export function FinishScreen({ taskId }: { taskId: string }) {
               checked={deleteBranch}
               onChange={(e) => setDeleteBranch(e.target.checked)}
             />
-            Delete local branch{' '}
-            <span className="mono small">{task.branch}</span>
+            {multi ? (
+              'Delete local branches'
+            ) : (
+              <>
+                Delete local branch{' '}
+                <span className="mono small">{task.branch}</span>
+              </>
+            )}
           </label>
         </div>
 
@@ -398,7 +563,9 @@ export function FinishScreen({ taskId }: { taskId: string }) {
               type="button"
               className="btn btn-sm"
               disabled={busy}
-              onClick={() => finish()}
+              onClick={() =>
+                multi ? void finishRows(rowChoice) : void finish()
+              }
             >
               Retry
             </button>
@@ -406,7 +573,9 @@ export function FinishScreen({ taskId }: { taskId: string }) {
               type="button"
               className="btn btn-subtle btn-sm"
               disabled={busy}
-              onClick={() => void finishWithoutPr()}
+              onClick={() =>
+                multi ? void finishRowsWithoutPr() : void finishWithoutPr()
+              }
             >
               Finish without PR
             </button>
@@ -420,8 +589,10 @@ export function FinishScreen({ taskId }: { taskId: string }) {
           <button
             type="button"
             className={dirty ? 'btn btn-danger' : 'btn btn-primary'}
-            disabled={busy || !prLoaded || (!checks && !checksFailed)}
-            onClick={() => finish()}
+            disabled={
+              busy || (!multi && !prLoaded) || (!checks && !checksFailed)
+            }
+            onClick={() => (multi ? void finishRows(rowChoice) : void finish())}
           >
             {checksFailed
               ? 'Clean up without checks'
@@ -431,6 +602,109 @@ export function FinishScreen({ taskId }: { taskId: string }) {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** One repo of a task on the Finish page: what it holds and what Finish will do with it. */
+function WorkspaceRow({
+  check: c,
+  on,
+  action,
+  onToggle,
+  openGit,
+}: {
+  check: WorkspaceCheck;
+  on: boolean;
+  action: WorkspaceAction;
+  onToggle: (on: boolean) => void;
+  openGit: (label: string, command: string, workspaceId?: string) => void;
+}) {
+  return (
+    <div className="finish-workspace" role="group" aria-label={c.repoName}>
+      <div className="finish-workspace-head">
+        <strong>{c.repoName}</strong>{' '}
+        <span className="mono small">{c.branch}</span>{' '}
+        {!c.missing && (
+          <span className="muted small">
+            {c.commits > 0 ? plural(c.commits, 'commit') : 'No commits'}
+          </span>
+        )}
+      </div>
+      {c.missing ? (
+        <div className="muted small">Folder missing, skipped</div>
+      ) : (
+        <>
+          {c.uncommitted.length > 0 && (
+            <div className="check check-warn">
+              <span aria-hidden="true">{G.WARN}</span>
+              <div className="body">
+                <div className="title">
+                  {plural(c.uncommitted.length, 'uncommitted change')}
+                </div>
+                <div className="mono small files">
+                  {c.uncommitted.map((f) => `${f.status} ${f.path}`).join('\n')}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="btn btn-warn btn-sm"
+                onClick={() =>
+                  openGit(
+                    'git commit',
+                    'git add -A && git commit',
+                    c.workspaceId,
+                  )
+                }
+              >
+                Commit{ELLIPSIS}
+              </button>
+            </div>
+          )}
+          {c.unpushed > 0 && action === 'keep' && (
+            <div className="check check-warn">
+              <span aria-hidden="true">{G.UP}</span>
+              <div className="body">
+                <div className="title">{`${plural(c.unpushed, 'commit')} not pushed`}</div>
+              </div>
+              <button
+                type="button"
+                className="btn btn-warn btn-sm"
+                onClick={() =>
+                  openGit(
+                    'git push',
+                    `git push -u origin ${c.branch}`,
+                    c.workspaceId,
+                  )
+                }
+              >
+                Push
+              </button>
+            </div>
+          )}
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={on}
+              onChange={(e) => onToggle(e.target.checked)}
+            />
+            {noChanges(c)
+              ? 'Remove, no changes (no push)'
+              : c.pr.available
+                ? `Create a draft pull request into ${c.pr.target}`
+                : 'Push the branch'}
+          </label>
+          {!noChanges(c) && !c.pr.available && c.pr.reason && (
+            <div className="muted small">{`No pull request: ${c.pr.reason}`}</div>
+          )}
+          {!noChanges(c) && c.pr.available && !c.pr.linksWorkItem && (
+            <div className="muted small">
+              This repo is in another organization: the PR names the work item
+              instead of linking it.
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

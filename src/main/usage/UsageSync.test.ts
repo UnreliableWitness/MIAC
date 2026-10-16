@@ -128,6 +128,42 @@ describe('UsageSync', () => {
     expect(again.commentPosted).toBe(false);
     expect(comments()).toHaveLength(1);
   });
+  it('names the pushed branches of every repo in the comment', async () => {
+    const summary = {
+      commits: [],
+      commitCount: 1,
+      filesChanged: 1,
+      insertions: 1,
+      deletions: 0,
+      pushed: true,
+      upstream: 'origin/feature/1-checkout',
+      baseKnown: true,
+    };
+    const { sync } = setup(
+      task({
+        summary,
+        extraWorkspaces: [
+          {
+            id: 'w2',
+            repoId: 'r2',
+            branch: 'feature/1-api',
+            worktreePath: '/w2',
+            baseRef: 'main',
+            baseSha: null,
+            source: 'detected',
+            summary,
+            pullRequest: null,
+            reopen: null,
+            dropped: false,
+          },
+        ],
+      }),
+    );
+    await sync.syncTask('t1', { comment: true });
+    expect(JSON.parse(comments()[0].body).text).toContain(
+      'Branches feature/1-checkout, feature/1-api',
+    );
+  });
   it('never posts twice when two syncs overlap', async () => {
     const { sync } = setup();
     await Promise.all([

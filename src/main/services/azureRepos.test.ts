@@ -131,6 +131,21 @@ describe('prDescription', () => {
     expect(text).not.toContain('AI cost');
     expect(text.endsWith('\n\nRecorded by MIAC')).toBe(true);
   });
+  it('marks the cost line as the whole task across repos', () => {
+    expect(prDescription({ ...base, costScope: { repos: 2 } })).toContain(
+      '\n\nAI cost (whole task, 2 repos): €1.00 (Claude €1.00, Copilot €0.00) · recorded by MIAC',
+    );
+  });
+  it('names the work item URL when the PR cannot link it', () => {
+    expect(
+      prDescription({
+        ...base,
+        workItemUrl: 'https://dev.azure.com/o/P/_workitems/edit/42',
+      }),
+    ).toMatch(
+      /^Bug 42: Fix it\n\nWork item: https:\/\/dev\.azure\.com\/o\/P\/_workitems\/edit\/42\n\n## Commits/,
+    );
+  });
   it('mentions commits beyond the list', () => {
     expect(prDescription({ ...base, commitCount: 5 })).toContain(
       '…and 3 more commits',

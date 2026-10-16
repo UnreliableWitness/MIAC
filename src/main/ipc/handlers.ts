@@ -11,6 +11,7 @@ import {
 import { WorkspaceDetector } from '../workspaces/WorkspaceDetector';
 import type {
   Connection,
+  FinishOptions,
   MiacConfig,
   PullRequestRef,
   SetupEvent,
@@ -21,13 +22,17 @@ import type {
   TaskView,
   TerminalDef,
   WorkItemTypeMeta,
+  WorkspaceAction,
+  WorkspaceCheck,
 } from '../../shared/types';
 import {
   activeHome,
   activeWorkspaces,
+  HOME_ID,
   taskConnectionId,
   taskWorkspaces,
   workspaceById,
+  type WorkspaceView,
 } from '../../shared/workspaces';
 import { worktreeRoot } from '../paths';
 import { DocsWatcher } from '../docs/DocsWatcher';
@@ -45,6 +50,7 @@ import {
   type ConnectionStore,
 } from '../services/ConnectionStore';
 import {
+  organizationOf,
   prAvailability,
   prDescription,
   prTitle,
@@ -293,9 +299,16 @@ export function createHandlers(s: Services): Handlers {
     await tasksChanged();
   };
 
-  /** Where a task's pull request would go: the repo's connection and its `origin` parsed as Azure Repos. */
-  const prContext = async (task: Task) => {
-    const repo = s.repos.get(task.repoId);
+  /**
+   * Where a workspace's pull request would go (the home's by default): its repo's connection and `origin`
+   * parsed as Azure Repos. The PR links the work item only when that connection is in the work item's
+   * organization.
+   */
+  const prContext = async (
+    task: Task,
+    w: WorkspaceView = taskWorkspaces(task)[0],
+  ) => {
+    const repo = s.repos.get(w.repoId);
     const connection = repo.connectionId
       ? s.connections.get(repo.connectionId)
       : null;
@@ -313,10 +326,24 @@ export function createHandlers(s: Services): Handlers {
         availability.target.project,
         availability.target.repo,
       ]);
+    const taskConnId = taskConnectionId(task, s.repos.list());
+    let taskOrg: string | null = null;
+    try {
+      taskOrg = taskConnId
+        ? organizationOf(s.connections.get(taskConnId).organizationUrl)
+        : null;
+    } catch {
+      taskOrg = null;
+    }
     return {
       connection,
       availability,
-      target: targetBranch(task.baseRef, remotes),
+      target: targetBranch(w.baseRef, remotes),
+      linksWorkItem:
+        Boolean(task.workItem) &&
+        connection !== null &&
+        taskOrg !== null &&
+        organizationOf(connection.organizationUrl) === taskOrg,
     };
   };
 
@@ -698,6 +725,353 @@ export function createHandlers(s: Services): Handlers {
       (taskId) => s.broadcast('docs:watchStopped', { taskId }),
     );
 
+  /** What the Finish page shows for one workspace; a folder removed by hand is `missing`, never an error. */
+  const workspaceCheck = async (
+    task: Task,
+    w: WorkspaceView,
+  ): Promise<WorkspaceCheck> => {
+    const repoName =
+      s.repos.list().find((r) => r.id === w.repoId)?.name ?? w.repoId;
+    const pr = await prContext(task, w).catch((e: unknown) => ({
+      connection: null,
+      availability: {
+        available: false,
+        reason: e instanceof Error ? e.message : String(e),
+        target: null,
+      },
+      target: null,
+      linksWorkItem: false,
+    }));
+    const base = {
+      workspaceId: w.id,
+      repoId: w.repoId,
+      repoName,
+      branch: w.branch,
+      pr: {
+        available: pr.availability.available,
+        reason: pr.availability.reason,
+        target: pr.availability.available ? pr.target : null,
+        linksWorkItem: pr.linksWorkItem,
+      },
+    };
+    if (!(await exists(w.worktreePath)))
+      return {
+        ...base,
+        missing: true,
+        uncommitted: [],
+        unpushed: 0,
+        commits: 0,
+      };
+    const summary = await s.git.summary(w.worktreePath, w.baseRef);
+    const commits = await s.git
+      .finishSummary(w.worktreePath, {
+        baseRef: w.baseRef,
+        baseSha: w.baseSha,
+        branch: w.branch,
+      })
+      .then((f) => (f.baseKnown ? f.commitCount : summary.ahead))
+      .catch(() => summary.ahead);
+    return {
+      ...base,
+      missing: false,
+      uncommitted: summary.files,
+      unpushed: summary.ahead,
+      commits,
+    };
+  };
+
+  /** A summary taken before the push would say "local only" on the Done page. */
+  const markPushed = (
+    summary: TaskSummary | null,
+    branch: string,
+  ): TaskSummary | null =>
+    summary ? { ...summary, pushed: true, upstream: `origin/${branch}` } : null;
+
+  /** True when `origin/<branch>` already contains HEAD, so a retry does not push again. */
+  const onOrigin = (summary: TaskSummary | null, branch: string) =>
+    Boolean(summary?.pushed && summary.upstream === `origin/${branch}`);
+
+  /** Pushes a workspace's branch (unless already there) and finds its active PR, else creates a draft one. */
+  const openPullRequest = async (
+    task: Task,
+    w: WorkspaceView,
+    summary: TaskSummary | null,
+    costScope: { repos: number } | undefined,
+  ): Promise<{
+    ref: PullRequestRef;
+    existed: boolean;
+    summary: TaskSummary | null;
+  }> => {
+    const c = await prContext(task, w);
+    if (!c.availability.available || !c.availability.target || !c.connection)
+      throw new Error(
+        c.availability.reason ?? 'pull requests are not available',
+      );
+    const connection = c.connection;
+    const { project, repo: repoName } = c.availability.target;
+    if (!onOrigin(summary, w.branch)) {
+      await s.git.push(w.worktreePath, 'origin', w.branch);
+      summary = markPushed(summary, w.branch);
+    }
+    const client = s.ado.client(connection.id);
+    const repositoryId = await client.repositoryId(project, repoName);
+    const existing = await client.findActivePullRequest(
+      project,
+      repositoryId,
+      w.branch,
+    );
+    const raw =
+      existing ??
+      (await client.createPullRequest(project, repositoryId, {
+        source: w.branch,
+        target: c.target,
+        title: prTitle(task),
+        description: prDescription({
+          heading: task.workItem
+            ? `${task.workItem.type} ${task.workItem.id}: ${task.workItem.title}`
+            : task.name,
+          commits: summary?.commits ?? [],
+          commitCount: summary?.commitCount ?? 0,
+          costLine: costLineFor(task.id),
+          costScope,
+          workItemUrl: c.linksWorkItem ? null : (task.workItem?.url ?? null),
+        }),
+        workItemId:
+          task.workItem && c.linksWorkItem ? Number(task.workItem.id) : null,
+      }));
+    tel.event(existing ? 'pr.linked' : 'pr.created');
+    return {
+      existed: existing !== null,
+      summary,
+      ref: {
+        id: raw.pullRequestId,
+        url: prWebUrl(
+          connection.organizationUrl,
+          project,
+          repoName,
+          raw.pullRequestId,
+        ),
+        repositoryId,
+        project,
+        repo: repoName,
+        status: raw.status,
+        isDraft: raw.isDraft,
+      },
+    };
+  };
+
+  /** Sets a workspace's own fields: the task's flat ones for the home, else its entry in extraWorkspaces. */
+  const setWorkspace = (
+    t: Task,
+    id: string,
+    patch: {
+      summary?: TaskSummary | null;
+      pullRequest?: PullRequestRef;
+      dropped?: boolean;
+    },
+  ) => {
+    if (id === HOME_ID) {
+      if (patch.summary !== undefined) t.summary = patch.summary;
+      if (patch.pullRequest !== undefined) t.pullRequest = patch.pullRequest;
+      if (patch.dropped !== undefined) t.homeDropped = patch.dropped;
+      return;
+    }
+    const w = t.extraWorkspaces.find((x) => x.id === id);
+    if (w) Object.assign(w, patch);
+  };
+
+  const patchWorkspace = async (
+    taskId: string,
+    id: string,
+    patch: Parameters<typeof setWorkspace>[2],
+  ) => {
+    await s.store.update((st) => {
+      const t = st.tasks.find((x) => x.id === taskId);
+      if (t) setWorkspace(t, id, patch);
+    });
+    await tasksChanged();
+  };
+
+  /** Closes the task's terminals (and its Docs watcher), keeping the tabs so Reopen can bring them back. */
+  const closeTaskTerminals = async (taskId: string) => {
+    docsWatcher.stopTask(taskId);
+    await s.terminals.killAllForTask(taskId);
+    await patchTask(taskId, {
+      closedTerminals: taskById(taskId).terminals,
+      terminals: [],
+    });
+  };
+
+  /** The one usage write per task once it is done, as it was before #48. */
+  const syncUsageOnFinish = async (
+    taskId: string,
+    options: FinishOptions,
+    killedTerminals: boolean,
+  ) => {
+    if (!(options.syncUsage && writeCost())) return;
+    try {
+      if (killedTerminals && s.finishFlushMs > 0)
+        await new Promise((r) => setTimeout(r, s.finishFlushMs));
+      await s.copilot.poll();
+      const result = await usageSync.syncTask(taskId, {
+        comment: true,
+        refreshFields: true,
+      });
+      tel.event('usage.synced', { ok: result.ok, onFinish: true });
+      if (!result.ok)
+        s.broadcast('notice', {
+          level: 'warn',
+          message: `Task finished, but the AI usage could not be written to the work item: ${result.error}. Use Sync now on the Usage screen to retry.`,
+        });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      s.broadcast('notice', {
+        level: 'warn',
+        message: `Task finished, but the AI usage could not be written to the work item: ${message}. Use Sync now on the Usage screen to retry.`,
+      });
+    }
+  };
+
+  /**
+   * Finish for a task with several repos: per workspace (home first) the summary, then its push or PR. Any
+   * failure leaves the task ready with every worktree in place, and a retry skips what already succeeded
+   * (pushed branches are not pushed again, an existing PR is linked). Then cleanup per workspace, with
+   * dropped ones always removed. Workspaces whose folder is gone, or that the request does not name, are
+   * left alone.
+   */
+  const finishWorkspaces = async (
+    taskId: string,
+    options: FinishOptions,
+    wanted: { workspaceId: string; action: WorkspaceAction }[],
+  ) => {
+    claim(taskId, ['ready'], 'finish');
+    try {
+      const task = taskById(taskId);
+      await patchTask(taskId, { status: 'finishing' });
+      type Row = {
+        w: WorkspaceView;
+        action: WorkspaceAction;
+        repoName: string;
+        repoPath: string;
+        summary: TaskSummary | null;
+      };
+      const rows: Row[] = [];
+      try {
+        const actionOf = new Map(wanted.map((r) => [r.workspaceId, r.action]));
+        for (const w of activeWorkspaces(task)) {
+          const action = actionOf.get(w.id);
+          if (!action || !(await exists(w.worktreePath))) continue;
+          const repo = s.repos.get(w.repoId);
+          // A summary must never block Finish.
+          const summary = await s.git
+            .finishSummary(w.worktreePath, {
+              baseRef: w.baseRef,
+              baseSha: w.baseSha,
+              branch: w.branch,
+            })
+            .catch(() => null);
+          rows.push({
+            w,
+            action,
+            repoName: repo.name,
+            repoPath: repo.path,
+            summary,
+          });
+        }
+        const withChanges = rows.filter(
+          (r) => r.action !== 'drop' && (r.summary?.commitCount ?? 1) > 0,
+        ).length;
+        const costScope = withChanges > 1 ? { repos: withChanges } : undefined;
+        const failures: string[] = [];
+        for (const r of rows) {
+          if (r.action === 'push') {
+            try {
+              if (!onOrigin(r.summary, r.w.branch)) {
+                await s.git.push(r.w.worktreePath, 'origin', r.w.branch);
+                r.summary = markPushed(r.summary, r.w.branch);
+              }
+            } catch (e) {
+              const message = e instanceof Error ? e.message : String(e);
+              tel.event('pr.failed', { kind: 'git' });
+              failures.push(`Branch not pushed for ${r.repoName}: ${message}`);
+            }
+          } else if (r.action === 'pr') {
+            try {
+              const pr = await openPullRequest(task, r.w, r.summary, costScope);
+              r.summary = pr.summary;
+              await patchWorkspace(taskId, r.w.id, { pullRequest: pr.ref });
+              // A retry links the PR it made before; that one is open in the browser already.
+              if (r.w.pullRequest?.id !== pr.ref.id)
+                void s.openExternal(pr.ref.url).catch(() => undefined);
+            } catch (e) {
+              const message = e instanceof Error ? e.message : String(e);
+              tel.event('pr.failed', {
+                kind: e instanceof AdoError ? e.kind : 'git',
+              });
+              failures.push(
+                `Pull request not created for ${r.repoName}: ${message}`,
+              );
+            }
+          }
+        }
+        if (failures.length > 0) throw new Error(failures.join('; '));
+
+        const dropping = rows.some((r) => r.action === 'drop');
+        // As for a single repo: removing a worktree closes the terminals, which would block it on Windows.
+        const killTerminals =
+          options.closeTerminals || options.removeWorktree || dropping;
+        if (killTerminals) await closeTaskTerminals(taskId);
+        for (const r of rows) {
+          const drop = r.action === 'drop';
+          if (
+            (options.removeWorktree || drop) &&
+            (await exists(r.w.worktreePath))
+          )
+            await s.git.worktreeRemove(r.repoPath, r.w.worktreePath, true);
+          if (options.deleteBranch || drop) {
+            // A deleted folder leaves a stale registration that blocks branch deletion.
+            await s.git.worktreePrune(r.repoPath);
+            await s.git.deleteBranch(r.repoPath, r.w.branch);
+          }
+          if (drop) await patchWorkspace(taskId, r.w.id, { dropped: true });
+        }
+        await s.store.update((st) => {
+          const t = st.tasks.find((x) => x.id === taskId);
+          if (!t) return;
+          for (const r of rows)
+            if (r.action !== 'drop')
+              setWorkspace(t, r.w.id, { summary: r.summary });
+          t.status = 'done';
+          t.finishedAt = new Date().toISOString();
+        });
+        await tasksChanged();
+        tel.event(
+          'task.finished',
+          {
+            removeWorktree: options.removeWorktree,
+            deleteBranch: options.deleteBranch,
+            closeTerminals: options.closeTerminals,
+            syncUsage: options.syncUsage && writeCost(),
+            workItem: task.workItem !== null && task.workItem !== undefined,
+          },
+          {
+            ageHours: (Date.now() - Date.parse(task.createdAt)) / 3_600_000,
+            workspaces: rows.length,
+            prs: rows.filter((r) => r.action === 'pr').length,
+            dropped: rows.filter((r) => r.action === 'drop').length,
+          },
+        );
+        await syncUsageOnFinish(taskId, options, killTerminals);
+      } catch (e) {
+        if (taskById(taskId).status === 'finishing')
+          await patchTask(taskId, { status: 'ready' });
+        throw e;
+      }
+    } finally {
+      release(taskId);
+    }
+  };
+
   return {
     ...createDocsHandlers({
       taskById,
@@ -872,12 +1246,23 @@ export function createHandlers(s: Services): Handlers {
       return s.git.summary(w.worktreePath, w.baseRef);
     },
     'tasks:finishChecks': async (taskId) => {
+      await workspaces.scan(taskId);
       const task = taskById(taskId);
-      const summary = await s.git.summary(task.worktreePath, task.baseRef);
+      const checks: WorkspaceCheck[] = [];
+      for (const w of activeWorkspaces(task))
+        checks.push(await workspaceCheck(task, w));
+      // The home's own fields, as before #48; with other repos in the task a missing home must not fail the page.
+      const home =
+        task.extraWorkspaces.length === 0
+          ? await s.git.summary(task.worktreePath, task.baseRef)
+          : await s.git
+              .summary(task.worktreePath, task.baseRef)
+              .catch(() => ({ files: [], ahead: 0 }));
       return {
-        uncommitted: summary.files,
-        unpushed: summary.ahead,
+        uncommitted: home.files,
+        unpushed: home.ahead,
         runningTerminals: s.terminals.runningCount(taskId),
+        workspaces: checks,
       };
     },
     'tasks:reopen': async (taskId) => {
@@ -942,6 +1327,8 @@ export function createHandlers(s: Services): Handlers {
       }
     },
     'tasks:finish': async (taskId, options) => {
+      if (options.workspaces)
+        return finishWorkspaces(taskId, options, options.workspaces);
       claim(taskId, ['ready'], 'finish');
       try {
         const task = taskById(taskId);
@@ -1033,14 +1420,7 @@ export function createHandlers(s: Services): Handlers {
         // folder is useless), so removing the worktree closes the terminals even when that was unticked.
         const killTerminals = options.closeTerminals || options.removeWorktree;
         try {
-          if (killTerminals) {
-            docsWatcher.stopTask(taskId);
-            await s.terminals.killAllForTask(taskId);
-            await patchTask(taskId, {
-              closedTerminals: taskById(taskId).terminals,
-              terminals: [],
-            });
-          }
+          if (killTerminals) await closeTaskTerminals(taskId);
           if (options.removeWorktree && (await exists(task.worktreePath)))
             await s.git.worktreeRemove(repo.path, task.worktreePath, true);
           if (options.deleteBranch) {
@@ -1067,31 +1447,14 @@ export function createHandlers(s: Services): Handlers {
             syncUsage: options.syncUsage && writeCost(),
             workItem: task.workItem !== null && task.workItem !== undefined,
           },
-          { ageHours: (Date.now() - Date.parse(task.createdAt)) / 3_600_000 },
+          {
+            ageHours: (Date.now() - Date.parse(task.createdAt)) / 3_600_000,
+            workspaces: 1,
+            prs: options.createPullRequest ? 1 : 0,
+            dropped: 0,
+          },
         );
-        if (options.syncUsage && writeCost()) {
-          try {
-            if (killTerminals && s.finishFlushMs > 0)
-              await new Promise((r) => setTimeout(r, s.finishFlushMs));
-            await s.copilot.poll();
-            const result = await usageSync.syncTask(taskId, {
-              comment: true,
-              refreshFields: true,
-            });
-            tel.event('usage.synced', { ok: result.ok, onFinish: true });
-            if (!result.ok)
-              s.broadcast('notice', {
-                level: 'warn',
-                message: `Task finished, but the AI usage could not be written to the work item: ${result.error}. Use Sync now on the Usage screen to retry.`,
-              });
-          } catch (e) {
-            const message = e instanceof Error ? e.message : String(e);
-            s.broadcast('notice', {
-              level: 'warn',
-              message: `Task finished, but the AI usage could not be written to the work item: ${message}. Use Sync now on the Usage screen to retry.`,
-            });
-          }
-        }
+        await syncUsageOnFinish(taskId, options, killTerminals);
       } finally {
         release(taskId);
       }
@@ -1238,8 +1601,14 @@ export function createHandlers(s: Services): Handlers {
       await workspaces.remove(taskId, workspaceId);
       await tasksChanged();
     },
-    'tasks:prAvailability': async (taskId) => {
-      const c = await prContext(taskById(taskId));
+    'tasks:prAvailability': async (taskId, workspaceId) => {
+      const task = taskById(taskId);
+      const c = await prContext(
+        task,
+        workspaceId === undefined
+          ? undefined
+          : workspaceById(task, workspaceId),
+      );
       return {
         available: c.availability.available,
         reason: c.availability.reason,
