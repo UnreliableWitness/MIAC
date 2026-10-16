@@ -111,9 +111,15 @@ export async function listDocs(
     );
     for (const p of untracked) changed.set(p, 'new');
   }
+  // Cap before stat: a huge worktree must not cost a stat per file. The task file comes first, so it
+  // takes one of the slots.
+  const candidates = [...new Set(listed)]
+    .filter((p) => p !== TASK_FILE)
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+    .slice(0, MAX_DOCS);
   // -c also lists files deleted from the working tree but still in the index.
   const present = await Promise.all(
-    [...new Set(listed)].map(async (p) =>
+    candidates.map(async (p) =>
       (await fs.stat(path.join(worktree, p)).then(
         (s) => s.isFile(),
         () => false,
@@ -123,8 +129,7 @@ export async function listDocs(
     ),
   );
   const files = present
-    .filter((p): p is string => p !== null && p !== TASK_FILE)
-    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+    .filter((p): p is string => p !== null)
     .map((p) => ({ path: p, changed: changed.get(p) ?? null }));
   const hasTask = await fs.stat(path.join(worktree, TASK_FILE)).then(
     (s) => s.isFile(),

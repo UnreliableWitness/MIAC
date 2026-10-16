@@ -1,7 +1,12 @@
-import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  promises as fsp,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { GitClient } from '../services/GitClient';
 import {
   cleanupTempRepos,
@@ -121,6 +126,25 @@ describe('listDocs', () => {
     for (let i = 0; i < 2005; i++)
       writeFileSync(path.join(repo, 'many', `f${i}.md`), '');
     expect((await listDocs(gc, repo, null)).length).toBe(2000);
+  });
+  it('stats at most 2000 listed files plus the task file', async () => {
+    const repo = makeRepo();
+    mkdirSync(path.join(repo, 'many'));
+    for (let i = 0; i < 2100; i++)
+      writeFileSync(
+        path.join(repo, 'many', `f${String(i).padStart(4, '0')}.md`),
+        '',
+      );
+    const stat = vi.spyOn(fsp, 'stat');
+    try {
+      const files = await listDocs(gc, repo, null);
+      expect(files).toHaveLength(2000);
+      expect(files[0].path).toBe('README.md');
+      expect(files.at(-1)!.path).toBe('many/f1998.md');
+      expect(stat.mock.calls.length).toBeLessThanOrEqual(2001);
+    } finally {
+      stat.mockRestore();
+    }
   });
 });
 
