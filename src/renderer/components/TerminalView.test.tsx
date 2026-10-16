@@ -13,6 +13,7 @@ vi.mock('@xterm/xterm', () => ({
     reset() {}
     focus() {}
     paste() {}
+    attachCustomKeyEventHandler() {}
     dispose() {}
     onData() {
       return { dispose() {} };
