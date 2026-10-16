@@ -30,6 +30,7 @@ const defaults: FakeHandlers = {
     version: 1,
     receiverPort: 4319,
     hourlySync: true,
+    writeCostToAdo: true,
     showSplash: true,
     sendTelemetry: true,
   }),

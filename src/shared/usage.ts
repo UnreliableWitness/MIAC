@@ -50,6 +50,11 @@ export const AppSettingsSchema = z.object({
   version: z.literal(1),
   receiverPort: z.number().int().min(1024).max(65535),
   hourlySync: z.boolean(),
+  /**
+   * Write AI cost to Azure DevOps work items (the Custom.AI* fields and a usage comment) and into draft PR
+   * descriptions. Off by default: cost is still captured and priced locally (Usage tab, CSV export).
+   */
+  writeCostToAdo: z.boolean().default(false),
   showSplash: z.boolean().default(true),
   /** Send anonymous usage and error data (see docs/telemetry.md). */
   sendTelemetry: z.boolean().default(true),
@@ -61,6 +66,7 @@ export const defaultSettings = (): AppSettings => ({
   version: 1,
   receiverPort: 4319,
   hourlySync: true,
+  writeCostToAdo: false,
   showSplash: true,
   sendTelemetry: true,
 });

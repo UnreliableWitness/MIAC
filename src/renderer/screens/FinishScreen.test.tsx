@@ -390,6 +390,51 @@ describe('FinishScreen AI usage', () => {
       ).toMatchObject({ syncUsage: false }),
     );
   });
+  it('hides the checkbox and writes nothing when cost writing is off', async () => {
+    useStore.setState({
+      repos: [
+        {
+          id: task.repoId,
+          name: 'webshop',
+          path: '/r',
+          baseBranch: 'main',
+          connectionId: 'c1',
+          miacYmlFound: true,
+          workItemOnStart: {
+            moveToInProgress: true,
+            assignToMe: true,
+            stateOverrides: {},
+          },
+        },
+      ],
+    });
+    const { calls } = installFakeApi({
+      'settings:get': () => ({
+        version: 1,
+        receiverPort: 4319,
+        hourlySync: true,
+        writeCostToAdo: false,
+        showSplash: true,
+        sendTelemetry: true,
+      }),
+      'tasks:finishChecks': () => clean,
+      'tasks:finish': () => undefined,
+    });
+    render(<FinishScreen taskId={task.id} />);
+    await screen.findByText('AI usage');
+    await waitFor(() =>
+      expect(calls.some((c) => c.channel === 'settings:get')).toBe(true),
+    );
+    expect(
+      screen.queryByRole('checkbox', { name: /Write final totals/ }),
+    ).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: /Finish/ }));
+    await waitFor(() =>
+      expect(
+        calls.find((c) => c.channel === 'tasks:finish')?.args[1],
+      ).toMatchObject({ syncUsage: false }),
+    );
+  });
 });
 
 describe('FinishScreen pull request', () => {

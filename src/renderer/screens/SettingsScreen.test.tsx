@@ -324,6 +324,7 @@ describe('SettingsScreen', () => {
       version: 1,
       receiverPort: 4319,
       hourlySync: true,
+      writeCostToAdo: true,
       showSplash: false,
       sendTelemetry: true,
     });
@@ -334,6 +335,7 @@ describe('SettingsScreen', () => {
       version: 1 as const,
       receiverPort: 4319,
       hourlySync: true,
+      writeCostToAdo: true,
       showSplash: true,
       sendTelemetry: true,
     };
@@ -365,6 +367,7 @@ describe('SettingsScreen', () => {
       version: 1,
       receiverPort: 4319,
       hourlySync: false,
+      writeCostToAdo: true,
       showSplash: false,
       sendTelemetry: true,
     });

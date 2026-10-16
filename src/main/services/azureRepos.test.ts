@@ -124,6 +124,11 @@ describe('prDescription', () => {
       'Bug 42: Fix it\n\n## Commits\n- abc1234 First\n- def5678 Second\n\nAI cost for this task: €1.00 (Claude €1.00, Copilot €0.00) · recorded by MIAC',
     );
   });
+  it('leaves the cost out when cost writing is off', () => {
+    const text = prDescription({ ...base, costLine: null });
+    expect(text).not.toContain('AI cost');
+    expect(text.endsWith('\n\nRecorded by MIAC')).toBe(true);
+  });
   it('mentions commits beyond the list', () => {
     expect(prDescription({ ...base, commitCount: 5 })).toContain(
       '…and 3 more commits',

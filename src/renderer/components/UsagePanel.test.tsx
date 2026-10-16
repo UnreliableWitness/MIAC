@@ -234,6 +234,29 @@ describe('UsagePanel', () => {
       screen.getByText(/Link the repository to an Azure DevOps connection/),
     ).toBeTruthy();
   });
+  it('says cost writing is off and offers only the CSV', async () => {
+    const { calls } = installFakeApi({
+      'usage:task': () => usage,
+      'settings:get': () => ({
+        version: 1,
+        receiverPort: 4319,
+        hourlySync: true,
+        writeCostToAdo: false,
+        showSplash: true,
+        sendTelemetry: true,
+      }),
+    });
+    render(<UsagePanel taskId="t1" />);
+    expect(
+      await screen.findByText(/Writing AI cost to Azure DevOps is off/),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Write to work item' }),
+    ).toBeNull();
+    expect(screen.getByRole('button', { name: 'CSV' })).toBeInTheDocument();
+    expect(calls.some((c) => c.channel === 'usage:fieldsStatus')).toBe(false);
+  });
+
   it('says the task was not found', () => {
     useStore.setState({ tasks: [] });
     installFakeApi();

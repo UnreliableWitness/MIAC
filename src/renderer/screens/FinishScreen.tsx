@@ -3,6 +3,7 @@ import type { FinishChecks } from '../../shared/types';
 import { api, tryInvoke } from '../api';
 import { eur } from '../format';
 import { useTaskUsage } from '../hooks/useTaskUsage';
+import { useWriteCostToAdo } from '../hooks/useWriteCostToAdo';
 import { PageHeader } from '../components/ui';
 import { useEscape } from '../hooks/useEscape';
 import { useStore } from '../store';
@@ -44,7 +45,11 @@ export function FinishScreen({ taskId }: { taskId: string }) {
   const ready = task?.status === 'ready';
   const usage = useTaskUsage(ready ? taskId : null);
   const repo = useStore((s) => s.repos.find((r) => r.id === task?.repoId));
-  const canSync = Boolean(task?.workItem) && Boolean(repo?.connectionId);
+  const writeCost = useWriteCostToAdo();
+  const canSync =
+    Boolean(task?.workItem) &&
+    Boolean(repo?.connectionId) &&
+    writeCost === true;
   // Untouched (null) defaults to on, except when no usage was captured.
   const [syncChoice, setSyncUsage] = useState<boolean | null>(null);
   const syncUsage = syncChoice ?? !(usage && usage.sessions.length === 0);

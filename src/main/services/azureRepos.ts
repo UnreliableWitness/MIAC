@@ -106,12 +106,14 @@ export type PrDescriptionInput = {
   commits: { sha: string; subject: string }[];
   /** All commits on the branch; may exceed `commits.length`. */
   commitCount: number;
-  /** e.g. "AI cost for this task: €1.00 (Claude €1.00, Copilot €0.00)". */
-  costLine: string;
+  /** e.g. "AI cost for this task: €1.00 (Claude €1.00, Copilot €0.00)"; null leaves the cost out. */
+  costLine: string | null;
 };
 
 export function prDescription(input: PrDescriptionInput): string {
-  const footer = `${input.costLine} · recorded by MIAC`;
+  const footer = input.costLine
+    ? `${input.costLine} · recorded by MIAC`
+    : 'Recorded by MIAC';
   const build = (n: number): string => {
     if (input.commits.length === 0 && input.commitCount === 0)
       return `${input.heading}\n\n${footer}`;
