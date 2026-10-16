@@ -92,6 +92,7 @@ export function installFakeApi(overrides: FakeHandlers = {}) {
     track: (message) => {
       tracked.push(message);
     },
+    titleBar: 'native',
   };
   window.miac = fake;
   const emit = <K extends keyof Events>(event: K, payload: Events[K]) =>

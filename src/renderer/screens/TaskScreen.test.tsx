@@ -600,9 +600,12 @@ describe('tabs and focus', () => {
   it('Focus hides the header and the nav, persists, and double-click toggles it back', async () => {
     setup();
     render(<Shell />);
+    expect(document.querySelector('.app.in-focus')).toBeNull();
     fireEvent.keyDown(window, FOCUS_KEYS);
     expect(screen.queryByRole('navigation', { name: 'Tasks' })).toBeNull();
     expect(document.querySelector('header.headerbar')).toBeNull();
+    // The tab row stands in as the window's title bar (shell.css, #49).
+    expect(document.querySelector('.app.in-focus')).not.toBeNull();
     expect(localStorage.getItem('miac.ui.focus')).toBe('true');
     await userEvent.dblClick(
       screen.getByRole('tablist', { name: 'Terminals' }),
