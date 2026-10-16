@@ -4,6 +4,7 @@ import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { api, tryInvoke } from '../api';
 import { useStore } from '../store';
+import { createLinkProvider } from '../terminalLinks';
 import { registerTerminal } from '../terminalRegistry';
 import {
   loadRenderer,
@@ -14,9 +15,11 @@ import {
 
 export function TerminalView({
   terminalId,
+  taskId,
   active,
 }: {
   terminalId: string;
+  taskId: string;
   active: boolean;
 }) {
   const host = useRef<HTMLDivElement>(null);
@@ -35,6 +38,7 @@ export function TerminalView({
     const unregister = registerTerminal(terminalId, t);
     fit.current = f;
     let live = true;
+    let links: { dispose(): void } | null = null;
 
     const sendSize = () => {
       try {
@@ -94,6 +98,7 @@ export function TerminalView({
         if (build) t.options.windowsPty = terminalOptions(build).windowsPty;
         t.open(el);
         loadRenderer(t);
+        links = t.registerLinkProvider(createLinkProvider(t, taskId));
         observer.observe(el);
         sendSize();
       },
@@ -103,13 +108,14 @@ export function TerminalView({
       live = false;
       observer.disconnect();
       onData.dispose();
+      links?.dispose();
       offData();
       offExit();
       unregister();
       t.dispose();
       term.current = null;
     };
-  }, [terminalId]);
+  }, [terminalId, taskId]);
 
   useEffect(() => {
     if (active) {

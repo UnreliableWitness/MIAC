@@ -273,6 +273,7 @@ export function TerminalTabs({
           <TerminalView
             key={t.id}
             terminalId={t.id}
+            taskId={task.id}
             active={visible && active === t.id}
           />
         ))}
