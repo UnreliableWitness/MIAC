@@ -163,3 +163,9 @@ New events, no names or paths: `task.repoAdded { replaces, ok }`, `task.repoRemo
 - New task still creates a task with one repo; more come through Add repo.
 - Add and Remove live on one full Repos page (no dialogs, #15).
 - The header's git line adds up all repos; the per-repo view is on the details card and the Repos page.
+- `.miac/task.md` is written once and never rewritten (it holds the user's notes); only `CLAUDE.md` follows repo changes.
+- "Work" in a repo counts commits since its base and every uncommitted file, untracked ones too. A copied `.env` or build output that the repo does not ignore therefore counts, and a Move then keeps the old repo and says why.
+- A repo whose own setup failed can be removed without the work confirm.
+- Each typed note ends with a space, so two notes the user has not sent yet do not run together.
+- With a single repo, the + menu says "Shell", and the shell still opens in that repo's worktree.
+- Every PR made by one Finish opens in the browser, also when a later one fails.

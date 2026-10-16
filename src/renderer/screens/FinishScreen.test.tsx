@@ -703,3 +703,191 @@ describe('FinishScreen pull request failure with unpushed commits', () => {
     await waitFor(() => expect(btn).toBeEnabled());
   });
 });
+
+describe('FinishScreen: a task folder with several repos', () => {
+  const wt = (repoId: string, dir: string) => ({
+    repoId,
+    dir,
+    path: `/tasks/48213/${dir}`,
+    branch: task.branch,
+    baseRef: 'origin/main',
+    baseSha: 'abc',
+    status: 'ready' as const,
+    copy: true,
+    commands: [],
+    summary: null,
+    pullRequest: null,
+    reopen: null,
+  });
+  const folderTask: TaskView = {
+    ...task,
+    worktreePath: '/tasks/48213',
+    folder: '/tasks/48213',
+    worktrees: [wt('r1', 'webshop'), wt('r2', 'api'), wt('r3', 'docs')],
+  };
+  const repoCheck = (
+    repoId: string,
+    dir: string,
+    commits: number,
+    over: object = {},
+  ) => ({
+    repoId,
+    dir,
+    branch: task.branch,
+    uncommitted: [],
+    unpushed: commits,
+    commits,
+    ...over,
+  });
+  const checks = {
+    uncommitted: [],
+    unpushed: 3,
+    runningTerminals: 0,
+    repos: [
+      repoCheck('r1', 'webshop', 1),
+      repoCheck('r2', 'api', 2),
+      repoCheck('r3', 'docs', 0),
+    ],
+  };
+  const avail = {
+    available: true,
+    reason: null,
+    target: 'main',
+    repos: [
+      {
+        repoId: 'r1',
+        dir: 'webshop',
+        available: true,
+        reason: null,
+        target: 'main',
+      },
+      {
+        repoId: 'r2',
+        dir: 'api',
+        available: true,
+        reason: null,
+        target: 'develop',
+      },
+      {
+        repoId: 'r3',
+        dir: 'docs',
+        available: true,
+        reason: null,
+        target: 'main',
+      },
+    ],
+  };
+  beforeEach(() => useStore.setState({ tasks: [folderTask] }));
+
+  it('shows checks per repo and a PR box per repo, remembered per repo, none for a repo without commits', async () => {
+    writePrChoice('r2', true);
+    const { calls } = installFakeApi({
+      'tasks:finishChecks': () => checks,
+      'tasks:prAvailability': () => avail,
+      'tasks:finish': () => undefined,
+    });
+    render(<FinishScreen taskId="a" />);
+    const shop = await screen.findByRole('region', {
+      name: 'Checks for webshop',
+    });
+    expect(shop).toHaveTextContent('1 commit not pushed');
+    expect(
+      screen.getByRole('region', { name: 'Checks for api' }),
+    ).toHaveTextContent('2 commits will be pushed for the pull request');
+    const boxShop = screen.getByLabelText(
+      'Create a draft pull request for webshop into main',
+    );
+    const boxApi = screen.getByLabelText(
+      'Create a draft pull request for api into develop',
+    );
+    const boxDocs = screen.getByLabelText(
+      /Create a draft pull request for docs into main/,
+    );
+    expect(boxShop).not.toBeChecked();
+    expect(boxApi).toBeChecked();
+    expect(boxDocs).toBeDisabled();
+    expect(boxDocs).not.toBeChecked();
+    await userEvent.click(boxShop);
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Finish and clean up' }),
+    );
+    await waitFor(() =>
+      expect(calls.find((c) => c.channel === 'tasks:finish')?.args[1]).toEqual({
+        closeTerminals: true,
+        removeWorktree: true,
+        deleteBranch: true,
+        syncUsage: false,
+        pullRequestRepos: ['r1', 'r2'],
+      }),
+    );
+    expect(readPrChoice('r1')).toBe(true);
+    expect(readPrChoice('r3')).toBe(false);
+  });
+
+  it('shows a failed PR with Retry, and Finish without PR first unticks when commits would be lost', async () => {
+    writePrChoice('r1', true);
+    writePrChoice('r2', true);
+    let n = 0;
+    const { calls } = installFakeApi({
+      'tasks:finishChecks': () => checks,
+      'tasks:prAvailability': () => avail,
+      'tasks:finish': () => {
+        n++;
+        throw new Error(
+          "Error invoking remote method 'tasks:finish': Error: Pull request not created: api: TF401398",
+        );
+      },
+    });
+    render(<FinishScreen taskId="a" />);
+    await screen.findByRole('region', { name: 'Checks for api' });
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Finish and clean up' }),
+    );
+    expect(
+      await screen.findByText('Pull request not created: api: TF401398'),
+    ).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Finish without PR' }),
+    );
+    expect(n).toBe(1);
+    expect(
+      screen.getByLabelText('Create a draft pull request for api into develop'),
+    ).not.toBeChecked();
+    expect(
+      screen.getByRole('button', { name: 'Discard changes and clean up' }),
+    ).toBeInTheDocument();
+    expect(calls.filter((c) => c.channel === 'tasks:finish')).toHaveLength(1);
+  });
+
+  it('opens commit in the repo with changes', async () => {
+    const { calls } = installFakeApi({
+      'tasks:finishChecks': () => ({
+        ...checks,
+        repos: [
+          repoCheck('r1', 'webshop', 0, {
+            uncommitted: [{ status: 'M', path: 'a.ts' }],
+          }),
+          repoCheck('r2', 'api', 0),
+          repoCheck('r3', 'docs', 0),
+        ],
+      }),
+      'tasks:prAvailability': () => avail,
+      'terminals:open': (_id, def) => ({ id: 'x', ...def }),
+    });
+    render(<FinishScreen taskId="a" />);
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Commit in webshop' }),
+    );
+    await waitFor(() =>
+      expect(calls.find((c) => c.channel === 'terminals:open')?.args).toEqual([
+        'a',
+        {
+          kind: 'run',
+          label: 'git commit',
+          command: 'git add -A && git commit',
+          repoId: 'r1',
+        },
+      ]),
+    );
+  });
+});

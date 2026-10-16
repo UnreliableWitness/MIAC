@@ -8,6 +8,7 @@ import { PageHeader } from '../components/ui';
 import { useEscape } from '../hooks/useEscape';
 import { useStore } from '../store';
 import { readPrChoice, writePrChoice } from '../uiPrefs';
+import { FinishRepos } from './FinishRepos';
 
 const ELLIPSIS = String.fromCharCode(0x2026);
 const PR_FAILED = 'Pull request not created: ';
@@ -18,7 +19,19 @@ const G = {
   PLAY: String.fromCharCode(0x25b6),
 };
 
+/** Finish: a task folder with several repos gets checks and a pull request choice per repo. */
 export function FinishScreen({ taskId }: { taskId: string }) {
+  const several = useStore(
+    (s) => (s.tasks.find((t) => t.id === taskId)?.worktrees?.length ?? 0) > 1,
+  );
+  return several ? (
+    <FinishRepos taskId={taskId} />
+  ) : (
+    <FinishOne taskId={taskId} />
+  );
+}
+
+function FinishOne({ taskId }: { taskId: string }) {
   const task = useStore((s) => s.tasks.find((t) => t.id === taskId));
   const go = useStore((s) => s.go);
   const back = useStore((s) => s.back);
@@ -341,9 +354,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
                 }}
               />
               {pr.available
-                ? (task.worktrees?.length ?? 0) > 1
-                  ? 'Create a draft pull request for each repo with commits'
-                  : `Create a draft pull request into ${pr.target}`
+                ? `Create a draft pull request into ${pr.target}`
                 : 'Create a draft pull request'}
               {!pr.available && pr.reason && (
                 <>

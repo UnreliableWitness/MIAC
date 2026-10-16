@@ -318,4 +318,95 @@ describe('DoneTaskPage', () => {
       expect(screen.queryByText('Pull request', { selector: 'dt' })).toBeNull();
     });
   });
+
+  it('for a task folder with several repos, shows a block per repo with its PR and commits, and the cost once', async () => {
+    const summary = (subject: string, n: number): TaskSummary => ({
+      commits: [{ sha: `s${n}`, subject }],
+      commitCount: 1,
+      filesChanged: n,
+      insertions: n,
+      deletions: 0,
+      pushed: true,
+      upstream: `origin/${task.branch}`,
+      baseKnown: true,
+    });
+    const pr = (id: number, repo: string) => ({
+      id,
+      url: `https://dev.azure.com/contoso/P/_git/${repo}/pullrequest/${id}`,
+      repositoryId: `id-${repo}`,
+      project: 'P',
+      repo,
+      status: 'active' as const,
+      isDraft: true,
+    });
+    const wt = (repoId: string, dir: string, over: object) => ({
+      repoId,
+      dir,
+      path: `/tasks/1/${dir}`,
+      branch: task.branch,
+      baseRef: 'origin/main',
+      baseSha: 'abc',
+      status: 'ready' as const,
+      copy: true,
+      commands: [],
+      summary: null,
+      pullRequest: null,
+      reopen: null,
+      ...over,
+    });
+    const { calls } = installFakeApi({
+      'usage:task': () => usage,
+      'tasks:prStatus': (_t, repoId) =>
+        repoId === 'r2'
+          ? { ...pr(11, 'API'), status: 'completed' as const, isDraft: false }
+          : pr(10, 'Shop'),
+    });
+    useStore.setState({
+      repos: [
+        ...useStore.getState().repos,
+        { ...useStore.getState().repos[0], id: 'r2', name: 'api' },
+      ],
+    });
+    render(
+      <DoneTaskPage
+        task={{
+          ...task,
+          worktreePath: '/tasks/1',
+          folder: '/tasks/1',
+          worktrees: [
+            wt('r1', 'webshop', {
+              summary: summary('Change the shop', 2),
+              pullRequest: pr(10, 'Shop'),
+            }),
+            wt('r2', 'api', {
+              summary: summary('Change the API', 3),
+              pullRequest: pr(11, 'API'),
+            }),
+            wt('r3', 'docs', {
+              summary: { ...summary('x', 0), commits: [], commitCount: 0 },
+            }),
+          ],
+        }}
+      />,
+    );
+    const repos = screen.getByRole('region', { name: 'Repos' });
+    const api = within(repos).getByRole('article', { name: 'api' });
+    expect(api).toHaveTextContent('repo api');
+    expect(within(api).getByText('Change the API')).toBeInTheDocument();
+    await waitFor(() => expect(api).toHaveTextContent('PR 11 · Completed'));
+    const shop = within(repos).getByRole('article', { name: 'webshop' });
+    expect(shop).toHaveTextContent('PR 10 · Draft');
+    expect(shop).toHaveTextContent('Change the shop');
+    const docs = within(repos).getByRole('article', { name: 'docs' });
+    expect(docs).toHaveTextContent('No commits on this branch.');
+    expect(within(docs).queryByText('Pull request')).toBeNull();
+    // Duration, cost and the work item show once, outside the repos.
+    expect(screen.getAllByText('AI cost', { selector: 'dt' })).toHaveLength(1);
+    expect(
+      calls
+        .filter((c) => c.channel === 'tasks:prStatus')
+        .map((c) => c.args[1])
+        .sort(),
+    ).toEqual(['r1', 'r2']);
+  });
 });

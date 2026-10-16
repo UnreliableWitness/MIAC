@@ -4,6 +4,7 @@ import type {
   PullRequestRef,
   TaskSummary,
   TaskView,
+  TaskWorktree,
   WorkItemSummary,
 } from '../../shared/types';
 import { isFolderTask, worktreesOf } from '../../shared/tasks';
@@ -90,6 +91,108 @@ function pushState(s: TaskSummary, branch: string): string {
   return s.pushed ? `pushed to ${to}` : `not all pushed to ${to}`;
 }
 
+/** One repo's branch, pull request and changes, as facts. */
+function RepoFacts({
+  taskId,
+  worktree: w,
+  folder,
+}: {
+  taskId: string;
+  worktree: TaskWorktree;
+  /** A task folder: its PR is refreshed by repo. */
+  folder: boolean;
+}) {
+  const notify = useStore((st) => st.notify);
+  const pr = useLivePullRequest(
+    taskId,
+    folder ? w.repoId : null,
+    w.pullRequest,
+  );
+  const s = w.summary;
+  return (
+    <>
+      <Fact label="Branch">
+        <span className="mono">{w.branch}</span>
+        {s && <span className="muted"> {pushState(s, w.branch)}</span>}
+      </Fact>
+      {pr && (
+        <Fact label="Pull request">
+          <button
+            type="button"
+            className="link"
+            aria-label={`Open pull request ${pr.id} in Azure DevOps`}
+            onClick={() =>
+              tryInvoke(
+                () => api().invoke('shell:openExternal', pr.url),
+                notify,
+              )
+            }
+          >
+            {`PR ${pr.id} · ${prLabel(pr)}`}
+          </button>
+        </Fact>
+      )}
+      {s && s.baseKnown && (
+        <Fact label="Changes">
+          {s.filesChanged} {s.filesChanged === 1 ? 'file' : 'files'},{' '}
+          <span className="text-green">+{s.insertions}</span>{' '}
+          <span className="text-red">
+            {MINUS}
+            {s.deletions}
+          </span>
+        </Fact>
+      )}
+    </>
+  );
+}
+
+/** One repo's commits, or why there are none to show. */
+function Commits({
+  worktree: w,
+  label = 'Commits',
+}: {
+  worktree: TaskWorktree;
+  label?: string;
+}) {
+  const s = w.summary;
+  if (!s)
+    return (
+      <p className="done-nosummary muted">
+        {w.baseSha
+          ? 'No summary: git could not read the branch when it finished.'
+          : 'Finished before MIAC recorded summaries.'}
+      </p>
+    );
+  return (
+    <section className="done-commits" aria-label={label}>
+      <h2>
+        Commits {s.baseKnown && <span className="muted">{s.commitCount}</span>}
+      </h2>
+      {!s.baseKnown ? (
+        <p className="muted">
+          Commits unavailable: MIAC could not find where this branch started.
+        </p>
+      ) : s.commits.length === 0 ? (
+        <p className="muted">No commits on this branch.</p>
+      ) : (
+        <ol>
+          {s.commits.map((c) => (
+            <li key={c.sha}>
+              <span className="mono muted">{c.sha}</span>
+              <span className="done-subject">{c.subject}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+      {s.commitCount > s.commits.length && (
+        <p className="muted small">
+          and {s.commitCount - s.commits.length} more
+        </p>
+      )}
+    </section>
+  );
+}
+
 /** A finished task: what it was, how long it took, what it changed and pushed, what the AI cost, and its usage. */
 export function DoneTaskPage({ task }: { task: TaskView }) {
   const notify = useStore((s) => s.notify);
@@ -113,18 +216,12 @@ export function DoneTaskPage({ task }: { task: TaskView }) {
   const connectionId = useTaskConnectionId(task);
   const usage = useTaskUsage(task.id);
   const wi = task.workItem;
-  // The home repo's worktree (an older task's own fields).
-  const home =
-    worktreesOf(task).find((w) => w.repoId === task.repoId) ??
-    worktreesOf(task)[0] ??
-    null;
-  const pr = useLivePullRequest(
-    task.id,
-    isFolderTask(task) ? (home?.repoId ?? null) : null,
-    home?.pullRequest ?? null,
-  );
+  const worktrees = worktreesOf(task);
+  const folder = isFolderTask(task);
+  const several = worktrees.length > 1;
+  const repos = useStore((st) => st.repos);
+  const repoName = (id: string) => repos.find((r) => r.id === id)?.name ?? id;
   const live = useLiveWorkItem(connectionId, wi?.id ?? null);
-  const s = home?.summary ?? null;
   const took = task.finishedAt
     ? duration(task.createdAt, task.finishedAt)
     : null;
@@ -199,36 +296,12 @@ export function DoneTaskPage({ task }: { task: TaskView }) {
           <Fact label="Finished">
             {task.finishedAt ? dateTime(task.finishedAt) : 'Unknown'}
           </Fact>
-          <Fact label="Branch">
-            <span className="mono">{task.branch}</span>
-            {s && <span className="muted"> {pushState(s, task.branch)}</span>}
-          </Fact>
-          {pr && (
-            <Fact label="Pull request">
-              <button
-                type="button"
-                className="link"
-                aria-label={`Open pull request ${pr.id} in Azure DevOps`}
-                onClick={() =>
-                  tryInvoke(
-                    () => api().invoke('shell:openExternal', pr.url),
-                    notify,
-                  )
-                }
-              >
-                {`PR ${pr.id} · ${prLabel(pr)}`}
-              </button>
-            </Fact>
-          )}
-          {s && s.baseKnown && (
-            <Fact label="Changes">
-              {s.filesChanged} {s.filesChanged === 1 ? 'file' : 'files'},{' '}
-              <span className="text-green">+{s.insertions}</span>{' '}
-              <span className="text-red">
-                {MINUS}
-                {s.deletions}
-              </span>
-            </Fact>
+          {!several && worktrees[0] && (
+            <RepoFacts
+              taskId={task.id}
+              worktree={worktrees[0]}
+              folder={folder}
+            />
           )}
           <Fact label="AI cost">
             {usage ? (
@@ -245,41 +318,24 @@ export function DoneTaskPage({ task }: { task: TaskView }) {
           </Fact>
           <Fact label="Logged on work item">{logged}</Fact>
         </dl>
-        {s ? (
-          <section className="done-commits" aria-label="Commits">
-            <h2>
-              Commits{' '}
-              {s.baseKnown && <span className="muted">{s.commitCount}</span>}
-            </h2>
-            {!s.baseKnown ? (
-              <p className="muted">
-                Commits unavailable: MIAC could not find where this branch
-                started.
-              </p>
-            ) : s.commits.length === 0 ? (
-              <p className="muted">No commits on this branch.</p>
-            ) : (
-              <ol>
-                {s.commits.map((c) => (
-                  <li key={c.sha}>
-                    <span className="mono muted">{c.sha}</span>
-                    <span className="done-subject">{c.subject}</span>
-                  </li>
-                ))}
-              </ol>
-            )}
-            {s.commitCount > s.commits.length && (
-              <p className="muted small">
-                and {s.commitCount - s.commits.length} more
-              </p>
-            )}
+        {several ? (
+          <section className="done-repos" aria-label="Repos">
+            <h2>Repos</h2>
+            {worktrees.map((w) => (
+              <article key={w.repoId} aria-label={w.dir} className="done-repo">
+                <h3>
+                  <span className="mono">{w.dir}/</span>{' '}
+                  <span className="muted">repo {repoName(w.repoId)}</span>
+                </h3>
+                <dl className="facts">
+                  <RepoFacts taskId={task.id} worktree={w} folder={folder} />
+                </dl>
+                <Commits worktree={w} label={`Commits in ${w.dir}`} />
+              </article>
+            ))}
           </section>
         ) : (
-          <p className="done-nosummary muted">
-            {home?.baseSha
-              ? 'No summary: git could not read the branch when it finished.'
-              : 'Finished before MIAC recorded summaries.'}
-          </p>
+          worktrees[0] && <Commits worktree={worktrees[0]} />
         )}
         <UsagePanel taskId={task.id} />
       </div>

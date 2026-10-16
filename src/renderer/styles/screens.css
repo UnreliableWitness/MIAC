@@ -650,3 +650,37 @@
 .repos-add {
   max-width: 560px;
 }
+
+/* Done page of a task folder: one block per repo */
+.done-repos {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.done-repos > h2 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+}
+.done-repo {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--bg-card);
+  border-radius: var(--radius-card);
+}
+.done-repo h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.finish-repo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.finish-repo h3 {
+  margin: 4px 0 0;
+  font-size: 13px;
+}

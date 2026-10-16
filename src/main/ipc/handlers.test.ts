@@ -2779,6 +2779,46 @@ describe('handlers: task folders', () => {
     await hx.terminals.killAllForTask(hx.t.id);
   });
 
+  it('names the repo whose branch cannot be restored, and the task stays done', async () => {
+    const hx = await folderHarness({}, { copy: false, commands: [] });
+    await hx.addApi();
+    commitFile(path.join(hx.folder, 'api'), 'a.txt', 'a\n', 'Change the API');
+    await hx.h['tasks:finish'](hx.t.id, finishAll);
+    await hx.store.update((s) => {
+      const w = s.tasks[0].worktrees![1];
+      w.summary = {
+        ...w.summary!,
+        commits: [{ sha: 'deadbeef', subject: 'gone' }],
+        commitCount: 1,
+      };
+    });
+    await expect(hx.h['tasks:reopen'](hx.t.id)).rejects.toThrow(
+      `Branch ${hx.t.branch} of api cannot be restored`,
+    );
+    expect(hx.task().status).toBe('done');
+  });
+
+  it('cancelling a failed reopen removes the worktrees it made and goes back to done', async () => {
+    const hx = await folderHarness({}, { copy: false, commands: [] });
+    await hx.addApi();
+    await hx.h['tasks:finish'](hx.t.id, { ...finishAll, deleteBranch: false });
+    await hx.store.update((s) => {
+      s.tasks[0].worktrees![1].commands = [failCmd(4)];
+    });
+    const done = hx.setupDone();
+    await hx.h['tasks:reopen'](hx.t.id);
+    expect((await done).ok).toBe(false);
+    expect(existsSync(path.join(hx.folder, 'api'))).toBe(true);
+    await hx.h['tasks:cancelSetup'](hx.t.id);
+    const t = hx.task();
+    expect(t.status).toBe('done');
+    expect(t.reopen).toBeNull();
+    expect(t.worktrees?.every((w) => w.reopen === null)).toBe(true);
+    expect(existsSync(path.join(hx.folder, 'api'))).toBe(false);
+    expect(existsSync(path.join(hx.folder, 'webshop'))).toBe(false);
+    expect(await hx.services.git.branchExists(hx.apiRepo, t.branch)).toBe(true);
+  });
+
   it('cancels a failed setup: removes the worktrees, branches, task files and the task', async () => {
     const hx = await harness(fakeCrypto(), { newTaskLayout: 'folder' });
     const tasksRoot = mkdtempSync(path.join(os.tmpdir(), 'miac-tasks-'));
@@ -2793,5 +2833,214 @@ describe('handlers: task folders', () => {
     expect(hx.store.state.tasks).toEqual([]);
     expect(existsSync(t.worktreePath)).toBe(false);
     expect(await hx.services.git.branchExists(hx.repo, t.branch)).toBe(false);
+  });
+});
+
+describe('handlers: a pull request per repo', () => {
+  const finishWith = (pullRequestRepos?: string[]) => ({
+    closeTerminals: true,
+    removeWorktree: true,
+    deleteBranch: true,
+    syncUsage: false,
+    ...(pullRequestRepos ? { pullRequestRepos } : { createPullRequest: true }),
+  });
+
+  async function prFolder() {
+    const hx = await harness(fakeCrypto(), {
+      newTaskLayout: 'folder',
+      docsWatcher: new DocsWatcher(() => undefined),
+    });
+    const tasksRoot = mkdtempSync(path.join(os.tmpdir(), 'miac-tasks-'));
+    connDirs.push(tasksRoot);
+    await hx.settings.save({ ...hx.settings.get(), tasksFolder: tasksRoot });
+    const c = await hx.connections.save({
+      organizationUrl: 'https://dev.azure.com/contoso',
+      project: 'P',
+      pat: 'p',
+    });
+    await hx.h['repos:setConnection'](hx.added.id, c.id);
+    const apiRepo = makeRepo('api');
+    const bares = { webshop: addOrigin(hx.repo), api: addOrigin(apiRepo) };
+    const api = await hx.h['repos:add'](apiRepo);
+    await hx.h['repos:setConnection'](api.id, c.id);
+    vi.spyOn(hx.services.git, 'remoteUrl').mockImplementation(async (cwd) =>
+      cwd === apiRepo
+        ? 'https://dev.azure.com/contoso/P/_git/API'
+        : 'https://dev.azure.com/contoso/P/_git/Shop',
+    );
+    const client = hx.services.ado.client(c.id);
+    vi.spyOn(client, 'repositoryId').mockImplementation(
+      async (_p, name) => `id-${name}`,
+    );
+    const findActive = vi
+      .spyOn(client, 'findActivePullRequest')
+      .mockResolvedValue(null);
+    let next = 10;
+    const create = vi
+      .spyOn(client, 'createPullRequest')
+      .mockImplementation(async () => ({
+        pullRequestId: next++,
+        status: 'active',
+        isDraft: true,
+      }));
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](
+      hx.input({
+        baseRef: 'origin/main',
+        openShell: false,
+        copy: false,
+        commands: [],
+      }),
+    );
+    await done;
+    const added = hx.setupDone();
+    await hx.h['tasks:addRepo'](t.id, {
+      repoId: api.id,
+      baseRef: 'origin/main',
+      copy: false,
+      commands: [],
+      replaces: null,
+    });
+    expect((await added).ok).toBe(true);
+    const task = () => hx.store.state.tasks.find((x) => x.id === t.id)!;
+    const dir = (d: string) => path.join(task().worktreePath, d);
+    return { ...hx, c, api, apiRepo, bares, findActive, create, t, task, dir };
+  }
+
+  it('reports checks and availability per repo', async () => {
+    const hx = await prFolder();
+    commitFile(hx.dir('api'), 'a.txt', 'a\n', 'Change the API');
+    const checks = await hx.h['tasks:finishChecks'](hx.t.id);
+    expect(checks.repos?.map((r) => [r.dir, r.commits, r.unpushed])).toEqual([
+      ['webshop', 0, 0],
+      ['api', 1, 1],
+    ]);
+    expect(checks.unpushed).toBe(1);
+    const avail = await hx.h['tasks:prAvailability'](hx.t.id);
+    expect(avail.repos).toEqual([
+      {
+        repoId: hx.added.id,
+        dir: 'webshop',
+        available: true,
+        reason: null,
+        target: 'main',
+      },
+      {
+        repoId: hx.api.id,
+        dir: 'api',
+        available: true,
+        reason: null,
+        target: 'main',
+      },
+    ]);
+  });
+
+  it('makes a PR for each repo with commits, linked to the work item, the cost only in the home repo’s', async () => {
+    const hx = await prFolder();
+    commitFile(hx.dir('webshop'), 'w.txt', 'w\n', 'Change the shop');
+    commitFile(hx.dir('api'), 'a.txt', 'a\n', 'Change the API');
+    await hx.h['tasks:finish'](hx.t.id, finishWith());
+    expect(hx.create).toHaveBeenCalledTimes(2);
+    const [shop, api] = hx.create.mock.calls;
+    expect(shop[1]).toBe('id-Shop');
+    expect(api[1]).toBe('id-API');
+    for (const call of [shop, api])
+      expect(call[2]).toMatchObject({
+        source: hx.t.branch,
+        target: 'main',
+        workItemId: 48231,
+      });
+    expect(shop[2].description).toContain('Change the shop');
+    expect(shop[2].description).toContain('AI cost for this task');
+    expect(shop[2].description).toContain(
+      'Part of a change across 2 repos, also in api',
+    );
+    expect(api[2].description).toContain('Change the API');
+    expect(api[2].description).not.toContain('AI cost');
+    expect(api[2].description).toContain('also in webshop');
+    const t = hx.task();
+    expect(t.status).toBe('done');
+    expect(t.worktrees?.map((w) => [w.dir, w.pullRequest?.id])).toEqual([
+      ['webshop', 10],
+      ['api', 11],
+    ]);
+    expect(t.worktrees?.every((w) => w.summary?.pushed)).toBe(true);
+    expect(hx.opened).toEqual([
+      'https://dev.azure.com/contoso/P/_git/Shop/pullrequest/10',
+      'https://dev.azure.com/contoso/P/_git/API/pullrequest/11',
+    ]);
+    expect(git(hx.bares.api, 'branch', '--list', hx.t.branch)).toContain(
+      hx.t.branch,
+    );
+  });
+
+  it('skips repos without commits and makes PRs only for the repos asked for', async () => {
+    const hx = await prFolder();
+    commitFile(hx.dir('api'), 'a.txt', 'a\n', 'Change the API');
+    await hx.h['tasks:finish'](hx.t.id, finishWith());
+    expect(hx.create).toHaveBeenCalledTimes(1);
+    expect(hx.create.mock.calls[0][1]).toBe('id-API');
+    // The only PR is not the home repo's: it carries the cost.
+    expect(hx.create.mock.calls[0][2].description).toContain('AI cost');
+    expect(hx.task().worktrees?.map((w) => w.pullRequest?.id ?? null)).toEqual([
+      null,
+      10,
+    ]);
+  });
+
+  it('keeps the PRs made before a failure, stays ready, and Retry links them instead of making more', async () => {
+    const hx = await prFolder();
+    commitFile(hx.dir('webshop'), 'w.txt', 'w\n', 'Change the shop');
+    commitFile(hx.dir('api'), 'a.txt', 'a\n', 'Change the API');
+    hx.create
+      .mockResolvedValueOnce({
+        pullRequestId: 10,
+        status: 'active',
+        isDraft: true,
+      })
+      .mockRejectedValueOnce(new Error('TF401398: no permission'));
+    await expect(
+      hx.h['tasks:finish'](hx.t.id, finishWith([hx.added.id, hx.api.id])),
+    ).rejects.toThrow('Pull request not created: api: TF401398: no permission');
+    let t = hx.task();
+    expect(t.status).toBe('ready');
+    expect(t.worktrees?.map((w) => w.pullRequest?.id ?? null)).toEqual([
+      10,
+      null,
+    ]);
+    expect(existsSync(hx.dir('api'))).toBe(true);
+    hx.findActive.mockImplementation(async (_p, repositoryId) =>
+      repositoryId === 'id-Shop'
+        ? { pullRequestId: 10, status: 'active', isDraft: true }
+        : null,
+    );
+    hx.create.mockResolvedValueOnce({
+      pullRequestId: 11,
+      status: 'active',
+      isDraft: true,
+    });
+    await hx.h['tasks:finish'](hx.t.id, finishWith([hx.added.id, hx.api.id]));
+    expect(hx.create).toHaveBeenCalledTimes(3);
+    t = hx.task();
+    expect(t.status).toBe('done');
+    expect(t.worktrees?.map((w) => w.pullRequest?.id)).toEqual([10, 11]);
+  });
+
+  it('refreshes one repo’s PR status', async () => {
+    const hx = await prFolder();
+    commitFile(hx.dir('api'), 'a.txt', 'a\n', 'Change the API');
+    await hx.h['tasks:finish'](hx.t.id, finishWith());
+    vi.spyOn(hx.services.ado.client(hx.c.id), 'pullRequest').mockResolvedValue({
+      pullRequestId: 10,
+      status: 'completed',
+      isDraft: false,
+    });
+    expect(await hx.h['tasks:prStatus'](hx.t.id, hx.added.id)).toBeNull();
+    expect(await hx.h['tasks:prStatus'](hx.t.id, hx.api.id)).toMatchObject({
+      id: 10,
+      status: 'completed',
+      isDraft: false,
+    });
+    expect(hx.task().worktrees?.[1].pullRequest?.status).toBe('completed');
   });
 });
