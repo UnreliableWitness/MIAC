@@ -54,6 +54,8 @@ const item = (
   assignedTo: 'Dries Hoebeke',
   url: `https://dev.azure.com/unreliablewitness/MIAC/_workitems/edit/${id}`,
   remainingWork: null,
+  originalEstimate: null,
+  completedWork: null,
   ...over,
 });
 const row = (

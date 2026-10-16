@@ -321,7 +321,12 @@ function SprintPage({ connection }: { connection: Connection }) {
               text: '',
             })
           ).map((item) => ({
-            item: { ...item, remainingWork: null },
+            item: {
+              ...item,
+              remainingWork: null,
+              originalEstimate: null,
+              completedWork: null,
+            },
             depth: 0,
             parentId: null,
             hasChildren: false,

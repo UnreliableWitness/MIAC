@@ -163,6 +163,8 @@ export type FinishOptions = {
   deleteBranch: boolean;
   syncUsage: boolean;
   createPullRequest?: boolean;
+  /** The time to book on the task (seconds); absent books nothing. */
+  bookedSeconds?: number;
 };
 
 export type GitFile = { status: string; path: string };
@@ -282,8 +284,12 @@ export type WorkItemSummary = {
 
 export type WorkItemSearch = { scope: 'sprint' | 'mine'; text: string };
 
-/** A sprint backlog item: the picker's fields plus remaining work (hours, null when unset). */
-export type SprintItem = WorkItemSummary & { remainingWork: number | null };
+/** A sprint backlog item: the picker's fields plus the estimate fields (hours, null when unset). */
+export type SprintItem = WorkItemSummary & {
+  remainingWork: number | null;
+  originalEstimate: number | null;
+  completedWork: number | null;
+};
 /** One grid row of the sprint page, in ADO's backlog order; children follow their parent. */
 export type SprintRow = {
   item: SprintItem;

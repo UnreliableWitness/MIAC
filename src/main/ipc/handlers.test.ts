@@ -22,7 +22,7 @@ import { loadMiacConfig } from '../services/MiacConfig';
 import { RepoRegistry } from '../services/RepoRegistry';
 import { SetupRunner } from '../services/SetupRunner';
 import { TaskStore } from '../services/TaskStore';
-import type { Telemetry } from '../telemetry/AppInsightsClient';
+import { NoopTelemetry, type Telemetry } from '../telemetry/AppInsightsClient';
 import { TerminalManager } from '../services/TerminalManager';
 import { DocsWatcher } from '../docs/DocsWatcher';
 import { TimeStore } from '../time/TimeStore';
@@ -2443,5 +2443,179 @@ describe('handlers: time', () => {
   it('has the time handlers', async () => {
     const { h } = await harness();
     expect(await h['time:sprint']('none')).toEqual({});
+  });
+});
+
+describe('handlers: time booking and write-back', () => {
+  const WI = '/unreliablewitness/_apis/wit/workitems/48231';
+  const finishOpts = (bookedSeconds?: number) => ({
+    closeTerminals: true,
+    removeWorktree: true,
+    deleteBranch: true,
+    syncUsage: false,
+    bookedSeconds,
+  });
+
+  async function timeTask(
+    hx: Awaited<ReturnType<typeof harness>>,
+    writeTime: boolean,
+  ) {
+    await hx.settings.save({ ...hx.settings.get(), writeTimeToAdo: writeTime });
+    const { t, c } = await linkedTask(hx);
+    hx.server.route('GET', '/unreliablewitness/MIAC/_apis/wit/workitemtypes', {
+      body: {
+        value: [
+          {
+            name: 'User Story',
+            fields: [
+              { referenceName: 'Microsoft.VSTS.Scheduling.RemainingWork' },
+              { referenceName: 'Microsoft.VSTS.Scheduling.CompletedWork' },
+            ],
+          },
+        ],
+      },
+    });
+    hx.server.route('GET', WI, {
+      body: {
+        fields: {
+          'System.WorkItemType': 'User Story',
+          'Microsoft.VSTS.Scheduling.RemainingWork': 5,
+          'Microsoft.VSTS.Scheduling.CompletedWork': 1,
+        },
+      },
+    });
+    return { t, c };
+  }
+  const patches = (hx: Awaited<ReturnType<typeof harness>>) =>
+    hx.server.requests.filter((r) => r.method === 'PATCH');
+
+  it('books the time without writing it when time writing is off', async () => {
+    const events: [string, unknown][] = [];
+    const hx = await harness(fakeCrypto(), {
+      telemetry: {
+        ...NoopTelemetry,
+        event: (name, props) => events.push([name, props]),
+      },
+    });
+    const { t } = await timeTask(hx, false);
+    await hx.h['tasks:finish'](t.id, finishOpts(7200));
+    const task = hx.store.state.tasks[0];
+    expect(task.status).toBe('done');
+    expect(task.time).toMatchObject({
+      bookedSeconds: 7200,
+      writtenHours: 0,
+      syncError: null,
+    });
+    expect(typeof task.time?.measuredSeconds).toBe('number');
+    expect(patches(hx)).toEqual([]);
+    expect(events).toContainEqual(['time.booked', { closest: 'custom' }]);
+    await expect(hx.h['time:sync'](t.id)).rejects.toThrow(
+      'Writing time to Azure DevOps is off',
+    );
+  });
+
+  it('keeps no booking when Finish has no time to book', async () => {
+    const hx = await harness();
+    const { t } = await timeTask(hx, true);
+    await hx.h['tasks:finish'](t.id, finishOpts());
+    expect(hx.store.state.tasks[0].time).toBeNull();
+    expect(patches(hx)).toEqual([]);
+  });
+
+  it('writes Completed and Remaining Work when time writing is on', async () => {
+    const hx = await harness();
+    const { t } = await timeTask(hx, true);
+    await hx.h['tasks:finish'](t.id, finishOpts(7200));
+    expect(patches(hx)).toHaveLength(1);
+    expect(JSON.parse(patches(hx)[0].body)).toEqual([
+      {
+        op: 'add',
+        path: '/fields/Microsoft.VSTS.Scheduling.CompletedWork',
+        value: 3,
+      },
+      {
+        op: 'add',
+        path: '/fields/Microsoft.VSTS.Scheduling.RemainingWork',
+        value: 3,
+      },
+    ]);
+    expect(hx.store.state.tasks[0]).toMatchObject({
+      status: 'done',
+      time: { bookedSeconds: 7200, writtenHours: 2, syncError: null },
+    });
+  });
+
+  it('finishes and warns when the time write fails, then time:sync retries it', async () => {
+    const hx = await harness();
+    const { t } = await timeTask(hx, true);
+    hx.server.route('PATCH', WI, { status: 403, body: {} });
+    await hx.h['tasks:finish'](t.id, finishOpts(7200));
+    const task = hx.store.state.tasks[0];
+    expect(task.status).toBe('done');
+    expect(task.time?.writtenHours).toBe(0);
+    expect(task.time?.syncError).toBe(
+      'The token cannot write work items (needs Work Items: Read & write)',
+    );
+    expect(hx.broadcasts).toContainEqual({
+      event: 'notice',
+      payload: {
+        level: 'warn',
+        message:
+          'Task finished, but the time could not be written to the work item: The token cannot write work items (needs Work Items: Read & write). Use Retry on the Done page.',
+      },
+    });
+    hx.server.route('PATCH', WI, { body: { id: 48231 } });
+    await hx.h['time:sync'](t.id);
+    expect(hx.store.state.tasks[0].time).toMatchObject({
+      writtenHours: 2,
+      syncError: null,
+    });
+  });
+});
+
+describe('handlers: estimate baseline at create', () => {
+  async function connect(hx: Awaited<ReturnType<typeof harness>>) {
+    routeHealthyOrg(hx.server);
+    const c = await hx.h['connections:save']({
+      organizationUrl: `${hx.server.url}/unreliablewitness`,
+      project: 'MIAC',
+      pat: 'secret-pat',
+    });
+    await hx.h['repos:setConnection'](hx.added.id, c.id);
+    return c;
+  }
+
+  it('records Remaining + Completed Work when the item has no Original Estimate', async () => {
+    const hx = await harness();
+    const c = await connect(hx);
+    hx.server.route('GET', '/unreliablewitness/_apis/wit/workitems/48231', {
+      body: {
+        fields: {
+          'System.WorkItemType': 'User Story',
+          'Microsoft.VSTS.Scheduling.RemainingWork': 5,
+          'Microsoft.VSTS.Scheduling.CompletedWork': 1,
+        },
+      },
+    });
+    const done = hx.setupDone();
+    await hx.h['tasks:create'](hx.input({ openShell: false }));
+    await done;
+    await vi.waitFor(() =>
+      expect(hx.services.time.baseline(`${c.id}:48231`)).toBe(6),
+    );
+  });
+
+  it('still creates the task when Azure DevOps fails', async () => {
+    const hx = await harness();
+    const c = await connect(hx);
+    hx.server.route('GET', '/unreliablewitness/_apis/wit/workitems/48231', {
+      status: 500,
+      body: {},
+    });
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](hx.input({ openShell: false }));
+    await done;
+    expect(hx.store.state.tasks.map((x) => x.id)).toEqual([t.id]);
+    expect(hx.services.time.baseline(`${c.id}:48231`)).toBeNull();
   });
 });
