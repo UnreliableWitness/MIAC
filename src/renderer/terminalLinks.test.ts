@@ -1,3 +1,4 @@
+import type { ILink } from '@xterm/xterm';
 import { describe, expect, it, vi } from 'vitest';
 import { installFakeApi } from './test-helpers/fakeApi';
 import { useStore } from './store';
@@ -88,6 +89,62 @@ describe('createLinkProvider', () => {
     await new Promise((r) => p.provideLinks(1, r));
     await new Promise((r) => p.provideLinks(1, r));
     expect(resolve).toHaveBeenCalledTimes(1);
+  });
+  it('gives links on repeated text at other rows their own ranges', async () => {
+    const b = buffer(
+      [
+        { text: 'docs/a.md', wrapped: false },
+        { text: 'other', wrapped: false },
+        { text: 'docs/a.md', wrapped: false },
+      ],
+      80,
+    );
+    const term = { cols: 80, buffer: { active: b } } as never;
+    const resolve = vi.fn(async () => ({
+      path: 'docs/a.md',
+      kind: 'md' as const,
+    }));
+    const p = createLinkProvider(term, 't1', { resolve, open: vi.fn() });
+    const at = (row: number) =>
+      new Promise<{ range: { start: { y: number }; end: { y: number } } }[]>(
+        (r) => p.provideLinks(row, r as never),
+      );
+    expect((await at(1))[0].range.start.y).toBe(1);
+    const third = await at(3);
+    expect(third).toHaveLength(1);
+    expect(third[0].range.start.y).toBe(3);
+    expect(resolve).toHaveBeenCalledTimes(1);
+  });
+  it('does not cache a failed resolution', async () => {
+    const b = buffer([{ text: 'docs/a.md', wrapped: false }], 80);
+    const term = { cols: 80, buffer: { active: b } } as never;
+    const resolve = vi
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue({ path: 'docs/a.md', kind: 'md' as const });
+    const p = createLinkProvider(term, 't1', { resolve, open: vi.fn() });
+    expect(await new Promise((r) => p.provideLinks(1, r))).toEqual([]);
+    const again = await new Promise<ILink[] | undefined>((r) =>
+      p.provideLinks(1, r),
+    );
+    expect(again).toHaveLength(1);
+    expect(resolve).toHaveBeenCalledTimes(2);
+  });
+  it('handles a link ending exactly at the last column', async () => {
+    const b = buffer([{ text: 'ab docs/a.md', wrapped: false }], 12);
+    const term = { cols: 12, buffer: { active: b } } as never;
+    const resolve = vi.fn(async () => ({
+      path: 'docs/a.md',
+      kind: 'md' as const,
+    }));
+    const p = createLinkProvider(term, 't1', { resolve, open: vi.fn() });
+    const links = await new Promise<ILink[] | undefined>((r) =>
+      p.provideLinks(1, r),
+    );
+    expect(links![0].range).toEqual({
+      start: { x: 4, y: 1 },
+      end: { x: 12, y: 1 },
+    });
   });
   it('only scans the first 2,000 characters of a line', async () => {
     const b = buffer(

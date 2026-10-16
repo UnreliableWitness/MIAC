@@ -100,7 +100,21 @@ export function createLinkProvider(
         .invoke('docs:resolve', t, p)
         .catch(() => null));
   const open = deps.open ?? ((t: LinkTarget) => openLink(taskId, t));
-  const cache = new Map<string, Promise<ILink[]>>();
+  // Resolutions are cached per path (text-relative); null is never kept, so a
+  // file created after its path was printed becomes a link on the next hover.
+  const resolved = new Map<string, Promise<Awaited<ReturnType<Resolve>>>>();
+  const resolveCached = (path: string) => {
+    let p = resolved.get(path);
+    if (!p) {
+      p = resolve(taskId, path);
+      if (resolved.size > 500) resolved.clear();
+      resolved.set(path, p);
+      void p.then((r) => {
+        if (!r && resolved.get(path) === p) resolved.delete(path);
+      });
+    }
+    return p;
+  };
   return {
     provideLinks(lineNumber, callback) {
       const { text: full, firstRow } = logicalLine(
@@ -108,42 +122,32 @@ export function createLinkProvider(
         lineNumber - 1,
       );
       const text = full.slice(0, MAX_SCAN);
-      let pending = cache.get(text);
-      if (!pending) {
-        pending = Promise.all(
-          findLinks(text).map(async (l): Promise<ILink | null> => {
-            const range = {
-              start: cellAt(term.cols, firstRow, l.start),
-              end: cellAt(term.cols, firstRow, l.end - 1),
-            };
-            if (l.kind === 'url')
-              return {
-                range,
-                text: l.text,
-                activate: () => open({ type: 'url', url: l.url }),
-                ...tooltip(LABELS.url),
-              };
-            const r = await resolve(taskId, l.path);
-            if (!r) return null;
+      void Promise.all(
+        findLinks(text).map(async (l): Promise<ILink | null> => {
+          const range = {
+            start: cellAt(term.cols, firstRow, l.start),
+            end: cellAt(term.cols, firstRow, l.end - 1),
+          };
+          if (range.start.y > lineNumber || range.end.y < lineNumber)
+            return null;
+          if (l.kind === 'url')
             return {
               range,
               text: l.text,
-              activate: () =>
-                open({ type: r.kind, path: r.path, line: l.line, col: l.col }),
-              ...tooltip(LABELS[r.kind]),
+              activate: () => open({ type: 'url', url: l.url }),
+              ...tooltip(LABELS.url),
             };
-          }),
-        ).then((ls) => ls.filter((x): x is ILink => x !== null));
-        if (cache.size > 500) cache.clear();
-        cache.set(text, pending);
-      }
-      void pending.then((links) => {
-        callback(
-          links.filter(
-            (k) => k.range.start.y <= lineNumber && k.range.end.y >= lineNumber,
-          ),
-        );
-      });
+          const r = await resolveCached(l.path).catch(() => null);
+          if (!r) return null;
+          return {
+            range,
+            text: l.text,
+            activate: () =>
+              open({ type: r.kind, path: r.path, line: l.line, col: l.col }),
+            ...tooltip(LABELS[r.kind]),
+          };
+        }),
+      ).then((ls) => callback(ls.filter((x): x is ILink => x !== null)));
     },
   };
 }
