@@ -26,6 +26,7 @@ import {
   activeHome,
   activeWorkspaces,
   taskConnectionId,
+  taskWorkspaces,
   workspaceById,
 } from '../../shared/workspaces';
 import { worktreeRoot } from '../paths';
@@ -374,13 +375,19 @@ export function createHandlers(s: Services): Handlers {
    * session, starts it again when the user never sent a message (nothing was saved), or continues the latest
    * session in the worktree for tabs from before session ids.
    */
+  /** The workspace a terminal runs in; a removed or dropped one falls back to the active home. */
+  const terminalWorkspace = (task: Task, def: TerminalDef) => {
+    const w = taskWorkspaces(task).find((x) => x.id === def.workspaceId);
+    return w && !w.dropped ? w : activeHome(task);
+  };
+
   const terminalCommand = (
     task: Task,
     def: TerminalDef,
     resume = false,
   ): Command => {
     if (def.kind === 'claude') {
-      const cwd = workspaceById(task, def.workspaceId).worktreePath;
+      const cwd = terminalWorkspace(task, def).worktreePath;
       const dirs = activeWorkspaces(task)
         .filter((w) => w.worktreePath !== cwd)
         .flatMap((w) => ['--add-dir', w.worktreePath]);
@@ -409,7 +416,7 @@ export function createHandlers(s: Services): Handlers {
     s.terminals.spawn({
       id: def.id,
       taskId: task.id,
-      cwd: workspaceById(task, def.workspaceId).worktreePath,
+      cwd: terminalWorkspace(task, def).worktreePath,
       command: cmd.command,
       args: cmd.args,
       env: {
@@ -498,7 +505,18 @@ export function createHandlers(s: Services): Handlers {
       baseRef: task.baseRef,
       copy: task.setup.copy ? config.copy : [],
       commands: task.setup.commands,
-      taskMd: renderTaskMd(task),
+      taskMd: renderTaskMd(
+        task,
+        Object.fromEntries(
+          taskWorkspaces(task).flatMap((w) => {
+            try {
+              return [[w.repoId, s.repos.get(w.repoId).path]];
+            } catch {
+              return [];
+            }
+          }),
+        ),
+      ),
       startTerminalsLabel:
         defs.length > 0 ? defs.map((d) => d.label).join(', ') : null,
       // A reopened task leaves its work item alone.

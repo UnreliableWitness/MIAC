@@ -163,12 +163,21 @@ describe('other repos', () => {
   };
   it('tells Claude how to make a worktree elsewhere', () => {
     const t = { ...task, slug: '42-x', branch: 'feature/42-x' };
+    expect(claudeContext(t).startsWith('This folder is a MIAC task for ')).toBe(
+      true,
+    );
     expect(claudeContext(t)).toContain(
       'worktree add <repo>.worktrees/42-x -b feature/42-x <base>',
     );
   });
   it('lists every workspace in task.md', () => {
-    const md = renderTaskMd({ ...task, extraWorkspaces: [extra] });
+    const md = renderTaskMd(
+      { ...task, extraWorkspaces: [extra] },
+      {
+        api: '/src/api',
+      },
+    );
+    expect(md).toContain('`/src/api`');
     expect(md).toContain('## Workspaces');
     expect(md).toContain('/src/api.worktrees/x');
     expect(md).toContain('worktree add <repo>.worktrees/');

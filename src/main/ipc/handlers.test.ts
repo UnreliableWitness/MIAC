@@ -1080,9 +1080,34 @@ describe('handlers: reopen a finished task', () => {
     await hx.store.update((st) => {
       st.tasks[0].extraWorkspaces[0].baseRef = 'HEAD~1';
     });
+    writeFileSync(path.join(extra, 'c.txt'), 'c\n');
     const sum = await hx.h['tasks:gitSummary'](hx.t.id, 'w2');
+    expect(sum.files.map((f) => f.path)).toEqual(['c.txt']);
+    expect(sum.ahead).toBe(1);
     const home = await hx.h['tasks:gitSummary'](hx.t.id);
-    expect(sum).not.toEqual(home);
+    expect(home.files.map((f) => f.path)).not.toContain('c.txt');
+  });
+
+  it('a terminal of a removed or dropped workspace runs in the active home', async () => {
+    const hx = await finished({ removeWorktree: false, deleteBranch: false });
+    await withExtra(hx);
+    await hx.terminals.killAllForTask(hx.t.id);
+    await hx.store.update((st) => {
+      st.tasks[0].status = 'ready';
+      st.tasks[0].extraWorkspaces[0].dropped = true;
+    });
+    const spy = vi.spyOn(hx.terminals, 'spawn');
+    for (const workspaceId of ['w2', 'gone'])
+      await hx.h['terminals:open'](hx.t.id, {
+        kind: 'shell',
+        label: 'sh',
+        workspaceId,
+      });
+    expect(spy.mock.calls.map((c) => c[0].cwd)).toEqual([
+      hx.t.worktreePath,
+      hx.t.worktreePath,
+    ]);
+    await hx.terminals.killAllForTask(hx.t.id);
   });
 
   it('reopens a task whose worktree was kept, without setup, resuming Claude', async () => {

@@ -41,7 +41,10 @@ export function taskTitle(task: Pick<Task, 'workItem' | 'name'>): string {
     : `Task: ${task.name}`;
 }
 
-export function renderTaskMd(task: Task): string {
+export function renderTaskMd(
+  task: Task,
+  repoPaths: Record<string, string> = {},
+): string {
   const lines = [
     `# ${taskTitle(task)}`,
     '',
@@ -56,7 +59,7 @@ export function renderTaskMd(task: Task): string {
           '',
           ...taskWorkspaces(task).map(
             (w) =>
-              `- Repo \`${w.repoId}\`: branch \`${w.branch}\`, worktree \`${w.worktreePath}\`${w.dropped ? ' (left out)' : ''}`,
+              `- Repo \`${repoPaths[w.repoId] ?? w.repoId}\`: branch \`${w.branch}\`, worktree \`${w.worktreePath}\`${w.dropped ? ' (left out)' : ''}`,
           ),
           '',
         ]
