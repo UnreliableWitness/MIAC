@@ -13,9 +13,11 @@ describe('terminalOptions', () => {
     expect(terminalOptions(null)).not.toHaveProperty('windowsPty');
   });
 
-  it('draws box and block characters itself and falls back to Windows monospace fonts', () => {
+  it('draws box and block characters itself and uses only system terminal fonts', () => {
     const o = terminalOptions(null);
     expect(o.customGlyphs).toBe(true);
-    expect(TERMINAL_FONT).toMatch(/Cascadia Mono.*Consolas/);
+    expect(o.fontFamily).toBe(TERMINAL_FONT);
+    expect(TERMINAL_FONT).toMatch(/^'Cascadia Mono', Consolas,/);
+    expect(TERMINAL_FONT).not.toMatch(/JetBrains/);
   });
 });

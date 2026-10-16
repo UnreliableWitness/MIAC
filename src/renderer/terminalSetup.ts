@@ -4,11 +4,13 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import { api } from './api';
 import { TERMINAL_THEME } from './terminalTheme';
 
-/** The bundled JetBrains Mono has no box-drawing or block glyphs; Cascadia/Consolas are the Windows fallbacks for anything the WebGL renderer does not draw itself. */
+/**
+ * The system's own terminal fonts (Windows Terminal's Cascadia Mono, then Consolas; SF Mono or Menlo on macOS), nothing
+ * bundled or preferred by MIAC. Each has its own bold, so bold text never falls back to a font with another baseline.
+ */
 export const TERMINAL_FONT =
-  "'JetBrains Mono', 'Cascadia Mono', Consolas, ui-monospace, monospace";
+  "'Cascadia Mono', Consolas, 'SF Mono', Menlo, monospace";
 const FONT_SIZE = 13;
-const FONT_WAIT_MS = 1500;
 
 export function terminalOptions(windowsBuild: number | null): ITerminalOptions {
   return {
@@ -37,16 +39,6 @@ export function windowsBuild(): Promise<number | null> {
     .then((i) => i.windowsBuild ?? null)
     .catch(() => null);
   return info;
-}
-
-/** Resolves when the terminal font is loaded (or after a short wait), so xterm measures cells with the real font. */
-export function terminalFontReady(): Promise<void> {
-  const fonts = typeof document !== 'undefined' ? document.fonts : undefined;
-  if (!fonts?.load) return Promise.resolve();
-  return Promise.race([
-    fonts.load(`${FONT_SIZE}px 'JetBrains Mono'`).then(() => undefined),
-    new Promise<void>((r) => setTimeout(r, FONT_WAIT_MS)),
-  ]).catch(() => undefined);
 }
 
 /** Wide-character widths per Unicode 11 (emoji, CJK), and the WebGL renderer when the GPU allows it; the DOM renderer otherwise. */
