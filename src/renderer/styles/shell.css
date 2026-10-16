@@ -334,6 +334,43 @@ button.projecttile:hover {
 .tab-add {
   color: var(--muted);
 }
+/* A terminal tab and its close button; the button shows on hover, focus and for the active tab. */
+.term-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.term-tab .pivot {
+  padding-right: 22px;
+}
+.term-tab-close {
+  position: absolute;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--muted);
+  opacity: 0;
+}
+.term-tab:hover .term-tab-close,
+.term-tab .pivot[aria-selected='true'] + .term-tab-close,
+.term-tab-close:focus-visible {
+  opacity: 1;
+}
+.term-tab-close:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.terminal-menu {
+  position: fixed;
+  right: auto;
+  min-width: 200px;
+}
 .tab-new {
   width: 6px;
   height: 6px;

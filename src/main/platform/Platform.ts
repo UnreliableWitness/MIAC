@@ -28,6 +28,8 @@ export interface Platform {
   claudeCommand(context: string | null, flags?: string[]): Command;
   /** Start GitHub Copilot CLI. */
   copilotCommand(): Command;
+  /** Start OpenCode (no AI cost tracking). */
+  opencodeCommand(): Command;
   /** Open a folder in the editor. */
   editorCommand(path: string): Command;
   /** Open a file in the editor at a line (and column), in the worktree's window. */

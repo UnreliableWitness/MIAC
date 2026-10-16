@@ -1,6 +1,6 @@
 import {
-  Add16Regular,
   Branch16Regular,
+  Dismiss12Regular,
   Code16Regular,
   DataPie16Regular,
   Document16Regular,
@@ -8,7 +8,7 @@ import {
   FullScreenMinimize16Regular,
 } from '@fluentui/react-icons';
 import { useEffect, useState } from 'react';
-import type { TaskView } from '../../shared/types';
+import type { NewTerminal, TaskView } from '../../shared/types';
 import { api, tryInvoke } from '../api';
 import { eur } from '../format';
 import { useGitSummary } from '../hooks/useGitSummary';
@@ -17,6 +17,7 @@ import { useTaskUsage } from '../hooks/useTaskUsage';
 import { holdDocsWatch } from '../docs/holdDocsWatch';
 import { DOCS_TAB, USAGE_TAB, useStore } from '../store';
 import { DocsTab } from './docs/DocsTab';
+import { NewTerminalMenu } from './NewTerminalMenu';
 import { TerminalView } from './TerminalView';
 import { IconButton, MindMark, modKey } from './ui';
 import { UsagePanel } from './UsagePanel';
@@ -108,17 +109,16 @@ export function TerminalTabs({
     if (active === USAGE_TAB) setUnseen(false);
   }, [active]);
 
-  const open = async (def: {
-    kind: 'shell' | 'run' | 'copilot';
-    label: string;
-    command?: string;
-  }) => {
+  const open = async (def: NewTerminal) => {
     const created = await tryInvoke(
       () => api().invoke('terminals:open', task.id, def),
       notify,
     );
     if (created) setTab(task.id, created.id);
   };
+
+  const closeTerminal = (id: string) =>
+    tryInvoke(() => api().invoke('terminals:kill', id), notify);
 
   const runCommands = Object.entries(config?.config.run ?? {});
 
@@ -167,35 +167,35 @@ export function TerminalTabs({
             </button>
           )}
           {task.terminals.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              role="tab"
-              aria-selected={active === t.id}
-              className="pivot"
-              onClick={() => setTab(task.id, t.id)}
-            >
-              {t.label}
-            </button>
+            <span key={t.id} className="term-tab">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={active === t.id}
+                className="pivot"
+                onClick={() => setTab(task.id, t.id)}
+                // Middle click closes, as in browsers and VS Code.
+                onAuxClick={(e) => {
+                  if (e.button === 1) void closeTerminal(t.id);
+                }}
+              >
+                {t.label}
+              </button>
+              <button
+                type="button"
+                className="term-tab-close"
+                aria-label={`Close ${t.label}`}
+                title={`Close ${t.label}`}
+                onClick={() => void closeTerminal(t.id)}
+              >
+                <Dismiss12Regular aria-hidden="true" />
+              </button>
+            </span>
           ))}
-          <button
-            type="button"
-            className="btn btn-subtle btn-sm tab-add"
-            aria-label="New terminal"
-            title="New terminal"
-            onClick={() => open({ kind: 'shell', label: 'shell' })}
+          <NewTerminalMenu
             disabled={task.worktreeMissing}
-          >
-            <Add16Regular />
-          </button>
-          <button
-            type="button"
-            className="btn btn-subtle btn-sm tab-add"
-            onClick={() => open({ kind: 'copilot', label: 'Copilot CLI' })}
-            disabled={task.worktreeMissing}
-          >
-            Copilot CLI
-          </button>
+            onOpen={(def) => void open(def)}
+          />
           {runCommands.length > 0 && (
             <span className="tabrow-run">
               <span className="small muted">Run</span>

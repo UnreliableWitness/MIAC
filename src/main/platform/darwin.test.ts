@@ -49,6 +49,12 @@ describe('darwinPlatform', () => {
       args: ['-l', '-c', 'exec copilot'],
     });
   });
+  it('starts OpenCode through a login shell', () => {
+    expect(p.opencodeCommand()).toEqual({
+      command: '/bin/zsh',
+      args: ['-l', '-c', 'exec opencode'],
+    });
+  });
   it('opens VS Code', () => {
     expect(p.editorCommand('/src/x')).toEqual({
       command: 'code',
