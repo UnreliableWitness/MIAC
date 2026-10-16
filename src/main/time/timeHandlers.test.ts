@@ -119,6 +119,14 @@ describe('time handlers', () => {
     expect(r.booking?.bookedSeconds).toBe(1800);
   });
 
+  it('time:exportCsv gives one row for the task', async () => {
+    const t = task({ id: 't1' });
+    const { h, time } = await setup([t]);
+    await time.addActive('t1', [NOW - 600_000, NOW - 300_000]);
+    const csv = await h['time:exportCsv']('t1');
+    expect(csv.split('\r\n')[1]).toMatch(/^b-t1,12,,300,300,\d+,0,0,0$/);
+  });
+
   it('time:sprint sums the tasks of a work item on the connection', async () => {
     const done = task({
       id: 'done',

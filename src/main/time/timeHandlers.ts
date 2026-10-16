@@ -4,8 +4,13 @@ import type { Task } from '../../shared/types';
 import type { AppSettings } from '../../shared/usage';
 import type { ActivityTracker } from './ActivityTracker';
 import type { TimeStore } from './TimeStore';
+import { timeCsv } from './timeCsv';
 
-type TimeChannels = 'time:focus' | 'time:task' | 'time:sprint';
+type TimeChannels =
+  | 'time:focus'
+  | 'time:task'
+  | 'time:sprint'
+  | 'time:exportCsv';
 
 export type TimeDeps = {
   time: TimeStore;
@@ -42,6 +47,23 @@ export function createTimeHandlers(d: TimeDeps): Pick<Handlers, TimeChannels> {
         ...summarize(task),
         estimate: hours === null ? null : { hours, source: 'baseline' },
       };
+    },
+    'time:exportCsv': async (taskId) => {
+      const task = d.task(taskId);
+      const s = summarize(task);
+      return timeCsv([
+        {
+          task: task.branch,
+          workItem: task.workItem?.id ?? '',
+          booked: s.booking?.bookedSeconds ?? null,
+          measured: s.activeSeconds,
+          realistic: s.realisticSeconds,
+          wallClock: s.wallClockSeconds,
+          claude: s.agentSeconds['claude-code'],
+          copilot: s.agentSeconds['copilot-cli'],
+          opencode: s.agentSeconds.opencode,
+        },
+      ]);
     },
     'time:sprint': async (connectionId) => {
       const out: Record<string, LocalItemTime> = {};

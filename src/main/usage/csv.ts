@@ -1,7 +1,7 @@
 import type { UsageRecord } from '../../shared/usage';
 import { round6 } from '../pricing/RateTable';
 
-const cell = (v: string | number | boolean | null): string => {
+export const cell = (v: string | number | boolean | null): string => {
   const s = v === null ? '' : String(v);
   return /[",\r\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
 };

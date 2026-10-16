@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import type { FinishChecks, SprintItem } from '../../shared/types';
+import type { FinishChecks } from '../../shared/types';
 import { api, tryInvoke } from '../api';
 import { eur } from '../format';
 import { useTaskUsage } from '../hooks/useTaskUsage';
 import { useWriteCostToAdo } from '../hooks/useWriteCostToAdo';
 import { TimeSpentSection } from '../components/TimeSpentSection';
+import { useEstimateHours } from '../hooks/useEstimateHours';
 import { useTaskTime } from '../hooks/useTaskTime';
 import { PageHeader } from '../components/ui';
 import { useEscape } from '../hooks/useEscape';
@@ -53,23 +54,9 @@ export function FinishScreen({ taskId }: { taskId: string }) {
     error: timeError,
     reload: reloadTime,
   } = useTaskTime(ready ? taskId : null);
-  const [liveItem, setLiveItem] = useState<SprintItem | null>(null);
   const connectionId = repo?.connectionId ?? null;
   const workItemId = task?.workItem?.id ?? null;
-  useEffect(() => {
-    setLiveItem(null);
-    if (!ready || !connectionId || !workItemId) return;
-    let live = true;
-    api()
-      .invoke('workItems:get', connectionId, workItemId)
-      .then((w) => {
-        if (live) setLiveItem(w);
-      })
-      .catch(() => undefined);
-    return () => {
-      live = false;
-    };
-  }, [ready, connectionId, workItemId]);
+  const estimateHours = useEstimateHours(connectionId, workItemId, time, ready);
   // The starting value is fixed when the time first loads: a later refetch updates the marks, never the booking.
   const [frozenTime, setFrozenTime] = useState<number | undefined>();
   const [chosenTime, setChosenTime] = useState<number | null | undefined>();
@@ -81,15 +68,6 @@ export function FinishScreen({ taskId }: { taskId: string }) {
     );
   const bookValue =
     chosenTime === undefined ? (frozenTime ?? null) : chosenTime;
-  const positive = (n: number | null | undefined) => (n && n > 0 ? n : null);
-  const estimateHours =
-    positive(liveItem?.originalEstimate) ??
-    positive(time?.estimate?.hours) ??
-    positive(
-      liveItem
-        ? (liveItem.remainingWork ?? 0) + (liveItem.completedWork ?? 0)
-        : null,
-    );
   // Finish waits for the time (or an explicit "without booking"), and for a valid entry.
   const timeBlocks = !time || bookValue === null;
   const canSync =

@@ -9,6 +9,7 @@ import { useClock } from '../hooks/useClock';
 import { useTaskUsage } from '../hooks/useTaskUsage';
 import { useWriteCostToAdo } from '../hooks/useWriteCostToAdo';
 import { useStore } from '../store';
+import { TimePanel } from './TimePanel';
 import { RingGauge } from './ui';
 
 const TOOL: Record<UsageTool, string> = {
@@ -205,6 +206,7 @@ export function UsagePanel({
         )}
       </div>
       <div className="up-col up-main">
+        <TimePanel taskId={taskId} />
         <div className="card up-box">
           <h3>Last 6 hours</h3>
           <Timeline bins={timeline(usage?.recent ?? [], t)} live={anyLive} />

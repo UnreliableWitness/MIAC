@@ -161,6 +161,8 @@ export type Channels = {
   'time:task': { args: [taskId: string]; result: TaskTime };
   /** Writes a done task's booked time to its work item again (Retry on the Done page); throws when time writing is off or the write fails. */
   'time:sync': { args: [taskId: string]; result: void };
+  /** The task's time as CSV text. */
+  'time:exportCsv': { args: [taskId: string]; result: string };
   /** Local time per work item id, over every task of the item on repos linked to the connection. */
   'time:sprint': {
     args: [connectionId: string];
