@@ -1697,7 +1697,10 @@ export function createHandlers(s: Services): Handlers {
       const w = workspaceById(task, workspaceId);
       const pr = w.pullRequest;
       if (!pr) return null;
-      const connectionId = taskConnectionId(task, s.repos.list());
+      // The PR was created through the workspace's own repo connection (maybe another org than the task's).
+      const connectionId =
+        s.repos.list().find((r) => r.id === w.repoId)?.connectionId ??
+        taskConnectionId(task, s.repos.list());
       if (!connectionId) return pr;
       try {
         const raw = await s.ado

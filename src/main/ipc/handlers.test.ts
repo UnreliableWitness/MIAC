@@ -2604,6 +2604,52 @@ describe('handlers: finish with a pull request', () => {
     expect(hx.store.state.tasks[0].pullRequest).toBeNull();
   });
 
+  it('refreshes a workspace PR through its own repo connection, not the task one', async () => {
+    const hx = await prHarness();
+    const other = await hx.connections.save({
+      organizationUrl: 'https://dev.azure.com/other',
+      project: 'Q',
+      pat: 'p',
+    });
+    const pr = {
+      id: 8,
+      url: 'u',
+      repositoryId: 'rid2',
+      project: 'P',
+      repo: 'api',
+      status: 'active' as const,
+      isDraft: true,
+    };
+    await hx.store.update((st) => {
+      st.tasks[0].connectionId = other.id;
+      st.tasks[0].extraWorkspaces.push({
+        id: 'x1',
+        repoId: hx.t.repoId,
+        branch: 'feature/x',
+        worktreePath: '/w/x',
+        baseRef: 'origin/main',
+        baseSha: null,
+        source: 'detected',
+        summary: null,
+        pullRequest: pr,
+        reopen: null,
+        dropped: false,
+      });
+    });
+    const own = vi.spyOn(hx.client, 'pullRequest').mockResolvedValue({
+      pullRequestId: 8,
+      status: 'completed',
+      isDraft: false,
+    });
+    const taskClient = vi.spyOn(
+      hx.services.ado.client(other.id),
+      'pullRequest',
+    );
+    await hx.h['tasks:prStatus'](hx.t.id, 'x1');
+    expect(own).toHaveBeenCalledWith('P', 'rid2', 8);
+    expect(taskClient).not.toHaveBeenCalled();
+  });
+
   it('finishChecks still reports unpushed commits as a count', async () => {
     const hx = await prHarness();
     commitFile(hx.t.worktreePath, 'feature.txt', 'a\n', 'Add the feature');

@@ -133,7 +133,7 @@ function WorkspaceFacts({ taskId, w }: { taskId: string; w: WorkspaceView }) {
 }
 
 /** The commits of one workspace, or why there is no summary. */
-function WorkspaceCommits({ task, w }: { task: TaskView; w: WorkspaceView }) {
+function WorkspaceCommits({ w }: { w: WorkspaceView }) {
   const s = w.summary;
   if (!s)
     return (
@@ -191,7 +191,7 @@ function WorkspaceSection({ task, w }: { task: TaskView; w: WorkspaceView }) {
       <dl className="facts">
         <WorkspaceFacts taskId={task.id} w={w} />
       </dl>
-      <WorkspaceCommits task={task} w={w} />
+      <WorkspaceCommits w={w} />
     </section>
   );
 }
@@ -331,7 +331,7 @@ export function DoneTaskPage({ task }: { task: TaskView }) {
               ))}
           </>
         ) : (
-          <WorkspaceCommits task={task} w={workspaces[0]} />
+          <WorkspaceCommits w={workspaces[0]} />
         )}
         <UsagePanel taskId={task.id} />
       </div>
