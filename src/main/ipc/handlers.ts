@@ -23,6 +23,9 @@ import type {
 import { worktreeRoot } from '../paths';
 import { DocsWatcher } from '../docs/DocsWatcher';
 import { createDocsHandlers } from '../docs/docsHandlers';
+import type { ActivityTracker } from '../time/ActivityTracker';
+import { createTimeHandlers } from '../time/timeHandlers';
+import type { TimeStore } from '../time/TimeStore';
 import type { Command, Platform } from '../platform/Platform';
 import {
   OFFICIAL_RATES,
@@ -82,6 +85,12 @@ export type Services = {
   launch: (cmd: Command) => Promise<void>;
   broadcast: <K extends keyof Events>(event: K, payload: Events[K]) => void;
   usage: UsageStore;
+  /** Measured active and agent time per task. */
+  time: TimeStore;
+  /** Counts active time for the task on screen (main); absent in tests. */
+  tracker?: Pick<ActivityTracker, 'setTask'>;
+  /** Sees what is typed into a terminal (main estimates OpenCode agent time from it). */
+  onTerminalInput?: (id: string, data: string) => void;
   settings: SettingsStore;
   appVersion: string;
   /** Windows OS build number (e.g. 22631), null elsewhere. */
@@ -108,6 +117,23 @@ export type Services = {
     install(): boolean;
   };
 };
+
+/** The task's open periods with a new one starting now (reopen). A task from before time tracking keeps creation to finish as its first. */
+function withOpenPeriod(task: Task): Task['openPeriods'] {
+  const now = new Date().toISOString();
+  const before =
+    task.openPeriods.length === 0
+      ? [{ start: task.createdAt, end: task.finishedAt ?? now }]
+      : withPeriodClosed(task, now);
+  return [...before, { start: now, end: null }];
+}
+
+/** The task's open periods with the last one ended at `end`, when it is still open. */
+function withPeriodClosed(task: Task, end: string): Task['openPeriods'] {
+  return task.openPeriods.map((p, i, all) =>
+    i === all.length - 1 && p.end === null ? { ...p, end } : p,
+  );
+}
 
 async function exists(p: string): Promise<boolean> {
   try {
@@ -658,6 +684,15 @@ export function createHandlers(s: Services): Handlers {
       watcher: docsWatcher,
       event: (n, p) => tel.event(n, p),
     }),
+    ...createTimeHandlers({
+      time: s.time,
+      tasks: () => s.store.state.tasks,
+      task: taskById,
+      settings: () => s.settings.get(),
+      connectionOf: (task) =>
+        s.repos.list().find((r) => r.id === task.repoId)?.connectionId ?? null,
+      tracker: s.tracker,
+    }),
     'repos:list': async () => s.repos.list(),
     'repos:add': async (folder) => {
       const repo = await s.repos.add(folder);
@@ -798,6 +833,7 @@ export function createHandlers(s: Services): Handlers {
             status: 'done',
             reopen: null,
             terminals: [],
+            openPeriods: withPeriodClosed(task, new Date().toISOString()),
           });
           tel.event('task.reopenCancelled');
           return;
@@ -849,6 +885,7 @@ export function createHandlers(s: Services): Handlers {
             finishedAt: null,
             terminals: defs,
             closedTerminals: [],
+            openPeriods: withOpenPeriod(task),
           });
           startRestored(taskById(taskId), defs);
           tel.event('task.reopened', { from: 'folder' });
@@ -878,6 +915,7 @@ export function createHandlers(s: Services): Handlers {
           status: 'setting-up',
           reopen: { from },
           terminals: [],
+          openPeriods: withOpenPeriod(task),
         });
         setup = true;
         startSetupInBackground(taskId);
@@ -1000,10 +1038,12 @@ export function createHandlers(s: Services): Handlers {
           await patchTask(taskId, { status: 'ready' });
           throw e;
         }
+        const finishedAt = new Date().toISOString();
         await patchTask(taskId, {
           status: 'done',
-          finishedAt: new Date().toISOString(),
+          finishedAt,
           summary,
+          openPeriods: withPeriodClosed(taskById(taskId), finishedAt),
         });
         tel.event(
           'task.finished',
@@ -1068,7 +1108,10 @@ export function createHandlers(s: Services): Handlers {
       tel.event('terminal.opened', { kind: full.kind, initial: false });
       return full;
     },
-    'terminals:write': async (id, data) => s.terminals.write(id, data),
+    'terminals:write': async (id, data) => {
+      s.terminals.write(id, data);
+      s.onTerminalInput?.(id, data);
+    },
     'terminals:resize': async (id, cols, rows) =>
       s.terminals.resize(id, cols, rows),
     'terminals:kill': async (id) => {

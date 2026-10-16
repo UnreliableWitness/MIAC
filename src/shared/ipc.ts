@@ -32,6 +32,7 @@ import type {
 } from './usage';
 import type { RendererTelemetry } from './telemetry';
 import type { TitleBarKind } from './titleBar';
+import type { LocalItemTime, TaskTime } from './time';
 
 /** Request/response channels. `args` is the tuple the renderer passes; `result` is what main resolves. */
 export type Channels = {
@@ -154,6 +155,14 @@ export type Channels = {
   };
   'settings:get': { args: []; result: AppSettings };
   'settings:save': { args: [settings: AppSettings]; result: AppSettings };
+  /** The task on screen, for active time (null: no task page is showing). */
+  'time:focus': { args: [taskId: string | null]; result: void };
+  'time:task': { args: [taskId: string]; result: TaskTime };
+  /** Local time per work item id, over every task of the item on repos linked to the connection. */
+  'time:sprint': {
+    args: [connectionId: string];
+    result: Record<string, LocalItemTime>;
+  };
 };
 
 /** Push events from main to the renderer. */
@@ -165,6 +174,7 @@ export type Events = {
   'repos:changed': Repo[];
   'connections:changed': Connection[];
   'usage:changed': { taskId: string };
+  'time:changed': { taskId: string };
   'usage:receiverStatus': ReceiverStatus;
   'docs:changed': { taskId: string; paths: string[] };
   /** Main stopped a task's watcher (an error, or Finish/Cancel before removing the worktree); Docs tabs poll instead. */

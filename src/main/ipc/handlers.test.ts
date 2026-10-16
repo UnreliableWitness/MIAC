@@ -25,6 +25,7 @@ import { TaskStore } from '../services/TaskStore';
 import type { Telemetry } from '../telemetry/AppInsightsClient';
 import { TerminalManager } from '../services/TerminalManager';
 import { DocsWatcher } from '../docs/DocsWatcher';
+import { TimeStore } from '../time/TimeStore';
 import {
   addOrigin,
   cleanupTempRepos,
@@ -96,6 +97,8 @@ async function harness(
   await settings.save({ ...settings.get(), writeCostToAdo: true });
   const usage = new UsageStore(usageDir, () => OFFICIAL_RATES);
   await usage.load();
+  const time = new TimeStore(path.join(usageDir, 'time.json'));
+  await time.load();
   const receiverStarts: number[] = [];
   let receiverStatus = {
     listening: true,
@@ -138,6 +141,7 @@ async function harness(
     pickFolder: async () => '/picked',
     launch: async () => {},
     usage,
+    time,
     settings,
     receiver,
     copilot: { stats: { records: 0, unreadable: 0 }, poll: async () => {} },
@@ -255,6 +259,18 @@ describe('handlers: create task', () => {
     ]);
     expect(broadcasts.some((b) => b.event === 'tasks:changed')).toBe(true);
     terminals.killAllForTask(task.id);
+  });
+
+  it('stores an open period from creation and no booking', async () => {
+    const { h, store, setupDone, input, terminals } = await harness();
+    const done = setupDone();
+    const task = await h['tasks:create'](input({ openShell: false }));
+    await done;
+    expect(store.state.tasks[0].openPeriods).toEqual([
+      { start: task.createdAt, end: null },
+    ]);
+    expect(store.state.tasks[0].time).toBeNull();
+    await terminals.killAllForTask(task.id);
   });
 
   it('rejects an invalid branch name', async () => {
@@ -495,7 +511,7 @@ describe('handlers: finish', () => {
   });
 
   it('reports checks, then removes worktree and branch and marks done', async () => {
-    const { h, input, setupDone, terminals, repo } = await harness();
+    const { h, input, setupDone, terminals, repo, store } = await harness();
     const done = setupDone();
     const t = await h['tasks:create'](input());
     await done;
@@ -515,6 +531,9 @@ describe('handlers: finish', () => {
     const [view] = await h['tasks:list']();
     expect(view.status).toBe('done');
     expect(view.finishedAt).not.toBeNull();
+    expect(store.state.tasks[0].openPeriods).toEqual([
+      { start: t.createdAt, end: view.finishedAt },
+    ]);
     expect(view.terminals).toEqual([]);
     expect(terminals.runningCount(t.id)).toBe(0);
     expect(existsSync(t.worktreePath)).toBe(false);
@@ -969,6 +988,9 @@ describe('handlers: reopen a finished task', () => {
       finishedAt: null,
       closedTerminals: [],
     });
+    expect(task.openPeriods).toHaveLength(2);
+    expect(task.openPeriods[0].end).not.toBeNull();
+    expect(task.openPeriods[1].end).toBeNull();
     expect(task.terminals.map((d) => d.id)).toEqual(hx.before.map((d) => d.id));
     const claude = hx.before.find((d) => d.kind === 'claude')!;
     expect(hx.calls.at(-1)).toEqual({
@@ -979,11 +1001,28 @@ describe('handlers: reopen a finished task', () => {
     await hx.terminals.killAllForTask(hx.t.id);
   });
 
+  it('reopening a task from before time tracking keeps creation to finish as its first period', async () => {
+    const hx = await finished({ removeWorktree: false, deleteBranch: false });
+    await hx.store.update((st) => {
+      st.tasks[0].openPeriods = [];
+    });
+    const { createdAt, finishedAt } = hx.store.state.tasks[0];
+    await hx.h['tasks:reopen'](hx.t.id);
+    const periods = hx.store.state.tasks[0].openPeriods;
+    expect(periods[0]).toEqual({ start: createdAt, end: finishedAt });
+    expect(periods).toHaveLength(2);
+    expect(periods[1].end).toBeNull();
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
   it('makes the worktree again from the local branch and runs the setup again', async () => {
     const hx = await finished({ removeWorktree: true, deleteBranch: false });
     expect(existsSync(hx.t.worktreePath)).toBe(false);
     const result = await reopenSetup(hx);
     expect(result.ok).toBe(true);
+    expect(
+      hx.store.state.tasks[0].openPeriods.map((p) => p.end === null),
+    ).toEqual([false, true]);
     expect(existsSync(path.join(hx.t.worktreePath, 'feature.txt'))).toBe(true);
     expect(existsSync(path.join(hx.t.worktreePath, 'ok.txt'))).toBe(true);
     expect(hx.store.state.tasks[0]).toMatchObject({
@@ -1062,6 +1101,9 @@ describe('handlers: reopen a finished task', () => {
       status: 'done',
       reopen: null,
     });
+    expect(
+      hx.store.state.tasks[0].openPeriods.every((p) => p.end !== null),
+    ).toBe(true);
     expect(existsSync(hx.t.worktreePath)).toBe(false);
     expect(await new GitClient().branchExists(hx.repo, hx.t.branch)).toBe(true);
   });
@@ -2379,5 +2421,27 @@ describe('handlers: finish with a pull request', () => {
     const checks = await hx.h['tasks:finishChecks'](hx.t.id);
     expect(checks.unpushed).toBe(1);
     expect(checks.runningTerminals).toBe(0);
+  });
+});
+
+describe('handlers: time', () => {
+  it('passes terminal input on for agent time', async () => {
+    const seen: [string, string][] = [];
+    const { h, input, setupDone, store, terminals } = await harness(
+      fakeCrypto(),
+      { onTerminalInput: (id, data) => seen.push([id, data]) },
+    );
+    const done = setupDone();
+    const t = await h['tasks:create'](input());
+    await done;
+    const id = store.state.tasks[0].terminals[0].id;
+    await h['terminals:write'](id, 'ls\r');
+    expect(seen).toEqual([[id, 'ls\r']]);
+    await terminals.killAllForTask(t.id);
+  });
+
+  it('has the time handlers', async () => {
+    const { h } = await harness();
+    expect(await h['time:sprint']('none')).toEqual({});
   });
 });

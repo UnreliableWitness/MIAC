@@ -58,6 +58,17 @@ export type TaskTime = {
   estimate: { hours: number; source: 'original' | 'baseline' | 'live' } | null;
 };
 
+/** Local time of one work item, summed over its tasks on one connection (Sprint page). */
+export type LocalItemTime = {
+  /** Booked seconds of finished tasks, measured active seconds of open ones (a reopened task adds what was measured since). */
+  spentSeconds: number;
+  measuredSeconds: number;
+  agentSeconds: number;
+  /** True when any of the tasks has a booking. */
+  booked: boolean;
+  baselineHours: number | null;
+};
+
 /** Sorted, overlapping or touching intervals joined, empty or negative ones dropped. */
 export function mergeIntervals(list: Interval[]): Interval[] {
   const sorted = list.filter(([s, e]) => e > s).sort((a, b) => a[0] - b[0]);
