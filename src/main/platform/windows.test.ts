@@ -73,7 +73,7 @@ describe('windowsPlatform', () => {
     expect(text).not.toContain('ForEach-Object');
   });
 
-  it('starts a native claude.exe directly with the prompt as one argument', () => {
+  it('starts a native claude.exe directly with the context as one argument', () => {
     const prompt = `Work on Issue 3: Coupon field ignores O'Brien style "names"`;
     expect(
       make({ claude: 'C:\\Users\\d\\.local\\bin\\claude.exe' }).claudeCommand(
@@ -81,11 +81,11 @@ describe('windowsPlatform', () => {
       ),
     ).toEqual({
       command: 'C:\\Users\\d\\.local\\bin\\claude.exe',
-      args: [prompt],
+      args: ['--append-system-prompt', prompt],
     });
   });
 
-  it('starts an npm shim through PowerShell with the prompt in an env var', () => {
+  it('starts an npm shim through PowerShell with the context in an env var', () => {
     const prompt = `it's "quoted" & <b> | 50% ^x`;
     expect(
       make({ claude: 'C:\\npm\\claude.cmd' }).claudeCommand(prompt),
@@ -97,7 +97,7 @@ describe('windowsPlatform', () => {
         'Bypass',
         '-NoProfile',
         '-Command',
-        '& claude $env:MIAC_CLAUDE_PROMPT',
+        "& claude '--append-system-prompt' $env:MIAC_CLAUDE_PROMPT",
       ],
       env: { MIAC_CLAUDE_PROMPT: "it's 'quoted' b 50 x" },
     });
@@ -109,7 +109,7 @@ describe('windowsPlatform', () => {
         '--session-id',
         'abc',
       ]).args,
-    ).toEqual(['--session-id', 'abc', 'go']);
+    ).toEqual(['--session-id', 'abc', '--append-system-prompt', 'go']);
     expect(
       make({ claude: 'C:\\bin\\claude.exe' }).claudeCommand(null, [
         '--resume',
@@ -120,7 +120,9 @@ describe('windowsPlatform', () => {
       make({ claude: 'C:\\npm\\claude.cmd' })
         .claudeCommand('go', ['--session-id', 'abc'])
         .args.at(-1),
-    ).toBe("& claude '--session-id' 'abc' $env:MIAC_CLAUDE_PROMPT");
+    ).toBe(
+      "& claude '--session-id' 'abc' '--append-system-prompt' $env:MIAC_CLAUDE_PROMPT",
+    );
     const resume = make({ claude: 'C:\\npm\\claude.cmd' }).claudeCommand(null, [
       '--continue',
     ]);

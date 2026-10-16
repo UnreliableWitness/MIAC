@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   branchType,
-  claudePrompt,
+  claudeContext,
   renderBranch,
   renderTaskMd,
   slugify,
@@ -140,13 +140,13 @@ describe('renderTaskMd', () => {
   });
 });
 
-describe('claudePrompt', () => {
-  it('names the work item and points at the task file', () => {
-    expect(claudePrompt(task)).toBe(
-      'Work item 48231: Show estimated delivery date on product page. Details are in .miac/task.md.',
+describe('claudeContext', () => {
+  it('names the work item, points at the task file and says to wait for the user', () => {
+    expect(claudeContext(task)).toBe(
+      "This folder is a MIAC task for User Story 48231: Show estimated delivery date on product page. The details are in .miac/task.md. Do not start on the task by yourself: wait for the user's instructions.",
     );
-    expect(claudePrompt({ ...task, workItem: null, name: 'Spike' })).toBe(
-      'Task: Spike. Details are in .miac/task.md.',
+    expect(claudeContext({ ...task, workItem: null, name: 'Spike' })).toContain(
+      'MIAC task for Task: Spike.',
     );
   });
 });

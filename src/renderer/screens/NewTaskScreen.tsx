@@ -357,7 +357,7 @@ export function NewTaskScreen({
                 checked={startClaude}
                 onChange={(e) => setStartClaude(e.target.checked)}
               />
-              Start Claude Code with the task
+              Open Claude Code with the task loaded (it waits for you)
             </label>
             <label className="checkbox">
               <input

@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { Events, Handlers, PendingUpdate } from '../../shared/ipc';
-import { claudePrompt, renderTaskMd, taskSlug } from '../../shared/naming';
+import { claudeContext, renderTaskMd, taskSlug } from '../../shared/naming';
+import { claudeSessionExists } from '../services/claudeSessions';
 import type {
   Connection,
   MiacConfig,
@@ -93,6 +94,8 @@ export type Services = {
   telemetry?: Telemetry;
   /** Adds values telemetry must scrub from now on, such as the project and repo of a remote. */
   rememberSensitive?: (values: string[]) => void;
+  /** Whether Claude Code saved a session with this id (default: looks in ~/.claude/projects). */
+  claudeSessionExists?: (sessionId: string) => boolean;
   /** Windows auto-update: the downloaded update and how to apply it. Absent in dev, on macOS and in tests. */
   update?: {
     pending(): PendingUpdate | null;
@@ -150,6 +153,7 @@ export async function pruneDanglingConnectionLinks(
 
 export function createHandlers(s: Services): Handlers {
   const tel = s.telemetry ?? NoopTelemetry;
+  const sessionExists = s.claudeSessionExists ?? claudeSessionExists;
   const connectionsChanged = () =>
     s.broadcast('connections:changed', s.connections.list());
 
@@ -348,22 +352,26 @@ export function createHandlers(s: Services): Handlers {
     await tasksChanged();
   };
 
-  /** A resumed Claude Code tab continues its own session, or the latest one in the worktree when it has no id. */
+  /**
+   * Claude Code starts with the task in its system prompt and waits for the user. Resuming continues the tab's own
+   * session, starts it again when the user never sent a message (nothing was saved), or continues the latest
+   * session in the worktree for tabs from before session ids.
+   */
   const terminalCommand = (
     task: Task,
     def: TerminalDef,
     resume = false,
   ): Command => {
-    if (def.kind === 'claude')
-      return resume
-        ? s.platform.claudeCommand(
-            null,
-            def.sessionId ? ['--resume', def.sessionId] : ['--continue'],
-          )
-        : s.platform.claudeCommand(
-            claudePrompt(task),
-            def.sessionId ? ['--session-id', def.sessionId] : [],
-          );
+    if (def.kind === 'claude') {
+      if (resume && !def.sessionId)
+        return s.platform.claudeCommand(null, ['--continue']);
+      if (resume && def.sessionId && sessionExists(def.sessionId))
+        return s.platform.claudeCommand(null, ['--resume', def.sessionId]);
+      return s.platform.claudeCommand(
+        claudeContext(task),
+        def.sessionId ? ['--session-id', def.sessionId] : [],
+      );
+    }
     if (def.kind === 'run' && def.command)
       return s.platform.runCommand(def.command);
     if (def.kind === 'copilot') return s.platform.copilotCommand();
@@ -939,7 +947,7 @@ export function createHandlers(s: Services): Handlers {
       );
       const def = owner?.terminals.find((x) => x.id === id);
       const known = s.terminals.has(id);
-      // Claude Code resumes its conversation instead of starting over with the first prompt.
+      // Claude Code resumes its conversation instead of starting a new one.
       if (known && def?.kind !== 'claude') {
         s.terminals.restart(id);
         return;

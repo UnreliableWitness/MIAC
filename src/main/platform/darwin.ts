@@ -13,12 +13,15 @@ export function darwinPlatform(env: NodeJS.ProcessEnv): Platform {
     interactiveShell: () => login([]),
     shellCommand: (cmd) => login(['-c', cmd]),
     runCommand: (cmd) => login(['-c', cmd]),
-    claudeCommand: (prompt, flags = []) =>
+    claudeCommand: (context, flags = []) =>
       login([
         '-c',
         [
           'exec claude',
-          ...[...flags, ...(prompt === null ? [] : [prompt])].map(shellQuote),
+          ...[
+            ...flags,
+            ...(context === null ? [] : ['--append-system-prompt', context]),
+          ].map(shellQuote),
         ].join(' '),
       ]),
     copilotCommand: () => login(['-c', 'exec copilot']),

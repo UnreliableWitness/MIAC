@@ -775,9 +775,12 @@ describe('handlers: Claude Code sessions', () => {
     return { platform, calls };
   };
 
-  it('starts Claude Code with its own session id and resumes it on restart', async () => {
+  it('starts Claude Code with the task as context and its own session id, and resumes it on restart', async () => {
     const { platform, calls } = recording();
-    const hx = await harness(fakeCrypto(), { platform });
+    const hx = await harness(fakeCrypto(), {
+      platform,
+      claudeSessionExists: () => true,
+    });
     const done = hx.setupDone();
     const t = await hx.h['tasks:create'](
       hx.input({ openShell: false, startClaude: true }),
@@ -789,7 +792,9 @@ describe('handlers: Claude Code sessions', () => {
     expect(def?.sessionId).toMatch(/^[0-9a-f-]{36}$/);
     expect(calls).toEqual([
       {
-        prompt: expect.stringContaining('.miac/task.md'),
+        prompt: expect.stringMatching(
+          /\.miac\/task\.md\. Do not start on the task by yourself/,
+        ),
         flags: ['--session-id', def?.sessionId],
       },
     ]);
@@ -824,6 +829,25 @@ describe('handlers: Claude Code sessions', () => {
     const id = hx.store.state.tasks[0].terminals[0].id;
     await hx.h['terminals:restart'](id);
     expect(calls.at(-1)).toEqual({ prompt: null, flags: ['--continue'] });
+  });
+
+  it('starts a never-used session again instead of resuming it', async () => {
+    const { platform, calls } = recording();
+    const hx = await harness(fakeCrypto(), {
+      platform,
+      claudeSessionExists: () => false,
+    });
+    const done = hx.setupDone();
+    await hx.h['tasks:create'](
+      hx.input({ openShell: false, startClaude: true }),
+    );
+    await done;
+    const def = hx.store.state.tasks[0].terminals[0];
+    await hx.h['terminals:restart'](def.id);
+    expect(calls.at(-1)).toEqual({
+      prompt: expect.stringContaining('.miac/task.md'),
+      flags: ['--session-id', def.sessionId],
+    });
   });
 
   it('gives a Claude Code tab opened by hand a session id', async () => {
