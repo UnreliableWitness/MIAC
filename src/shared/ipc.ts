@@ -21,6 +21,7 @@ import type {
   WorkItemSearch,
   WorkItemSummary,
   WorkItemTypeMeta,
+  Workspace,
 } from './types';
 import type {
   AppSettings,
@@ -54,6 +55,11 @@ export type Channels = {
   };
   'repos:setWorkItemOnStart': {
     args: [repoId: string, settings: StartSettings];
+    result: Repo;
+  };
+  /** Clearing the mark makes a repo found in a task a normal repo. */
+  'repos:setDiscovered': {
+    args: [repoId: string, discovered: boolean];
     result: Repo;
   };
   'tasks:prAvailability': {
@@ -120,6 +126,18 @@ export type Channels = {
     result: void;
   };
   'tasks:openInEditor': { args: [taskId: string]; result: void };
+  /** Looks for other repos' worktrees the task worked in and joins them; returns the ones added. */
+  'tasks:scanWorkspaces': { args: [taskId: string]; result: Workspace[] };
+  /** Joins the worktree containing a folder by hand. */
+  'tasks:addWorkspace': {
+    args: [taskId: string, folder: string];
+    result: Workspace;
+  };
+  /** Drops an extra workspace from the task; its worktree and branch stay on disk. */
+  'tasks:removeWorkspace': {
+    args: [taskId: string, workspaceId: string];
+    result: void;
+  };
   'terminals:open': {
     args: [taskId: string, def: NewTerminal];
     result: TerminalDef;

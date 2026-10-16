@@ -43,6 +43,29 @@ describe('writeHitsFromLines', () => {
     ]);
   });
 
+  it('skips relative paths when the line has no cwd, keeps absolute ones', () => {
+    const noCwd = (name: string, input: unknown) =>
+      JSON.stringify({
+        type: 'assistant',
+        message: { content: [{ type: 'tool_use', name, input }] },
+      });
+    const abs = path.resolve('/src/b');
+    const hits = writeHitsFromLines([
+      noCwd('Edit', { file_path: 'src/x.ts' }),
+      noCwd('Edit', { file_path: path.join(abs, 'x.ts') }),
+      noCwd('Bash', { command: 'git commit -m x' }),
+      noCwd('Bash', { command: 'cd sub && git add .' }),
+      noCwd('Bash', { command: 'git worktree add ../wt' }),
+      noCwd('Bash', { command: `git -C "${abs}" commit -m x` }),
+      noCwd('Bash', { command: `cd "${abs}" && git -C sub add .` }),
+    ]);
+    expect(hits).toEqual([
+      { path: path.join(abs, 'x.ts'), via: 'edit' },
+      { path: abs, via: 'git' },
+      { path: path.join(abs, 'sub'), via: 'git' },
+    ]);
+  });
+
   it('ignores read-only tools, non-assistant lines and malformed lines', () => {
     const lines = [
       tool('Read', { file_path: '/src/b/x.ts' }),

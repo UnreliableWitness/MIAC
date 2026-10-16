@@ -220,6 +220,49 @@ describe('handlers: repos', () => {
   });
 });
 
+describe('handlers: workspaces', () => {
+  it('scans, joins, removes and marks repos, broadcasting each change', async () => {
+    const { h, setupDone, input, broadcasts } = await harness();
+    const finished = setupDone();
+    const task = await h['tasks:create'](input());
+    await finished;
+    const api = makeRepo('api');
+    const apiRepo = await h['repos:add'](api);
+    const apiWt = path.join(path.dirname(api), 'api-wt');
+    git(api, 'worktree', 'add', '-q', '-b', task.branch, apiWt);
+    broadcasts.length = 0;
+
+    const added = await h['tasks:scanWorkspaces'](task.id);
+
+    expect(added).toHaveLength(1);
+    expect(added[0]).toMatchObject({ repoId: apiRepo.id, source: 'detected' });
+    expect(broadcasts.map((b) => b.event)).toEqual(
+      expect.arrayContaining(['notice', 'repos:changed', 'tasks:changed']),
+    );
+    expect(broadcasts).toContainEqual({
+      event: 'notice',
+      payload: { level: 'info', message: 'Added api to this task' },
+    });
+    broadcasts.length = 0;
+    expect(await h['tasks:scanWorkspaces'](task.id)).toEqual([]);
+    expect(broadcasts).toEqual([]);
+
+    await h['tasks:removeWorkspace'](task.id, added[0].id);
+    const [view] = (await h['tasks:list']()).filter((t) => t.id === task.id);
+    expect(view.extraWorkspaces).toEqual([]);
+    expect(view.detachedPaths).toHaveLength(1);
+    expect(broadcasts.some((b) => b.event === 'tasks:changed')).toBe(true);
+    await expect(h['tasks:removeWorkspace'](task.id, 'home')).rejects.toThrow(
+      /home workspace/,
+    );
+
+    expect((await h['repos:setDiscovered'](apiRepo.id, true)).discovered).toBe(
+      true,
+    );
+    expect(broadcasts.at(-1)?.event).toBe('repos:changed');
+  });
+});
+
 describe('handlers: create task', () => {
   it('creates the task, runs setup, starts a shell and ends ready', async () => {
     const { h, terminals, setupDone, input, added, broadcasts } =

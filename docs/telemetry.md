@@ -41,6 +41,8 @@ This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 
 | `setup.retried`, `setup.cancelled` | none |
 | `task.reopened` | where the branch came from (`folder`: worktree kept, `branch`, `origin`, `commit`, `base`) |
 | `task.reopenCancelled` | none |
+| `workspace.joined` | a worktree of another repo joined a task; `source` (`log`: found in a Claude session log, `branch`: found by the task branch, `manual`: added by hand) |
+| `workspace.removed` | a joined worktree was removed from its task; none |
 | `terminal.opened` | kind (`claude`, `copilot`, `opencode`, `shell`, `run`); opened by setup or by hand |
 | `terminal.closed` | kind |
 | `terminal.restarted` | kind; after an app relaunch or not (a Claude Code restart resumes its session) |

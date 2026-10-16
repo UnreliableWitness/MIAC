@@ -1,5 +1,7 @@
 /** Azure Repos remotes, PR availability and PR text. Pure: no I/O. */
 
+import type { Connection } from '../../shared/types';
+
 export type AzureRepoRef = { org: string; project: string; repo: string };
 export type PrAvailability = {
   available: boolean;
@@ -50,6 +52,22 @@ export function organizationOf(orgUrl: string): string | null {
   if (host.endsWith('.visualstudio.com'))
     return host.slice(0, -'.visualstudio.com'.length);
   return null;
+}
+
+/** The connection for a remote: same organization as the Azure Repos URL, preferring the same project; null for other hosts. */
+export function matchConnection<
+  C extends Pick<Connection, 'organizationUrl' | 'project'>,
+>(remoteUrl: string | null, connections: C[]): C | null {
+  const ref = remoteUrl ? parseAzureReposRemote(remoteUrl) : null;
+  if (!ref) return null;
+  const inOrg = connections.filter(
+    (c) => organizationOf(c.organizationUrl) === ref.org,
+  );
+  return (
+    inOrg.find((c) => c.project.toLowerCase() === ref.project.toLowerCase()) ??
+    inOrg[0] ??
+    null
+  );
 }
 
 export function prAvailability(input: {

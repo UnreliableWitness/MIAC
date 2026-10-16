@@ -31,6 +31,8 @@ import { ConnectionStore } from './main/services/ConnectionStore';
 import { GitClient } from './main/services/GitClient';
 import { loadMiacConfig } from './main/services/MiacConfig';
 import { RepoRegistry } from './main/services/RepoRegistry';
+import { claudeProjectsDir } from './main/services/claudeSessions';
+import { WorkspaceDetector } from './main/workspaces/WorkspaceDetector';
 import { SetupRunner } from './main/services/SetupRunner';
 import { TaskStore } from './main/services/TaskStore';
 import { TerminalManager } from './main/services/TerminalManager';
@@ -303,7 +305,17 @@ async function boot(): Promise<void> {
       path.join(usageDir, 'copilot'),
       ingest,
     );
+    const workspaces = new WorkspaceDetector({
+      store,
+      git,
+      repos,
+      connections: () => connections.list(),
+      projectsDir: () => claudeProjectsDir(),
+      notice: (message) => broadcast('notice', { level: 'info', message }),
+      event: (name, props) => telemetry.event(name, props),
+    });
     const handlers = createHandlers({
+      workspaces,
       update: {
         pending: () => pendingUpdate,
         install: () => updates?.install() ?? false,

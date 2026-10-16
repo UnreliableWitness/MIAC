@@ -5,8 +5,10 @@ import type { Events, Handlers, PendingUpdate } from '../../shared/ipc';
 import { claudeContext, renderTaskMd, taskSlug } from '../../shared/naming';
 import {
   claudeHasSessionsIn,
+  claudeProjectsDir,
   claudeSessionExists,
 } from '../services/claudeSessions';
+import { WorkspaceDetector } from '../workspaces/WorkspaceDetector';
 import type {
   Connection,
   MiacConfig,
@@ -102,6 +104,8 @@ export type Services = {
   claudeSessionExists?: (sessionId: string) => boolean;
   /** Whether Claude Code saved any session for this folder (default: looks in ~/.claude/projects). */
   claudeHasSessionsIn?: (cwd: string) => boolean;
+  /** Finds and joins other repos' worktrees of a task; handlers build one from these services when absent (tests). */
+  workspaces?: WorkspaceDetector;
   /** Windows auto-update: the downloaded update and how to apply it. Absent in dev, on macOS and in tests. */
   update?: {
     pending(): PendingUpdate | null;
@@ -641,6 +645,18 @@ export function createHandlers(s: Services): Handlers {
     void runSetup(taskId, fromStep);
   };
 
+  const workspaces =
+    s.workspaces ??
+    new WorkspaceDetector({
+      store: s.store,
+      git: s.git,
+      repos: s.repos,
+      connections: () => s.connections.list(),
+      projectsDir: () => claudeProjectsDir(),
+      notice: (message) => s.broadcast('notice', { level: 'info', message }),
+      event: (n, p) => tel.event(n, p),
+    });
+
   const docsWatcher =
     s.docsWatcher ??
     new DocsWatcher(
@@ -1161,6 +1177,32 @@ export function createHandlers(s: Services): Handlers {
       const repo = await s.repos.setWorkItemOnStart(repoId, settings);
       s.broadcast('repos:changed', s.repos.list());
       return repo;
+    },
+    'repos:setDiscovered': async (repoId, discovered) => {
+      const repo = await s.repos.setDiscovered(repoId, discovered);
+      s.broadcast('repos:changed', s.repos.list());
+      return repo;
+    },
+    'tasks:scanWorkspaces': async (taskId) => {
+      const before = JSON.stringify(taskById(taskId).mainCheckoutEdits);
+      const { added } = await workspaces.scan(taskId);
+      if (added.length > 0) s.broadcast('repos:changed', s.repos.list());
+      if (
+        added.length > 0 ||
+        JSON.stringify(taskById(taskId).mainCheckoutEdits) !== before
+      )
+        await tasksChanged();
+      return added;
+    },
+    'tasks:addWorkspace': async (taskId, folder) => {
+      const added = await workspaces.add(taskId, folder);
+      s.broadcast('repos:changed', s.repos.list());
+      await tasksChanged();
+      return added;
+    },
+    'tasks:removeWorkspace': async (taskId, workspaceId) => {
+      await workspaces.remove(taskId, workspaceId);
+      await tasksChanged();
     },
     'tasks:prAvailability': async (taskId) => {
       const c = await prContext(taskById(taskId));

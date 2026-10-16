@@ -92,14 +92,20 @@ function tokenize(command: string): string[][] {
   return segments;
 }
 
-function gitHit(words: string[], cwd: string): WriteHit | null {
+/** `p` resolved against `dir`; a relative path with no known dir is null (never guessed from MIAC's own cwd). */
+function resolveIn(dir: string | null, p: string): string | null {
+  if (path.isAbsolute(p)) return path.resolve(p);
+  return dir === null ? null : path.resolve(dir, p);
+}
+
+function gitHit(words: string[], cwd: string | null): WriteHit | null {
   let dir = cwd;
   let i = 1;
   while (i < words.length && words[i].startsWith('-')) {
     const w = words[i];
     if (w === '-C') {
       if (i + 1 >= words.length) return null;
-      dir = path.resolve(dir, words[i + 1]);
+      dir = resolveIn(dir, words[i + 1]);
       i += 2;
     } else if (GIT_VALUE_OPTIONS.has(w)) {
       i += 2;
@@ -114,21 +120,28 @@ function gitHit(words: string[], cwd: string): WriteHit | null {
     for (let j = i + 2; j < words.length; j++) {
       const w = words[j];
       if (w === '-b' || w === '-B') j++;
-      else if (!w.startsWith('-'))
-        return { path: path.resolve(dir, w), via: 'worktree-add' };
+      else if (!w.startsWith('-')) {
+        const p = resolveIn(dir, w);
+        return p === null ? null : { path: p, via: 'worktree-add' };
+      }
     }
     return null;
   }
-  return WRITING_GIT.has(sub) ? { path: dir, via: 'git' } : null;
+  return WRITING_GIT.has(sub) && dir !== null
+    ? { path: dir, via: 'git' }
+    : null;
 }
 
-/** Tokenises one Bash command and returns the writes it makes (worktree add, writing git commands). */
-export function writeHitsFromBash(command: string, cwd: string): WriteHit[] {
+/** Tokenises one Bash command and returns the writes it makes (worktree add, writing git commands). A null cwd keeps only absolute paths. */
+export function writeHitsFromBash(
+  command: string,
+  cwd: string | null,
+): WriteHit[] {
   const hits: WriteHit[] = [];
   let dir = cwd;
   for (const words of tokenize(command)) {
     if (words[0] === 'cd' && words[1] && !words[1].startsWith('-')) {
-      dir = path.resolve(dir, words[1]);
+      dir = resolveIn(dir, words[1]);
     } else if (words[0] === 'git') {
       const hit = gitHit(words, dir);
       if (hit) hits.push(hit);
@@ -150,7 +163,7 @@ export function writeHitsFromLines(lines: string[]): WriteHit[] {
     }
     if (entry?.type !== 'assistant' || !Array.isArray(entry.message?.content))
       continue;
-    const cwd = typeof entry.cwd === 'string' ? entry.cwd : process.cwd();
+    const cwd = typeof entry.cwd === 'string' && entry.cwd ? entry.cwd : null;
     for (const block of entry.message.content) {
       if (
         block?.type !== 'tool_use' ||
@@ -161,8 +174,8 @@ export function writeHitsFromLines(lines: string[]): WriteHit[] {
       const key = EDIT_TOOLS[block.name];
       if (key) {
         const p = block.input[key];
-        if (typeof p === 'string' && p)
-          hits.push({ path: path.resolve(cwd, p), via: 'edit' });
+        const resolved = typeof p === 'string' && p ? resolveIn(cwd, p) : null;
+        if (resolved) hits.push({ path: resolved, via: 'edit' });
       } else if (
         block.name === 'Bash' &&
         typeof block.input.command === 'string'
