@@ -607,6 +607,8 @@
 /* Finish: Time spent */
 .time-slider {
   position: relative;
+  max-width: 100%;
+  overflow-x: clip;
   padding: 6px 4px 0;
 }
 .time-slider input[type='range'] {
@@ -630,13 +632,17 @@
   white-space: nowrap;
   text-align: center;
 }
-.time-mark[data-key='measured'] {
+.time-mark.edge-start {
   transform: none;
   text-align: left;
 }
-.time-mark[data-key='wall'] {
+.time-mark.edge-end {
   transform: translateX(-100%);
   text-align: right;
+}
+.time-mark.edge-start.edge-end {
+  transform: none;
+  text-align: left;
 }
 .time-mark b {
   color: var(--text);

@@ -5,6 +5,9 @@ import type { TaskView } from '../../shared/types';
 import { dateTime } from '../format';
 
 const STEP = 300;
+/** Marks closer than this (percent of the track) share one label; marks this close to an end align to it. */
+const CLOSE = 12;
+const EDGE = 12;
 
 /** Slider values land on clock multiples of 5 minutes; the ends of the range stay exact. */
 function snap(v: number, min: number, max: number): number {
@@ -52,8 +55,28 @@ export function TimeSpentSection({
   const parsed = parseDuration(text);
   const hasEstimate = estimateHours !== null && estimateHours > 0;
   const invalid = parsed === null;
-  const pos = (seconds: number) =>
-    `${Math.min(100, Math.max(0, ((seconds - min) / span) * 100))}%`;
+  const pct0 = (seconds: number) =>
+    Math.min(100, Math.max(0, ((seconds - min) / span) * 100));
+  const groups: {
+    key: string;
+    seconds: number;
+    pct: number;
+    labels: string[];
+  }[] = [];
+  for (const m of [...marks].sort((x, y) => x.seconds - y.seconds)) {
+    const last = groups[groups.length - 1];
+    if (last && pct0(m.seconds) - last.pct < CLOSE) {
+      last.key += `+${m.key}`;
+      last.labels.push(m.label);
+    } else {
+      groups.push({
+        key: m.key,
+        seconds: m.seconds,
+        pct: pct0(m.seconds),
+        labels: [m.label],
+      });
+    }
+  }
   const shown = parsed ?? min;
   const agents = AGENT_ORDER.filter((t) => time.agentSeconds[t] > 0);
   const estimateSeconds = hasEstimate ? estimateHours * 3600 : 0;
@@ -82,15 +105,15 @@ export function TimeSpentSection({
           }}
         />
         <div className="time-marks">
-          {marks.map((m) => (
+          {groups.map((g) => (
             <span
-              key={m.key}
-              className="time-mark"
-              style={{ left: pos(m.seconds) }}
-              data-key={m.key}
+              key={g.key}
+              className={`time-mark${g.pct <= EDGE ? ' edge-start' : ''}${g.pct >= 100 - EDGE ? ' edge-end' : ''}`}
+              style={{ left: `${g.pct}%` }}
+              data-key={g.key}
             >
-              <b>{formatDuration(m.seconds)}</b>
-              <span>{m.label}</span>
+              <b>{formatDuration(g.seconds)}</b>
+              <span>{g.labels.join(' · ')}</span>
             </span>
           ))}
         </div>

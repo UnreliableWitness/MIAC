@@ -136,4 +136,53 @@ describe('TimeSpentSection', () => {
     render(<Harness estimateHours={0} />);
     expect(screen.queryByText(/estimate/)).toBeNull();
   });
+
+  it('combines marks with equal values into one labelled mark', () => {
+    render(
+      <Harness
+        initial={60}
+        timeOverride={{
+          ...time,
+          activeSeconds: 60,
+          realisticSeconds: 60,
+          wallClockSeconds: 3600,
+        }}
+      />,
+    );
+    expect(screen.getByText('measured · you + agents')).toBeInTheDocument();
+    expect(screen.getAllByText('1m')).toHaveLength(1);
+    expect(screen.getByText('wall clock (work hrs)')).toBeInTheDocument();
+    expect(document.querySelectorAll('.time-mark')).toHaveLength(2);
+  });
+
+  it('shows a single mark when all three values are equal', () => {
+    render(
+      <Harness
+        initial={60}
+        timeOverride={{
+          ...time,
+          activeSeconds: 60,
+          realisticSeconds: 60,
+          wallClockSeconds: 60,
+        }}
+      />,
+    );
+    expect(document.querySelectorAll('.time-mark')).toHaveLength(1);
+    expect(
+      screen.getByText('measured · you + agents · wall clock (work hrs)'),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText('Time to book slider')).toHaveAttribute(
+      'aria-valuetext',
+      '1m',
+    );
+  });
+
+  it('left-aligns the mark at 0 percent and right-aligns the one at 100 percent', () => {
+    render(<Harness />);
+    const marks = document.querySelectorAll('.time-mark');
+    expect(marks[0]).toHaveClass('edge-start');
+    expect(marks[1]).not.toHaveClass('edge-start');
+    expect(marks[1]).not.toHaveClass('edge-end');
+    expect(marks[2]).toHaveClass('edge-end');
+  });
 });
