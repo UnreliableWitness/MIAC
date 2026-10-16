@@ -23,26 +23,29 @@ export class ActivityTracker {
 
   setTask(taskId: string | null): void {
     if (taskId === this.task) return;
-    this.closeAt(this.d.now());
+    this.closeNow();
     this.task = taskId;
     this.openIfCounting();
   }
 
   setFocused(focused: boolean): void {
     if (focused === this.focused) return;
-    this.closeAt(this.d.now());
+    this.closeNow();
     this.focused = focused;
     this.openIfCounting();
   }
 
   suspend(): void {
-    this.closeAt(this.d.now());
+    this.closeNow();
     this.suspended = true;
   }
 
-  tick(): void {
-    // A tick after a suspend is the first sign of life: counting may resume.
+  /** Wake or unlock: counting may start again at the next tick. */
+  resume(): void {
     this.suspended = false;
+  }
+
+  tick(): void {
     if (this.closeIfIdle()) return;
     this.openIfCounting();
   }
@@ -53,6 +56,11 @@ export class ActivityTracker {
     const { taskId } = this.open;
     this.closeAt(now);
     this.open = { taskId, start: now };
+  }
+
+  /** Closes at now, or where idleness began when the limit was crossed since the last tick. */
+  private closeNow(): void {
+    if (!this.closeIfIdle()) this.closeAt(this.d.now());
   }
 
   private idle(): boolean {

@@ -106,12 +106,41 @@ describe('ActivityTracker', () => {
     t.setFocused(true);
     s.now = 50_000;
     t.suspend();
-    s.now = 5_000_000;
+    s.now = 65_000;
     t.tick();
     expect(out).toEqual([['A', [0, 50_000]]]);
+    s.now = 80_000;
+    t.resume();
+    t.tick();
+    s.now = 5_000_000;
+    t.flush();
+    expect(out).toEqual([
+      ['A', [0, 50_000]],
+      ['A', [80_000, 5_000_000]],
+    ]);
+  });
+
+  it('keeps ignoring ticks while suspended', () => {
+    const { s, out, t } = setup();
+    t.setTask('A');
+    t.setFocused(true);
+    s.now = 50_000;
+    t.suspend();
+    s.now = 5_000_000;
+    t.tick();
     s.now = 5_010_000;
     t.flush();
-    expect(out[1]).toEqual(['A', [5_000_000, 5_010_000]]);
+    expect(out).toEqual([['A', [0, 50_000]]]);
+  });
+
+  it('trims to the start of idleness when the task changes between ticks', () => {
+    const { s, out, t } = setup();
+    t.setTask('A');
+    t.setFocused(true);
+    s.now = 400_000;
+    s.idle = 300;
+    t.setTask('B');
+    expect(out).toEqual([['A', [0, 100_000]]]);
   });
 
   it('flush keeps counting from now', () => {
