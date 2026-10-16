@@ -708,6 +708,30 @@ function expectTerminalsKept(
   for (const def of listed ?? []) expect(terminals.has(def.id)).toBe(true);
 }
 
+describe('handlers: update', () => {
+  it('reports no update in dev and refuses to install one', async () => {
+    const { h } = await harness();
+    expect(await h['update:status']()).toBeNull();
+    await expect(h['update:install']()).rejects.toThrow(
+      'No update is ready to install',
+    );
+  });
+
+  it('reports a downloaded update and installs it when asked', async () => {
+    const install = vi.fn(() => true);
+    let pending: { version: string | null } | null = null;
+    const { h } = await harness(fakeCrypto(), {
+      update: { pending: () => pending, install },
+    });
+    await expect(h['update:install']()).rejects.toThrow();
+    expect(install).not.toHaveBeenCalled();
+    pending = { version: '1.0.3' };
+    expect(await h['update:status']()).toEqual({ version: '1.0.3' });
+    await h['update:install']();
+    expect(install).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('handlers: terminals', () => {
   it('opens a run terminal, exposes its buffer, restarts and kills it', async () => {
     const { h, input, setupDone, terminals, store } = await harness();

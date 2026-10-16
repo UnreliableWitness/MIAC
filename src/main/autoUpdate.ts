@@ -4,7 +4,8 @@
  * update.electronjs.org reads the GitHub Releases of a public repo: the newest non-draft, non-prerelease
  * release with a semver tag that has an `.exe` asset, plus its `RELEASES` file and the `.nupkg` that file
  * names. Electron's autoUpdater fetches `<feed>/RELEASES`, downloads the package in the background and
- * Squirrel runs the new version on the next start; `quitAndInstall` applies it right away.
+ * Squirrel runs the new version on the next start; `quitAndInstall` applies it right away. When a download is
+ * ready, `onReady` tells the app, which offers Restart and update in a quiet in-app card (no modal dialog).
  *
  * Everything Electron-specific is injected, so this module is testable without Electron.
  */
@@ -49,15 +50,22 @@ export type AutoUpdateDeps = {
   /** The `autoUpdate` setting; undefined means on. */
   enabled: boolean | undefined;
   updater: UpdaterLike;
-  /** Shows an in-app notice (the main window's `notice` event). */
-  notify(level: 'info' | 'warn', message: string): void;
-  /** Asks whether to restart now; resolves true for "Restart now". */
-  confirmRestart(releaseName: string | undefined): Promise<boolean>;
+  /** A downloaded update is ready; `version` is parsed from the release name, null when it has none. */
+  onReady(version: string | null): void;
   log(message: string, error?: unknown): void;
   timers?: Timers;
 };
 
-export type AutoUpdate = { stop(): void };
+export type AutoUpdate = {
+  stop(): void;
+  /** Quits and starts the downloaded update; false (and nothing happens) when none is downloaded. */
+  install(): boolean;
+};
+
+/** "MIAC v1.0.3 (unsigned)" -> "1.0.3"; null when the name holds no version. */
+export function releaseVersion(name: string | undefined): string | null {
+  return name?.match(/\d+\.\d+\.\d+(?:-[\w.]+)?/)?.[0] ?? null;
+}
 
 const realTimers: Timers = {
   setTimeout: (fn, ms) => setTimeout(fn, ms),
@@ -103,16 +111,7 @@ export function startAutoUpdate(d: AutoUpdateDeps): AutoUpdate | null {
     if (downloaded || stopped) return;
     downloaded = true;
     stop();
-    const name = releaseName?.trim() || undefined;
-    d.notify(
-      'info',
-      `${name ?? 'A new version of MIAC'} is downloaded. It is installed when you restart MIAC.`,
-    );
-    d.confirmRestart(name)
-      .then((now) => {
-        if (now) d.updater.quitAndInstall();
-      })
-      .catch((e) => d.log('[update] restart prompt failed', e));
+    d.onReady(releaseVersion(releaseName));
   });
 
   const check = () => {
@@ -135,5 +134,10 @@ export function startAutoUpdate(d: AutoUpdateDeps): AutoUpdate | null {
     if (first !== null) timers.clearTimeout(first);
     timers.clearInterval(hourly);
   }
-  return { stop };
+  const install = () => {
+    if (!downloaded) return false;
+    d.updater.quitAndInstall();
+    return true;
+  };
+  return { stop, install };
 }

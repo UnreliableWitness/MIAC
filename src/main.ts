@@ -16,7 +16,7 @@ import {
 } from 'electron';
 import started from 'electron-squirrel-startup';
 import iconUrl from '../assets/icon/png/256.png?inline';
-import { EVENT_PREFIX, type Events } from './shared/ipc';
+import { EVENT_PREFIX, type Events, type PendingUpdate } from './shared/ipc';
 import type { UsageEvent } from './shared/usage';
 import {
   createHandlers,
@@ -55,7 +55,7 @@ import {
   trackHandlerFailures,
 } from './main/telemetry/helpers';
 import { TELEMETRY_CHANNEL } from './shared/telemetry';
-import { startAutoUpdate } from './main/autoUpdate';
+import { type AutoUpdate, startAutoUpdate } from './main/autoUpdate';
 import { appUrlMatcher, guardWindow, trustedSender } from './main/windowGuards';
 
 if (started) app.quit();
@@ -103,6 +103,9 @@ const terminals = new TerminalManager();
 const DOT = String.fromCharCode(0xb7);
 let stopUsage: () => void = () => {};
 let stopUpdates: () => void = () => {};
+let updates: AutoUpdate | null = null;
+/** Set when an update has downloaded; the renderer offers Restart and update. */
+let pendingUpdate: PendingUpdate | null = null;
 
 const docsWatcher = new DocsWatcher(
   (taskId, paths) => broadcast('docs:changed', { taskId, paths }),
@@ -290,6 +293,10 @@ async function boot(): Promise<void> {
       ingest,
     );
     const handlers = createHandlers({
+      update: {
+        pending: () => pendingUpdate,
+        install: () => updates?.install() ?? false,
+      },
       appVersion: app.getVersion(),
       windowsBuild:
         process.platform === 'win32'
@@ -439,36 +446,22 @@ async function boot(): Promise<void> {
       },
     );
     telemetry.metric('app.startup.readyMs', timings.readyMs ?? 0);
-    stopUpdates =
-      startAutoUpdate({
-        isPackaged: app.isPackaged,
-        platform: process.platform,
-        arch: process.arch,
-        version: app.getVersion(),
-        argv: process.argv,
-        enabled: settings.get().autoUpdate,
-        updater: autoUpdater,
-        notify: (level, message) => broadcast('notice', { level, message }),
-        confirmRestart: async (name) => {
-          const options = {
-            type: 'info' as const,
-            buttons: ['Restart now', 'Later'],
-            defaultId: 1,
-            cancelId: 1,
-            title: 'MIAC update',
-            message: `${name ?? 'A new version of MIAC'} is ready.`,
-            detail:
-              'Restart now to install it; this closes all task terminals. Otherwise it is installed the next time MIAC starts.',
-          };
-          const owner =
-            mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
-          const r = owner
-            ? await dialog.showMessageBox(owner, options)
-            : await dialog.showMessageBox(options);
-          return r.response === 0;
-        },
-        log: (message, error) => console.error(message, error ?? ''),
-      })?.stop ?? (() => {});
+    updates = startAutoUpdate({
+      isPackaged: app.isPackaged,
+      platform: process.platform,
+      arch: process.arch,
+      version: app.getVersion(),
+      argv: process.argv,
+      enabled: settings.get().autoUpdate,
+      updater: autoUpdater,
+      onReady: (version) => {
+        pendingUpdate = { version };
+        telemetry.event('update.ready');
+        broadcast('update:ready', pendingUpdate);
+      },
+      log: (message, error) => console.error(message, error ?? ''),
+    });
+    stopUpdates = () => updates?.stop();
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     console.error(e);

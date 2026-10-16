@@ -500,11 +500,21 @@ fieldset.group legend {
 .notice-warn {
   border-left-color: var(--warn);
 }
-.notice button {
+.notice > button {
   margin-left: auto;
   background: none;
   border: none;
   color: var(--muted);
+}
+.notice-update-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.notice-update-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
 }
 .empty {
   padding: 32px;

@@ -140,6 +140,10 @@ export type Channels = {
   'usage:fieldsStatus': { args: [connectionId: string]; result: FieldsStatus };
   'usage:receiverStatus': { args: []; result: ReceiverStatus };
   'rates:list': { args: []; result: { rates: Rate[]; officialAsOf: string } };
+  /** A downloaded update waiting for a restart; null when there is none (always in dev and on macOS). */
+  'update:status': { args: []; result: PendingUpdate | null };
+  /** Quits MIAC and starts the downloaded update. */
+  'update:install': { args: []; result: void };
   'app:info': {
     args: [];
     /** windowsBuild: the OS build number on Windows (for xterm's ConPTY handling), else null. */
@@ -163,7 +167,12 @@ export type Events = {
   /** Main stopped a task's watcher (an error, or Finish/Cancel before removing the worktree); Docs tabs poll instead. */
   'docs:watchStopped': { taskId: string };
   notice: { level: 'info' | 'warn' | 'error'; message: string };
+  /** An update finished downloading; the renderer offers Restart and update. */
+  'update:ready': PendingUpdate;
 };
+
+/** `version` is null when the release name holds none. */
+export type PendingUpdate = { version: string | null };
 
 export type Handlers = {
   [K in keyof Channels]: (

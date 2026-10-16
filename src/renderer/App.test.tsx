@@ -90,6 +90,7 @@ describe('App', () => {
         'connections:list',
         'repos:list',
         'tasks:list',
+        'update:status',
       ]),
     );
     emit('notice', { level: 'warn', message: 'state.json was unreadable' });

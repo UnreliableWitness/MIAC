@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import type { Events, Handlers } from '../../shared/ipc';
+import type { Events, Handlers, PendingUpdate } from '../../shared/ipc';
 import { claudePrompt, renderTaskMd, taskSlug } from '../../shared/naming';
 import type {
   Connection,
@@ -93,6 +93,12 @@ export type Services = {
   telemetry?: Telemetry;
   /** Adds values telemetry must scrub from now on, such as the project and repo of a remote. */
   rememberSensitive?: (values: string[]) => void;
+  /** Windows auto-update: the downloaded update and how to apply it. Absent in dev, on macOS and in tests. */
+  update?: {
+    pending(): PendingUpdate | null;
+    /** Quits and starts the update; false when none is downloaded. */
+    install(): boolean;
+  };
 };
 
 async function exists(p: string): Promise<boolean> {
@@ -1131,6 +1137,14 @@ export function createHandlers(s: Services): Handlers {
       rates: OFFICIAL_RATES,
       officialAsOf: OFFICIAL_RATES_AS_OF,
     }),
+    'update:status': async () => s.update?.pending() ?? null,
+    'update:install': async () => {
+      if (!s.update?.pending())
+        throw new Error('No update is ready to install');
+      // The quit flushes telemetry (will-quit) while Squirrel's Update.exe waits to start the new version.
+      tel.event('update.restart');
+      if (!s.update.install()) throw new Error('No update is ready to install');
+    },
     'app:info': async () => ({
       version: s.appVersion,
       windowsBuild: s.windowsBuild ?? null,
