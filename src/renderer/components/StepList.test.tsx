@@ -12,11 +12,11 @@ describe('StepList', () => {
         ms: 1200,
       },
       {
-        def: { kind: 'command', label: 'npm ci', detail: '' },
+        def: { kind: 'apm', label: 'npm ci', detail: '' },
         status: 'running',
       },
       {
-        def: { kind: 'command', label: 'Build', detail: '' },
+        def: { kind: 'apm', label: 'Build', detail: '' },
         status: 'failed',
       },
     ];

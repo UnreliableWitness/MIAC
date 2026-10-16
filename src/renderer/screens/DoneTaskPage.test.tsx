@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { TaskSummary, TaskView } from '../../shared/types';
 import { useStore } from '../store';
-import { emptyUsage, installFakeApi } from '../test-helpers/fakeApi';
+import { emptyTime, emptyUsage, installFakeApi } from '../test-helpers/fakeApi';
 import { DoneTaskPage } from './DoneTaskPage';
 
 const created = new Date(2026, 9, 13, 9, 0);
@@ -23,6 +23,8 @@ const task: TaskView = {
   worktreePath: '/w/a',
   baseRef: 'origin/main',
   baseSha: null,
+  openPeriods: [],
+  time: null,
   status: 'done',
   setup: {
     copy: false,
@@ -110,6 +112,9 @@ describe('DoneTaskPage', () => {
         iterationPath: 'MIAC\\Sprint 1',
         assignedTo: null,
         url: task.workItem!.url!,
+        originalEstimate: null,
+        remainingWork: null,
+        completedWork: null,
       }),
     });
     render(<DoneTaskPage task={{ ...task, summary }} />);
@@ -325,6 +330,39 @@ describe('DoneTaskPage', () => {
     });
   });
 
+  it('shows the booked time and retries a failed write', async () => {
+    const booking = {
+      bookedSeconds: 14400,
+      measuredSeconds: 11400,
+      realisticSeconds: 12000,
+      wallClockSeconds: 20000,
+      agentSeconds: { 'claude-code': 0, 'copilot-cli': 0, opencode: 0 },
+      bookedAt: '2026-10-15T12:00:00Z',
+      writtenHours: 0,
+      syncError: 'boom',
+    };
+    const { calls } = installFakeApi({
+      'usage:task': () => usage,
+      'time:task': (id) => ({ ...emptyTime(id), booking }),
+      'time:sync': () => undefined,
+    });
+    render(<DoneTaskPage task={task} />);
+    await waitFor(() =>
+      expect(fact('Time booked')).toHaveTextContent(
+        'booked 4h (measured 3h 10m)',
+      ),
+    );
+    expect(screen.getByText(/boom/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(calls.find((c) => c.channel === 'time:sync')?.args).toEqual(['a']);
+  });
+  it('says Not booked for a task without a booking', async () => {
+    installFakeApi({ 'usage:task': () => usage });
+    render(<DoneTaskPage task={task} />);
+    await waitFor(() =>
+      expect(fact('Time booked')).toHaveTextContent('Not booked'),
+    );
+  });
   describe('several repos', () => {
     const pr = {
       id: 9,

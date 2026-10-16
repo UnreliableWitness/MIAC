@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { parseCopilotLine } from './copilot';
+import { copilotAgentIntervals, parseCopilotLine } from './copilot';
 
 const lines = readFileSync(
   path.join(__dirname, '__fixtures__', 'copilot', 'synthetic-spans.jsonl'),
@@ -77,5 +77,37 @@ describe('parseCopilotLine', () => {
     });
     const at = parseCopilotLine(line, 't1').events[0].at;
     expect(Math.abs(Date.now() - Date.parse(at))).toBeLessThan(60_000);
+  });
+});
+
+describe('copilotAgentIntervals', () => {
+  it('reads agent, chat and tool spans that have a start and an end', () => {
+    const line = (name: string, extra: Record<string, unknown>) =>
+      JSON.stringify({ name, ...extra });
+    expect(
+      copilotAgentIntervals(
+        line('invoke_agent x', {
+          startTime: [1760436000, 0],
+          endTime: [1760436012, 0],
+        }),
+      ),
+    ).toEqual([[1760436000000, 1760436012000]]);
+    expect(
+      copilotAgentIntervals(
+        line('execute_tool y', {
+          startTimeUnixNano: '1760436000000000000',
+          endTimeUnixNano: '1760436002500000000',
+        }),
+      ),
+    ).toEqual([[1760436000000, 1760436002500]]);
+    expect(
+      copilotAgentIntervals(
+        line('other', { startTime: [1, 0], endTime: [2, 0] }),
+      ),
+    ).toEqual([]);
+    expect(copilotAgentIntervals('not json')).toEqual([]);
+  });
+  it('gives nothing for the fixture lines without an end', () => {
+    for (const l of lines) expect(copilotAgentIntervals(l)).toEqual([]);
   });
 });

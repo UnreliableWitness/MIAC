@@ -14,6 +14,9 @@ import { api, tryInvoke } from '../api';
 import { eur } from '../format';
 import { useTaskUsage } from '../hooks/useTaskUsage';
 import { useWriteCostToAdo } from '../hooks/useWriteCostToAdo';
+import { TimeSpentSection } from '../components/TimeSpentSection';
+import { useEstimateHours } from '../hooks/useEstimateHours';
+import { useTaskTime } from '../hooks/useTaskTime';
 import { PageHeader } from '../components/ui';
 import { useEscape } from '../hooks/useEscape';
 import { useStore } from '../store';
@@ -107,7 +110,28 @@ export function FinishScreen({ taskId }: { taskId: string }) {
   const usage = useTaskUsage(ready ? taskId : null);
   const repos = useStore((s) => s.repos);
   const writeCost = useWriteCostToAdo();
+  const {
+    time,
+    error: timeError,
+    reload: reloadTime,
+  } = useTaskTime(ready ? taskId : null);
   // The work item's connection is the task's own; the home repo may have none or have been dropped.
+  const connectionId = task ? taskConnectionId(task, repos) : null;
+  const workItemId = task?.workItem?.id ?? null;
+  const estimateHours = useEstimateHours(connectionId, workItemId, time, ready);
+  // The starting value is fixed when the time first loads: a later refetch updates the marks, never the booking.
+  const [frozenTime, setFrozenTime] = useState<number | undefined>();
+  const [chosenTime, setChosenTime] = useState<number | null | undefined>();
+  if (time && frozenTime === undefined)
+    setFrozenTime(
+      time.booking
+        ? time.booking.bookedSeconds + time.measuredSinceReopenSeconds
+        : time.activeSeconds,
+    );
+  const bookValue =
+    chosenTime === undefined ? (frozenTime ?? null) : chosenTime;
+  // Finish waits for the time (or an explicit "without booking"), and for a valid entry.
+  const timeBlocks = !time || bookValue === null;
   const canSync =
     Boolean(task?.workItem) &&
     Boolean(task && taskConnectionId(task, repos)) &&
@@ -214,7 +238,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
         ? c.uncommitted.length > 0 || (c.unpushed > 0 && !withPr)
         : false;
 
-  const finish = async (withoutPr = false) => {
+  const finish = async (withoutPr = false, withoutTime = false) => {
     const withPr = createPr && !withoutPr;
     setBusy(true);
     setFinishError(null);
@@ -229,6 +253,9 @@ export function FinishScreen({ taskId }: { taskId: string }) {
           deleteBranch,
           syncUsage: canSync && syncUsage,
           createPullRequest: withPr,
+          ...(!withoutTime && time && bookValue !== null
+            ? { bookedSeconds: bookValue }
+            : {}),
         });
       } catch (e) {
         const m = e instanceof Error ? e.message : '';
@@ -284,7 +311,11 @@ export function FinishScreen({ taskId }: { taskId: string }) {
       return c.uncommitted.length > 0 || (c.unpushed > 0 && action === 'keep');
     });
 
-  const finishRows = async (choices: Choices, withoutPr = false) => {
+  const finishRows = async (
+    choices: Choices,
+    withoutPr = false,
+    withoutTime = false,
+  ) => {
     setBusy(true);
     setFinishError(null);
     setResults(null);
@@ -316,6 +347,9 @@ export function FinishScreen({ taskId }: { taskId: string }) {
           deleteBranch,
           syncUsage: canSync && syncUsage,
           workspaces,
+          ...(!withoutTime && time && bookValue !== null
+            ? { bookedSeconds: bookValue }
+            : {}),
         });
       } catch (e) {
         // Main keeps each row's outcome; without a failed row this is another error, shown as a notice.
@@ -560,6 +594,50 @@ export function FinishScreen({ taskId }: { taskId: string }) {
           )}
         </div>
 
+        {time ? (
+          <TimeSpentSection
+            task={task}
+            time={time}
+            estimateHours={estimateHours}
+            value={bookValue}
+            onChange={setChosenTime}
+          />
+        ) : (
+          <div className="finish-section">
+            <h2>Time spent</h2>
+            {timeError ? (
+              <div className="check check-warn" role="alert">
+                <span aria-hidden="true">{G.WARN}</span>
+                <div className="body">Time could not be loaded</div>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  disabled={busy}
+                  onClick={reloadTime}
+                >
+                  Retry
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-subtle btn-sm"
+                  disabled={
+                    busy || (!multi && !prLoaded) || (!checks && !checksFailed)
+                  }
+                  onClick={() =>
+                    multi
+                      ? void finishRows(rowChoice, false, true)
+                      : void finish(false, true)
+                  }
+                >
+                  Finish without booking time
+                </button>
+              </div>
+            ) : (
+              <div className="muted">Loading time{ELLIPSIS}</div>
+            )}
+          </div>
+        )}
+
         <div className="finish-section">
           <h2>Clean up</h2>
           {pr && !multi && (
@@ -674,7 +752,10 @@ export function FinishScreen({ taskId }: { taskId: string }) {
             type="button"
             className={dirty ? 'btn btn-danger' : 'btn btn-primary'}
             disabled={
-              busy || (!multi && !prLoaded) || (!checks && !checksFailed)
+              busy ||
+              (!multi && !prLoaded) ||
+              timeBlocks ||
+              (!checks && !checksFailed)
             }
             onClick={() => (multi ? void finishRows(rowChoice) : void finish())}
           >

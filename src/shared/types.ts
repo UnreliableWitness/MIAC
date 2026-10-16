@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { TimeBookingSchema } from './time';
 
 /** Work item type names come from the project's process (Agile, Scrum, Basic, custom); any string is valid. */
 export type WorkItemType = string;
@@ -20,6 +21,8 @@ export const TerminalDefSchema = z.object({
   sessionId: z.string().optional(),
   /** The workspace (repo worktree) the tab runs in; absent means the task's active home. */
   workspaceId: z.string().optional(),
+  /** The Setup tab: a `run` tab that runs these setup commands in order. Never restarted by itself. */
+  setupCommands: z.array(z.string()).optional(),
 });
 export type TerminalDef = z.infer<typeof TerminalDefSchema>;
 export type NewTerminal = Omit<TerminalDef, 'id'>;
@@ -131,6 +134,12 @@ export const TaskSchema = z.object({
   mainCheckoutEdits: z
     .array(z.object({ repoPath: z.string(), branch: z.string().nullable() }))
     .default([]),
+  /** When the task was open, as ISO instants; `end: null` while it is. Empty on older tasks (time falls back to createdAt/finishedAt). */
+  openPeriods: z
+    .array(z.object({ start: z.string(), end: z.string().nullable() }))
+    .default([]),
+  /** What was booked at Finish; null while open and for tasks finished before time tracking. */
+  time: TimeBookingSchema.nullable().default(null),
 });
 export type Task = z.infer<typeof TaskSchema>;
 
@@ -164,6 +173,8 @@ export type MiacConfig = {
   copy: string[];
   setup: string[];
   run: Record<string, string>;
+  /** `apm install` targets; false turns the step off; absent means the harnesses of the task's tabs. */
+  apm?: string[] | false;
   found: boolean;
 };
 
@@ -197,6 +208,8 @@ export type FinishOptions = {
   createPullRequest?: boolean;
   /** One entry per workspace; absent is the single-repo Finish (home: `pr` when createPullRequest, else `keep`). */
   workspaces?: { workspaceId: string; action: WorkspaceAction }[];
+  /** The time to book on the task (seconds); absent books nothing. */
+  bookedSeconds?: number;
 };
 
 export type GitFile = { status: string; path: string };
@@ -256,6 +269,9 @@ export type SetupStepKind =
   | 'worktree'
   | 'copy'
   | 'task-file'
+  | 'node-modules'
+  | 'apm'
+  /** A setup command run by the setup itself; only a reopened extra workspace's commands (the home's go to its Setup tab). */
   | 'command'
   | 'terminals'
   | 'work-item';
@@ -356,8 +372,12 @@ export type WorkItemSummary = {
 
 export type WorkItemSearch = { scope: 'sprint' | 'mine'; text: string };
 
-/** A sprint backlog item: the picker's fields plus remaining work (hours, null when unset). */
-export type SprintItem = WorkItemSummary & { remainingWork: number | null };
+/** A sprint backlog item: the picker's fields plus the estimate fields (hours, null when unset). */
+export type SprintItem = WorkItemSummary & {
+  remainingWork: number | null;
+  originalEstimate: number | null;
+  completedWork: number | null;
+};
 /** One grid row of the sprint page, in ADO's backlog order; children follow their parent. */
 export type SprintRow = {
   item: SprintItem;

@@ -2,8 +2,9 @@ import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { SetupEvent, SetupStepDef } from '../../shared/types';
-import type { Platform } from '../platform/Platform';
+import type { Command, Platform } from '../platform/Platform';
 import type { GitClient } from './GitClient';
+import { nodeModulesMatch } from './nodeModules';
 
 export type SetupPlan = {
   taskId: string;
@@ -12,9 +13,15 @@ export type SetupPlan = {
   branch: string;
   baseRef: string;
   copy: string[];
+  /** Run in the task's Setup tab once the terminals start, not by the setup itself. */
   commands: string[];
   taskMd: string;
+  /** The tabs setup opens (without the Setup tab), or null for none. */
   startTerminalsLabel: string | null;
+  /** Clone the repo's node_modules into the worktree when it is up to date (see nodeModules.ts). */
+  cloneNodeModules?: boolean;
+  /** `apm install --target` targets, when the repo has an apm.yml. */
+  apmTargets?: string[];
   updateWorkItem: boolean;
   /** Reopening a finished task: the worktree is made again for its branch (see Task.reopen). */
   restore?: { from: string | null };
@@ -41,7 +48,8 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
 
 export type SetupHooks = {
   onEvent(e: SetupEvent): void;
-  startTerminals(): Promise<void>;
+  /** Opens the task's tabs, plus a Setup tab running `commands` when there are any. */
+  startTerminals(commands: string[]): Promise<void>;
   /** The commit a freshly made worktree's branch starts from. */
   onBaseSha?(sha: string): Promise<void>;
   /** Moves the task's work item and assigns it; a thrown error becomes a warning. */
@@ -81,17 +89,22 @@ export function planSteps(plan: SetupPlan): SetupStepDef[] {
         label: 'Copy local files',
         detail: plan.copy.join(', '),
       });
+    if (plan.cloneNodeModules)
+      steps.push({
+        kind: 'node-modules',
+        label: 'Clone node_modules',
+        detail: `from ${path.basename(plan.repoPath)}`,
+      });
     steps.push({
       kind: 'task-file',
       label: 'Write task file',
       detail: '.miac/task.md',
     });
-    for (const command of plan.commands)
+    if (plan.apmTargets && plan.apmTargets.length > 0)
       steps.push({
-        kind: 'command',
-        label: command,
-        detail: 'in worktree',
-        command,
+        kind: 'apm',
+        label: 'Install agent packages',
+        detail: `apm install --target ${plan.apmTargets.join(', ')}`,
       });
   }
   for (const x of plan.extraRestores ?? []) {
@@ -118,18 +131,31 @@ export function planSteps(plan: SetupPlan): SetupStepDef[] {
         workspaceId,
       });
   }
-  if (plan.startTerminalsLabel)
+  const commands = homeCommands(plan);
+  if (plan.startTerminalsLabel || commands.length > 0)
     steps.push({
       kind: 'terminals',
       label:
         plan.restore || plan.skipHome ? 'Restore terminals' : 'Start terminals',
-      detail: plan.startTerminalsLabel,
+      detail: terminalsDetail(plan.startTerminalsLabel, commands),
     });
   return steps;
 }
 
 const restoreDetail = (branch: string, from: string | null) =>
   from ? `${branch} from ${from}` : branch;
+
+/** The home's setup commands for its Setup tab; none when the reopen keeps or drops the home. */
+const homeCommands = (plan: SetupPlan): string[] =>
+  plan.skipHome ? [] : plan.commands;
+
+const NPM_CI = 'npm ci';
+
+function terminalsDetail(label: string | null, commands: string[]): string {
+  return [label, commands.length > 0 ? `Setup (${commands.join(', ')})` : null]
+    .filter(Boolean)
+    .join(', ');
+}
 
 /** Adds a pattern to the repository's .git/info/exclude (shared by all worktrees) if it is not there yet. */
 export async function ensureExcluded(
@@ -247,8 +273,14 @@ export class SetupRunner {
       if (!x) throw new Error(`Unknown workspace ${step.workspaceId}`);
       if (step.kind === 'worktree') return this.restoreWorktree(x, x.from, log);
       if (step.kind === 'copy') return this.copyFiles(x, x.copy, log);
-      log(`$ ${step.command}`);
-      return this.runCommand(step.command ?? '', x.worktreePath, log);
+      const cmd = step.command ?? '';
+      log(`$ ${cmd}`);
+      return this.spawnLogged(
+        this.platform.shellCommand(cmd),
+        x.worktreePath,
+        log,
+        cmd,
+      );
     }
     switch (step.kind) {
       case 'fetch': {
@@ -287,6 +319,8 @@ export class SetupRunner {
       }
       case 'copy':
         return this.copyFiles(plan, plan.copy, log);
+      case 'node-modules':
+        return this.cloneNodeModules(plan, log);
       case 'task-file':
         await fs.mkdir(path.join(plan.worktreePath, '.miac'), {
           recursive: true,
@@ -299,13 +333,25 @@ export class SetupRunner {
         await ensureExcluded(this.git, plan.repoPath, '.miac/');
         log('wrote .miac/task.md');
         return;
-      case 'command':
-        log(`$ ${step.command}`);
-        await this.runCommand(step.command ?? '', plan.worktreePath, log);
-        return;
-      case 'terminals':
-        await hooks.startTerminals();
-        return;
+      case 'apm':
+        return this.installAgentPackages(plan, log);
+      case 'terminals': {
+        let commands = homeCommands(plan);
+        if (
+          commands.some((c) => c.trim() === NPM_CI) &&
+          (await nodeModulesMatch(
+            path.join(plan.worktreePath, 'node_modules'),
+            path.join(plan.worktreePath, 'package-lock.json'),
+          ))
+        ) {
+          commands = commands.filter((c) => c.trim() !== NPM_CI);
+          log('node_modules matches package-lock.json, npm ci skipped');
+        }
+        await hooks.startTerminals(commands);
+        return {
+          detail: terminalsDetail(plan.startTerminalsLabel, commands),
+        };
+      }
     }
   }
 
@@ -370,12 +416,91 @@ export class SetupRunner {
     }
   }
 
-  private runCommand(
-    cmd: string,
+  /**
+   * Clones the main checkout's node_modules when it is what `npm ci` would install for the worktree's lockfile.
+   * The clone goes to a temporary folder first, so an interrupted clone never looks like an installed tree.
+   */
+  private async cloneNodeModules(
+    plan: SetupPlan,
+    log: (l: string) => void,
+  ): Promise<{ detail: string; warn?: boolean }> {
+    const name = path.basename(plan.repoPath);
+    const src = path.join(plan.repoPath, 'node_modules');
+    const dest = path.join(plan.worktreePath, 'node_modules');
+    const outdated = `node_modules in ${name} is missing or out of date, npm ci installs`;
+    if (await exists(dest)) {
+      log('node_modules is already in the worktree');
+      return { detail: 'Already in the worktree' };
+    }
+    if (
+      !this.platform.cloneDir ||
+      !(await exists(src)) ||
+      !(await nodeModulesMatch(
+        src,
+        path.join(plan.worktreePath, 'package-lock.json'),
+      ))
+    ) {
+      log(outdated);
+      return { detail: outdated };
+    }
+    const tmp = `${dest}.miac-clone`;
+    await fs.rm(tmp, { recursive: true, force: true });
+    const cmd = this.platform.cloneDir(src, tmp);
+    log(`cloning ${src}`);
+    try {
+      await this.spawnLogged(cmd, plan.worktreePath, log, 'clone');
+      await fs.rename(tmp, dest);
+    } catch (e) {
+      await fs.rm(tmp, { recursive: true, force: true });
+      const detail = `Clone failed, npm ci installs: ${e instanceof Error ? e.message : String(e)}`;
+      log(detail);
+      return { detail, warn: true };
+    }
+    log(`cloned node_modules from ${name}`);
+    return { detail: `Cloned from ${name}, npm ci skipped` };
+  }
+
+  /** `apm install --target <t>` per target. A missing apm is a warning; a failing install fails the step. */
+  private async installAgentPackages(
+    plan: SetupPlan,
+    log: (l: string) => void,
+  ): Promise<{ detail: string; warn?: boolean }> {
+    if (!(await exists(path.join(plan.worktreePath, 'apm.yml')))) {
+      log('no apm.yml in the worktree');
+      return { detail: 'No apm.yml in the worktree' };
+    }
+    try {
+      await this.spawnLogged(
+        this.platform.shellCommand('apm --version'),
+        plan.worktreePath,
+        () => {},
+        'apm --version',
+      );
+    } catch {
+      const detail = 'apm is not installed, skipped';
+      log(`${detail} (see https://microsoft.github.io/apm/)`);
+      return { detail, warn: true };
+    }
+    const targets = plan.apmTargets ?? [];
+    for (const target of targets) {
+      const cmd = `apm install --target ${target}`;
+      log(`$ ${cmd}`);
+      await this.spawnLogged(
+        this.platform.shellCommand(cmd),
+        plan.worktreePath,
+        log,
+        cmd,
+      );
+    }
+    return { detail: `Installed for ${targets.join(', ')}` };
+  }
+
+  private spawnLogged(
+    { command, args, env }: Command,
     cwd: string,
     log: (l: string) => void,
+    cmd: string,
   ): Promise<void> {
-    const { command, args, env } = this.platform.shellCommand(cmd);
     return new Promise((resolve, reject) => {
       const child = spawn(command, args, {
         cwd,

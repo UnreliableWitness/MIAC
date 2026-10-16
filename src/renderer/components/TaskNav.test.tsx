@@ -46,6 +46,8 @@ const base = {
   },
   terminals: [],
   createdAt: 'now',
+  openPeriods: [],
+  time: null,
   finishedAt: null,
   usageSyncedAt: null,
   usageSyncError: null,

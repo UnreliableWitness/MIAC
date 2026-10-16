@@ -54,6 +54,8 @@ const task: TaskView = {
   worktreePath: '/src/webshop.worktrees/48213-save-delivery-address',
   baseRef: 'origin/main',
   baseSha: null,
+  openPeriods: [],
+  time: null,
   status: 'ready',
   setup: {
     copy: true,

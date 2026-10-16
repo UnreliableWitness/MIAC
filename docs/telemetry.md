@@ -48,6 +48,7 @@ This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 
 | `terminal.restarted` | kind; after an app relaunch or not (a Claude Code restart resumes its session) |
 | `usage.opened` | via the tab or the task strip |
 | `usage.synced` | ok; on finish or by hand |
+| `time.booked` | Finish booked time; `closest`: the measure the booked time is closest to (`measured`, `realistic`, `wallClock`), or `custom` when it is more than 5 minutes from all of them |
 | `docs.opened` | view (`rendered`, `source`); from (`list`, `link`, `terminal`); the file opened automatically with the tab is not tracked |
 | `docs.sentTo` | kind of the target terminal (`claude`, `copilot`, `shell`, `run`) |
 | `terminal.linkOpened` | type of the clicked terminal link (`md`, `file`, `url`) |

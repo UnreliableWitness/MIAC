@@ -73,6 +73,29 @@ describe('windowsPlatform', () => {
     expect(text).not.toContain('ForEach-Object');
   });
 
+  it('runs setup commands in order in a console, stopping at the first failing exit code', () => {
+    const text = make({}).setupCommands(['npm ci', "echo 'x' # y"]).args.at(-1);
+    expect(text).toBe(
+      [
+        "Write-Host '$ npm ci'",
+        '& {',
+        'npm ci',
+        '}',
+        'if ($LASTEXITCODE) { exit $LASTEXITCODE }',
+        "Write-Host '$ echo ''x'' # y'",
+        '& {',
+        "echo 'x' # y",
+        '}',
+        'if ($LASTEXITCODE) { exit $LASTEXITCODE }',
+      ].join('\n'),
+    );
+    expect(text).not.toContain('2>&1');
+  });
+
+  it('has no cheap folder clone', () => {
+    expect(make({}).cloneDir).toBeUndefined();
+  });
+
   it('starts a native claude.exe directly with the context as one argument', () => {
     const prompt = `Work on Issue 3: Coupon field ignores O'Brien style "names"`;
     expect(

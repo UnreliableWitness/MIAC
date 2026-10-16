@@ -1,3 +1,5 @@
+export { formatDuration } from '../shared/time';
+
 const EURO = String.fromCharCode(0x20ac);
 
 export const eur = (n: number): string =>

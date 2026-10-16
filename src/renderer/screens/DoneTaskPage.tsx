@@ -12,6 +12,8 @@ import { TaskTypeIcon } from '../components/TaskTypeIcon';
 import { PageHeader, StateDot } from '../components/ui';
 import { UsagePanel } from '../components/UsagePanel';
 import { dateTime, duration, eur } from '../format';
+import { useTaskTime } from '../hooks/useTaskTime';
+import { formatDuration } from '../../shared/time';
 import { useTaskUsage } from '../hooks/useTaskUsage';
 import { useWriteCostToAdo } from '../hooks/useWriteCostToAdo';
 import { useStore, useTaskConnectionId } from '../store';
@@ -223,6 +225,14 @@ export function DoneTaskPage({ task }: { task: TaskView }) {
   };
   const connectionId = useTaskConnectionId(task);
   const usage = useTaskUsage(task.id);
+  const { time } = useTaskTime(task.id);
+  const booking = time?.booking ?? null;
+  const [retrying, setRetrying] = useState(false);
+  const retryTime = async () => {
+    setRetrying(true);
+    await tryInvoke(() => api().invoke('time:sync', task.id), notify);
+    setRetrying(false);
+  };
   const wi = task.workItem;
   const live = useLiveWorkItem(connectionId, wi?.id ?? null);
   const workspaces = taskWorkspaces(task);
@@ -314,6 +324,28 @@ export function DoneTaskPage({ task }: { task: TaskView }) {
               </>
             ) : (
               '...'
+            )}
+          </Fact>
+          <Fact label="Time booked">
+            {booking ? (
+              <>
+                {`booked ${formatDuration(booking.bookedSeconds)} (measured ${formatDuration(booking.measuredSeconds)})`}
+                {booking.syncError && (
+                  <div className="text-warn small" role="status">
+                    {`Not written to Azure DevOps: ${booking.syncError} `}
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      disabled={retrying}
+                      onClick={() => void retryTime()}
+                    >
+                      Retry
+                    </button>
+                  </div>
+                )}
+              </>
+            ) : (
+              'Not booked'
             )}
           </Fact>
           <Fact label="Logged on work item">{logged}</Fact>

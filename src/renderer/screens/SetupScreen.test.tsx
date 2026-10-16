@@ -21,6 +21,8 @@ const task: TaskView = {
   worktreePath: '/src/webshop.worktrees/48231-show',
   baseRef: 'origin/main',
   baseSha: null,
+  openPeriods: [],
+  time: null,
   status: 'setting-up',
   setup: {
     copy: true,
@@ -63,10 +65,9 @@ const state: SetupState = {
     },
     {
       def: {
-        kind: 'command',
+        kind: 'apm',
         label: 'npm ci',
         detail: 'in worktree',
-        command: 'npm ci',
       },
       status: 'todo',
     },

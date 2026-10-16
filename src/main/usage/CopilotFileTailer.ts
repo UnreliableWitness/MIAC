@@ -1,7 +1,8 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { UsageEvent } from '../../shared/usage';
-import { parseCopilotLine } from './copilot';
+import type { Interval } from '../../shared/time';
+import { copilotAgentIntervals, parseCopilotLine } from './copilot';
 
 /** Follows `<dir>/<taskId>.jsonl` files written by Copilot CLI. Offsets live in memory; the store dedupes re-reads after a restart. */
 export class CopilotFileTailer {
@@ -13,6 +14,7 @@ export class CopilotFileTailer {
   constructor(
     private readonly dir: string,
     private readonly onEvents: (events: UsageEvent[]) => void,
+    private readonly onAgent?: (taskId: string, ivs: Interval[]) => void,
   ) {}
 
   get stats() {
@@ -73,9 +75,11 @@ export class CopilotFileTailer {
     if (end < 0) return;
     this.offsets.set(name, offset + end + 1);
     const events: UsageEvent[] = [];
+    const ivs: Interval[] = [];
     for (const line of chunk.subarray(0, end).toString('utf8').split('\n')) {
       const r = parseCopilotLine(line, taskId);
       events.push(...r.events);
+      ivs.push(...copilotAgentIntervals(line));
       this.counts.unreadable += r.unreadable;
       if (r.unreadable > 0)
         console.warn(
@@ -84,5 +88,6 @@ export class CopilotFileTailer {
     }
     this.counts.records += events.length;
     if (events.length > 0) this.onEvents(events);
+    if (ivs.length > 0) this.onAgent?.(taskId, ivs);
   }
 }

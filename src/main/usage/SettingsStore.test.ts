@@ -60,6 +60,9 @@ describe('SettingsStore', () => {
       receiverPort: 5000,
       hourlySync: false,
       writeCostToAdo: false,
+      writeTimeToAdo: false,
+      idleMinutes: 5,
+      workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
       showSplash: true,
       sendTelemetry: true,
     });
@@ -69,6 +72,9 @@ describe('SettingsStore', () => {
       receiverPort: 5000,
       hourlySync: true,
       writeCostToAdo: false,
+      writeTimeToAdo: false,
+      idleMinutes: 5,
+      workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
       showSplash: true,
       sendTelemetry: true,
     });

@@ -76,6 +76,18 @@ export class UsageSync {
     };
   }
 
+  /**
+   * The fields of each work item type, from the per-connection cache (loaded on first use, reloaded with `refresh`).
+   * Call it inside `run`.
+   */
+  typeFields(
+    connectionId: string,
+    project: string,
+    refresh = false,
+  ): Promise<TypeFields> {
+    return this.loadTypes(connectionId, project, refresh);
+  }
+
   private async loadTypes(
     connectionId: string,
     project: string,

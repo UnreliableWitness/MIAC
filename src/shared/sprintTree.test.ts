@@ -16,6 +16,8 @@ const item = (id: number): SprintItem => ({
   assignedTo: null,
   url: `https://example/${id}`,
   remainingWork: null,
+  originalEstimate: null,
+  completedWork: null,
 });
 const top = (id: number): SprintRelation => ({
   rel: null,

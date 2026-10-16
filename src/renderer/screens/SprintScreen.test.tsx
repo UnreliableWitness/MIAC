@@ -55,6 +55,8 @@ const item = (
   assignedTo: 'Dries Hoebeke',
   url: `https://dev.azure.com/unreliablewitness/MIAC/_workitems/edit/${id}`,
   remainingWork: null,
+  originalEstimate: null,
+  completedWork: null,
   ...over,
 });
 const row = (
@@ -100,6 +102,8 @@ const task = (over: Partial<TaskView>): TaskView => ({
   worktreePath: '/w/2',
   baseRef: 'origin/main',
   baseSha: null,
+  openPeriods: [],
+  time: null,
   status: 'ready',
   setup: {
     copy: false,
@@ -570,5 +574,86 @@ describe('filterRows', () => {
     expect(ids('maxime')).toEqual(['1', '2', '31']);
     expect(ids('address store')).toEqual(['1', '2', '31']);
     expect(ids('nothing like this')).toEqual([]);
+  });
+
+  it('shows the Spent / est. column with local time against the estimate', async () => {
+    fake({
+      'workItems:sprint': () => ({
+        ...sprint,
+        rows: [
+          row(
+            item(2, 'Issue', 'Estimated delivery date', {
+              originalEstimate: 5,
+            }),
+          ),
+          row(item(4, 'Task', 'Upgrade payment SDK')),
+        ],
+      }),
+      'time:sprint': () => ({
+        '2': {
+          spentSeconds: 11400,
+          measuredSeconds: 11400,
+          agentSeconds: 6000,
+          booked: false,
+          baselineHours: null,
+        },
+      }),
+    });
+    render(<Shell />);
+    const table = await grid();
+    expect(
+      within(table).getByRole('columnheader', { name: 'Spent / est.' }),
+    ).toBeInTheDocument();
+    expect(await within(table).findByText('3h 10m / 5h')).toBeInTheDocument();
+    expect(within(table).getByText('–')).toBeInTheDocument();
+  });
+
+  it('shows ADO Completed Work for an item whose local task has no time yet', async () => {
+    fake({
+      'workItems:sprint': () => ({
+        ...sprint,
+        rows: [
+          row(
+            item(2, 'Task', 'Estimated delivery date', {
+              completedWork: 2,
+              remainingWork: 3,
+            }),
+          ),
+        ],
+      }),
+      'time:sprint': () => ({
+        '2': {
+          spentSeconds: 0,
+          measuredSeconds: 0,
+          agentSeconds: 0,
+          booked: false,
+          baselineHours: 4,
+        },
+      }),
+    });
+    render(<Shell />);
+    const table = await grid();
+    const cell = await within(table).findByText('2h / 4h');
+    expect(cell.closest('.sprint-time')).toHaveAttribute(
+      'title',
+      'from Azure DevOps',
+    );
+  });
+
+  it('renders a pre-feature done task without time', async () => {
+    useStore.setState({
+      tasks: [
+        task({
+          status: 'done',
+          time: null,
+          openPeriods: [],
+          finishedAt: '2026-10-15T10:00:00.000Z',
+        }),
+      ],
+    });
+    fake({ 'time:sprint': () => ({}) });
+    render(<Shell />);
+    const table = await grid();
+    expect(within(table).getAllByText('–').length).toBeGreaterThan(0);
   });
 });

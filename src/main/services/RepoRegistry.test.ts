@@ -208,6 +208,8 @@ describe('RepoRegistry', () => {
         worktreePath: '/w',
         baseRef: 'main',
         baseSha: null,
+        openPeriods: [],
+        time: null,
         status: 'ready',
         setup: {
           copy: false,

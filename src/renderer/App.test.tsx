@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -24,6 +25,8 @@ const task: TaskView = {
   worktreePath: '/w/a',
   baseRef: 'origin/main',
   baseSha: null,
+  openPeriods: [],
+  time: null,
   status: 'ready',
   setup: {
     copy: false,
@@ -98,6 +101,7 @@ describe('App', () => {
         'connections:list',
         'repos:list',
         'tasks:list',
+        'time:focus',
         'update:status',
       ]),
     );
@@ -105,6 +109,27 @@ describe('App', () => {
     expect(
       await screen.findByText('state.json was unreadable'),
     ).toBeInTheDocument();
+  });
+
+  it('tells main which task is on screen for time tracking', async () => {
+    const { calls } = installFakeApi({
+      'repos:list': () => [repo],
+      'tasks:list': () => [task],
+    });
+    render(<App />);
+    await waitFor(() =>
+      expect(calls.some((c) => c.channel === 'tasks:list')).toBe(true),
+    );
+    const focus = () =>
+      calls.filter((c) => c.channel === 'time:focus').map((c) => c.args);
+    act(() => {
+      useStore.getState().select('a');
+      useStore.getState().go({ kind: 'task' });
+    });
+    // Once on mount (Sprint: no task), then on each change.
+    await waitFor(() => expect(focus()).toEqual([[null], ['a']]));
+    act(() => useStore.getState().go({ kind: 'sprint' }));
+    await waitFor(() => expect(focus()).toEqual([[null], ['a'], [null]]));
   });
 
   it('lands on Sprint at startup without selecting a task', async () => {

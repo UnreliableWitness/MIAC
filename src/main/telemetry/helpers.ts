@@ -137,7 +137,12 @@ export function forwardRendererTelemetry(
 /** Keys whose value differs between two settings objects (values themselves are not sent). */
 export function changedKeys<T extends object>(before: T, after: T): string[] {
   return (Object.keys(after) as (keyof T)[])
-    .filter((k) => before[k] !== after[k])
+    .filter(
+      (k) =>
+        before[k] !== after[k] &&
+        // Nested values (work hours) are rebuilt on every load, so compare them by content.
+        JSON.stringify(before[k]) !== JSON.stringify(after[k]),
+    )
     .map(String)
     .sort();
 }

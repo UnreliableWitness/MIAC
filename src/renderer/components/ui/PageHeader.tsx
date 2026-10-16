@@ -1,30 +1,37 @@
 import type { ReactNode } from 'react';
 
-/** A page's title row, with optional pivots and a command bar below it. */
+/**
+ * A page's title row, with optional pivots and a command bar below it. `inline` puts the command bar on the
+ * title row instead, at its right end, for pages without pivots that want a single compact row.
+ */
 export function PageHeader({
   title,
   before,
   after,
   pivots,
   commands,
+  inline = false,
 }: {
   title: ReactNode;
   before?: ReactNode;
   after?: ReactNode;
   pivots?: ReactNode;
   commands?: ReactNode;
+  inline?: boolean;
 }) {
+  const bar = commands && <div className="commandbar">{commands}</div>;
   return (
-    <header className="pagehead">
+    <header className={inline ? 'pagehead pagehead-inline' : 'pagehead'}>
       <div className="pagehead-title">
         {before}
         <h1>{title}</h1>
         {after}
+        {inline && bar}
       </div>
-      {(pivots || commands) && (
+      {(pivots || (!inline && commands)) && (
         <div className="pagehead-bar">
           {pivots}
-          {commands && <div className="commandbar">{commands}</div>}
+          {!inline && bar}
         </div>
       )}
     </header>

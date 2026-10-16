@@ -2,6 +2,7 @@ import {
   chmodSync,
   existsSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -22,9 +23,10 @@ import { loadMiacConfig } from '../services/MiacConfig';
 import { RepoRegistry } from '../services/RepoRegistry';
 import { SetupRunner } from '../services/SetupRunner';
 import { TaskStore } from '../services/TaskStore';
-import type { Telemetry } from '../telemetry/AppInsightsClient';
+import { NoopTelemetry, type Telemetry } from '../telemetry/AppInsightsClient';
 import { TerminalManager } from '../services/TerminalManager';
 import { DocsWatcher } from '../docs/DocsWatcher';
+import { TimeStore } from '../time/TimeStore';
 import type { WorkspaceDetector } from '../workspaces/WorkspaceDetector';
 import {
   addOrigin,
@@ -86,7 +88,18 @@ async function harness(
   servers.push(server);
   const opened: string[] = [];
   const git = new GitClient();
-  const platform = testPlatform();
+  // `apm` is stubbed so tests can make the setup fail at the apm step (see failSetup).
+  const apm = { fail: false };
+  const base = testPlatform();
+  const platform = {
+    ...base,
+    shellCommand: (c: string) =>
+      c === 'apm --version'
+        ? base.shellCommand(echoCmd('apm 1.0.0'))
+        : c.startsWith('apm install')
+          ? base.shellCommand(apm.fail ? failCmd(7) : echoCmd(c))
+          : base.shellCommand(c),
+  };
   const terminals = new TerminalManager();
   allTerminals.push(terminals);
   const usageDir = mkdtempSync(path.join(os.tmpdir(), 'miac-usage-'));
@@ -97,6 +110,8 @@ async function harness(
   await settings.save({ ...settings.get(), writeCostToAdo: true });
   const usage = new UsageStore(usageDir, () => OFFICIAL_RATES);
   await usage.load();
+  const time = new TimeStore(path.join(usageDir, 'time.json'));
+  await time.load();
   const receiverStarts: number[] = [];
   let receiverStatus = {
     listening: true,
@@ -139,6 +154,7 @@ async function harness(
     pickFolder: async () => '/picked',
     launch: async () => {},
     usage,
+    time,
     settings,
     receiver,
     copilot: { stats: { records: 0, unreadable: 0 }, poll: async () => {} },
@@ -178,12 +194,31 @@ async function harness(
     },
     branch: 'feature/48231-show-estimated-delivery-date',
     copy: true,
-    commands: [writeLineCmd('ok', 'ok.txt')],
+    commands: [],
     startClaude: false,
     openShell: true,
     ...over,
   });
+  /** The repo gets an apm.yml and `apm: [claude]`, so setup has an apm step at index 4, which fails until fixSetup. */
+  const prepareApm = () => {
+    if (!existsSync(path.join(repo, 'apm.yml')))
+      commitFile(repo, 'apm.yml', 'name: webshop\n');
+    writeFileSync(
+      path.join(repo, '.miac.yml'),
+      'copy: [.env]\napm: [claude]\n',
+    );
+  };
+  const failSetup = () => {
+    prepareApm();
+    apm.fail = true;
+  };
+  const fixSetup = () => {
+    apm.fail = false;
+  };
   return {
+    prepareApm,
+    failSetup,
+    fixSetup,
     h,
     store,
     terminals,
@@ -337,7 +372,6 @@ describe('handlers: create task', () => {
     expect(view.terminals[0].kind).toBe('shell');
     expect(terminals.runningCount(task.id)).toBe(1);
     expect(existsSync(path.join(task.worktreePath, '.env'))).toBe(true);
-    expect(existsSync(path.join(task.worktreePath, 'ok.txt'))).toBe(true);
     const state = await h['tasks:setupState'](task.id);
     expect(state?.finished).toBe(true);
     expect(state?.steps.map((s) => s.status)).toEqual([
@@ -346,10 +380,104 @@ describe('handlers: create task', () => {
       'done',
       'done',
       'done',
-      'done',
     ]);
     expect(broadcasts.some((b) => b.event === 'tasks:changed')).toBe(true);
     terminals.killAllForTask(task.id);
+  });
+
+  it('stores an open period from creation and no booking', async () => {
+    const { h, store, setupDone, input, terminals } = await harness();
+    const done = setupDone();
+    const task = await h['tasks:create'](input({ openShell: false }));
+    await done;
+    expect(store.state.tasks[0].openPeriods).toEqual([
+      { start: task.createdAt, end: null },
+    ]);
+    expect(store.state.tasks[0].time).toBeNull();
+    await terminals.killAllForTask(task.id);
+  });
+
+  it('runs the setup commands in a Setup tab after the other tabs, without waiting for them', async () => {
+    const { h, terminals, setupDone, input } = await harness();
+    const finished = setupDone();
+    const task = await h['tasks:create'](
+      input({
+        commands: [
+          writeLineCmd('one', 'ok.txt', true),
+          writeLineCmd('two', 'ok.txt', true),
+        ],
+      }),
+    );
+    expect((await finished).ok).toBe(true);
+    const [view] = await h['tasks:list']();
+    expect(view.status).toBe('ready');
+    expect(view.terminals.map((d) => [d.kind, d.label])).toEqual([
+      ['shell', isWindows ? 'PowerShell' : 'sh'],
+      ['run', 'Setup'],
+    ]);
+    const setupTab = view.terminals[1];
+    expect(setupTab.setupCommands).toHaveLength(2);
+    await vi.waitFor(
+      () =>
+        expect(
+          readFileSync(
+            path.join(task.worktreePath, 'ok.txt'),
+            'utf8',
+          ).replaceAll('\r\n', '\n'),
+        ).toBe('one\ntwo\n'),
+      { timeout: 10_000 },
+    );
+    const state = await h['tasks:setupState'](task.id);
+    expect(state?.steps.at(-1)).toMatchObject({
+      def: { kind: 'terminals' },
+      status: 'done',
+      detail: expect.stringContaining('Setup ('),
+    });
+    await terminals.killAllForTask(task.id);
+  });
+
+  it('installs apm packages for the harnesses of the tabs setup opens', async () => {
+    const { h, terminals, setupDone, input, repo } = await harness();
+    commitFile(repo, 'apm.yml', 'name: webshop\n');
+    const finished = setupDone();
+    const task = await h['tasks:create'](
+      input({ startClaude: true, openCopilot: true, openShell: true }),
+    );
+    expect((await finished).ok).toBe(true);
+    const state = await h['tasks:setupState'](task.id);
+    const step = state?.steps.find((s) => s.def.kind === 'apm');
+    expect(step).toMatchObject({
+      def: { detail: 'apm install --target claude, copilot' },
+      status: 'done',
+    });
+    expect(state?.log).toContain('apm install --target copilot');
+    await terminals.killAllForTask(task.id);
+  });
+
+  it('has no apm step without apm.yml or with apm: false', async () => {
+    const { h, terminals, setupDone, input, repo } = await harness();
+    const first = setupDone();
+    const a = await h['tasks:create'](input({ startClaude: true }));
+    await first;
+    expect(
+      (await h['tasks:setupState'](a.id))?.steps.map((s) => s.def.kind),
+    ).not.toContain('apm');
+    await terminals.killAllForTask(a.id);
+    commitFile(repo, 'apm.yml', 'name: webshop\n');
+    writeFileSync(path.join(repo, '.miac.yml'), 'copy: [.env]\napm: false\n');
+    const second = setupDone();
+    const b = await h['tasks:create'](
+      input({
+        startClaude: true,
+        workItem: { id: '2', type: 'Bug', title: 'other', url: null },
+        branch: 'bug/2-other',
+      }),
+    );
+    await second;
+    expect(
+      (await h['tasks:setupState'](b.id))?.steps.map((s) => s.def.kind),
+    ).not.toContain('apm');
+    await terminals.killAllForTask(b.id);
   });
 
   it('rejects an invalid branch name', async () => {
@@ -377,18 +505,18 @@ describe('handlers: create task', () => {
     ).rejects.toThrow(/already exists/);
   });
 
-  it('marks the task setup-failed when a command fails, then retries from that step', async () => {
-    const { h, input, setupDone, terminals, store } = await harness();
+  it('marks the task setup-failed when a step fails, then retries from that step', async () => {
+    const { h, input, setupDone, terminals, store, failSetup, fixSetup } =
+      await harness();
+    failSetup();
     const done = setupDone();
-    const t = await h['tasks:create'](input({ commands: ['exit 7'] }));
+    const t = await h['tasks:create'](input());
     expect((await done).ok).toBe(false);
     expect(store.state.tasks[0].status).toBe('setup-failed');
     const state = await h['tasks:setupState'](t.id);
     expect(state?.failedStep).toBe(4);
-    writeFileSync(path.join(t.worktreePath, 'fix.txt'), 'fixed');
-    await store.update((s) => {
-      s.tasks[0].setup.commands = ['cat fix.txt'];
-    });
+    expect(state?.steps[4].def.kind).toBe('apm');
+    fixSetup();
     const retry = setupDone();
     await h['tasks:retrySetup'](t.id);
     expect((await retry).ok).toBe(true);
@@ -397,11 +525,10 @@ describe('handlers: create task', () => {
   });
 
   it('cancels a failed setup: removes worktree, branch and task', async () => {
-    const { h, input, setupDone, store, repo } = await harness();
+    const { h, input, setupDone, store, repo, failSetup } = await harness();
+    failSetup();
     const done = setupDone();
-    const t = await h['tasks:create'](
-      input({ commands: ['exit 1'], openShell: false }),
-    );
+    const t = await h['tasks:create'](input({ openShell: false }));
     await done;
     await h['tasks:cancelSetup'](t.id);
     expect(store.state.tasks).toHaveLength(0);
@@ -412,11 +539,10 @@ describe('handlers: create task', () => {
 
 describe('handlers: missing worktree folder', () => {
   it('cancelSetup succeeds on a setup-failed task whose folder was deleted', async () => {
-    const { h, input, setupDone, store, repo } = await harness();
+    const { h, input, setupDone, store, repo, failSetup } = await harness();
+    failSetup();
     const done = setupDone();
-    const t = await h['tasks:create'](
-      input({ commands: ['exit 1'], openShell: false }),
-    );
+    const t = await h['tasks:create'](input({ openShell: false }));
     await done;
     rmSync(t.worktreePath, { recursive: true, force: true });
     await h['tasks:cancelSetup'](t.id);
@@ -523,9 +649,11 @@ describe('handlers: finish', () => {
   });
 
   it('cancelSetup waits for the terminals to exit before removing the worktree', async () => {
-    const { h, input, setupDone, terminals, services } = await harness();
+    const { h, input, setupDone, terminals, services, failSetup } =
+      await harness();
+    failSetup();
     const done = setupDone();
-    const t = await h['tasks:create'](input({ commands: ['exit 1'] }));
+    const t = await h['tasks:create'](input());
     await done;
     const order: string[] = [];
     vi.spyOn(terminals, 'killAllForTask').mockImplementation(async () => {
@@ -590,15 +718,12 @@ describe('handlers: finish', () => {
   });
 
   it('reports checks, then removes worktree and branch and marks done', async () => {
-    const { h, input, setupDone, terminals, repo } = await harness();
+    const { h, input, setupDone, terminals, repo, store } = await harness();
     const done = setupDone();
     const t = await h['tasks:create'](input());
     await done;
     const checks = await h['tasks:finishChecks'](t.id);
-    expect(checks.uncommitted).toEqual([
-      { status: '?', path: '.env' },
-      { status: '?', path: 'ok.txt' },
-    ]);
+    expect(checks.uncommitted).toEqual([{ status: '?', path: '.env' }]);
     expect(checks.unpushed).toBe(0);
     expect(checks.runningTerminals).toBe(1);
     await h['tasks:finish'](t.id, {
@@ -610,6 +735,9 @@ describe('handlers: finish', () => {
     const [view] = await h['tasks:list']();
     expect(view.status).toBe('done');
     expect(view.finishedAt).not.toBeNull();
+    expect(store.state.tasks[0].openPeriods).toEqual([
+      { start: t.createdAt, end: view.finishedAt },
+    ]);
     expect(view.terminals).toEqual([]);
     expect(terminals.runningCount(t.id)).toBe(0);
     expect(existsSync(t.worktreePath)).toBe(false);
@@ -711,11 +839,10 @@ describe('handlers: concurrency guards', () => {
     ).length;
 
   it('retrySetup twice at once runs setup once', async () => {
-    const { h, input, setupDone, broadcasts } = await harness();
+    const { h, input, setupDone, broadcasts, failSetup } = await harness();
+    failSetup();
     const first = setupDone();
-    const t = await h['tasks:create'](
-      input({ commands: ['exit 7'], openShell: false }),
-    );
+    const t = await h['tasks:create'](input({ openShell: false }));
     await first;
     expect(finishedCount(broadcasts)).toBe(1);
     const retry = setupDone();
@@ -1024,6 +1151,7 @@ describe('handlers: reopen a finished task', () => {
   async function finished(
     o: { removeWorktree: boolean; deleteBranch: boolean },
     over: Partial<Services> = {},
+    opts: { commands?: string[]; beforeFinish?: (t: Task) => void } = {},
   ) {
     const rec = recording();
     const hx = await harness(fakeCrypto(), {
@@ -1032,9 +1160,12 @@ describe('handlers: reopen a finished task', () => {
       ...over,
     });
     const done = hx.setupDone();
-    const t = await hx.h['tasks:create'](hx.input({ startClaude: true }));
+    const t = await hx.h['tasks:create'](
+      hx.input({ startClaude: true, commands: opts.commands ?? [] }),
+    );
     await done;
     commitFile(t.worktreePath, 'feature.txt', 'a\n', 'Add the feature');
+    opts.beforeFinish?.(t);
     const before = hx.store.state.tasks[0].terminals;
     await hx.h['tasks:finish'](t.id, finishWith(o));
     return { ...hx, ...rec, t, before };
@@ -1187,6 +1318,9 @@ describe('handlers: reopen a finished task', () => {
       finishedAt: null,
       closedTerminals: [],
     });
+    expect(task.openPeriods).toHaveLength(2);
+    expect(task.openPeriods[0].end).not.toBeNull();
+    expect(task.openPeriods[1].end).toBeNull();
     expect(task.terminals.map((d) => d.id)).toEqual(hx.before.map((d) => d.id));
     const claude = hx.before.find((d) => d.kind === 'claude')!;
     expect(hx.calls.at(-1)).toEqual({
@@ -1197,13 +1331,59 @@ describe('handlers: reopen a finished task', () => {
     await hx.terminals.killAllForTask(hx.t.id);
   });
 
+  it('reopening a task from before time tracking keeps creation to finish as its first period', async () => {
+    const hx = await finished({ removeWorktree: false, deleteBranch: false });
+    await hx.store.update((st) => {
+      st.tasks[0].openPeriods = [];
+    });
+    const { createdAt, finishedAt } = hx.store.state.tasks[0];
+    await hx.h['tasks:reopen'](hx.t.id);
+    const periods = hx.store.state.tasks[0].openPeriods;
+    expect(periods[0]).toEqual({ start: createdAt, end: finishedAt });
+    expect(periods).toHaveLength(2);
+    expect(periods[1].end).toBeNull();
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
+  it('does not run the Setup tab again when reopening a kept worktree', async () => {
+    const hx = await finished(
+      { removeWorktree: false, deleteBranch: false },
+      {},
+      { commands: [echoCmd('setup')] },
+    );
+    expect(hx.before.some((d) => d.setupCommands)).toBe(true);
+    expect(await hx.h['tasks:reopen'](hx.t.id)).toEqual({ setup: false });
+    expect(hx.store.state.tasks[0].terminals.map((d) => d.kind)).toEqual([
+      'claude',
+      'shell',
+    ]);
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
   it('makes the worktree again from the local branch and runs the setup again', async () => {
-    const hx = await finished({ removeWorktree: true, deleteBranch: false });
+    const hx = await finished(
+      { removeWorktree: true, deleteBranch: false },
+      {},
+      { commands: [writeLineCmd('ok', 'ok.txt')] },
+    );
     expect(existsSync(hx.t.worktreePath)).toBe(false);
+    const oldSetupTab = hx.before.find((d) => d.setupCommands)!;
+    expect(oldSetupTab).toBeDefined();
     const result = await reopenSetup(hx);
     expect(result.ok).toBe(true);
+    expect(
+      hx.store.state.tasks[0].openPeriods.map((p) => p.end === null),
+    ).toEqual([false, true]);
     expect(existsSync(path.join(hx.t.worktreePath, 'feature.txt'))).toBe(true);
-    expect(existsSync(path.join(hx.t.worktreePath, 'ok.txt'))).toBe(true);
+    await vi.waitFor(
+      () =>
+        expect(existsSync(path.join(hx.t.worktreePath, 'ok.txt'))).toBe(true),
+      { timeout: 10_000 },
+    );
+    const tabs = hx.store.state.tasks[0].terminals;
+    // A fresh Setup tab; the one from before Finish is not brought back.
+    expect(tabs.filter((d) => d.setupCommands)).toHaveLength(1);
+    expect(tabs.map((d) => d.id)).not.toContain(oldSetupTab.id);
     expect(hx.store.state.tasks[0]).toMatchObject({
       status: 'ready',
       reopen: null,
@@ -1218,8 +1398,11 @@ describe('handlers: reopen a finished task', () => {
     expect(hx.store.state.tasks[0].terminals.map((d) => d.kind)).toEqual([
       'claude',
       'shell',
+      'run',
     ]);
-    expect(hx.calls.at(-1)?.flags[0]).toBe('--resume');
+    expect(hx.calls.findLast((c) => c.flags.length > 0)?.flags[0]).toBe(
+      '--resume',
+    );
     await hx.terminals.killAllForTask(hx.t.id);
   });
 
@@ -1272,10 +1455,15 @@ describe('handlers: reopen a finished task', () => {
   });
 
   it('cancelling a failed reopen puts the task back to done and keeps it', async () => {
-    const hx = await finished({ removeWorktree: true, deleteBranch: false });
-    await hx.store.update((st) => {
-      st.tasks[0].setup.commands = [failCmd(3)];
-    });
+    const hx = await finished(
+      { removeWorktree: true, deleteBranch: false },
+      {},
+      {
+        beforeFinish: (t) =>
+          commitFile(t.worktreePath, 'apm.yml', 'name: webshop\n'),
+      },
+    );
+    hx.failSetup();
     const result = await reopenSetup(hx);
     expect(result.ok).toBe(false);
     expect(hx.store.state.tasks[0].status).toBe('setup-failed');
@@ -1290,6 +1478,9 @@ describe('handlers: reopen a finished task', () => {
       connectionId: null,
       mainCheckoutEdits: [],
     });
+    expect(
+      hx.store.state.tasks[0].openPeriods.every((p) => p.end !== null),
+    ).toBe(true);
     expect(existsSync(hx.t.worktreePath)).toBe(false);
     expect(await new GitClient().branchExists(hx.repo, hx.t.branch)).toBe(true);
   });
@@ -1652,6 +1843,8 @@ describe('recoverInterruptedTasks', () => {
       worktreePath: '/w',
       baseRef: 'main',
       baseSha: null,
+      openPeriods: [],
+      time: null,
       setup: {
         copy: false,
         commands: [],
@@ -2063,7 +2256,7 @@ describe('handlers: sprint, types and live work items', () => {
       id: '5',
       state: 'To Do',
     });
-    expect(await hx.h['workItems:get'](c.id, '5')).not.toHaveProperty(
+    expect(await hx.h['workItems:get'](c.id, '5')).toHaveProperty(
       'remainingWork',
     );
     hx.server.route('GET', '/unreliablewitness/_apis/wit/workitems', {
@@ -3180,6 +3373,74 @@ describe('handlers: finish every workspace of a task', () => {
     });
   });
 
+  it('books the Time spent once and writes it once for a multi-repo Finish', async () => {
+    const hx = await multiHarness([{ name: 'api' }]);
+    await hx.settings.save({ ...hx.settings.get(), writeTimeToAdo: true });
+    commitFile(hx.repos[0].wt, 'api.txt', 'a\n', 'API change');
+    const client = hx.clients.get(hx.c.id)!;
+    vi.spyOn(client, 'workItemEstimate').mockResolvedValue({
+      type: 'User Story',
+      originalEstimate: null,
+      remainingWork: 5,
+      completedWork: 1,
+    });
+    vi.spyOn(client, 'workItemTypeFields').mockResolvedValue([
+      {
+        type: 'User Story',
+        fields: [
+          'Microsoft.VSTS.Scheduling.RemainingWork',
+          'Microsoft.VSTS.Scheduling.CompletedWork',
+        ],
+      },
+    ]);
+    const write = vi
+      .spyOn(client, 'updateWorkItemFields')
+      .mockResolvedValue(undefined as never);
+    await hx.h['tasks:finish'](hx.t.id, {
+      ...opts,
+      bookedSeconds: 7200,
+      workspaces: [
+        { workspaceId: 'home', action: 'drop' },
+        { workspaceId: hx.ids[0], action: 'push' },
+      ],
+    });
+    const task = hx.store.state.tasks[0];
+    expect(task.status).toBe('done');
+    expect(task.time).toMatchObject({
+      bookedSeconds: 7200,
+      writtenHours: 2,
+      syncError: null,
+    });
+    expect(task.openPeriods.at(-1)?.end).toBe(task.finishedAt);
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(write.mock.calls[0][0]).toBe(48231);
+  });
+
+  it('books nothing when a multi-repo Finish fails, and once on its retry', async () => {
+    const hx = await multiHarness([{ name: 'api' }]);
+    commitFile(hx.repos[0].wt, 'api.txt', 'a\n', 'API change');
+    const push = hx.push.mockRejectedValueOnce(new Error('rejected'));
+    const finish = () =>
+      hx.h['tasks:finish'](hx.t.id, {
+        ...opts,
+        bookedSeconds: 3600,
+        workspaces: [
+          { workspaceId: 'home', action: 'drop' },
+          { workspaceId: hx.ids[0], action: 'push' },
+        ],
+      });
+    await expect(finish()).rejects.toThrow('rejected');
+    expect(hx.store.state.tasks[0].status).toBe('ready');
+    expect(hx.store.state.tasks[0].time).toBeNull();
+    expect(hx.store.state.tasks[0].openPeriods.at(-1)?.end).toBeNull();
+    await finish();
+    expect(push).toHaveBeenCalledTimes(2);
+    expect(hx.store.state.tasks[0]).toMatchObject({
+      status: 'done',
+      time: { bookedSeconds: 3600 },
+    });
+  });
+
   it('drops the home without a push and opens a PR for the repo with changes', async () => {
     const hx = await multiHarness([{ name: 'api' }]);
     commitFile(hx.repos[0].wt, 'api.txt', 'a\n', 'API change');
@@ -3603,5 +3864,273 @@ describe('handlers: finish every workspace of a task', () => {
     expect(ws(hx, hx.ids[0]).pullRequest).toMatchObject({
       url: 'https://dev.azure.com/fabrikam/P/_git/docs/pullrequest/100',
     });
+  });
+});
+
+describe('handlers: time', () => {
+  it('passes terminal input on for agent time', async () => {
+    const seen: [string, string][] = [];
+    const { h, input, setupDone, store, terminals } = await harness(
+      fakeCrypto(),
+      { onTerminalInput: (id, data) => seen.push([id, data]) },
+    );
+    const done = setupDone();
+    const t = await h['tasks:create'](input());
+    await done;
+    const id = store.state.tasks[0].terminals[0].id;
+    await h['terminals:write'](id, 'ls\r');
+    expect(seen).toEqual([[id, 'ls\r']]);
+    await terminals.killAllForTask(t.id);
+  });
+
+  it('has the time handlers', async () => {
+    const { h } = await harness();
+    expect(await h['time:sprint']('none')).toEqual({});
+  });
+});
+
+describe('handlers: time booking and write-back', () => {
+  const WI = '/unreliablewitness/_apis/wit/workitems/48231';
+  const finishOpts = (bookedSeconds?: number) => ({
+    closeTerminals: true,
+    removeWorktree: true,
+    deleteBranch: true,
+    syncUsage: false,
+    bookedSeconds,
+  });
+
+  async function timeTask(
+    hx: Awaited<ReturnType<typeof harness>>,
+    writeTime: boolean,
+  ) {
+    await hx.settings.save({ ...hx.settings.get(), writeTimeToAdo: writeTime });
+    const { t, c } = await linkedTask(hx);
+    hx.server.route('GET', '/unreliablewitness/MIAC/_apis/wit/workitemtypes', {
+      body: {
+        value: [
+          {
+            name: 'User Story',
+            fields: [
+              { referenceName: 'Microsoft.VSTS.Scheduling.RemainingWork' },
+              { referenceName: 'Microsoft.VSTS.Scheduling.CompletedWork' },
+            ],
+          },
+        ],
+      },
+    });
+    hx.server.route('GET', WI, {
+      body: {
+        fields: {
+          'System.WorkItemType': 'User Story',
+          'Microsoft.VSTS.Scheduling.RemainingWork': 5,
+          'Microsoft.VSTS.Scheduling.CompletedWork': 1,
+        },
+      },
+    });
+    return { t, c };
+  }
+  const patches = (hx: Awaited<ReturnType<typeof harness>>) =>
+    hx.server.requests.filter((r) => r.method === 'PATCH');
+
+  it('books the time without writing it when time writing is off', async () => {
+    const events: [string, unknown][] = [];
+    const hx = await harness(fakeCrypto(), {
+      telemetry: {
+        ...NoopTelemetry,
+        event: (name, props) => events.push([name, props]),
+      },
+    });
+    const { t } = await timeTask(hx, false);
+    await hx.h['tasks:finish'](t.id, finishOpts(7200));
+    const task = hx.store.state.tasks[0];
+    expect(task.status).toBe('done');
+    expect(task.time).toMatchObject({
+      bookedSeconds: 7200,
+      writtenHours: 0,
+      syncError: null,
+    });
+    expect(typeof task.time?.measuredSeconds).toBe('number');
+    expect(patches(hx)).toEqual([]);
+    expect(events).toContainEqual(['time.booked', { closest: 'custom' }]);
+    await expect(hx.h['time:sync'](t.id)).rejects.toThrow(
+      'Writing time to Azure DevOps is off',
+    );
+  });
+
+  it('keeps no booking when Finish has no time to book', async () => {
+    const hx = await harness();
+    const { t } = await timeTask(hx, true);
+    await hx.h['tasks:finish'](t.id, finishOpts());
+    expect(hx.store.state.tasks[0].time).toBeNull();
+    expect(patches(hx)).toEqual([]);
+  });
+
+  it('writes Completed and Remaining Work when time writing is on', async () => {
+    const hx = await harness();
+    const { t } = await timeTask(hx, true);
+    await hx.h['tasks:finish'](t.id, finishOpts(7200));
+    expect(patches(hx)).toHaveLength(1);
+    expect(JSON.parse(patches(hx)[0].body)).toEqual([
+      {
+        op: 'add',
+        path: '/fields/Microsoft.VSTS.Scheduling.CompletedWork',
+        value: 3,
+      },
+      {
+        op: 'add',
+        path: '/fields/Microsoft.VSTS.Scheduling.RemainingWork',
+        value: 3,
+      },
+    ]);
+    expect(hx.store.state.tasks[0]).toMatchObject({
+      status: 'done',
+      time: { bookedSeconds: 7200, writtenHours: 2, syncError: null },
+    });
+  });
+
+  it('finishes and warns when the time write fails, then time:sync retries it', async () => {
+    const hx = await harness();
+    const { t } = await timeTask(hx, true);
+    hx.server.route('PATCH', WI, { status: 403, body: {} });
+    await hx.h['tasks:finish'](t.id, finishOpts(7200));
+    const task = hx.store.state.tasks[0];
+    expect(task.status).toBe('done');
+    expect(task.time?.writtenHours).toBe(0);
+    expect(task.time?.syncError).toBe(
+      'The token cannot write work items (needs Work Items: Read & write)',
+    );
+    expect(hx.broadcasts).toContainEqual({
+      event: 'notice',
+      payload: {
+        level: 'warn',
+        message:
+          'Task finished, but the time could not be written to the work item: The token cannot write work items (needs Work Items: Read & write). Use Retry on the Done page.',
+      },
+    });
+    hx.server.route('PATCH', WI, { body: { id: 48231 } });
+    await hx.h['time:sync'](t.id);
+    expect(hx.store.state.tasks[0].time).toMatchObject({
+      writtenHours: 2,
+      syncError: null,
+    });
+  });
+
+  it('refetches the type fields once when the cached ones lack the work item type', async () => {
+    const hx = await harness();
+    const { t } = await timeTask(hx, true);
+    const TYPES = '/unreliablewitness/MIAC/_apis/wit/workitemtypes';
+    let typeCalls = 0;
+    hx.server.route('GET', TYPES, () => {
+      typeCalls++;
+      return {
+        body: {
+          value: [
+            { name: 'Bug', fields: [] },
+            ...(typeCalls > 1
+              ? [
+                  {
+                    name: 'User Story',
+                    fields: [
+                      {
+                        referenceName:
+                          'Microsoft.VSTS.Scheduling.CompletedWork',
+                      },
+                    ],
+                  },
+                ]
+              : []),
+          ],
+        },
+      };
+    });
+    await hx.h['tasks:finish'](t.id, finishOpts(7200));
+    expect(typeCalls).toBe(2);
+    expect(patches(hx)).toHaveLength(1);
+    expect(JSON.parse(patches(hx)[0].body)).toEqual([
+      {
+        op: 'add',
+        path: '/fields/Microsoft.VSTS.Scheduling.CompletedWork',
+        value: 3,
+      },
+    ]);
+    expect(hx.store.state.tasks[0].time?.writtenHours).toBe(2);
+  });
+
+  it('flushes the open active interval before booking at Finish', async () => {
+    let time: TimeStore | undefined;
+    const flushed: number[] = [];
+    const hx = await harness(fakeCrypto(), {
+      tracker: {
+        setTask: () => undefined,
+        flush: () => {
+          const now = Date.now();
+          flushed.push(now);
+          // Like main: the write is started, not awaited.
+          void time?.addActive(hx.store.state.tasks[0].id, [
+            now - 1_800_000,
+            now,
+          ]);
+        },
+      },
+    });
+    time = hx.services.time;
+    const { t } = await timeTask(hx, false);
+    const hourAgo = new Date(Date.now() - 3_600_000).toISOString();
+    await hx.store.update((st) => {
+      st.tasks[0].createdAt = hourAgo;
+      st.tasks[0].openPeriods = st.tasks[0].openPeriods.map((p, k) =>
+        k === 0 ? { ...p, start: hourAgo } : p,
+      );
+    });
+    await hx.h['tasks:finish'](t.id, finishOpts(7200));
+    expect(flushed).toHaveLength(1);
+    expect(hx.store.state.tasks[0].time?.measuredSeconds).toBeGreaterThan(1700);
+  });
+});
+
+describe('handlers: estimate baseline at create', () => {
+  async function connect(hx: Awaited<ReturnType<typeof harness>>) {
+    routeHealthyOrg(hx.server);
+    const c = await hx.h['connections:save']({
+      organizationUrl: `${hx.server.url}/unreliablewitness`,
+      project: 'MIAC',
+      pat: 'secret-pat',
+    });
+    await hx.h['repos:setConnection'](hx.added.id, c.id);
+    return c;
+  }
+
+  it('records Remaining + Completed Work when the item has no Original Estimate', async () => {
+    const hx = await harness();
+    const c = await connect(hx);
+    hx.server.route('GET', '/unreliablewitness/_apis/wit/workitems/48231', {
+      body: {
+        fields: {
+          'System.WorkItemType': 'User Story',
+          'Microsoft.VSTS.Scheduling.RemainingWork': 5,
+          'Microsoft.VSTS.Scheduling.CompletedWork': 1,
+        },
+      },
+    });
+    const done = hx.setupDone();
+    await hx.h['tasks:create'](hx.input({ openShell: false }));
+    await done;
+    await vi.waitFor(() =>
+      expect(hx.services.time.baseline(`${c.id}:48231`)).toBe(6),
+    );
+  });
+
+  it('still creates the task when Azure DevOps fails', async () => {
+    const hx = await harness();
+    const c = await connect(hx);
+    hx.server.route('GET', '/unreliablewitness/_apis/wit/workitems/48231', {
+      status: 500,
+      body: {},
+    });
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](hx.input({ openShell: false }));
+    await done;
+    expect(hx.store.state.tasks.map((x) => x.id)).toEqual([t.id]);
+    expect(hx.services.time.baseline(`${c.id}:48231`)).toBeNull();
   });
 });

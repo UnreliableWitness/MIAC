@@ -1,3 +1,13 @@
+import { spawnSync } from 'node:child_process';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { darwinPlatform } from './darwin';
 
@@ -19,6 +29,53 @@ describe('darwinPlatform', () => {
       args: ['-l', '-c', 'npm run dev'],
     });
   });
+  it('runs setup commands in order in one login shell, stopping at the first failure', () => {
+    expect(p.setupCommands(['npm ci', "echo 'hi'"])).toEqual({
+      command: '/bin/zsh',
+      args: [
+        '-l',
+        '-c',
+        [
+          'set -e',
+          "printf '%s\\n' '$ npm ci'",
+          'npm ci',
+          "printf '%s\\n' '$ echo '\\''hi'\\'''",
+          "echo 'hi'",
+        ].join('\n'),
+      ],
+    });
+  });
+  it('clones a folder in one APFS clonefile call through JavaScript for Automation', () => {
+    const cmd = p.cloneDir?.('/r/node_modules', '/w/node_modules');
+    expect(cmd?.command).toBe('/usr/bin/osascript');
+    expect(cmd?.args.slice(0, 3)).toEqual(['-l', 'JavaScript', '-e']);
+    expect(cmd?.args[3]).toContain('$.clonefile(argv[0], argv[1], 0)');
+    expect(cmd?.args.slice(4)).toEqual(['/r/node_modules', '/w/node_modules']);
+  });
+  it.runIf(process.platform === 'darwin')(
+    'clones a real folder, and fails when the target exists',
+    () => {
+      const root = mkdtempSync(path.join(os.tmpdir(), 'miac-clone-'));
+      try {
+        mkdirSync(path.join(root, 'src', 'a'), { recursive: true });
+        writeFileSync(path.join(root, 'src', 'a', 'f.txt'), 'x');
+        const run = () => {
+          const c = p.cloneDir!(
+            path.join(root, 'src'),
+            path.join(root, 'dest'),
+          );
+          return spawnSync(c.command, c.args).status;
+        };
+        expect(run()).toBe(0);
+        expect(
+          readFileSync(path.join(root, 'dest', 'a', 'f.txt'), 'utf8'),
+        ).toBe('x');
+        expect(run()).not.toBe(0);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
   it('starts claude with the task appended to its system prompt, quoted', () => {
     expect(p.claudeCommand("Work item 1: it's done")).toEqual({
       command: '/bin/zsh',

@@ -343,6 +343,19 @@ fieldset.group legend {
   align-items: center;
   gap: 4px;
 }
+/* Title and commands on one row: the title ellipsizes and the commands shrink before anything wraps. */
+.pagehead-inline .pagehead-title > :not(h1):not(.commandbar) {
+  flex: none;
+  white-space: nowrap;
+}
+.pagehead-inline .commandbar {
+  flex: 0 1 auto;
+  min-width: 0;
+  padding-left: 8px;
+}
+.pagehead-inline .commandbar > * {
+  flex: none;
+}
 .page-body {
   flex: 1;
   min-height: 0;

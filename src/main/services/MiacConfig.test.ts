@@ -80,6 +80,20 @@ describe('loadMiacConfig', () => {
     expect((await loadMiacConfig(r)).setup).toEqual(['npm ci']);
   });
 
+  it('reads apm targets, or false to turn the apm step off', async () => {
+    const r = repo();
+    writeFileSync(path.join(r, '.miac.yml'), 'apm: [claude, cursor]\n');
+    expect((await loadMiacConfig(r)).apm).toEqual(['claude', 'cursor']);
+    writeFileSync(path.join(r, '.miac.yml'), 'apm: claude\n');
+    expect((await loadMiacConfig(r)).apm).toEqual(['claude']);
+    writeFileSync(path.join(r, '.miac.yml'), 'apm: false\n');
+    expect((await loadMiacConfig(r)).apm).toBe(false);
+    writeFileSync(path.join(r, '.miac.yml'), 'base: main\n');
+    expect((await loadMiacConfig(r)).apm).toBeUndefined();
+    writeFileSync(path.join(r, '.miac.yml'), 'apm: true\n');
+    await expect(loadMiacConfig(r)).rejects.toThrow(/apm/);
+  });
+
   it('names the bad field when run is a list', async () => {
     const r = repo();
     writeFileSync(path.join(r, '.miac.yml'), 'run:\n  - npm run dev\n');
