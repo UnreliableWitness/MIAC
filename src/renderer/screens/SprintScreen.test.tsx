@@ -12,7 +12,7 @@ import type {
 import { Shell } from '../App';
 import { useStore } from '../store';
 import { type FakeHandlers, installFakeApi } from '../test-helpers/fakeApi';
-import { visibleRows } from './SprintScreen';
+import { filterRows, visibleRows } from './SprintScreen';
 
 vi.mock('../components/TerminalView', () => ({ TerminalView: () => null }));
 
@@ -282,6 +282,26 @@ describe('Sprint page', () => {
     ).toBeInTheDocument();
   });
 
+  it('filters the sprint by ID or text, shows matches under collapsed parents, and Escape clears it', async () => {
+    fake();
+    render(<Shell />);
+    const table = await grid();
+    await userEvent.click(
+      within(table).getByRole('button', { name: 'Collapse Issue 1' }),
+    );
+    const box = screen.getByRole('searchbox', {
+      name: 'Filter work items by ID or text',
+    });
+    await userEvent.type(box, 'store');
+    expect(titles(await grid())).toEqual(['1', '5']);
+    await userEvent.clear(box);
+    await userEvent.type(box, 'zzz');
+    expect(screen.getByText('No work items match "zzz".')).toBeInTheDocument();
+    await userEvent.type(box, '{Escape}');
+    expect(box).toHaveValue('');
+    expect(titles(await grid())).toEqual(['1', '2', '4']);
+  });
+
   it('Start creates the task with the first linked repo and its defaults, then opens setup', async () => {
     const { calls } = fake({
       'repos:config': () => ({
@@ -471,5 +491,33 @@ describe('visibleRows', () => {
     expect(ids([])).toEqual(['1', '2', '3', '4', '5']);
     expect(ids(['2'])).toEqual(['1', '2', '4', '5']);
     expect(ids(['1'])).toEqual(['1', '5']);
+  });
+});
+
+describe('filterRows', () => {
+  const rows = [
+    row(item(1, 'Epic', 'Checkout'), 0, null, true),
+    row(item(2, 'Feature', 'Delivery address'), 1, '1', true),
+    row(
+      item(31, 'Task', 'Store the address', { assignedTo: 'Maxime' }),
+      2,
+      '2',
+    ),
+    row(item(4, 'Bug', 'Coupon field ignores names')),
+  ];
+  const ids = (q: string) => filterRows(rows, q).map((r) => r.item.id);
+
+  it('keeps every row for an empty query', () => {
+    expect(ids('  ')).toEqual(['1', '2', '31', '4']);
+  });
+  it('matches the ID, and keeps the parents of a match', () => {
+    expect(ids('31')).toEqual(['1', '2', '31']);
+    expect(ids('4')).toEqual(['4']);
+  });
+  it('matches every word of the title or assignee, ignoring case', () => {
+    expect(ids('COUPON names')).toEqual(['4']);
+    expect(ids('maxime')).toEqual(['1', '2', '31']);
+    expect(ids('address store')).toEqual(['1', '2', '31']);
+    expect(ids('nothing like this')).toEqual([]);
   });
 });

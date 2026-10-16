@@ -4,6 +4,7 @@ import {
   ArrowExpandAll16Regular,
   ChevronDown12Regular,
   ChevronRight12Regular,
+  Search16Regular,
 } from '@fluentui/react-icons';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
@@ -43,6 +44,29 @@ const TASK_STATUS: Record<TaskStatus, { label: string; color: string }> = {
 };
 
 const NO_REPO = 'Link a repo to this project in Settings to start a task';
+
+/**
+ * Rows whose ID, title or assignee match every word of the query, with their parents so the tree still reads.
+ * An empty query keeps every row.
+ */
+export function filterRows(rows: SprintRow[], query: string): SprintRow[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return rows;
+  const byId = new Map(rows.map((r) => [r.item.id, r]));
+  const keep = new Set<string>();
+  for (const r of rows) {
+    const text =
+      `${r.item.id} ${r.item.title} ${r.item.assignedTo ?? ''}`.toLowerCase();
+    if (!words.every((w) => text.includes(w))) continue;
+    for (
+      let at: SprintRow | undefined = r;
+      at && !keep.has(at.item.id);
+      at = at.parentId ? byId.get(at.parentId) : undefined
+    )
+      keep.add(at.item.id);
+  }
+  return rows.filter((r) => keep.has(r.item.id));
+}
 
 /** Hides the rows under a collapsed parent. */
 export function visibleRows(
@@ -279,6 +303,7 @@ function SprintPage({ connection }: { connection: Connection }) {
   const [load, setLoad] = useState<Load>({ status: 'loading' });
   const [busy, setBusy] = useState(false);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [query, setQuery] = useState('');
   const lastLoad = useRef(0);
   const seq = useRef(0);
 
@@ -335,6 +360,8 @@ function SprintPage({ connection }: { connection: Connection }) {
   }, [refresh, setSprintName]);
 
   const rows = load.status === 'ok' ? load.rows : [];
+  const searching = query.trim() !== '';
+  const shown = filterRows(rows, query);
   const parents = rows.filter((r) => r.hasChildren).map((r) => r.item.id);
   const allCollapsed =
     parents.length > 0 && parents.every((id) => collapsed.has(id));
@@ -358,6 +385,20 @@ function SprintPage({ connection }: { connection: Connection }) {
         after={dates && <span className="muted">{dates}</span>}
         commands={
           <>
+            <label className="sprint-search">
+              <Search16Regular aria-hidden="true" />
+              <input
+                type="search"
+                className="field"
+                placeholder="Filter by ID or text"
+                aria-label="Filter work items by ID or text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') setQuery('');
+                }}
+              />
+            </label>
             <button
               type="button"
               className="btn btn-subtle"
@@ -367,7 +408,7 @@ function SprintPage({ connection }: { connection: Connection }) {
               <ArrowClockwise16Regular aria-hidden="true" />
               Refresh
             </button>
-            {parents.length > 0 && (
+            {parents.length > 0 && !searching && (
               <button
                 type="button"
                 className="btn btn-subtle"
@@ -405,12 +446,15 @@ function SprintPage({ connection }: { connection: Connection }) {
           <>
             {rows.length === 0 ? (
               <div className="empty">No work items in this sprint.</div>
+            ) : shown.length === 0 ? (
+              <div className="empty">{`No work items match "${query.trim()}".`}</div>
             ) : (
               <SprintGrid
                 label={`${load.iteration.name} backlog`}
-                rows={rows}
+                rows={shown}
                 connectionId={connection.id}
-                collapsed={collapsed}
+                // While filtering, every match shows, even under a collapsed parent.
+                collapsed={searching ? new Set() : collapsed}
                 onToggle={toggle}
               />
             )}
@@ -426,10 +470,12 @@ function SprintPage({ connection }: { connection: Connection }) {
               <div className="empty">
                 No open work items are assigned to you.
               </div>
+            ) : filterRows(load.mine, query).length === 0 ? (
+              <div className="empty">{`No work items match "${query.trim()}".`}</div>
             ) : (
               <SprintGrid
                 label="Assigned to me"
-                rows={load.mine}
+                rows={filterRows(load.mine, query)}
                 connectionId={connection.id}
                 collapsed={collapsed}
                 onToggle={toggle}
