@@ -22,7 +22,12 @@ import type {
   TerminalDef,
   WorkItemTypeMeta,
 } from '../../shared/types';
-import { taskConnectionId } from '../../shared/workspaces';
+import {
+  activeHome,
+  activeWorkspaces,
+  taskConnectionId,
+  workspaceById,
+} from '../../shared/workspaces';
 import { worktreeRoot } from '../paths';
 import { DocsWatcher } from '../docs/DocsWatcher';
 import { createDocsHandlers } from '../docs/docsHandlers';
@@ -375,14 +380,22 @@ export function createHandlers(s: Services): Handlers {
     resume = false,
   ): Command => {
     if (def.kind === 'claude') {
+      const cwd = workspaceById(task, def.workspaceId).worktreePath;
+      const dirs = activeWorkspaces(task)
+        .filter((w) => w.worktreePath !== cwd)
+        .flatMap((w) => ['--add-dir', w.worktreePath]);
       if (resume && !def.sessionId)
-        return s.platform.claudeCommand(null, ['--continue']);
+        return s.platform.claudeCommand(null, ['--continue', ...dirs]);
       if (resume && def.sessionId && sessionExists(def.sessionId))
-        return s.platform.claudeCommand(null, ['--resume', def.sessionId]);
-      return s.platform.claudeCommand(
-        claudeContext(task),
-        def.sessionId ? ['--session-id', def.sessionId] : [],
-      );
+        return s.platform.claudeCommand(null, [
+          '--resume',
+          def.sessionId,
+          ...dirs,
+        ]);
+      return s.platform.claudeCommand(claudeContext(task), [
+        ...(def.sessionId ? ['--session-id', def.sessionId] : []),
+        ...dirs,
+      ]);
     }
     if (def.kind === 'run' && def.command)
       return s.platform.runCommand(def.command);
@@ -396,7 +409,7 @@ export function createHandlers(s: Services): Handlers {
     s.terminals.spawn({
       id: def.id,
       taskId: task.id,
-      cwd: task.worktreePath,
+      cwd: workspaceById(task, def.workspaceId).worktreePath,
       command: cmd.command,
       args: cmd.args,
       env: {
@@ -439,7 +452,9 @@ export function createHandlers(s: Services): Handlers {
             return rest;
           });
     return defs.map((d) =>
-      d.kind === 'claude' && !d.sessionId && !hasSessionsIn(task.worktreePath)
+      d.kind === 'claude' &&
+      !d.sessionId &&
+      !hasSessionsIn(activeHome(task).worktreePath)
         ? { ...d, sessionId: randomUUID() }
         : d,
     );
@@ -834,9 +849,9 @@ export function createHandlers(s: Services): Handlers {
         release(taskId);
       }
     },
-    'tasks:gitSummary': async (taskId) => {
-      const task = taskById(taskId);
-      return s.git.summary(task.worktreePath, task.baseRef);
+    'tasks:gitSummary': async (taskId, workspaceId) => {
+      const w = workspaceById(taskById(taskId), workspaceId);
+      return s.git.summary(w.worktreePath, w.baseRef);
     },
     'tasks:finishChecks': async (taskId) => {
       const task = taskById(taskId);

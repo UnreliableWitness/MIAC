@@ -147,9 +147,38 @@ describe('renderTaskMd', () => {
   });
 });
 
+describe('other repos', () => {
+  const extra = {
+    id: 'w2',
+    repoId: 'api',
+    branch: task.branch,
+    worktreePath: '/src/api.worktrees/x',
+    baseRef: 'origin/main',
+    baseSha: null,
+    source: 'detected' as const,
+    summary: null,
+    pullRequest: null,
+    reopen: null,
+    dropped: false,
+  };
+  it('tells Claude how to make a worktree elsewhere', () => {
+    const t = { ...task, slug: '42-x', branch: 'feature/42-x' };
+    expect(claudeContext(t)).toContain(
+      'worktree add <repo>.worktrees/42-x -b feature/42-x <base>',
+    );
+  });
+  it('lists every workspace in task.md', () => {
+    const md = renderTaskMd({ ...task, extraWorkspaces: [extra] });
+    expect(md).toContain('## Workspaces');
+    expect(md).toContain('/src/api.worktrees/x');
+    expect(md).toContain('worktree add <repo>.worktrees/');
+    expect(renderTaskMd(task)).not.toContain('## Workspaces');
+  });
+});
+
 describe('claudeContext', () => {
   it('names the work item, points at the task file and says to wait for the user', () => {
-    expect(claudeContext(task)).toBe(
+    expect(claudeContext(task)).toContain(
       "This folder is a MIAC task for User Story 48231: Show estimated delivery date on product page. The details are in .miac/task.md. Do not start on the task by yourself: wait for the user's instructions.",
     );
     expect(claudeContext({ ...task, workItem: null, name: 'Spike' })).toContain(

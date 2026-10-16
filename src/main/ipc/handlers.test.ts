@@ -1003,6 +1003,88 @@ describe('handlers: reopen a finished task', () => {
     expect(hx.before.map((d) => d.kind)).toEqual(['claude', 'shell']);
   });
 
+  const withExtra = async (hx: Awaited<ReturnType<typeof finished>>) => {
+    const extraPath = mkdtempSync(path.join(os.tmpdir(), 'miac-extra-'));
+    git(extraPath, 'init', '-q');
+    await hx.store.update((st) => {
+      st.tasks[0].extraWorkspaces.push({
+        id: 'w2',
+        repoId: 'other',
+        branch: 'b',
+        worktreePath: extraPath,
+        baseRef: 'HEAD',
+        baseSha: null,
+        source: 'detected',
+        summary: null,
+        pullRequest: null,
+        reopen: null,
+        dropped: false,
+      });
+    });
+    return extraPath;
+  };
+
+  it('Claude gets --add-dir for the extra worktree, on resume and on start; dropped ones are left out', async () => {
+    const hx = await finished({ removeWorktree: false, deleteBranch: false });
+    const extra = await withExtra(hx);
+    const id = hx.t.id;
+    const claude = hx.before.find((d) => d.kind === 'claude')!;
+    await hx.h['tasks:reopen'](id);
+    expect(hx.calls.at(-1)?.flags).toEqual([
+      '--resume',
+      claude.sessionId,
+      '--add-dir',
+      extra,
+    ]);
+    await hx.h['terminals:open'](id, { kind: 'claude', label: 'Claude Code' });
+    expect(hx.calls.at(-1)?.flags).toEqual([
+      '--session-id',
+      expect.any(String),
+      '--add-dir',
+      extra,
+    ]);
+    await hx.store.update((st) => {
+      st.tasks[0].extraWorkspaces[0].dropped = true;
+    });
+    await hx.h['terminals:open'](id, { kind: 'claude', label: 'Claude Code' });
+    expect(hx.calls.at(-1)?.flags).not.toContain('--add-dir');
+    await hx.terminals.killAllForTask(id);
+  });
+
+  it('opens a shell in the workspace asked for, else in the active home', async () => {
+    const hx = await finished({ removeWorktree: false, deleteBranch: false });
+    const extra = await withExtra(hx);
+    await hx.terminals.killAllForTask(hx.t.id);
+    await hx.store.update((st) => {
+      st.tasks[0].status = 'ready';
+    });
+    const spy = vi.spyOn(hx.terminals, 'spawn');
+    await hx.h['terminals:open'](hx.t.id, {
+      kind: 'shell',
+      label: 'sh',
+      workspaceId: 'w2',
+    });
+    await hx.h['terminals:open'](hx.t.id, { kind: 'shell', label: 'sh' });
+    expect(spy.mock.calls.map((c) => c[0].cwd)).toEqual([
+      extra,
+      hx.t.worktreePath,
+    ]);
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
+  it('summarises an extra worktree against its own baseRef', async () => {
+    const hx = await finished({ removeWorktree: false, deleteBranch: false });
+    const extra = await withExtra(hx);
+    commitFile(extra, 'a.txt', 'a\n', 'first');
+    commitFile(extra, 'b.txt', 'b\n', 'second');
+    await hx.store.update((st) => {
+      st.tasks[0].extraWorkspaces[0].baseRef = 'HEAD~1';
+    });
+    const sum = await hx.h['tasks:gitSummary'](hx.t.id, 'w2');
+    const home = await hx.h['tasks:gitSummary'](hx.t.id);
+    expect(sum).not.toEqual(home);
+  });
+
   it('reopens a task whose worktree was kept, without setup, resuming Claude', async () => {
     const hx = await finished({ removeWorktree: false, deleteBranch: false });
     expect(await hx.h['tasks:reopen'](hx.t.id)).toEqual({ setup: false });
