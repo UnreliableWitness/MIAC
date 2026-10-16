@@ -165,4 +165,92 @@ describe('ActivityTracker', () => {
     t.setTask(null);
     expect(out).toEqual([]);
   });
+  it('a flush during a short idle ends at the idle start, so a long break counts nothing past it', () => {
+    const { s, out, t } = setup();
+    t.setTask('A');
+    t.setFocused(true);
+    // Active until 100 s, then idle; the periodic flush runs 4 minutes into the break.
+    s.now = 340_000;
+    s.idle = 240;
+    t.flush();
+    expect(out).toEqual([['A', [0, 100_000]]]);
+    // The break reaches the limit: nothing past the idle start counts.
+    s.now = 400_000;
+    s.idle = 300;
+    t.tick();
+    s.now = 460_000;
+    s.idle = 360;
+    t.flush();
+    expect(out).toEqual([['A', [0, 100_000]]]);
+  });
+
+  it('a flush during a short idle the user returns from keeps the whole span', () => {
+    const { s, out, t } = setup();
+    t.setTask('A');
+    t.setFocused(true);
+    s.now = 340_000;
+    s.idle = 240;
+    t.flush();
+    s.now = 360_000;
+    s.idle = 0;
+    t.tick();
+    s.now = 400_000;
+    t.flush();
+    // Touching intervals: the store merges them into [0, 400 s].
+    expect(out).toEqual([
+      ['A', [0, 100_000]],
+      ['A', [100_000, 400_000]],
+    ]);
+  });
+
+  it('a flush while idle past the limit closes at the idle start and does not reopen', () => {
+    const { s, out, t } = setup();
+    t.setTask('A');
+    t.setFocused(true);
+    s.now = 500_000;
+    s.idle = 400;
+    t.flush();
+    s.now = 560_000;
+    s.idle = 460;
+    t.flush();
+    expect(out).toEqual([['A', [0, 100_000]]]);
+  });
+
+  it('a flush never ends before the interval start', () => {
+    const { s, out, t } = setup();
+    s.now = 1_000_000;
+    t.setTask('A');
+    t.setFocused(true);
+    s.now = 1_030_000;
+    s.idle = 120;
+    t.flush();
+    expect(out).toEqual([]);
+    s.now = 1_060_000;
+    s.idle = 0;
+    t.flush();
+    expect(out).toEqual([['A', [1_000_000, 1_060_000]]]);
+  });
+
+  it('focus changes while suspended start nothing until resume', () => {
+    const { s, out, t } = setup();
+    t.setTask('A');
+    t.setFocused(true);
+    s.now = 50_000;
+    t.suspend();
+    s.now = 60_000;
+    t.setFocused(false);
+    s.now = 70_000;
+    t.setFocused(true);
+    s.now = 90_000;
+    t.flush();
+    expect(out).toEqual([['A', [0, 50_000]]]);
+    t.resume();
+    t.tick();
+    s.now = 120_000;
+    t.flush();
+    expect(out).toEqual([
+      ['A', [0, 50_000]],
+      ['A', [90_000, 120_000]],
+    ]);
+  });
 });

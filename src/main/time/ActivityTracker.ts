@@ -50,12 +50,16 @@ export class ActivityTracker {
     this.openIfCounting();
   }
 
+  /**
+   * Writes the open interval up to where the current idle period began (now when the user is active) and keeps
+   * counting from there, so a break that later reaches the limit is trimmed to its start, not to this flush.
+   */
   flush(): void {
     if (!this.open || this.closeIfIdle()) return;
-    const now = this.d.now();
-    const { taskId } = this.open;
-    this.closeAt(now);
-    this.open = { taskId, start: now };
+    const { taskId, start } = this.open;
+    const end = Math.max(start, this.d.now() - this.d.idleSeconds() * 1000);
+    this.closeAt(end);
+    this.open = { taskId, start: end };
   }
 
   /** Closes at now, or where idleness began when the limit was crossed since the last tick. */
