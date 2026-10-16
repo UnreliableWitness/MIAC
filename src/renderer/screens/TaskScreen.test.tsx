@@ -395,8 +395,11 @@ describe('TaskScreen', () => {
   });
 });
 
-function setup(over: Partial<TaskView> = {}) {
-  const { emit } = installFakeApi({
+function setup(
+  over: Partial<TaskView> = {},
+  handlers: Parameters<typeof installFakeApi>[0] = {},
+) {
+  const { emit, calls } = installFakeApi({
     'repos:config': () => config,
     'tasks:gitSummary': () => ({
       branch: 'x',
@@ -405,12 +408,13 @@ function setup(over: Partial<TaskView> = {}) {
       hasUpstream: false,
       files: [],
     }),
+    ...handlers,
   });
   useStore.setState({
     tasks: [{ ...task, ...over }],
     selectedTaskId: 'a',
   });
-  return { emit };
+  return { emit, calls };
 }
 
 const FOCUS_KEYS = {
@@ -587,6 +591,60 @@ describe('tabs and focus', () => {
     expect(
       screen.getByRole('tab', { name: 'Docs, changed' }),
     ).toBeInTheDocument();
+  });
+
+  it('does not light the Docs dot for Markdown in build output folders', async () => {
+    const { emit } = setup();
+    render(<Shell />);
+    await screen.findByTestId('term-c1');
+    act(() =>
+      emit('docs:changed', {
+        taskId: 'a',
+        paths: [
+          'dist/a.md',
+          'build/b.md',
+          'out/c.md',
+          'node_modules/d/README.md',
+        ],
+      }),
+    );
+    expect(screen.queryByRole('tab', { name: 'Docs, changed' })).toBeNull();
+    act(() => emit('docs:changed', { taskId: 'a', paths: ['docs/dist.md'] }));
+    expect(
+      screen.getByRole('tab', { name: 'Docs, changed' }),
+    ).toBeInTheDocument();
+  });
+
+  it('does not send docs:watch off when its on failed', async () => {
+    const { calls } = setup(
+      {},
+      {
+        'docs:watch': () => {
+          throw new Error('nope');
+        },
+      },
+    );
+    const view = render(<Shell />);
+    await screen.findByTestId('term-c1');
+    await act(async () => {});
+    view.unmount();
+    await act(async () => {});
+    expect(
+      calls.filter((c) => c.channel === 'docs:watch').map((c) => c.args[1]),
+    ).toEqual([true]);
+  });
+
+  it('does not send docs:watch off after main stopped the watcher', async () => {
+    const { calls, emit } = setup();
+    const view = render(<Shell />);
+    await screen.findByTestId('term-c1');
+    await act(async () => {});
+    act(() => emit('docs:watchStopped', { taskId: 'a' }));
+    view.unmount();
+    await act(async () => {});
+    expect(
+      calls.filter((c) => c.channel === 'docs:watch').map((c) => c.args[1]),
+    ).toEqual([true]);
   });
 
   it('opens the Docs tab with Mod+Shift+D', async () => {

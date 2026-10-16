@@ -13,6 +13,7 @@ import {
   writeListCollapsed,
   type DocView,
 } from '../../docs/docsPrefs';
+import { holdDocsWatch } from '../../docs/holdDocsWatch';
 import { useStore } from '../../store';
 import { track } from '../../telemetry';
 import { modKey, Pivots } from '../ui';
@@ -188,31 +189,8 @@ export function DocsTab({ task }: { task: TaskView }) {
     });
   }, [task.id, loadFiles, read]);
 
-  // Learn whether the watcher is live. Main reference-counts, so each true is paired with a false.
-  useEffect(() => {
-    let off = false;
-    let on = false;
-    const sendOff = () =>
-      void api()
-        .invoke('docs:watch', task.id, false)
-        .catch(() => undefined);
-    const pendingOn = api()
-      .invoke('docs:watch', task.id, true)
-      .then(
-        (r) => {
-          on = true;
-          if (!off) setLive(r.live);
-          return true;
-        },
-        () => false,
-      );
-    return () => {
-      off = true;
-      // Off only if on succeeded: an unpaired off would decrement another holder's count.
-      if (on) sendOff();
-      else void pendingOn.then((ok) => ok && sendOff());
-    };
-  }, [task.id]);
+  // Learn whether the watcher is live; a watcher main stops makes the tab poll.
+  useEffect(() => holdDocsWatch(task.id, setLive), [task.id]);
 
   // A target from a terminal link wins over the remembered file.
   useEffect(() => {

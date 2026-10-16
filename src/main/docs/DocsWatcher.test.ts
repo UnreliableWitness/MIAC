@@ -43,4 +43,33 @@ describe('DocsWatcher', () => {
     w.stopTask('t');
     expect(w.active('t')).toBe(false);
   });
+
+  it('reports a watcher stopped by an error or by stopTask, not one released by its holders', () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'miac-watch-'));
+    const stopped: string[] = [];
+    const w = new DocsWatcher(
+      () => undefined,
+      10,
+      (id) => stopped.push(id),
+    );
+    w.start('a', dir);
+    w.stop('a');
+    expect(w.active('a')).toBe(false);
+    expect(stopped).toEqual([]);
+    w.start('b', dir);
+    w.stopTask('b');
+    expect(stopped).toEqual(['b']);
+    w.start('c', dir);
+    const entry = (
+      w as unknown as {
+        entries: Map<string, { w: { emit(e: string, x: unknown): void } }>;
+      }
+    ).entries.get('c')!;
+    entry.w.emit('error', new Error('EMFILE'));
+    expect(w.active('c')).toBe(false);
+    expect(stopped).toEqual(['b', 'c']);
+    w.stopTask('c');
+    w.stopAll();
+    expect(stopped).toEqual(['b', 'c']);
+  });
 });

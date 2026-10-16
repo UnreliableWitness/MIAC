@@ -160,6 +160,8 @@ export type Events = {
   'usage:changed': { taskId: string };
   'usage:receiverStatus': ReceiverStatus;
   'docs:changed': { taskId: string; paths: string[] };
+  /** Main stopped a task's watcher (an error, or Finish/Cancel before removing the worktree); Docs tabs poll instead. */
+  'docs:watchStopped': { taskId: string };
   notice: { level: 'info' | 'warn' | 'error'; message: string };
 };
 

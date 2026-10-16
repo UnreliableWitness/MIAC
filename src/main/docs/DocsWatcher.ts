@@ -17,6 +17,8 @@ export class DocsWatcher {
   constructor(
     private readonly emit: (taskId: string, paths: string[]) => void,
     private readonly debounceMs = 150,
+    /** A watcher stopped by an error or stopTask while holders may still count on it. */
+    private readonly onStopped: (taskId: string) => void = () => {},
   ) {}
 
   /** False when the platform cannot watch the folder; the renderer then polls. */
@@ -57,19 +59,25 @@ export class DocsWatcher {
 
   stop(taskId: string): void {
     const e = this.entries.get(taskId);
-    if (e && --e.count <= 0) this.stopTask(taskId);
+    if (e && --e.count <= 0) this.close(taskId);
   }
 
+  /** Stops the task's watcher whatever its count, and reports it so the holders fall back to polling. */
   stopTask(taskId: string): void {
-    const e = this.entries.get(taskId);
-    if (!e) return;
-    if (e.timer) clearTimeout(e.timer);
-    e.w.close();
-    this.entries.delete(taskId);
+    if (this.close(taskId)) this.onStopped(taskId);
   }
 
   stopAll(): void {
-    for (const id of this.entries.keys()) this.stopTask(id);
+    for (const id of [...this.entries.keys()]) this.close(id);
+  }
+
+  private close(taskId: string): boolean {
+    const e = this.entries.get(taskId);
+    if (!e) return false;
+    if (e.timer) clearTimeout(e.timer);
+    e.w.close();
+    this.entries.delete(taskId);
+    return true;
   }
 
   active(taskId: string): boolean {

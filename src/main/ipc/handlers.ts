@@ -551,8 +551,10 @@ export function createHandlers(s: Services): Handlers {
 
   const docsWatcher =
     s.docsWatcher ??
-    new DocsWatcher((taskId, paths) =>
-      s.broadcast('docs:changed', { taskId, paths }),
+    new DocsWatcher(
+      (taskId, paths) => s.broadcast('docs:changed', { taskId, paths }),
+      undefined,
+      (taskId) => s.broadcast('docs:watchStopped', { taskId }),
     );
 
   return {

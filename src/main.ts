@@ -104,8 +104,10 @@ const DOT = String.fromCharCode(0xb7);
 let stopUsage: () => void = () => {};
 let stopUpdates: () => void = () => {};
 
-const docsWatcher = new DocsWatcher((taskId, paths) =>
-  broadcast('docs:changed', { taskId, paths }),
+const docsWatcher = new DocsWatcher(
+  (taskId, paths) => broadcast('docs:changed', { taskId, paths }),
+  undefined,
+  (taskId) => broadcast('docs:watchStopped', { taskId }),
 );
 
 // The app's own pages, from the same values the windows are loaded with (dev server or renderer folder).

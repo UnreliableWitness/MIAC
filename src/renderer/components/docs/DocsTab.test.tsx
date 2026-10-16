@@ -342,4 +342,33 @@ describe('DocsTab', () => {
     await screen.findByRole('heading', { name: 'Task file' });
     expect(api.calls.filter((c) => c.channel === 'docs:list')).toHaveLength(2);
   });
+
+  it('falls back to polling when main stops the watcher', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let mtime = 1;
+      const api = mount({
+        'docs:read': () => ({ text: texts['.miac/task.md'], mtimeMs: mtime }),
+      });
+      await screen.findByRole('heading', { name: 'Task file' });
+      act(() => api.emit('docs:watchStopped', { taskId: 't1' }));
+      texts['.miac/task.md'] = '# Polled after stop';
+      mtime = 2;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2100);
+      });
+      expect(
+        await screen.findByRole('heading', { name: 'Polled after stop' }),
+      ).toBeTruthy();
+      api.view.unmount();
+      await act(async () => {});
+      expect(
+        api.calls
+          .filter((c) => c.channel === 'docs:watch')
+          .map((c) => c.args[1]),
+      ).toEqual([true]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

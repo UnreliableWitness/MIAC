@@ -14,6 +14,7 @@ import { eur } from '../format';
 import { useGitSummary } from '../hooks/useGitSummary';
 import { useRepoConfig } from '../hooks/useRepoConfig';
 import { useTaskUsage } from '../hooks/useTaskUsage';
+import { holdDocsWatch } from '../docs/holdDocsWatch';
 import { DOCS_TAB, USAGE_TAB, useStore } from '../store';
 import { DocsTab } from './docs/DocsTab';
 import { TerminalView } from './TerminalView';
@@ -21,6 +22,8 @@ import { IconButton, MindMark, modKey } from './ui';
 import { UsagePanel } from './UsagePanel';
 
 const MARKDOWN = /\.(md|markdown)$/i;
+/** Build output and dependencies: Markdown there is not the task's documentation. */
+const OUTPUT_DIR = /^(dist|build|out|node_modules)\//;
 const UP = String.fromCharCode(0x2191);
 const DOWN = String.fromCharCode(0x2193);
 const DOT = String.fromCharCode(0xb7);
@@ -72,7 +75,7 @@ export function TerminalTabs({
       api().on('docs:changed', (p) => {
         if (
           p.taskId === task.id &&
-          p.paths.some((f) => MARKDOWN.test(f)) &&
+          p.paths.some((f) => MARKDOWN.test(f) && !OUTPUT_DIR.test(f)) &&
           useStore.getState().activeTab(task.id) !== DOCS_TAB
         )
           setDocsUnseen(true);
@@ -86,14 +89,7 @@ export function TerminalTabs({
 
   useEffect(() => {
     if (!visible || !ready || task.worktreeMissing) return;
-    void api()
-      .invoke('docs:watch', task.id, true)
-      .catch(() => undefined);
-    return () => {
-      void api()
-        .invoke('docs:watch', task.id, false)
-        .catch(() => undefined);
-    };
+    return holdDocsWatch(task.id);
   }, [task.id, visible, ready, task.worktreeMissing]);
 
   useEffect(
