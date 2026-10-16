@@ -3,6 +3,7 @@ import {
   CHECK_INTERVAL_MS,
   FIRST_CHECK_DELAY_MS,
   canAutoUpdate,
+  releaseVersion,
   startAutoUpdate,
   updateFeedUrl,
   type AutoUpdateDeps,
@@ -47,8 +48,7 @@ function setup(over: Partial<AutoUpdateDeps> = {}) {
     argv: ['MIAC.exe'],
     enabled: undefined,
     updater,
-    notify: vi.fn(),
-    confirmRestart: vi.fn(async () => false),
+    onReady: vi.fn(),
     log: vi.fn(),
     timers: t.timers,
     ...over,
@@ -128,43 +128,34 @@ describe('startAutoUpdate', () => {
     });
     [...timeouts.values()][0].fn();
     expect(deps.log).toHaveBeenCalledTimes(2);
-    expect(deps.notify).not.toHaveBeenCalled();
+    expect(deps.onReady).not.toHaveBeenCalled();
   });
 
-  it('on download: shows a notice, stops checking and leaves the install to the next start', async () => {
-    const { emit, deps, updater, timeouts, intervals } = setup();
-    emit('update-downloaded', {}, '', 'MIAC v1.3.0');
-    expect(deps.notify).toHaveBeenCalledWith(
-      'info',
-      'MIAC v1.3.0 is downloaded. It is installed when you restart MIAC.',
-    );
-    expect(deps.confirmRestart).toHaveBeenCalledWith('MIAC v1.3.0');
+  it('on download: reports it ready once, stops checking and installs only when asked', () => {
+    const { emit, deps, updater, handle, timeouts, intervals } = setup();
+    expect(handle?.install()).toBe(false);
+    emit('update-downloaded', {}, '', 'MIAC v1.3.0 (unsigned)');
+    emit('update-downloaded', {}, '', 'MIAC v1.3.0 (unsigned)');
+    expect(deps.onReady).toHaveBeenCalledTimes(1);
+    expect(deps.onReady).toHaveBeenCalledWith('1.3.0');
     expect(timeouts.size + intervals.size).toBe(0);
-    await Promise.resolve();
     expect(updater.quitAndInstall).not.toHaveBeenCalled();
-  });
-
-  it('restarts into the update when the user picks Restart now', async () => {
-    const { emit, updater } = setup({ confirmRestart: async () => true });
-    emit('update-downloaded', {}, '', '');
-    await vi.waitFor(() => expect(updater.quitAndInstall).toHaveBeenCalled());
-  });
-
-  it('uses a generic name when Squirrel gives none, and prompts once', () => {
-    const { emit, deps } = setup();
-    emit('update-downloaded', {}, '', undefined);
-    emit('update-downloaded', {}, '', undefined);
-    expect(deps.notify).toHaveBeenCalledTimes(1);
-    expect(deps.notify).toHaveBeenCalledWith(
-      'info',
-      'A new version of MIAC is downloaded. It is installed when you restart MIAC.',
-    );
-    expect(deps.confirmRestart).toHaveBeenCalledWith(undefined);
+    expect(handle?.install()).toBe(true);
+    expect(updater.quitAndInstall).toHaveBeenCalledTimes(1);
   });
 
   it('stop() cancels the timers', () => {
     const { handle, timeouts, intervals } = setup();
     handle?.stop();
     expect(timeouts.size + intervals.size).toBe(0);
+  });
+});
+
+describe('releaseVersion', () => {
+  it('finds the version in a release name, or gives null', () => {
+    expect(releaseVersion('MIAC v1.0.3 (unsigned)')).toBe('1.0.3');
+    expect(releaseVersion('1.2.0-beta.1')).toBe('1.2.0-beta.1');
+    expect(releaseVersion('')).toBeNull();
+    expect(releaseVersion(undefined)).toBeNull();
   });
 });

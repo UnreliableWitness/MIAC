@@ -29,6 +29,8 @@ This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 
 | Screen views (page views) | `sprint`, `task`, `new-task`, `setup`, `finish`, `settings` |
 | `app.started` | splash on/off; counts of repos, open tasks, connections; whether the usage receiver listens; boot step timings (see Performance) |
 | `app.quit` | session length in minutes |
+| `update.ready` | an update finished downloading (Windows); none |
+| `update.restart`, `update.later` | the choice on the update notice; none |
 | `task.created` | has a work item; copy files, start Claude, open shell, open Copilot (booleans); number of setup commands |
 | `task.finished` | remove worktree, delete branch, close terminals, sync usage, has a work item (booleans); task age in hours |
 | `workitem.startUpdated` | setup moved the work item to In Progress (`moved`), assigned it (`assigned`), or the update failed (`failed`) |
