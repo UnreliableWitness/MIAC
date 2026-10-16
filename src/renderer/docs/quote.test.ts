@@ -23,3 +23,26 @@ describe('buildQuote', () => {
     );
   });
 });
+
+describe('buildQuote control characters', () => {
+  const hostile = 'x\x1b[201~\r\rrm -rf\x03\x04';
+  it('drops ESC, CR and Ctrl-C from a multi-line quote', () => {
+    const q = buildQuote('a.md', 1, 1, hostile);
+    expect(q.includes('\x1b')).toBe(false);
+    expect(q.includes('\r')).toBe(false);
+    expect(q.includes('\x03')).toBe(false);
+    expect(q.includes('\x04')).toBe(false);
+  });
+  it('drops ESC, CR and Ctrl-C from a single-line quote', () => {
+    const q = buildQuote('a.md', 1, 1, hostile, { singleLine: true });
+    expect(q.includes('\x1b')).toBe(false);
+    expect(q.includes('\r')).toBe(false);
+    expect(q.includes('\x03')).toBe(false);
+    expect(q.includes('\x04')).toBe(false);
+  });
+  it('keeps tabs and newlines in multi-line quotes', () => {
+    expect(buildQuote('a.md', 1, 2, 'a\tb\nc')).toBe(
+      'a.md:1-2\n> a\tb\n> c\n\n',
+    );
+  });
+});
