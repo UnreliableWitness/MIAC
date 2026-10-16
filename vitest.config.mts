@@ -14,6 +14,7 @@ export default defineConfig({
             'src/shared/**/*.test.ts',
             'tools/art/*.test.ts',
             'tools/forge/*.test.ts',
+            'tools/release/*.test.ts',
           ],
           testTimeout: 20000,
         },
