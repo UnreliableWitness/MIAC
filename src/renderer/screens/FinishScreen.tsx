@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
-import type { FinishChecks } from '../../shared/types';
+import type { FinishChecks, SprintItem } from '../../shared/types';
 import { api, tryInvoke } from '../api';
 import { eur } from '../format';
 import { useTaskUsage } from '../hooks/useTaskUsage';
 import { useWriteCostToAdo } from '../hooks/useWriteCostToAdo';
+import { TimeSpentSection } from '../components/TimeSpentSection';
+import { useTaskTime } from '../hooks/useTaskTime';
 import { PageHeader } from '../components/ui';
 import { useEscape } from '../hooks/useEscape';
 import { useStore } from '../store';
@@ -46,6 +48,40 @@ export function FinishScreen({ taskId }: { taskId: string }) {
   const usage = useTaskUsage(ready ? taskId : null);
   const repo = useStore((s) => s.repos.find((r) => r.id === task?.repoId));
   const writeCost = useWriteCostToAdo();
+  const time = useTaskTime(ready ? taskId : null);
+  const [liveItem, setLiveItem] = useState<SprintItem | null>(null);
+  const connectionId = repo?.connectionId ?? null;
+  const workItemId = task?.workItem?.id ?? null;
+  useEffect(() => {
+    setLiveItem(null);
+    if (!ready || !connectionId || !workItemId) return;
+    let live = true;
+    api()
+      .invoke('workItems:get', connectionId, workItemId)
+      .then((w) => {
+        if (live) setLiveItem(w);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [ready, connectionId, workItemId]);
+  // Untouched (undefined) starts from the measured time, or from the earlier booking on a re-finish.
+  const [chosenTime, setChosenTime] = useState<number | null | undefined>();
+  const initialTime = time
+    ? time.booking
+      ? time.booking.bookedSeconds + time.measuredSinceReopenSeconds
+      : time.activeSeconds
+    : null;
+  const bookValue = chosenTime === undefined ? initialTime : chosenTime;
+  const estimateHours =
+    liveItem?.originalEstimate ??
+    time?.estimate?.hours ??
+    (liveItem &&
+    (liveItem.remainingWork !== null || liveItem.completedWork !== null)
+      ? (liveItem.remainingWork ?? 0) + (liveItem.completedWork ?? 0)
+      : null);
+  const timeInvalid = Boolean(time) && bookValue === null;
   const canSync =
     Boolean(task?.workItem) &&
     Boolean(repo?.connectionId) &&
@@ -158,6 +194,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
           deleteBranch,
           syncUsage: canSync && syncUsage,
           createPullRequest: withPr,
+          ...(time && bookValue !== null ? { bookedSeconds: bookValue } : {}),
         });
       } catch (e) {
         const m = e instanceof Error ? e.message : '';
@@ -326,6 +363,16 @@ export function FinishScreen({ taskId }: { taskId: string }) {
           )}
         </div>
 
+        {time && (
+          <TimeSpentSection
+            task={task}
+            time={time}
+            estimateHours={estimateHours}
+            value={bookValue}
+            onChange={setChosenTime}
+          />
+        )}
+
         <div className="finish-section">
           <h2>Clean up</h2>
           {pr && (
@@ -420,7 +467,9 @@ export function FinishScreen({ taskId }: { taskId: string }) {
           <button
             type="button"
             className={dirty ? 'btn btn-danger' : 'btn btn-primary'}
-            disabled={busy || !prLoaded || (!checks && !checksFailed)}
+            disabled={
+              busy || !prLoaded || timeInvalid || (!checks && !checksFailed)
+            }
             onClick={() => finish()}
           >
             {checksFailed

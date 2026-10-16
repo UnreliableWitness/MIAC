@@ -1415,14 +1415,7 @@ export function createHandlers(s: Services): Handlers {
       const [item] = await withConnection(connectionId, () =>
         s.ado.client(connectionId).workItems(c.project, [n]),
       );
-      if (!item) return null;
-      const {
-        remainingWork: _r,
-        originalEstimate: _o,
-        completedWork: _c,
-        ...summary
-      } = item;
-      return summary;
+      return item ?? null;
     },
     'shell:openExternal': async (url) => {
       if (!allowedExternal(url))

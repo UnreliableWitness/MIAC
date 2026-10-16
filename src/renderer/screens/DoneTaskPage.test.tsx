@@ -106,6 +106,9 @@ describe('DoneTaskPage', () => {
         iterationPath: 'MIAC\\Sprint 1',
         assignedTo: null,
         url: task.workItem!.url!,
+        originalEstimate: null,
+        remainingWork: null,
+        completedWork: null,
       }),
     });
     render(<DoneTaskPage task={{ ...task, summary }} />);

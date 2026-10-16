@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -101,6 +102,26 @@ describe('App', () => {
     expect(
       await screen.findByText('state.json was unreadable'),
     ).toBeInTheDocument();
+  });
+
+  it('tells main which task is on screen for time tracking', async () => {
+    const { calls } = installFakeApi({
+      'repos:list': () => [repo],
+      'tasks:list': () => [task],
+    });
+    render(<App />);
+    await waitFor(() =>
+      expect(calls.some((c) => c.channel === 'tasks:list')).toBe(true),
+    );
+    const focus = () =>
+      calls.filter((c) => c.channel === 'time:focus').map((c) => c.args);
+    act(() => {
+      useStore.getState().select('a');
+      useStore.getState().go({ kind: 'task' });
+    });
+    await waitFor(() => expect(focus()).toEqual([['a']]));
+    act(() => useStore.getState().go({ kind: 'sprint' }));
+    await waitFor(() => expect(focus()).toEqual([['a'], [null]]));
   });
 
   it('lands on Sprint at startup without selecting a task', async () => {

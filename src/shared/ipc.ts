@@ -15,6 +15,7 @@ import type {
   StartSettings,
   SetupState,
   Sprint,
+  SprintItem,
   Task,
   TaskView,
   TerminalDef,
@@ -84,7 +85,7 @@ export type Channels = {
   /** One work item, live; null when it is gone or unreadable. */
   'workItems:get': {
     args: [connectionId: string, id: string];
-    result: WorkItemSummary | null;
+    result: SprintItem | null;
   };
   'shell:openExternal': { args: [url: string]; result: void };
   'docs:list': { args: [taskId: string]; result: { files: DocFile[] } };

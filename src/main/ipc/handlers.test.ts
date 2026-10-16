@@ -1594,7 +1594,7 @@ describe('handlers: sprint, types and live work items', () => {
       id: '5',
       state: 'To Do',
     });
-    expect(await hx.h['workItems:get'](c.id, '5')).not.toHaveProperty(
+    expect(await hx.h['workItems:get'](c.id, '5')).toHaveProperty(
       'remainingWork',
     );
     hx.server.route('GET', '/unreliablewitness/_apis/wit/workitems', {

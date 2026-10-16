@@ -1,3 +1,4 @@
+import type { TaskTime } from '../../shared/time';
 import type { TaskUsage } from '../../shared/usage';
 import type { Channels, Events, MiacApi } from '../../shared/ipc';
 import type { RendererTelemetry } from '../../shared/telemetry';
@@ -22,7 +23,20 @@ export const emptyUsage = (taskId: string): TaskUsage => ({
   },
 });
 
+export const emptyTime = (taskId: string): TaskTime => ({
+  taskId,
+  activeSeconds: 0,
+  agentSeconds: { 'claude-code': 0, 'copilot-cli': 0, opencode: 0 },
+  realisticSeconds: 0,
+  wallClockSeconds: 0,
+  measuredSinceReopenSeconds: 0,
+  booking: null,
+  estimate: null,
+});
+
 const defaults: FakeHandlers = {
+  'time:focus': () => undefined,
+  'time:task': (taskId) => emptyTime(taskId),
   'docs:list': () => ({ files: [] }),
   'docs:watch': () => ({ live: true }),
   'docs:resolve': () => null,
