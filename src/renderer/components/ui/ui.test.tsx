@@ -203,6 +203,22 @@ describe('PageHeader and Pivots', () => {
     await userEvent.click(screen.getByRole('tab', { name: 'Typed' }));
     expect(onSelect).toHaveBeenCalledWith('b');
   });
+
+  it('puts the commands on the title row when inline', () => {
+    const commands = <button type="button">Refresh</button>;
+    const { container, rerender } = render(
+      <PageHeader title="Sprint 8" commands={commands} inline />,
+    );
+    const heading = screen.getByRole('heading', { level: 1 });
+    const refresh = screen.getByRole('button', { name: 'Refresh' });
+    expect(heading.parentElement).toContainElement(refresh);
+    expect(container.querySelector('.pagehead-bar')).toBeNull();
+
+    rerender(<PageHeader title="Sprint 8" commands={commands} />);
+    expect(
+      screen.getByRole('heading', { level: 1 }).parentElement,
+    ).not.toContainElement(screen.getByRole('button', { name: 'Refresh' }));
+  });
 });
 
 describe('MindMark', () => {
