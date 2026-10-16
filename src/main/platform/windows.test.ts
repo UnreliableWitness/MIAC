@@ -165,6 +165,17 @@ describe('windowsPlatform', () => {
     );
   });
 
+  it('opens VS Code at a file and line with quoted paths', () => {
+    const cmd = make({ code: 'C:\\VS\\bin\\code.cmd' }).editorGotoCommand(
+      'C:\\src\\wt',
+      "C:\\src\\wt\\o'b.md",
+      4,
+    );
+    expect(cmd.args.at(-1)).toContain(
+      "& code 'C:\\src\\wt' -g 'C:\\src\\wt\\o''b.md:4:1'",
+    );
+  });
+
   it('reports a missing VS Code clearly', () => {
     expect(() => make({}).editorCommand('C:\\x')).toThrow(
       'VS Code (code) is not on PATH',

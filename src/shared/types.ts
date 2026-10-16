@@ -290,3 +290,6 @@ export type WorkItemTypeMeta = {
   icon: string | null;
   states: WorkItemStateMeta[];
 };
+
+/** A Markdown file in a task's worktree; `changed` is relative to the task's base. */
+export type DocFile = { path: string; changed: 'new' | 'modified' | null };

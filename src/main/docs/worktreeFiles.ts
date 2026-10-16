@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import type { DocFile } from '../../shared/types';
 import type { GitClient } from '../services/GitClient';
 
 export const MAX_DOC_BYTES = 2 * 1024 * 1024;
@@ -16,8 +17,6 @@ const IMAGE_TYPES: Record<string, string> = {
   '.webp': 'image/webp',
   '.svg': 'image/svg+xml',
 };
-
-export type DocFile = { path: string; changed: 'new' | 'modified' | null };
 
 /** True when `target` is `root` or inside it; Windows paths compare case-insensitively. */
 export function isInside(

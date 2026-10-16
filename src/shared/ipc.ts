@@ -8,6 +8,7 @@ import type {
   Iteration,
   MiacConfig,
   PullRequestRef,
+  DocFile,
   NewTerminal,
   Repo,
   SetupEvent,
@@ -84,6 +85,26 @@ export type Channels = {
     result: WorkItemSummary | null;
   };
   'shell:openExternal': { args: [url: string]; result: void };
+  'docs:list': { args: [taskId: string]; result: { files: DocFile[] } };
+  'docs:read': {
+    args: [taskId: string, path: string];
+    result: { text: string; mtimeMs: number };
+  };
+  'docs:asset': { args: [taskId: string, path: string]; result: string };
+  'docs:resolve': {
+    args: [taskId: string, path: string];
+    result: { path: string; kind: 'md' | 'file' } | null;
+  };
+  'docs:openInEditor': {
+    args: [taskId: string, path: string, line?: number, col?: number];
+    result: void;
+  };
+  'docs:reveal': { args: [taskId: string, path: string]; result: void };
+  'docs:watch': {
+    args: [taskId: string, on: boolean];
+    result: { live: boolean };
+  };
+  'links:open': { args: [url: string]; result: void };
   'tasks:list': { args: []; result: TaskView[] };
   'tasks:create': { args: [input: CreateTaskInput]; result: Task };
   'tasks:setupState': { args: [taskId: string]; result: SetupState | null };
@@ -138,6 +159,7 @@ export type Events = {
   'connections:changed': Connection[];
   'usage:changed': { taskId: string };
   'usage:receiverStatus': ReceiverStatus;
+  'docs:changed': { taskId: string; paths: string[] };
   notice: { level: 'info' | 'warn' | 'error'; message: string };
 };
 

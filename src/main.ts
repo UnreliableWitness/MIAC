@@ -23,6 +23,7 @@ import {
   pruneDanglingConnectionLinks,
   recoverInterruptedTasks,
 } from './main/ipc/handlers';
+import { DocsWatcher } from './main/docs/DocsWatcher';
 import { registerIpc } from './main/ipc/register';
 import { createPlatform } from './main/platform';
 import { AdoRegistry } from './main/services/AdoRegistry';
@@ -101,6 +102,10 @@ const terminals = new TerminalManager();
 const DOT = String.fromCharCode(0xb7);
 let stopUsage: () => void = () => {};
 let stopUpdates: () => void = () => {};
+
+const docsWatcher = new DocsWatcher((taskId, paths) =>
+  broadcast('docs:changed', { taskId, paths }),
+);
 
 function broadcast<K extends keyof Events>(event: K, payload: Events[K]): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -285,6 +290,8 @@ async function boot(): Promise<void> {
         for (const v of values) learned.add(v);
       },
       openExternal: (url) => shell.openExternal(url),
+      revealFile: (p) => shell.showItemInFolder(p),
+      docsWatcher,
       store,
       git,
       platform,
@@ -522,6 +529,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  docsWatcher.stopAll();
   for (const id of terminals.ids()) terminals.kill(id);
   stopUsage();
   stopUpdates();

@@ -23,6 +23,9 @@ export const emptyUsage = (taskId: string): TaskUsage => ({
 });
 
 const defaults: FakeHandlers = {
+  'docs:list': () => ({ files: [] }),
+  'docs:watch': () => ({ live: true }),
+  'docs:resolve': () => null,
   'settings:get': () => ({
     version: 1,
     receiverPort: 4319,

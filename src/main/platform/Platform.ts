@@ -26,4 +26,11 @@ export interface Platform {
   copilotCommand(): Command;
   /** Open a folder in the editor. */
   editorCommand(path: string): Command;
+  /** Open a file in the editor at a line (and column), in the worktree's window. */
+  editorGotoCommand(
+    worktree: string,
+    file: string,
+    line?: number,
+    col?: number,
+  ): Command;
 }
