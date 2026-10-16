@@ -13,7 +13,7 @@ import type {
   TaskStatus,
   TaskView,
 } from '../../shared/types';
-import { api } from '../api';
+import { api, tryInvoke } from '../api';
 import { PageHeader, StateDot, WorkItemTypeIcon } from '../components/ui';
 import { eur, sprintDates } from '../format';
 import { useTaskUsage } from '../hooks/useTaskUsage';
@@ -83,19 +83,28 @@ function taskFor(
   );
 }
 
-function TaskCell({ task }: { task: TaskView }) {
+function TaskCell({ task, label }: { task: TaskView; label: string }) {
+  const openTask = useStore((s) => s.openTask);
   const usage = useTaskUsage(task.id);
   const s = task.worktreeMissing
     ? { label: 'Folder missing', color: 'var(--red)' }
     : TASK_STATUS[task.status];
   return (
-    <span className="sprint-task">
+    <button
+      type="button"
+      className="sprint-task"
+      aria-label={`Open the task for ${label}`}
+      onClick={(e) => {
+        e.stopPropagation();
+        openTask(task.id);
+      }}
+    >
       <span className="dot" style={{ background: s.color }} />
       {s.label}
       {usage && usage.billable.costEur > 0 && (
         <span className="muted">{eur(usage.billable.costEur)}</span>
       )}
-    </span>
+    </button>
   );
 }
 
@@ -114,19 +123,21 @@ function Row({
   collapsed: boolean;
   onToggle: () => void;
 }) {
-  const openTask = useStore((s) => s.openTask);
   const go = useStore((s) => s.go);
   const select = useStore((s) => s.select);
   const notify = useStore((s) => s.notify);
   const [starting, setStarting] = useState(false);
   const w = row.item;
-  const open = task ? () => openTask(task.id) : undefined;
+  const label = `${w.type} ${w.id} ${w.title}`;
+  // The row opens the work item in Azure DevOps; the title is the same link for keyboard users.
+  const openInAdo = () =>
+    void tryInvoke(() => api().invoke('shell:openExternal', w.url), notify);
   return (
     <div
       role="row"
-      className={task ? 'grid-row sprint-row has-task' : 'grid-row sprint-row'}
+      className="grid-row sprint-row"
       aria-level={row.depth + 1}
-      onClick={open}
+      onClick={openInAdo}
     >
       <span role="cell" className="sprint-chevron">
         {row.hasChildren && (
@@ -156,21 +167,17 @@ function Row({
       >
         <WorkItemTypeIcon type={w.type} connectionId={connectionId} />
         <span className="grid-id">{w.id}</span>
-        {task ? (
-          <button
-            type="button"
-            className="sprint-open grid-title"
-            aria-label={`Open the task for ${w.type} ${w.id} ${w.title}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              open?.();
-            }}
-          >
-            {w.title}
-          </button>
-        ) : (
-          <span className="grid-title">{w.title}</span>
-        )}
+        <button
+          type="button"
+          className="sprint-open grid-title"
+          aria-label={`Open ${label} in Azure DevOps`}
+          onClick={(e) => {
+            e.stopPropagation();
+            openInAdo();
+          }}
+        >
+          {w.title}
+        </button>
       </span>
       <span role="cell">
         <StateDot state={w.state} type={w.type} connectionId={connectionId} />
@@ -183,15 +190,15 @@ function Row({
       </span>
       <span role="cell" className="sprint-miac">
         {task ? (
-          <TaskCell task={task} />
+          <TaskCell task={task} label={label} />
         ) : (
           <button
             type="button"
-            className="btn btn-subtle sprint-start"
+            className="btn btn-primary sprint-start"
             // aria-disabled, not disabled: the button stays focusable so keyboard users hear why.
             aria-disabled={!repoId || undefined}
             title={repoId ? undefined : NO_REPO}
-            aria-label={`Start a task for ${w.type} ${w.id} ${w.title}`}
+            aria-label={`Start a task for ${label}`}
             aria-description={repoId ? undefined : NO_REPO}
             disabled={starting}
             onClick={async (e) => {

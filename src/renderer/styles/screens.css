@@ -446,7 +446,7 @@
 .sprint-grid .grid-row {
   padding: 0 32px 0 20px;
 }
-.sprint-row.has-task {
+.sprint-row {
   cursor: pointer;
 }
 .sprint-chevron {
@@ -484,6 +484,16 @@
   align-items: center;
   gap: 8px;
   white-space: nowrap;
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.sprint-task:hover {
+  color: var(--link);
+  text-decoration: underline;
 }
 .btn.sprint-start {
   height: 28px;
@@ -495,6 +505,8 @@
   opacity: 1;
 }
 .btn.sprint-start[aria-disabled='true'] {
+  background: var(--bg-selected);
+  border-color: transparent;
   color: var(--disabled);
   cursor: default;
 }
