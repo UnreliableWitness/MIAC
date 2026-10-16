@@ -13,18 +13,23 @@ export function TerminalView({
   taskId,
   active,
   resumes = false,
+  autoStart = false,
 }: {
   terminalId: string;
   taskId: string;
   active: boolean;
   /** Claude Code: Restart resumes the conversation, so the button says so. */
   resumes?: boolean;
+  /** Started again by itself when first shown after an app relaunch (its process is gone, not exited). */
+  autoStart?: boolean;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
   const fit = useRef<FitAddon | null>(null);
   const notify = useStore((s) => s.notify);
   const [exitCode, setExitCode] = useState<number | null>(null);
+  /** Main has no process for this terminal: the app was relaunched (or updated) since it started. */
+  const [gone, setGone] = useState(false);
 
   useEffect(() => {
     const el = host.current;
@@ -62,7 +67,11 @@ export function TerminalView({
     });
     void api()
       .invoke('terminals:buffer', terminalId)
-      .catch(() => '')
+      .catch(() => {
+        // Only a terminal main does not know has no buffer.
+        if (live) setGone(true);
+        return '';
+      })
       .then((buf) => {
         if (!live) return;
         const snapshot = buf ?? '';
@@ -143,6 +152,13 @@ export function TerminalView({
     }, notify);
     if (!ok) setExitCode((c) => c ?? previous);
   };
+  useEffect(() => {
+    if (!active || !gone || !autoStart) return;
+    setGone(false);
+    void restart();
+    // restart is recreated each render; this runs once per relaunch, when the tab is first shown.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, gone, autoStart]);
   const close = () =>
     tryInvoke(() => api().invoke('terminals:kill', terminalId), notify);
 
