@@ -17,6 +17,7 @@ import { api } from '../api';
 import { PageHeader, StateDot, WorkItemTypeIcon } from '../components/ui';
 import { eur, sprintDates } from '../format';
 import { useTaskUsage } from '../hooks/useTaskUsage';
+import { startTaskFor } from '../startTask';
 import { activeConnection, useStore } from '../store';
 
 /** Window focus refreshes the sprint at most this often. */
@@ -115,6 +116,9 @@ function Row({
 }) {
   const openTask = useStore((s) => s.openTask);
   const go = useStore((s) => s.go);
+  const select = useStore((s) => s.select);
+  const notify = useStore((s) => s.notify);
+  const [starting, setStarting] = useState(false);
   const w = row.item;
   const open = task ? () => openTask(task.id) : undefined;
   return (
@@ -189,22 +193,24 @@ function Row({
             title={repoId ? undefined : NO_REPO}
             aria-label={`Start a task for ${w.type} ${w.id} ${w.title}`}
             aria-description={repoId ? undefined : NO_REPO}
-            onClick={(e) => {
+            disabled={starting}
+            onClick={async (e) => {
               e.stopPropagation();
-              if (!repoId) return;
-              go({
-                kind: 'new-task',
-                workItem: {
-                  id: w.id,
-                  type: w.type,
-                  title: w.title,
-                  url: w.url,
-                },
+              if (!repoId || starting) return;
+              setStarting(true);
+              const created = await startTaskFor(
                 repoId,
-              });
+                { id: w.id, type: w.type, title: w.title, url: w.url },
+                notify,
+              );
+              setStarting(false);
+              if (created) {
+                select(created.id);
+                go({ kind: 'setup', taskId: created.id });
+              }
             }}
           >
-            Start
+            {starting ? 'Starting' : 'Start'}
           </button>
         )}
       </span>

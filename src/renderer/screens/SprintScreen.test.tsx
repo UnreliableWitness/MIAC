@@ -258,8 +258,21 @@ describe('Sprint page', () => {
     ).toBeInTheDocument();
   });
 
-  it('Start opens New task with the item and the first linked repo preselected', async () => {
-    fake();
+  it('Start creates the task with the first linked repo and its defaults, then opens setup', async () => {
+    const { calls } = fake({
+      'repos:config': () => ({
+        worktreeRoot: '/w',
+        config: {
+          base: 'main',
+          branch: '{type}/{id}-{slug}',
+          copy: ['.env'],
+          setup: ['npm ci'],
+          run: {},
+          found: true,
+        },
+      }),
+      'tasks:create': () => ({ id: 't5' }) as never,
+    });
     useStore.setState({
       repos: [{ ...repo, id: 'r0', name: 'other', connectionId: null }, repo],
     });
@@ -270,23 +283,50 @@ describe('Sprint page', () => {
         name: 'Start a task for Task 5 Store the address',
       }),
     );
-    expect(useStore.getState().screen).toEqual({
-      kind: 'new-task',
+    await waitFor(() =>
+      expect(useStore.getState().screen).toEqual({
+        kind: 'setup',
+        taskId: 't5',
+      }),
+    );
+    expect(useStore.getState().selectedTaskId).toBe('t5');
+    expect(calls.find((c) => c.channel === 'tasks:create')?.args[0]).toEqual({
+      repoId: 'r1',
+      baseRef: 'origin/main',
+      name: '',
       workItem: {
         id: '5',
         type: 'Task',
         title: 'Store the address',
         url: 'https://dev.azure.com/unreliablewitness/MIAC/_workitems/edit/5',
       },
-      repoId: 'r1',
+      branch: 'feature/5-store-the-address',
+      copy: true,
+      commands: ['npm ci'],
+      startClaude: true,
+      openShell: true,
+      openCopilot: false,
     });
-    expect(await screen.findByLabelText('Repo')).toHaveValue('r1');
-    expect(screen.getByText('Task 5')).toBeInTheDocument();
-    await waitFor(() =>
-      expect(screen.getByLabelText('Branch')).toHaveValue(
-        'feature/5-store-the-address',
-      ),
+  });
+
+  it('stays on the sprint and shows the error when creating the task fails', async () => {
+    fake({
+      'tasks:create': () => {
+        throw new Error('branch already exists');
+      },
+    });
+    useStore.setState({ repos: [repo] });
+    render(<Shell />);
+    const table = await grid();
+    await userEvent.click(
+      within(table).getByRole('button', {
+        name: 'Start a task for Task 5 Store the address',
+      }),
     );
+    expect(
+      await screen.findByText('branch already exists'),
+    ).toBeInTheDocument();
+    expect(useStore.getState().screen).toEqual({ kind: 'sprint' });
   });
 
   it('disables Start when no repo is linked to the project', async () => {

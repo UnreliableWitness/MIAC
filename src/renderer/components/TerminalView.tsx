@@ -6,12 +6,7 @@ import { api, tryInvoke } from '../api';
 import { useStore } from '../store';
 import { createLinkProvider } from '../terminalLinks';
 import { registerTerminal } from '../terminalRegistry';
-import {
-  loadRenderer,
-  terminalFontReady,
-  terminalOptions,
-  windowsBuild,
-} from '../terminalSetup';
+import { loadRenderer, terminalOptions, windowsBuild } from '../terminalSetup';
 
 export function TerminalView({
   terminalId,
@@ -90,19 +85,16 @@ export function TerminalView({
     const observer = new ResizeObserver(() => {
       if (el.offsetParent !== null) sendSize();
     });
-    // Open once the font is loaded (cell size is measured at open) and the ConPTY build is known.
-    // Output written before that is buffered by xterm.
-    void Promise.all([terminalFontReady(), windowsBuild()]).then(
-      ([, build]) => {
-        if (!live) return;
-        if (build) t.options.windowsPty = terminalOptions(build).windowsPty;
-        t.open(el);
-        loadRenderer(t);
-        links = t.registerLinkProvider(createLinkProvider(t, taskId));
-        observer.observe(el);
-        sendSize();
-      },
-    );
+    // Open once the ConPTY build is known. Output written before that is buffered by xterm.
+    void windowsBuild().then((build) => {
+      if (!live) return;
+      if (build) t.options.windowsPty = terminalOptions(build).windowsPty;
+      t.open(el);
+      loadRenderer(t);
+      links = t.registerLinkProvider(createLinkProvider(t, taskId));
+      observer.observe(el);
+      sendSize();
+    });
 
     return () => {
       live = false;
