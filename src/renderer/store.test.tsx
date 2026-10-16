@@ -72,6 +72,17 @@ describe('tabs', () => {
     expect(s.screen).toEqual({ kind: 'task' });
     expect(s.activeTab('a')).toBe(USAGE_TAB);
   });
+  it('openDoc selects the task, opens the Docs tab and sets a fresh target', () => {
+    useStore.setState({ tasks: [task('t1', ['x'])] });
+    useStore.getState().openDoc('t1', 'a.md', 4);
+    const s = useStore.getState();
+    expect(s.selectedTaskId).toBe('t1');
+    expect(s.screen.kind).toBe('task');
+    expect(s.activeTab('t1')).toBe('docs');
+    const first = s.docTarget.t1.nonce;
+    s.openDoc('t1', 'a.md', 4);
+    expect(useStore.getState().docTarget.t1.nonce).not.toBe(first);
+  });
 });
 
 describe('focus and rail', () => {

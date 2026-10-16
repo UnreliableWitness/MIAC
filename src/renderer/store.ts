@@ -11,6 +11,7 @@ import { track, trackScreen } from './telemetry';
 import { readPrefs, writePref } from './uiPrefs';
 
 export const USAGE_TAB = 'usage';
+export const DOCS_TAB = 'docs';
 
 /** Every screen is a full page next to the nav; `task` shows the selected task. */
 export type Screen =
@@ -35,6 +36,8 @@ type Store = {
   sprintName: string | null;
   notices: Notice[];
   tabByTask: Record<string, string>;
+  /** A document a terminal link asked the Docs tab to open; the nonce makes repeats count. */
+  docTarget: Record<string, { path: string; line?: number; nonce: number }>;
   focus: boolean;
   navCollapsed: boolean;
   go(screen: Screen): void;
@@ -52,6 +55,7 @@ type Store = {
   setTab(taskId: string, tab: string): void;
   activeTab(taskId: string): string;
   openUsage(taskId: string): void;
+  openDoc(taskId: string, path: string, line?: number): void;
   toggleFocus(): void;
   setNavCollapsed(v: boolean): void;
 };
@@ -72,6 +76,7 @@ export const useStore = create<Store>((set, get) => ({
   sprintName: null,
   notices: [],
   tabByTask: {},
+  docTarget: {},
   ...readPrefs(),
   go: (screen) => {
     const current = get().screen;
@@ -129,6 +134,7 @@ export const useStore = create<Store>((set, get) => ({
     const task = get().tasks.find((t) => t.id === taskId);
     const want = get().tabByTask[taskId];
     if (want === USAGE_TAB) return USAGE_TAB;
+    if (want === DOCS_TAB) return DOCS_TAB;
     if (task && want && task.terminals.some((t) => t.id === want)) return want;
     return task?.terminals[0]?.id ?? USAGE_TAB;
   },
@@ -137,6 +143,17 @@ export const useStore = create<Store>((set, get) => ({
     get().select(taskId);
     get().go({ kind: 'task' });
     set({ tabByTask: { ...get().tabByTask, [taskId]: USAGE_TAB } });
+  },
+  openDoc: (taskId, path, line) => {
+    get().select(taskId);
+    get().go({ kind: 'task' });
+    set({
+      tabByTask: { ...get().tabByTask, [taskId]: DOCS_TAB },
+      docTarget: {
+        ...get().docTarget,
+        [taskId]: { path, line, nonce: Date.now() + Math.random() },
+      },
+    });
   },
   toggleFocus: () => {
     const focus = !get().focus;

@@ -433,6 +433,7 @@ describe('tabs and focus', () => {
     const tabs = await screen.findAllByRole('tab');
     expect(tabs.map((t) => t.textContent)).toEqual([
       expect.stringContaining('Usage'),
+      expect.stringContaining('Docs'),
       'Claude Code',
       'zsh',
     ]);
@@ -572,6 +573,32 @@ describe('tabs and focus', () => {
     ).toBeInTheDocument();
     await userEvent.click(screen.getByRole('tab', { name: /Usage/ }));
     expect(screen.getByRole('tab', { name: 'Usage' })).toBeInTheDocument();
+  });
+
+  it('shows a changed dot on the Docs tab while another tab is active', async () => {
+    const { emit } = setup();
+    render(<Shell />);
+    await screen.findByTestId('term-c1');
+    act(() => emit('docs:changed', { taskId: 'a', paths: ['README.md'] }));
+    expect(
+      screen.getByRole('tab', { name: 'Docs, changed' }),
+    ).toBeInTheDocument();
+  });
+
+  it('opens the Docs tab with Mod+Shift+D', async () => {
+    setup();
+    render(<Shell />);
+    const term = await screen.findByTestId('term-c1');
+    const ev = createEvent.keyDown(term, {
+      key: 'D',
+      code: 'KeyD',
+      shiftKey: true,
+      ctrlKey: true,
+      metaKey: true,
+    });
+    fireEvent(term, ev);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(useStore.getState().activeTab('a')).toBe('docs');
   });
 
   it('falls back to Usage when a task has no terminals', async () => {

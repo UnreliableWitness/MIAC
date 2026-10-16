@@ -1,0 +1,75 @@
+import type { DocView } from '../../docs/docsPrefs';
+import { MarkdownView } from './MarkdownView';
+import { SourceView } from './SourceView';
+
+export type Doc = {
+  path: string;
+  text: string | null;
+  error: 'too-large' | string | null;
+  deleted: boolean;
+};
+
+/** The document area: empty, loading, error and too-large states, else the rendered or source view. */
+export function DocsBody({
+  taskId,
+  empty,
+  doc,
+  slow,
+  view,
+  highlight,
+  onRetry,
+  onOpenDoc,
+  onOpenFile,
+}: {
+  taskId: string;
+  empty: boolean;
+  doc: Doc | null;
+  slow: boolean;
+  view: DocView;
+  highlight: number | null;
+  onRetry(path: string): void;
+  onOpenDoc(path: string, anchor?: string): void;
+  onOpenFile(path: string): void;
+}) {
+  if (empty)
+    return <div className="docs-state">No Markdown files in this worktree</div>;
+  if (!doc) return slow ? <div className="docs-state">Loading</div> : null;
+  if (doc.error === 'too-large')
+    return (
+      <div className="docs-state">
+        <p>This file is larger than 2 MB.</p>
+        <button
+          type="button"
+          className="btn btn-sm"
+          onClick={() => onOpenFile(doc.path)}
+        >
+          Open in VS Code
+        </button>
+      </div>
+    );
+  if (doc.error !== null)
+    return (
+      <div className="docs-state">
+        <p>{doc.error}</p>
+        <button
+          type="button"
+          className="btn btn-sm"
+          onClick={() => onRetry(doc.path)}
+        >
+          Retry
+        </button>
+      </div>
+    );
+  if (doc.text === null) return null;
+  return view === 'source' ? (
+    <SourceView text={doc.text} highlightLine={highlight} />
+  ) : (
+    <MarkdownView
+      taskId={taskId}
+      path={doc.path}
+      text={doc.text}
+      onOpenDoc={onOpenDoc}
+      onOpenFile={onOpenFile}
+    />
+  );
+}

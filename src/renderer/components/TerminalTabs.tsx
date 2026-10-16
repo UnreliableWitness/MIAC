@@ -3,6 +3,7 @@ import {
   Branch16Regular,
   Code16Regular,
   DataPie16Regular,
+  Document16Regular,
   FullScreenMaximize16Regular,
   FullScreenMinimize16Regular,
 } from '@fluentui/react-icons';
@@ -13,7 +14,8 @@ import { eur } from '../format';
 import { useGitSummary } from '../hooks/useGitSummary';
 import { useRepoConfig } from '../hooks/useRepoConfig';
 import { useTaskUsage } from '../hooks/useTaskUsage';
-import { USAGE_TAB, useStore } from '../store';
+import { DOCS_TAB, USAGE_TAB, useStore } from '../store';
+import { DocsTab } from './docs/DocsTab';
 import { TerminalView } from './TerminalView';
 import { IconButton, MindMark, modKey } from './ui';
 import { UsagePanel } from './UsagePanel';
@@ -62,6 +64,35 @@ export function TerminalTabs({
   const inFocus = useStore((s) => s.focus) && ready;
   const toggleFocus = useStore((s) => s.toggleFocus);
   const [unseen, setUnseen] = useState(false);
+  const [docsUnseen, setDocsUnseen] = useState(false);
+
+  useEffect(
+    () =>
+      api().on('docs:changed', (p) => {
+        if (
+          p.taskId === task.id &&
+          useStore.getState().activeTab(task.id) !== DOCS_TAB
+        )
+          setDocsUnseen(true);
+      }),
+    [task.id],
+  );
+
+  useEffect(() => {
+    if (active === DOCS_TAB) setDocsUnseen(false);
+  }, [active]);
+
+  useEffect(() => {
+    if (!visible || !ready || task.worktreeMissing) return;
+    void api()
+      .invoke('docs:watch', task.id, true)
+      .catch(() => undefined);
+    return () => {
+      void api()
+        .invoke('docs:watch', task.id, false)
+        .catch(() => undefined);
+    };
+  }, [task.id, visible, ready, task.worktreeMissing]);
 
   useEffect(
     () =>
@@ -122,6 +153,21 @@ export function TerminalTabs({
             Usage
             {unseen && <span className="tab-new" aria-hidden="true" />}
           </button>
+          {ready && (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={active === DOCS_TAB}
+              aria-label={docsUnseen ? 'Docs, changed' : 'Docs'}
+              className="pivot"
+              title={`Docs (${modKey}+Shift+D)`}
+              onClick={() => setTab(task.id, DOCS_TAB)}
+            >
+              <Document16Regular aria-hidden="true" />
+              Docs
+              {docsUnseen && <span className="tab-new" aria-hidden="true" />}
+            </button>
+          )}
           {task.terminals.map((t) => (
             <button
               key={t.id}
@@ -218,6 +264,7 @@ export function TerminalTabs({
       </div>
       <div className="termhost">
         {visible && active === USAGE_TAB && <UsagePanel taskId={task.id} />}
+        {visible && active === DOCS_TAB && <DocsTab task={task} />}
         {task.terminals.map((t) => (
           <TerminalView
             key={t.id}
