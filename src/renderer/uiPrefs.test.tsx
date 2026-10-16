@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { readPrChoice, readPrefs, writePrChoice, writePref } from './uiPrefs';
+import {
+  readPrChoice,
+  readPrefs,
+  readStartRepo,
+  writePrChoice,
+  writePref,
+  writeStartRepo,
+} from './uiPrefs';
 
 beforeEach(() => localStorage.clear());
 
@@ -52,5 +59,27 @@ describe('pull request choice', () => {
     } as unknown as Storage;
     expect(readPrChoice('r1', broken)).toBe(false);
     expect(() => writePrChoice('r1', true, broken)).not.toThrow();
+  });
+});
+
+describe('start repo', () => {
+  it('is null until chosen and is kept per connection', () => {
+    expect(readStartRepo('c1')).toBeNull();
+    writeStartRepo('c1', 'r2');
+    expect(readStartRepo('c1')).toBe('r2');
+    expect(readStartRepo('c2')).toBeNull();
+    expect(localStorage.getItem('miac.ui.startRepo.c1')).toBe('r2');
+  });
+  it('survives a storage that throws', () => {
+    const broken = {
+      getItem: () => {
+        throw new Error('denied');
+      },
+      setItem: () => {
+        throw new Error('denied');
+      },
+    } as unknown as Storage;
+    expect(readStartRepo('c1', broken)).toBeNull();
+    expect(() => writeStartRepo('c1', 'r1', broken)).not.toThrow();
   });
 });

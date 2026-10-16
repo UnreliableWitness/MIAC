@@ -5,7 +5,9 @@ import { api, tryInvoke } from '../api';
 import { PageHeader, Pivots, WorkItemTypeIcon } from '../components/ui';
 import { WorkItemPicker } from '../components/WorkItemPicker';
 import { useEscape } from '../hooks/useEscape';
-import { useStore } from '../store';
+import { startRepos } from '../startTask';
+import { activeConnection, useStore } from '../store';
+import { readStartRepo, writeStartRepo } from '../uiPrefs';
 
 type Mode = 'pick' | 'typed' | 'blank';
 const TYPES: WorkItemType[] = ['Issue', 'User Story', 'Bug', 'Task', 'Epic'];
@@ -23,8 +25,16 @@ export function NewTaskScreen({
   const notify = useStore((s) => s.notify);
   const connections = useStore((s) => s.connections);
 
+  const project = useStore(activeConnection);
+  // Without a repo from the caller: the repo last used to start a task for the project shown.
   const [repoId, setRepoId] = useState(
-    repos.find((r) => r.id === initial.repoId)?.id ?? repos[0]?.id ?? '',
+    () =>
+      repos.find((r) => r.id === initial.repoId)?.id ??
+      (project
+        ? startRepos(repos, project.id, readStartRepo(project.id)).repo?.id
+        : undefined) ??
+      repos[0]?.id ??
+      '',
   );
   const connectionOf = (rid: string) => {
     const cid = repos.find((x) => x.id === rid)?.connectionId;
@@ -176,6 +186,7 @@ export function NewTaskScreen({
     );
     setBusy(false);
     if (task) {
+      if (repo.connectionId) writeStartRepo(repo.connectionId, repo.id);
       select(task.id);
       go({ kind: 'setup', taskId: task.id });
     }

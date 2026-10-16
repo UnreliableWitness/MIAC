@@ -42,6 +42,46 @@ beforeEach(() =>
 );
 
 describe('NewTaskScreen', () => {
+  it('defaults to the repo last started for the project and remembers the one used', async () => {
+    localStorage.clear();
+    localStorage.setItem('miac.ui.startRepo.c1', 'r2');
+    const connection = {
+      id: 'c1',
+      name: 'uw',
+      organizationUrl: 'https://dev.azure.com/uw',
+      project: 'MIAC',
+      user: null,
+      status: 'ok' as const,
+      checkedAt: null,
+      userUniqueName: null,
+    };
+    useStore.setState({
+      repos: [
+        { ...webshop, connectionId: 'c1' },
+        { ...webshop, id: 'r2', name: 'api', connectionId: 'c1' },
+      ],
+      connections: [connection],
+    });
+    installFakeApi({
+      'repos:config': () => config,
+      'workItems:search': () => [],
+      'workItems:currentIteration': () => null,
+      'tasks:create': () => ({ id: 't1' }) as never,
+    });
+    render(<NewTaskScreen />);
+    expect(screen.getByLabelText('Repo')).toHaveValue('r2');
+    await userEvent.selectOptions(screen.getByLabelText('Repo'), 'r1');
+    await userEvent.click(screen.getByRole('tab', { name: 'Blank' }));
+    await userEvent.type(screen.getByLabelText('Task name'), 'Spike');
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Create task' })).toBeEnabled(),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    await waitFor(() =>
+      expect(localStorage.getItem('miac.ui.startRepo.c1')).toBe('r1'),
+    );
+  });
+
   it('prefills branch and folder from the work item and the repo template', async () => {
     installFakeApi({ 'repos:config': () => config });
     render(<NewTaskScreen />);

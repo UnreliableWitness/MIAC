@@ -603,3 +603,11 @@
   margin: 0;
   padding: 16px 32px 0;
 }
+.sprint-start-group {
+  display: inline-flex;
+  gap: 1px;
+}
+.btn.sprint-start-more {
+  padding: 0 6px;
+  min-width: 0;
+}

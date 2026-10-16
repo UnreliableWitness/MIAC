@@ -55,3 +55,30 @@ export function writePrChoice(
     /* preferences are best effort */
   }
 }
+
+const startRepoKey = (connectionId: string) =>
+  `miac.ui.startRepo.${connectionId}`;
+
+/** The repo the last task of this project (connection) was started in; null until then. */
+export function readStartRepo(
+  connectionId: string,
+  storage: Storage | undefined = local(),
+): string | null {
+  try {
+    return storage?.getItem(startRepoKey(connectionId)) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeStartRepo(
+  connectionId: string,
+  repoId: string,
+  storage: Storage | undefined = local(),
+): void {
+  try {
+    storage?.setItem(startRepoKey(connectionId), repoId);
+  } catch {
+    /* preferences are best effort */
+  }
+}

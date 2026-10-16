@@ -1,6 +1,6 @@
 import { Add16Regular } from '@fluentui/react-icons';
-import { type KeyboardEvent, useEffect, useRef, useState } from 'react';
 import type { NewTerminal } from '../../shared/types';
+import { MenuButton } from './ui/MenuButton';
 
 /** What the + menu can open; the shell is named after the platform's shell by main. */
 export const NEW_TERMINALS: {
@@ -18,10 +18,7 @@ export const NEW_TERMINALS: {
   },
 ];
 
-/**
- * The + button of the terminal row: a menu of terminal types. It is fixed-positioned under the button,
- * because the tab row clips its overflow.
- */
+/** The + button of the terminal row: a menu of terminal types. */
 export function NewTerminalMenu({
   disabled,
   onOpen,
@@ -29,97 +26,20 @@ export function NewTerminalMenu({
   disabled?: boolean;
   onOpen: (def: NewTerminal) => void;
 }) {
-  const [at, setAt] = useState<{ left: number; top: number } | null>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
-  const menu = useRef<HTMLDivElement>(null);
-  const close = (refocus: boolean) => {
-    setAt(null);
-    if (refocus) trigger.current?.focus();
-  };
-
-  useEffect(() => {
-    if (!at) return;
-    menu.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
-    const onDown = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (!menu.current?.contains(t) && !trigger.current?.contains(t))
-        setAt(null);
-    };
-    const onResize = () => setAt(null);
-    document.addEventListener('mousedown', onDown);
-    window.addEventListener('resize', onResize);
-    return () => {
-      document.removeEventListener('mousedown', onDown);
-      window.removeEventListener('resize', onResize);
-    };
-  }, [at]);
-
-  const onKey = (e: KeyboardEvent) => {
-    const items = [
-      ...(menu.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ??
-        []),
-    ];
-    const i = items.indexOf(document.activeElement as HTMLElement);
-    const move = (to: number) => {
-      e.preventDefault();
-      items[(to + items.length) % items.length]?.focus();
-    };
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      close(true);
-    } else if (e.key === 'ArrowDown') move(i + 1);
-    else if (e.key === 'ArrowUp') move(i < 0 ? -1 : i - 1);
-    else if (e.key === 'Home') move(0);
-    else if (e.key === 'End') move(-1);
-    else if (e.key === 'Tab') setAt(null);
-  };
-
   return (
-    <>
-      <button
-        ref={trigger}
-        type="button"
-        className="btn btn-subtle btn-sm tab-add"
-        aria-label="New terminal"
-        aria-haspopup="menu"
-        aria-expanded={at !== null}
-        title="New terminal"
-        disabled={disabled}
-        onClick={() => {
-          if (at) return close(false);
-          const r = trigger.current?.getBoundingClientRect();
-          if (r) setAt({ left: r.left, top: r.bottom + 2 });
-        }}
-      >
-        <Add16Regular />
-      </button>
-      {at && (
-        <div
-          ref={menu}
-          role="menu"
-          aria-label="New terminal"
-          className="menu terminal-menu"
-          style={{ left: at.left, top: at.top }}
-          onKeyDown={onKey}
-        >
-          {NEW_TERMINALS.map((t) => (
-            <button
-              key={t.def.kind}
-              type="button"
-              role="menuitem"
-              tabIndex={-1}
-              className="menu-item"
-              onClick={() => {
-                close(false);
-                onOpen(t.def);
-              }}
-            >
-              <span className="menu-title">{t.title}</span>
-              {t.note && <span className="small muted">{t.note}</span>}
-            </button>
-          ))}
-        </div>
-      )}
-    </>
+    <MenuButton
+      label="New terminal"
+      title="New terminal"
+      className="btn btn-subtle btn-sm tab-add"
+      disabled={disabled}
+      items={NEW_TERMINALS.map((t) => ({
+        key: t.def.kind,
+        title: t.title,
+        note: t.note,
+        onSelect: () => onOpen(t.def),
+      }))}
+    >
+      <Add16Regular />
+    </MenuButton>
   );
 }

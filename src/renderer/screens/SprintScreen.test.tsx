@@ -355,6 +355,66 @@ describe('Sprint page', () => {
     });
   });
 
+  it('with several repos, Start names the repo and the menu starts in another one and remembers it', async () => {
+    localStorage.clear();
+    const { calls } = fake({
+      'tasks:create': (input) => ({ id: `t-${input.repoId}` }) as never,
+    });
+    const api = { ...repo, id: 'r2', name: 'api', path: '/src/api' };
+    useStore.setState({ repos: [repo, api] });
+    render(<Shell />);
+    const table = await grid();
+    expect(
+      within(table).getByRole('button', {
+        name: 'Start a task for Task 5 Store the address in webshop',
+      }),
+    ).toHaveTextContent('Start in webshop');
+    await userEvent.click(
+      within(table).getByRole('button', {
+        name: 'Choose the repo for Task 5 Store the address',
+      }),
+    );
+    const menu = screen.getByRole('menu', { name: 'Start in' });
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((m) => m.textContent),
+    ).toEqual(['webshop', 'api']);
+    await userEvent.click(within(menu).getByRole('menuitem', { name: 'api' }));
+    await waitFor(() =>
+      expect(useStore.getState().screen).toEqual({
+        kind: 'setup',
+        taskId: 't-r2',
+      }),
+    );
+    expect(calls.find((c) => c.channel === 'tasks:create')?.args[0]).toEqual(
+      expect.objectContaining({ repoId: 'r2' }),
+    );
+    expect(localStorage.getItem('miac.ui.startRepo.c1')).toBe('r2');
+  });
+
+  it('Start uses the repo remembered for the project', async () => {
+    localStorage.clear();
+    localStorage.setItem('miac.ui.startRepo.c1', 'r2');
+    const { calls } = fake({
+      'tasks:create': () => ({ id: 't5' }) as never,
+    });
+    const api = { ...repo, id: 'r2', name: 'api', path: '/src/api' };
+    useStore.setState({ repos: [repo, api] });
+    render(<Shell />);
+    const table = await grid();
+    await userEvent.click(
+      within(table).getByRole('button', {
+        name: 'Start a task for Task 5 Store the address in api',
+      }),
+    );
+    await waitFor(() =>
+      expect(calls.find((c) => c.channel === 'tasks:create')?.args[0]).toEqual(
+        expect.objectContaining({ repoId: 'r2' }),
+      ),
+    );
+  });
+
   it('stays on the sprint and shows the error when creating the task fails', async () => {
     fake({
       'tasks:create': () => {

@@ -9,6 +9,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   Connection,
+  Repo,
   SprintIteration,
   SprintRow,
   TaskStatus,
@@ -18,8 +19,11 @@ import { api, tryInvoke } from '../api';
 import { PageHeader, StateDot, WorkItemTypeIcon } from '../components/ui';
 import { eur, sprintDates } from '../format';
 import { useTaskUsage } from '../hooks/useTaskUsage';
-import { startTaskFor } from '../startTask';
+import { MenuButton } from '../components/ui/MenuButton';
+import { startRepos, startTaskFor } from '../startTask';
 import { activeConnection, useStore } from '../store';
+import { track } from '../telemetry';
+import { readStartRepo, writeStartRepo } from '../uiPrefs';
 
 /** Window focus refreshes the sprint at most this often. */
 const FOCUS_REFRESH_MS = 60_000;
@@ -136,14 +140,20 @@ function Row({
   row,
   connectionId,
   task,
-  repoId,
+  startRepo,
+  choices,
+  onChoose,
   collapsed,
   onToggle,
 }: {
   row: SprintRow;
   connectionId: string;
   task: TaskView | null;
-  repoId: string | null;
+  /** The repo Start uses; null when no repo is linked to the project. */
+  startRepo: Repo | null;
+  /** The project's repos; with more than one, Start names its repo and a menu picks another. */
+  choices: Repo[];
+  onChoose: (repoId: string) => void;
   collapsed: boolean;
   onToggle: () => void;
 }) {
@@ -153,6 +163,23 @@ function Row({
   const [starting, setStarting] = useState(false);
   const w = row.item;
   const label = `${w.type} ${w.id} ${w.title}`;
+  const repoId = startRepo?.id ?? null;
+  const named = startRepo !== null && choices.length > 1;
+  const start = async (id: string) => {
+    if (starting) return;
+    setStarting(true);
+    const created = await startTaskFor(
+      id,
+      { id: w.id, type: w.type, title: w.title, url: w.url },
+      notify,
+    );
+    setStarting(false);
+    if (created) {
+      onChoose(id);
+      select(created.id);
+      go({ kind: 'setup', taskId: created.id });
+    }
+  };
   // The row opens the work item in Azure DevOps; the title is the same link for keyboard users.
   const openInAdo = () =>
     void tryInvoke(() => api().invoke('shell:openExternal', w.url), notify);
@@ -216,33 +243,48 @@ function Row({
         {task ? (
           <TaskCell task={task} label={label} />
         ) : (
-          <button
-            type="button"
-            className="btn btn-primary sprint-start"
-            // aria-disabled, not disabled: the button stays focusable so keyboard users hear why.
-            aria-disabled={!repoId || undefined}
-            title={repoId ? undefined : NO_REPO}
-            aria-label={`Start a task for ${label}`}
-            aria-description={repoId ? undefined : NO_REPO}
-            disabled={starting}
-            onClick={async (e) => {
-              e.stopPropagation();
-              if (!repoId || starting) return;
-              setStarting(true);
-              const created = await startTaskFor(
-                repoId,
-                { id: w.id, type: w.type, title: w.title, url: w.url },
-                notify,
-              );
-              setStarting(false);
-              if (created) {
-                select(created.id);
-                go({ kind: 'setup', taskId: created.id });
-              }
-            }}
-          >
-            {starting ? 'Starting' : 'Start'}
-          </button>
+          <span className="sprint-start-group">
+            <button
+              type="button"
+              className="btn btn-primary sprint-start"
+              // aria-disabled, not disabled: the button stays focusable so keyboard users hear why.
+              aria-disabled={!repoId || undefined}
+              title={repoId ? undefined : NO_REPO}
+              aria-label={`Start a task for ${label}${named ? ` in ${startRepo.name}` : ''}`}
+              aria-description={repoId ? undefined : NO_REPO}
+              disabled={starting}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (repoId) void start(repoId);
+              }}
+            >
+              {starting
+                ? 'Starting'
+                : named
+                  ? `Start in ${startRepo.name}`
+                  : 'Start'}
+            </button>
+            {named && (
+              <MenuButton
+                label={`Choose the repo for ${label}`}
+                menuLabel="Start in"
+                className="btn btn-primary sprint-start sprint-start-more"
+                disabled={starting}
+                align="right"
+                items={choices.map((r) => ({
+                  key: r.id,
+                  title: r.name,
+                  onSelect: () => {
+                    onChoose(r.id);
+                    track('task.startRepoChosen', { repos: choices.length });
+                    void start(r.id);
+                  },
+                }))}
+              >
+                <ChevronDown12Regular aria-hidden="true" />
+              </MenuButton>
+            )}
+          </span>
         )}
       </span>
     </div>
@@ -268,7 +310,18 @@ function SprintGrid({
     () => new Map(repos.map((r) => [r.id, r.connectionId])),
     [repos],
   );
-  const repoId = repos.find((r) => r.connectionId === connectionId)?.id ?? null;
+  const [remembered, setRemembered] = useState(() =>
+    readStartRepo(connectionId),
+  );
+  const { repo: startRepo, choices } = startRepos(
+    repos,
+    connectionId,
+    remembered,
+  );
+  const choose = (repoId: string) => {
+    writeStartRepo(connectionId, repoId);
+    setRemembered(repoId);
+  };
   return (
     <div role="table" aria-label={label} className="grid sprint-grid">
       <div role="row" className="grid-head">
@@ -288,7 +341,9 @@ function SprintGrid({
             row={r}
             connectionId={connectionId}
             task={taskFor(r.item.id, connectionId, tasks, repoConnection)}
-            repoId={repoId}
+            startRepo={startRepo}
+            choices={choices}
+            onChoose={choose}
             collapsed={collapsed.has(r.item.id)}
             onToggle={() => onToggle(r.item.id)}
           />

@@ -366,7 +366,7 @@ button.projecttile:hover {
   background: var(--bg-hover);
   color: var(--text);
 }
-.terminal-menu {
+.menu.menu-fixed {
   position: fixed;
   right: auto;
   min-width: 200px;
