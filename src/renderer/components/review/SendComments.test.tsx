@@ -148,7 +148,7 @@ describe('SendComments', () => {
     off();
   });
 
-  it('is disabled without an agent tab or without open comments', () => {
+  it('is disabled without an agent tab and hidden without open comments', () => {
     installFakeApi();
     const { rerender } = render(
       <SendComments
@@ -159,13 +159,11 @@ describe('SendComments', () => {
         onSent={vi.fn()}
       />,
     );
-    expect(
-      (
-        screen.getByRole('button', {
-          name: /Open a Claude Code tab first/,
-        }) as HTMLButtonElement
-      ).disabled,
-    ).toBe(true);
+    const off = screen.getByRole('button', {
+      name: 'Send 1 comment',
+    }) as HTMLButtonElement;
+    expect(off.disabled).toBe(true);
+    expect(off.title).toBe('Open a Claude Code tab first');
     rerender(
       <SendComments
         task={task([{ id: 'cl', kind: 'claude', label: 'Claude Code' }])}
@@ -175,13 +173,7 @@ describe('SendComments', () => {
         onSent={vi.fn()}
       />,
     );
-    expect(
-      (
-        screen.getByRole('button', {
-          name: 'No open comments to send',
-        }) as HTMLButtonElement
-      ).disabled,
-    ).toBe(true);
+    expect(screen.queryByRole('button')).toBeNull();
   });
 
   it('warns when the target terminal is not running', async () => {

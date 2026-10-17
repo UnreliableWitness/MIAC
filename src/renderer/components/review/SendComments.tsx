@@ -102,17 +102,19 @@ export function SendComments({
     requestAnimationFrame(() => focusTerminal(id));
   };
 
+  // Nothing to send: no button at all, the header stays short.
+  if (open.length === 0) return null;
+  const n = `${open.length} ${open.length === 1 ? 'comment' : 'comments'}`;
   if (!target)
     return (
-      <button type="button" className="btn btn-sm" disabled>
+      <button
+        type="button"
+        className="btn btn-sm"
+        disabled
+        title="Open a Claude Code tab first"
+      >
         <Send16Regular aria-hidden="true" />
-        Send comments: Open a Claude Code tab first
-      </button>
-    );
-  if (open.length === 0)
-    return (
-      <button type="button" className="btn btn-sm" disabled>
-        No open comments to send
+        {`Send ${n}`}
       </button>
     );
   return (
@@ -124,7 +126,7 @@ export function SendComments({
         onClick={() => void send(target.id)}
       >
         <Send16Regular aria-hidden="true" />
-        {`Send ${open.length} ${open.length === 1 ? 'comment' : 'comments'} to ${target.label}`}
+        {`Send ${n} to ${target.label}`}
       </button>
       {targets.length > 1 && (
         <button

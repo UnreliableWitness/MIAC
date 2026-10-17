@@ -76,10 +76,12 @@ export function OpenInEditor({
         type="button"
         className="btn btn-subtle btn-sm"
         disabled={disabled || !opts}
+        title={`Open in ${label}`}
         onClick={() => open()}
       >
         <Code16Regular aria-hidden="true" />
-        {`Open in ${label}`}
+        {/* A narrow task bar keeps the icon only; the text stays the button's name. */}
+        <span className="open-in-label">{`Open in ${label}`}</span>
       </button>
       {(others.length > 0 || solutions.length > 0) && (
         <button
