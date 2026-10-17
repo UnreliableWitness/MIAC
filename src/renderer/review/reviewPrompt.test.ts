@@ -61,4 +61,17 @@ describe('buildReviewPrompt', () => {
       'Review comments on the changes in this task: 1. src/a.ts:42-45: Use the cached value. 2. web/src/b.tsx:10: Why a div? Use a button. ',
     );
   });
+
+  it('cleans the location in both modes', () => {
+    const odd = { ...a, path: 'a\x1b[201~\nb.ts' };
+    const multi = buildReviewPrompt([odd]);
+    expect(multi.split('\n')[2]).toBe('1. a[201~ b.ts:42-45');
+    // eslint-disable-next-line no-control-regex -- matching control characters is the point
+    expect(multi).not.toMatch(/\x1b/);
+    const flat = buildReviewPrompt([odd], { singleLine: true });
+    expect(flat).not.toContain('\n');
+    // eslint-disable-next-line no-control-regex -- matching control characters is the point
+    expect(flat).not.toMatch(/\x1b/);
+    expect(flat).toContain('1. a[201~ b.ts:42-45:');
+  });
 });

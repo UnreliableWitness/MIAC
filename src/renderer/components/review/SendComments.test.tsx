@@ -170,4 +170,38 @@ describe('SendComments', () => {
       ),
     );
   });
+
+  it('pastes once on a double click', async () => {
+    const paste = vi.fn();
+    const off = registerTerminal('cl', {
+      paste,
+      focus: vi.fn(),
+      modes: { bracketedPasteMode: true },
+    } as never);
+    const onSent = vi.fn();
+    const { calls } = installFakeApi({
+      'terminals:isRunning': () => true,
+      'review:markSent': () => ({ version: 1, viewed: {}, comments: [] }),
+    });
+    render(
+      <SendComments
+        task={task([{ id: 'cl', kind: 'claude', label: 'Claude Code' }])}
+        comments={[c('a', 'open')]}
+        repoName={() => ''}
+        multiRepo={false}
+        onSent={onSent}
+      />,
+    );
+    const b = screen.getByRole('button', {
+      name: 'Send 1 comment to Claude Code',
+    });
+    fireEvent.click(b);
+    fireEvent.click(b);
+    await waitFor(() => expect(onSent).toHaveBeenCalled());
+    expect(paste).toHaveBeenCalledTimes(1);
+    expect(calls.filter((x) => x.channel === 'review:markSent')).toHaveLength(
+      1,
+    );
+    off();
+  });
 });

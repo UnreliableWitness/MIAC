@@ -10,10 +10,12 @@ export type PromptComment = {
 
 const HEAD = 'Review comments on the changes in this task:';
 const MAX_SNIPPET_LINES = 12;
-const loc = (c: PromptComment) =>
-  c.startLine === c.endLine
-    ? `${c.path}:${c.startLine}`
-    : `${c.path}:${c.startLine}-${c.endLine}`;
+const loc = (c: PromptComment) => {
+  const path = cleanPasteText(c.path).replace(/\s+/g, ' ');
+  return c.startLine === c.endLine
+    ? `${path}:${c.startLine}`
+    : `${path}:${c.startLine}-${c.endLine}`;
+};
 
 /**
  * The text pasted into the agent's terminal. Never ends in Enter alone: the developer can add a sentence and

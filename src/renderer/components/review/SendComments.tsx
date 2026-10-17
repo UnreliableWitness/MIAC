@@ -1,5 +1,5 @@
 import { ChevronDown16Regular, Send16Regular } from '@fluentui/react-icons';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import type { ReviewComment, ReviewState } from '../../../shared/review';
 import type { TaskView } from '../../../shared/types';
 import { api, tryInvoke } from '../../api';
@@ -32,6 +32,8 @@ export function SendComments({
   const [chosen, setChosen] = useState<string | null>(() =>
     readSendTarget(task.id),
   );
+  const [sending, setSending] = useState(false);
+  const busy = useRef(false);
   const close = useCallback(() => setMenu(false), []);
   const targets = task.terminals.filter((t) => AGENTS.has(t.kind));
   const open = comments.filter((c) => c.status === 'open');
@@ -41,6 +43,17 @@ export function SendComments({
     targets[0];
 
   const send = async (id: string) => {
+    if (busy.current) return;
+    busy.current = true;
+    setSending(true);
+    try {
+      await sendNow(id);
+    } finally {
+      busy.current = false;
+      setSending(false);
+    }
+  };
+  const sendNow = async (id: string) => {
     setMenu(false);
     const t = targets.find((x) => x.id === id);
     if (!t || open.length === 0) return;
@@ -77,8 +90,10 @@ export function SendComments({
         ),
       notify,
     );
-    if (s) onSent(s);
-    track('review.commentsSent', { count: open.length });
+    if (s) {
+      onSent(s);
+      track('review.commentsSent', { count: open.length });
+    }
     useStore.getState().setTab(task.id, id);
     requestAnimationFrame(() => focusTerminal(id));
   };
@@ -101,6 +116,7 @@ export function SendComments({
       <button
         type="button"
         className="btn btn-primary btn-sm"
+        disabled={sending}
         onClick={() => void send(target.id)}
       >
         <Send16Regular aria-hidden="true" />
