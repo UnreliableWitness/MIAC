@@ -155,3 +155,14 @@ New events in `docs/telemetry.md`: `review.opened` (scope, file count, repo coun
 - Visual Studio go-to-line depends on `/command "Edit.GoTo"`, unverified until the Windows check.
 - Comment anchoring is text matching; heavily rewritten code makes comments outdated even when they were not addressed.
 - No Changes view for Done tasks.
+
+## Implementation notes (2026-10-17, from the implementation plan)
+
+- Comments are made and shown in the All changes scope only; their lines refer to the working-tree file (after) or the base file (before). Other scopes show "Comments are shown in All changes".
+- An outdated comment shows its original lines with Resolve; "Show change" and re-placing a comment by clicking a line are left out. A comment whose lines come back is open (or sent) again.
+- The renderer and main talk through granular calls (`review:setViewed`, `review:addComment`, `review:updateComment`, `review:deleteComment`, `review:markSent`, `review:summary`) instead of one `review:saveState`, so main owns the state and the re-anchoring.
+- DocsWatcher is shared, not renamed: `review:watch` holds the same DocsWatcher target as the Docs tab plus a GitDirWatcher on the worktree's git dir (`HEAD`, `index`, `ORIG_HEAD`, `logs/HEAD`). File edits arrive as `docs:changed`, git changes as `review:changed`.
+- Monaco picks the language from the file name (the model URI); main sends no language.
+- An unreadable review file is kept as `<taskId>.json.corrupt-<time>` (JsonFileStore) and a notice says so. Tasks are never deleted, so review files are not removed.
+- Monaco is the full `monaco-editor` package with its JSON, CSS, HTML and TypeScript workers (diagnostics off), loaded as a separate chunk on first use.
+- A repo whose git call fails shows git's message in its group; it refreshes with the next change or scope switch (no separate Retry button).
