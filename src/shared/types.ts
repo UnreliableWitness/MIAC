@@ -175,6 +175,8 @@ export type MiacConfig = {
   run: Record<string, string>;
   /** `apm install` targets; false turns the step off; absent means the harnesses of the task's tabs. */
   apm?: string[] | false;
+  /** Extra globs collapsed under "Generated" on the Changes page (`review.collapse`). */
+  reviewCollapse?: string[];
   found: boolean;
 };
 

@@ -37,6 +37,15 @@ import type { RendererTelemetry } from './telemetry';
 import type { TitleBarKind } from './titleBar';
 import type { LocalItemTime, TaskTime } from './time';
 import type { HomePeriod, HomeSnapshot, HomeStats } from './home';
+import type {
+  FileContent,
+  NewReviewComment,
+  ReviewFileRef,
+  ReviewFiles,
+  ReviewScope,
+  ReviewState,
+  ReviewSummary,
+} from './review';
 
 /** Request/response channels. `args` is the tuple the renderer passes; `result` is what main resolves. */
 export type Channels = {
@@ -119,6 +128,52 @@ export type Channels = {
     result: { live: boolean };
   };
   'links:open': { args: [url: string]; result: void };
+  /** Everything the task changed in the scope, per repo; a repo that fails carries `error`. */
+  'review:files': {
+    args: [taskId: string, scope: ReviewScope];
+    result: ReviewFiles;
+  };
+  'review:file': {
+    args: [
+      taskId: string,
+      workspaceId: string,
+      file: ReviewFileRef,
+      scope: ReviewScope,
+    ];
+    result: FileContent;
+  };
+  /** Viewed files and comments, with comments located again in the current files. */
+  'review:state': { args: [taskId: string]; result: ReviewState };
+  'review:setViewed': {
+    args: [taskId: string, key: string, hash: string | null];
+    result: ReviewState;
+  };
+  'review:addComment': {
+    args: [taskId: string, input: NewReviewComment];
+    result: ReviewState;
+  };
+  'review:updateComment': {
+    args: [
+      taskId: string,
+      id: string,
+      patch: { text?: string; status?: 'open' | 'resolved' },
+    ];
+    result: ReviewState;
+  };
+  'review:deleteComment': {
+    args: [taskId: string, id: string];
+    result: ReviewState;
+  };
+  'review:markSent': {
+    args: [taskId: string, ids: string[]];
+    result: ReviewState;
+  };
+  'review:summary': { args: [taskId: string]; result: ReviewSummary };
+  /** Holds the file and git-dir watchers of one worktree (a docs target); `live` false means poll. */
+  'review:watch': {
+    args: [target: string, on: boolean];
+    result: { live: boolean };
+  };
   'tasks:list': { args: []; result: TaskView[] };
   'tasks:create': { args: [input: CreateTaskInput]; result: Task };
   'tasks:setupState': { args: [taskId: string]; result: SetupState | null };
@@ -224,6 +279,8 @@ export type Events = {
   'docs:changed': { taskId: string; paths: string[] };
   /** Main stopped a task's watcher (an error, or Finish/Cancel before removing the worktree); Docs tabs poll instead. */
   'docs:watchStopped': { taskId: string };
+  /** A worktree's git dir changed (commit, amend, reset, staging); `taskId` is a docs target. */
+  'review:changed': { taskId: string };
   notice: { level: 'info' | 'warn' | 'error'; message: string };
   /** An update finished downloading; the renderer offers Restart and update. */
   'update:ready': PendingUpdate;
