@@ -301,10 +301,10 @@ describe('TaskScreen', () => {
     });
     render(<Shell />);
     await userEvent.click(
-      screen.getByRole('button', { name: 'Open in VS Code' }),
+      await screen.findByRole('button', { name: 'Open in VS Code' }),
     );
     await waitFor(() =>
-      expect(calls.some((c) => c.channel === 'tasks:openInEditor')).toBe(true),
+      expect(calls.some((c) => c.channel === 'editor:openFolder')).toBe(true),
     );
     await userEvent.click(screen.getByRole('button', { name: 'Finish task' }));
     expect(useStore.getState().screen).toEqual({ kind: 'finish', taskId: 'a' });
@@ -447,7 +447,7 @@ describe('TaskScreen', () => {
     useStore.setState({ tasks: [{ ...task, worktreeMissing: true }] });
     const { unmount } = render(<Shell />);
     expect(
-      screen.getByRole('button', { name: 'Open in VS Code' }),
+      await screen.findByRole('button', { name: 'Open in VS Code' }),
     ).toBeDisabled();
     unmount();
     useStore.setState({ tasks: [{ ...task, status: 'finishing' }] });

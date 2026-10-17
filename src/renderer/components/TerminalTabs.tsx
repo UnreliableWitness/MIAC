@@ -2,7 +2,6 @@ import {
   Branch16Regular,
   Dismiss12Regular,
   Warning16Regular,
-  Code16Regular,
   DataPie16Regular,
   Document16Regular,
   FullScreenMaximize16Regular,
@@ -24,6 +23,7 @@ import {
   parseDocsTarget,
   type WorkspaceView,
 } from '../../shared/workspaces';
+import { OpenInEditor } from './OpenInEditor';
 import { NewTerminalMenu } from './NewTerminalMenu';
 import { TerminalView } from './TerminalView';
 import { IconButton, MindMark, modKey } from './ui';
@@ -297,20 +297,7 @@ export function TerminalTabs({
           <CostButton taskId={task.id} />
           {ready && (
             <>
-              <button
-                type="button"
-                className="btn btn-subtle btn-sm"
-                disabled={task.worktreeMissing}
-                onClick={() =>
-                  tryInvoke(
-                    () => api().invoke('tasks:openInEditor', task.id),
-                    notify,
-                  )
-                }
-              >
-                <Code16Regular aria-hidden="true" />
-                Open in VS Code
-              </button>
+              <OpenInEditor taskId={task.id} disabled={task.worktreeMissing} />
               <button
                 type="button"
                 className="btn btn-sm"

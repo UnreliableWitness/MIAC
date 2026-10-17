@@ -33,6 +33,7 @@ import type {
   SyncResult,
   TaskUsage,
 } from './usage';
+import type { EditorChoice, EditorId, EditorOptions } from './editors';
 import type { RendererTelemetry } from './telemetry';
 import type { TitleBarKind } from './titleBar';
 import type { LocalItemTime, TaskTime } from './time';
@@ -117,6 +118,31 @@ export type Channels = {
   'docs:resolve': {
     args: [taskId: string, path: string];
     result: { path: string; kind: 'md' | 'file'; workspaceId?: string } | null;
+  };
+  /** Installed editors; `refresh` looks again instead of using this launch's cached detection. */
+  'editor:installed': { args: [refresh?: boolean]; result: EditorChoice[] };
+  'editor:options': {
+    args: [taskId: string, workspaceId?: string];
+    result: EditorOptions;
+  };
+  'editor:openFolder': {
+    args: [
+      taskId: string,
+      workspaceId: string | undefined,
+      o: { editorId?: EditorId; solution?: string },
+    ];
+    result: void;
+  };
+  /** Opens a worktree file (root-relative) at a line in the chosen editor, or in `editorId`. */
+  'editor:openFile': {
+    args: [
+      taskId: string,
+      workspaceId: string | undefined,
+      path: string,
+      line?: number,
+      editorId?: EditorId,
+    ];
+    result: void;
   };
   'docs:openInEditor': {
     args: [taskId: string, path: string, line?: number, col?: number];

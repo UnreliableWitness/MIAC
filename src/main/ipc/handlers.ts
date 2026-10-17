@@ -41,6 +41,13 @@ import { HomeService } from '../home/HomeService';
 import { homeStats } from '../home/homeStats';
 import { DocsWatcher } from '../docs/DocsWatcher';
 import { GitDirWatcher } from '../review/GitDirWatcher';
+import { createEditorHandlers } from '../editors/editorHandlers';
+import {
+  detectEditors,
+  scanProject,
+  systemDetectDeps,
+} from '../editors/editors';
+import { EditorService } from '../editors/EditorService';
 import { createReviewHandlers } from '../review/reviewHandlers';
 import { ReviewService } from '../review/ReviewService';
 import { ReviewStore } from '../review/ReviewStore';
@@ -113,6 +120,8 @@ export type Services = {
   loadConfig: (repoPath: string) => Promise<MiacConfig>;
   pickFolder: () => Promise<string | null>;
   launch: (cmd: Command) => Promise<void>;
+  /** Editor detection and launch; handlers build one from platform, settings and launch when absent (tests). */
+  editors?: EditorService;
   broadcast: <K extends keyof Events>(event: K, payload: Events[K]) => void;
   usage: UsageStore;
   /** Measured active and agent time per task. */
@@ -1046,6 +1055,19 @@ export function createHandlers(s: Services): Handlers {
     repoName: (id) => s.repos.list().find((r) => r.id === id)?.name ?? id,
     collapseOf: async (wt) => (await s.loadConfig(wt)).reviewCollapse ?? [],
   });
+  const editors =
+    s.editors ??
+    new EditorService({
+      platform: s.platform,
+      detect: () => detectEditors(systemDetectDeps()),
+      scan: scanProject,
+      prefs: () => s.settings.get().editor,
+      savePrefs: async (editor) => {
+        await s.settings.save({ ...s.settings.get(), editor });
+      },
+      launch: s.launch,
+      event: (n, p) => tel.event(n, p),
+    });
 
   /** What the Finish page shows for one workspace; a folder removed by hand is `missing`, never an error. */
   const workspaceCheck = async (
@@ -1504,13 +1526,14 @@ export function createHandlers(s: Services): Handlers {
     ...createDocsHandlers({
       taskById,
       git: s.git,
-      editorGoto: (wt, f, l, c) => s.platform.editorGotoCommand(wt, f, l, c),
-      launch: s.launch,
+      openFile: (ws, abs, line, col) =>
+        editors.openFile(ws.repoId, ws.worktreePath, abs, line, col),
       openExternal: s.openExternal,
       revealFile: s.revealFile ?? (() => undefined),
       watcher: docsWatcher,
       event: (n, p) => tel.event(n, p),
     }),
+    ...createEditorHandlers({ taskById, editors }),
     ...createReviewHandlers({ taskById, review, docsWatcher, gitDirWatcher }),
     ...createTimeHandlers({
       time: s.time,
@@ -1928,10 +1951,8 @@ export function createHandlers(s: Services): Handlers {
       }
     },
     'tasks:openInEditor': async (taskId, workspaceId) => {
-      const task = taskById(taskId);
-      const ws = workspaceById(task, workspaceId);
-      await s.launch(s.platform.editorCommand(ws.worktreePath));
-      tel.event('editor.opened');
+      const ws = workspaceById(taskById(taskId), workspaceId);
+      await editors.openFolder(ws.repoId, ws.worktreePath);
     },
 
     'terminals:open': async (taskId, def) => {

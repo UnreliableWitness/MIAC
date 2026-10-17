@@ -1,0 +1,16 @@
+/* Changes page and its menus */
+.popup-menu {
+  position: fixed;
+  right: auto;
+  width: 240px;
+  z-index: 40;
+}
+.split-btn {
+  display: inline-flex;
+  align-items: stretch;
+}
+.split-btn > .btn + .btn {
+  padding-left: 4px;
+  padding-right: 4px;
+  border-left: 1px solid var(--line);
+}
