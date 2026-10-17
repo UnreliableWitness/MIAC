@@ -62,4 +62,24 @@ describe('OpenInEditor', () => {
       await screen.findByRole('button', { name: 'No editor found' }),
     ).toBeTruthy();
   });
+
+  it('loads the options again when it becomes visible', async () => {
+    let chosen: 'vscode' | 'visualstudio' = 'vscode';
+    installFakeApi({
+      'editor:options': () => ({
+        editors: [code, vs],
+        chosen,
+        solutions: [],
+        solution: null,
+      }),
+    });
+    const { rerender } = render(<OpenInEditor taskId="t1" />);
+    await screen.findByRole('button', { name: 'Open in VS Code' });
+    rerender(<OpenInEditor taskId="t1" visible={false} />);
+    chosen = 'visualstudio';
+    rerender(<OpenInEditor taskId="t1" visible />);
+    expect(
+      await screen.findByRole('button', { name: 'Open in Visual Studio' }),
+    ).toBeTruthy();
+  });
 });

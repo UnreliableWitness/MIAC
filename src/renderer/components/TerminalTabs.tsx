@@ -297,7 +297,11 @@ export function TerminalTabs({
           <CostButton taskId={task.id} />
           {ready && (
             <>
-              <OpenInEditor taskId={task.id} disabled={task.worktreeMissing} />
+              <OpenInEditor
+                taskId={task.id}
+                disabled={task.worktreeMissing}
+                visible={visible}
+              />
               <button
                 type="button"
                 className="btn btn-sm"

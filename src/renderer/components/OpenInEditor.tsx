@@ -17,10 +17,13 @@ export function OpenInEditor({
   taskId,
   workspaceId,
   disabled,
+  visible = true,
 }: {
   taskId: string;
   workspaceId?: string;
   disabled?: boolean;
+  /** A hidden row keeps its state; options load again when it shows or its menu opens. */
+  visible?: boolean;
 }) {
   const notify = useStore((s) => s.notify);
   const go = useStore((s) => s.go);
@@ -30,6 +33,7 @@ export function OpenInEditor({
   const close = useCallback(() => setMenu(false), []);
 
   useEffect(() => {
+    if (!visible) return;
     let live = true;
     void api()
       .invoke('editor:options', taskId, workspaceId)
@@ -40,7 +44,7 @@ export function OpenInEditor({
     return () => {
       live = false;
     };
-  }, [taskId, workspaceId]);
+  }, [taskId, workspaceId, visible, menu]);
 
   const open = (o: { editorId?: EditorId; solution?: string } = {}) => {
     setMenu(false);
