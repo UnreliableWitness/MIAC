@@ -1,10 +1,13 @@
 import { ArrowClockwise16Regular } from '@fluentui/react-icons';
+import { useEffect } from 'react';
 import { Band } from '../components/home/Band';
+import { TasksBand } from '../components/home/TasksBand';
 import { PageHeader } from '../components/ui';
 import { ago } from '../format';
 import { useHome } from '../hooks/useHome';
 import { chipState } from '../homeView';
 import { useStore } from '../store';
+import { useWorkItemTypes } from '../workItemTypes';
 
 const CHIP_TEXT = {
   ok: 'connected',
@@ -16,6 +19,10 @@ export function HomeScreen() {
   const { snapshot, refreshing, refresh } = useHome();
   const connections = useStore((s) => s.connections);
   const go = useStore((s) => s.go);
+  const loadTypes = useWorkItemTypes((s) => s.load);
+  useEffect(() => {
+    for (const c of snapshot?.connections ?? []) loadTypes(c.connectionId);
+  }, [snapshot, loadTypes]);
   const byId = new Map(snapshot?.connections.map((c) => [c.connectionId, c]));
   const refused = connections.filter((c) => c.status === 'unauthorized');
   return (
@@ -73,9 +80,7 @@ export function HomeScreen() {
         </p>
       ))}
       <div className="home-bands">
-        <Band title="My tasks">
-          <p className="muted">No open tasks.</p>
-        </Band>
+        <TasksBand snapshot={snapshot} />
         {connections.length === 0 ? (
           <button
             type="button"

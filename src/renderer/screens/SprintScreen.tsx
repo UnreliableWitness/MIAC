@@ -11,7 +11,6 @@ import type {
   Connection,
   SprintIteration,
   SprintRow,
-  TaskStatus,
   TaskView,
 } from '../../shared/types';
 import { api, tryInvoke } from '../api';
@@ -22,6 +21,7 @@ import { eur, sprintDates } from '../format';
 import { useTaskUsage } from '../hooks/useTaskUsage';
 import { startTaskFor } from '../startTask';
 import { activeConnection, useStore } from '../store';
+import { TASK_STATUS } from '../taskStatus';
 
 /** Window focus refreshes the sprint at most this often. */
 const FOCUS_REFRESH_MS = 60_000;
@@ -84,14 +84,6 @@ type Load =
       /** Without a current sprint: the open work assigned to me. */
       mine: SprintRow[];
     };
-
-const TASK_STATUS: Record<TaskStatus, { label: string; color: string }> = {
-  'setting-up': { label: 'Setting up', color: 'var(--accent)' },
-  ready: { label: 'Open', color: 'var(--green)' },
-  'setup-failed': { label: 'Setup failed', color: 'var(--red)' },
-  finishing: { label: 'Finishing', color: 'var(--accent)' },
-  done: { label: 'Done', color: 'var(--muted)' },
-};
 
 const NO_REPO = 'Link a repo to this project in Settings to start a task';
 
