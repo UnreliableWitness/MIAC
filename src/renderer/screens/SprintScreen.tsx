@@ -14,7 +14,12 @@ import type {
   TaskView,
 } from '../../shared/types';
 import { api, tryInvoke } from '../api';
-import { PageHeader, StateDot, WorkItemTypeIcon } from '../components/ui';
+import {
+  PageHeader,
+  StateDot,
+  TimeBar,
+  WorkItemTypeIcon,
+} from '../components/ui';
 import { sprintTime, type SprintTimeCell } from '../../shared/sprintTime';
 import { formatDuration, type LocalItemTime } from '../../shared/time';
 import { eur, sprintDates } from '../format';
@@ -65,11 +70,7 @@ function TimeCell({
       title={parts.length ? parts.join(', ') : undefined}
     >
       <span>{text}</span>
-      {pct !== null && (
-        <span className={over ? 'time-bar over' : 'time-bar'}>
-          <i style={{ width: `${Math.min(100, pct)}%` }} />
-        </span>
-      )}
+      {pct !== null && <TimeBar pct={pct} over={over} />}
     </span>
   );
 }

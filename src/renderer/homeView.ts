@@ -3,7 +3,10 @@ import {
   type HomeConnection,
   type HomeItem,
   type HomeSnapshot,
+  type HomeSprint,
 } from '../shared/home';
+import { sprintTime } from '../shared/sprintTime';
+import type { LocalItemTime } from '../shared/time';
 import type { Connection, Repo, TaskView } from '../shared/types';
 import { taskConnectionId } from '../shared/workspaces';
 
@@ -64,4 +67,55 @@ export function upNext(
     .sort((a, b) => a.end.localeCompare(b.end))
     .slice(0, limit)
     .map(({ connectionId, item }) => ({ connectionId, item }));
+}
+
+/** My items of a sprint by state category, and their spent and estimated time (the Sprint page's rules per item). */
+export function sprintTotals(
+  sprint: HomeSprint,
+  local: Record<string, LocalItemTime>,
+  categoryOf: (type: string, state: string) => string | null | undefined,
+): {
+  todo: number;
+  doing: number;
+  done: number;
+  spentSeconds: number;
+  estimateHours: number | null;
+} {
+  const items = sprint.items.filter(
+    (i) => stateCategory(categoryOf(i.type, i.state), i.state) !== 'Removed',
+  );
+  const cells = sprintTime(
+    items.map((item) => ({
+      item,
+      depth: 0,
+      parentId: null,
+      hasChildren: false,
+    })),
+    local,
+  );
+  let todo = 0;
+  let doing = 0;
+  let done = 0;
+  let spent = 0;
+  let estimate = 0;
+  let anyEstimate = false;
+  for (const i of items) {
+    const c = stateCategory(categoryOf(i.type, i.state), i.state);
+    if (c === 'Proposed') todo++;
+    else if (c === 'Completed') done++;
+    else doing++;
+    const cell = cells.get(i.id);
+    spent += cell?.spentSeconds ?? 0;
+    if (cell?.estimateHours != null) {
+      estimate += cell.estimateHours;
+      anyEstimate = true;
+    }
+  }
+  return {
+    todo,
+    doing,
+    done,
+    spentSeconds: spent,
+    estimateHours: anyEstimate ? estimate : null,
+  };
 }

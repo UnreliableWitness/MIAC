@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { HomeConnection, HomeItem, HomeSnapshot } from '../shared/home';
 import type { Connection, Repo, TaskView } from '../shared/types';
-import { chipState, upNext } from './homeView';
+import { chipState, sprintTotals, upNext } from './homeView';
 
 const connection = { id: 'c1', status: 'ok' } as Connection;
 const home = (status: HomeConnection['status']) =>
@@ -109,5 +109,47 @@ describe('upNext', () => {
     const s = snap([hi('1', 'Approved by PO')]);
     expect(upNext(s, [], repos, () => 'Proposed')).toHaveLength(1);
     expect(upNext(s, [], repos, () => 'InProgress')).toHaveLength(0);
+  });
+});
+
+describe('sprintTotals', () => {
+  const sprint = {
+    iterationId: 'i',
+    name: 'S1',
+    path: 'P\\S1',
+    startDate: null,
+    finishDate: null,
+    items: [
+      { ...hi('1'), originalEstimate: 4 },
+      { ...hi('2', 'Doing'), originalEstimate: 2, completedWork: 1 },
+      { ...hi('3', 'Done') },
+      { ...hi('4', 'Removed') },
+    ],
+  };
+  it('counts my items by state category, without removed ones', () => {
+    expect(sprintTotals(sprint, {}, () => undefined)).toMatchObject({
+      todo: 1,
+      doing: 1,
+      done: 1,
+    });
+  });
+  it('adds spent and estimate as the Sprint page does', () => {
+    const local = {
+      '1': {
+        spentSeconds: 3600,
+        measuredSeconds: 3600,
+        agentSeconds: 0,
+        booked: false,
+        baselineHours: null,
+      },
+    };
+    expect(sprintTotals(sprint, local, () => undefined)).toMatchObject({
+      spentSeconds: 3600 + 3600,
+      estimateHours: 6,
+    });
+  });
+  it('has no estimate when no item has one', () => {
+    const bare = { ...sprint, items: [hi('9')] };
+    expect(sprintTotals(bare, {}, () => undefined).estimateHours).toBeNull();
   });
 });

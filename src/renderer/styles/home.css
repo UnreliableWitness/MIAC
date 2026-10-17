@@ -83,6 +83,10 @@
 .home-card.is-attention {
   border-color: var(--red);
 }
+.home-card.is-slim {
+  cursor: default;
+  padding: 4px 10px;
+}
 .home-card-title {
   display: flex;
   align-items: center;

@@ -78,13 +78,13 @@ describe('Home page', () => {
     );
   });
 
-  it('shows Loading in the PR band until a snapshot exists', async () => {
+  it('shows Loading in the PR and sprint bands until a snapshot exists', async () => {
     installFakeApi({
       'home:get': () => null,
       'home:refresh': () => new Promise(() => {}),
     });
     render(<Shell />);
-    expect(await screen.findByText('Loading')).toBeTruthy();
+    expect(await screen.findAllByText('Loading')).toHaveLength(2);
     expect(screen.queryByText('No reviews waiting.')).toBeNull();
   });
 

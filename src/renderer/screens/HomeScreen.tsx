@@ -2,6 +2,7 @@ import { ArrowClockwise16Regular } from '@fluentui/react-icons';
 import { useEffect } from 'react';
 import { Band } from '../components/home/Band';
 import { PrBand } from '../components/home/PrBand';
+import { SprintsBand } from '../components/home/SprintsBand';
 import { TasksBand } from '../components/home/TasksBand';
 import { PageHeader } from '../components/ui';
 import { ago } from '../format';
@@ -99,11 +100,13 @@ export function HomeScreen() {
                 <p className="muted">Loading</p>
               </Band>
             )}
-            <Band title="My sprints">
-              <p className="muted">
-                Nothing assigned to you in a current sprint.
-              </p>
-            </Band>
+            {snapshot ? (
+              <SprintsBand snapshot={snapshot} />
+            ) : (
+              <Band title="My sprints">
+                <p className="muted">Loading</p>
+              </Band>
+            )}
           </>
         )}
         <Band title="Stats">
