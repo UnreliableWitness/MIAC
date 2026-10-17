@@ -107,7 +107,16 @@
   padding: 3px 12px;
   cursor: pointer;
 }
-.review-file:hover {
+.review-dir {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 12px;
+  cursor: pointer;
+}
+.review-file:hover,
+.review-dir:hover {
   background: var(--bg-hover);
 }
 .review-file.selected {
@@ -180,7 +189,22 @@
 }
 .review-side-tabs {
   display: flex;
+  align-items: center;
   border-bottom: 1px solid var(--line);
+}
+.review-side-tabs .grow {
+  flex: 1;
+}
+.review-file-view {
+  display: inline-flex;
+  padding-right: 4px;
+}
+.review-file-view .ibtn {
+  width: 26px;
+  height: 26px;
+}
+.review-file-view [aria-pressed='true'] {
+  background: var(--bg-selected);
 }
 .review-card {
   max-width: 720px;

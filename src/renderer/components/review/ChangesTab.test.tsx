@@ -1,5 +1,6 @@
 import {
   act,
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -758,5 +759,72 @@ describe('ChangesTab more', () => {
       ),
     ).toBeTruthy();
     expect(screen.queryByText('Loading changes…')).toBeNull();
+  });
+});
+
+describe('ChangesTab file tree', () => {
+  beforeEach(() => {
+    files = {
+      ...files,
+      repos: [
+        {
+          ...files.repos[0],
+          files: [
+            file('z.md', 'h1'),
+            file('src/b.ts', 'h2'),
+            file('src/a.ts', 'h3'),
+          ],
+        },
+      ],
+    };
+  });
+  const after = async (text: string) =>
+    waitFor(() => expect(screen.getByTestId('after').textContent).toBe(text));
+
+  it('walks next file in the order the tree shows', async () => {
+    mount();
+    await after('new src/a.ts');
+    fireEvent.click(screen.getByRole('button', { name: 'Next file' }));
+    await after('new src/b.ts');
+    fireEvent.click(screen.getByRole('button', { name: 'Next file' }));
+    await after('new z.md');
+  });
+
+  it('walks the list order once switched to list, and keeps that choice', async () => {
+    mount();
+    await after('new src/a.ts');
+    fireEvent.click(screen.getByRole('button', { name: 'Show as list' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Next file' }));
+    // List order is the order git gave: z.md, src/b.ts, src/a.ts; from the last it wraps.
+    await after('new z.md');
+    expect(
+      JSON.parse(localStorage.getItem('miac.review.prefs') ?? '{}').fileView,
+    ).toBe('list');
+  });
+
+  it('unfolds the folder of a file that is opened inside it', async () => {
+    mount();
+    await after('new src/a.ts');
+    fireEvent.click(screen.getByRole('button', { name: 'Next file' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Next file' }));
+    await after('new z.md');
+    fireEvent.click(screen.getByText('src'));
+    expect(screen.queryByText('a.ts')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Next file' }));
+    await after('new src/a.ts');
+    expect(screen.getByText('a.ts')).toBeTruthy();
+  });
+
+  it('keeps folded folders per task across a remount', async () => {
+    mount();
+    await after('new src/a.ts');
+    fireEvent.click(screen.getByRole('button', { name: 'Next file' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Next file' }));
+    await after('new z.md');
+    fireEvent.click(screen.getByText('src'));
+    cleanup();
+    mount();
+    await after('new z.md');
+    expect(screen.queryByText('a.ts')).toBeNull();
   });
 });

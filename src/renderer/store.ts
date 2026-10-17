@@ -22,11 +22,14 @@ export type ReviewView = {
   scope: ReviewScope;
   selected: { workspaceId: string; path: string } | null;
   draft: ReviewDraft | null;
+  /** Folders folded in the file tree, as `dirKey` keys. */
+  collapsed: string[];
 };
 export const DEFAULT_REVIEW_VIEW: ReviewView = {
   scope: { kind: 'all' },
   selected: null,
   draft: null,
+  collapsed: [],
 };
 
 /** Every screen is a full page next to the nav; `task` shows the selected task. */

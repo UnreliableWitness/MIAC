@@ -1,4 +1,9 @@
-import { ArrowDown16Regular, ArrowUp16Regular } from '@fluentui/react-icons';
+import {
+  ArrowDown16Regular,
+  ArrowUp16Regular,
+  TextBulletListLtr16Regular,
+  TextBulletListTree16Regular,
+} from '@fluentui/react-icons';
 import {
   type SetStateAction,
   useEffect,
@@ -23,6 +28,7 @@ import {
   type ReviewPrefs,
   writeReviewPrefs,
 } from '../../review/reviewPrefs';
+import { dirKey, holds, viewOrder } from '../../review/fileTree';
 import { useReview } from '../../review/useReview';
 import {
   DEFAULT_REVIEW_VIEW,
@@ -84,17 +90,23 @@ const kb = (n: number) =>
       ? `${(n / 1024).toFixed(1)} KB`
       : `${(n / 1024 / 1024).toFixed(1)} MB`;
 
-/** Files in tree order (generated files last), for next/previous file. */
+/** Files in the order the Files panel shows them (generated files last), for next/previous file. */
 function ordered(
   repos: ReviewRepo[],
+  view: ReviewPrefs['fileView'],
 ): { repo: ReviewRepo; file: ReviewFile }[] {
-  return repos.flatMap((r) => {
-    const all = r.files.map((file) => ({ repo: r, file }));
-    return [
-      ...all.filter((x) => !isGenerated(x.file.path, r.collapse)),
-      ...all.filter((x) => isGenerated(x.file.path, r.collapse)),
-    ];
-  });
+  return repos.flatMap((r) =>
+    [
+      ...viewOrder(
+        r.files.filter((f) => !isGenerated(f.path, r.collapse)),
+        view,
+      ),
+      ...viewOrder(
+        r.files.filter((f) => isGenerated(f.path, r.collapse)),
+        view,
+      ),
+    ].map((file) => ({ repo: r, file })),
+  );
 }
 
 export function ChangesTab({ task }: { task: TaskView }) {
@@ -125,7 +137,11 @@ export function ChangesTab({ task }: { task: TaskView }) {
   const handle = useRef<DiffViewHandle | null>(null);
   const tracked = useRef(false);
 
-  const list = useMemo(() => (files ? ordered(files.repos) : []), [files]);
+  const [collapsed, setCollapsed] = useViewField(task.id, 'collapsed');
+  const list = useMemo(
+    () => (files ? ordered(files.repos, prefs.fileView) : []),
+    [files, prefs.fileView],
+  );
   const current =
     list.find(
       (x) =>
@@ -143,6 +159,16 @@ export function ChangesTab({ task }: { task: TaskView }) {
           : null,
       );
   }, [files, current, list]);
+
+  // The selected file is always in sight: unfold the folders that hold it.
+  useEffect(() => {
+    if (!selected) return;
+    const hiding = (k: string) =>
+      k.startsWith(dirKey(selected.workspaceId, '')) &&
+      holds(k.slice(dirKey(selected.workspaceId, '').length), selected.path);
+    setCollapsed((c) => (c.some(hiding) ? c.filter((k) => !hiding(k)) : c));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.workspaceId, selected?.path]);
 
   useEffect(() => {
     if (!files || tracked.current) return;
@@ -513,11 +539,43 @@ export function ChangesTab({ task }: { task: TaskView }) {
             >
               {`Comments (${comments.length})`}
             </button>
+            <span className="grow" />
+            {panel === 'files' && (
+              <span className="review-file-view">
+                <button
+                  type="button"
+                  className="ibtn"
+                  aria-pressed={prefs.fileView === 'tree'}
+                  aria-label="Show as tree"
+                  title="Show as tree"
+                  onClick={() => setPref({ fileView: 'tree' })}
+                >
+                  <TextBulletListTree16Regular aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  className="ibtn"
+                  aria-pressed={prefs.fileView === 'list'}
+                  aria-label="Show as list"
+                  title="Show as list"
+                  onClick={() => setPref({ fileView: 'list' })}
+                >
+                  <TextBulletListLtr16Regular aria-hidden="true" />
+                </button>
+              </span>
+            )}
           </div>
           {panel === 'files' ? (
             <FileTree
               repos={files?.repos ?? []}
+              view={prefs.fileView}
               selected={selected}
+              collapsed={collapsed}
+              onToggleDir={(key) =>
+                setCollapsed((c) =>
+                  c.includes(key) ? c.filter((k) => k !== key) : [...c, key],
+                )
+              }
               viewed={state?.viewed ?? {}}
               commentCount={(ref) =>
                 comments.filter(

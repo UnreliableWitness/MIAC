@@ -1,10 +1,20 @@
-import { useState } from 'react';
+import {
+  ChevronDown12Regular,
+  ChevronRight12Regular,
+} from '@fluentui/react-icons';
+import { type ReactNode, useState } from 'react';
 import {
   isGenerated,
   type ReviewFile,
   type ReviewRepo,
   viewedKey,
 } from '../../../shared/review';
+import {
+  buildTree,
+  dirKey,
+  treeFiles,
+  type TreeDir,
+} from '../../review/fileTree';
 
 export type FileRef = { workspaceId: string; path: string };
 const STATUS_LABEL = {
@@ -20,8 +30,11 @@ const split = (p: string) => {
     : { dir: p.slice(0, i + 1), name: p.slice(i + 1) };
 };
 
+const indent = (depth: number) => ({ paddingLeft: 12 + depth * 14 });
+
 function Row({
   file,
+  depth,
   selected,
   viewedHash,
   comments,
@@ -29,6 +42,8 @@ function Row({
   onViewed,
 }: {
   file: ReviewFile;
+  /** Set in the tree: the folder depth to indent by, and no folder after the name. */
+  depth?: number;
   selected: boolean;
   viewedHash: string | undefined;
   comments: number;
@@ -43,6 +58,7 @@ function Row({
       role="treeitem"
       aria-selected={selected}
       className={`review-file${selected ? ' selected' : ''}`}
+      style={depth === undefined ? undefined : indent(depth)}
       onClick={onSelect}
     >
       <span
@@ -56,7 +72,9 @@ function Row({
         title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
       >
         <span>{name}</span>
-        {dir && <span className="muted small"> {dir}</span>}
+        {dir && depth === undefined && (
+          <span className="muted small"> {dir}</span>
+        )}
         {changedSince && (
           <span className="tag tag-warn review-changed">
             Changed since viewed
@@ -92,21 +110,114 @@ function Row({
   );
 }
 
-/** Changed files per repo; generated files (lock files, dist, the repo's review.collapse) folded away. */
+/** A folder row and, unless folded, what it holds. */
+function Dir({
+  dir,
+  depth,
+  workspaceId,
+  collapsed,
+  viewedCount,
+  comments,
+  onToggle,
+  row,
+}: {
+  dir: TreeDir;
+  depth: number;
+  workspaceId: string;
+  collapsed: string[];
+  viewedCount: (files: ReviewFile[]) => number;
+  comments: (files: ReviewFile[]) => number;
+  onToggle: (key: string) => void;
+  row: (f: ReviewFile, depth: number) => ReactNode;
+}) {
+  const key = dirKey(workspaceId, dir.path);
+  const expanded = !collapsed.includes(key);
+  const all = treeFiles(dir);
+  const seen = viewedCount(all);
+  const notes = comments(all);
+  return (
+    <div role="group" aria-label={dir.path}>
+      <div
+        role="treeitem"
+        aria-expanded={expanded}
+        aria-selected={false}
+        className="review-dir"
+        style={indent(depth)}
+        title={dir.path}
+        onClick={() => onToggle(key)}
+      >
+        {expanded ? (
+          <ChevronDown12Regular aria-hidden="true" />
+        ) : (
+          <ChevronRight12Regular aria-hidden="true" />
+        )}
+        <span className="review-name">{dir.name}</span>
+        {notes > 0 && (
+          <span
+            className="small review-count"
+            aria-label={`${notes} ${notes === 1 ? 'comment' : 'comments'} in ${dir.path}`}
+          >
+            {notes}
+          </span>
+        )}
+        <span
+          className="small muted mono"
+          aria-label={`${seen} of ${all.length} viewed`}
+        >
+          {`${seen}/${all.length}`}
+        </span>
+      </div>
+      {expanded && (
+        <Level
+          dir={dir}
+          depth={depth + 1}
+          workspaceId={workspaceId}
+          collapsed={collapsed}
+          viewedCount={viewedCount}
+          comments={comments}
+          onToggle={onToggle}
+          row={row}
+        />
+      )}
+    </div>
+  );
+}
+
+/** A folder's subfolders, then its files. */
+function Level(props: Parameters<typeof Dir>[0]) {
+  const { dir, depth, row } = props;
+  return (
+    <>
+      {dir.dirs.map((d) => (
+        <Dir key={d.path} {...props} dir={d} depth={depth} />
+      ))}
+      {dir.files.map((f) => row(f, depth))}
+    </>
+  );
+}
+
+/** Changed files per repo, as a folder tree or a flat list; generated files (lock files, dist, the repo's review.collapse) folded away. */
 export function FileTree({
   repos,
+  view,
   selected,
   viewed,
+  collapsed,
   commentCount,
   onSelect,
   onViewed,
+  onToggleDir,
 }: {
   repos: ReviewRepo[];
+  view: 'tree' | 'list';
   selected: FileRef | null;
   viewed: Record<string, string>;
+  /** Folded folders, as `dirKey` keys. */
+  collapsed: string[];
   commentCount: (ref: FileRef) => number;
   onSelect: (ref: FileRef) => void;
   onViewed: (repo: ReviewRepo, file: ReviewFile, on: boolean) => void;
+  onToggleDir: (key: string) => void;
 }) {
   const [openGenerated, setOpenGenerated] = useState<Record<string, boolean>>(
     {},
@@ -119,25 +230,46 @@ export function FileTree({
         const generated = r.files.filter((f) =>
           isGenerated(f.path, r.collapse),
         );
-        const row = (f: ReviewFile) => (
+        const ref = (f: ReviewFile) => ({
+          workspaceId: r.workspaceId,
+          path: f.path,
+        });
+        const row = (f: ReviewFile, depth?: number) => (
           <Row
             key={f.path}
             file={f}
+            depth={depth}
             selected={
               selected?.workspaceId === r.workspaceId &&
               selected.path === f.path
             }
             viewedHash={viewed[viewedKey(r.workspaceId, f.path)]}
-            comments={commentCount({
-              workspaceId: r.workspaceId,
-              path: f.path,
-            })}
-            onSelect={() =>
-              onSelect({ workspaceId: r.workspaceId, path: f.path })
-            }
+            comments={commentCount(ref(f))}
+            onSelect={() => onSelect(ref(f))}
             onViewed={(on) => onViewed(r, f, on)}
           />
         );
+        const files = (list: ReviewFile[]) =>
+          view === 'list' ? (
+            list.map((f) => row(f))
+          ) : (
+            <Level
+              dir={buildTree(list)}
+              depth={0}
+              workspaceId={r.workspaceId}
+              collapsed={collapsed}
+              viewedCount={(fs) =>
+                fs.filter(
+                  (f) => viewed[viewedKey(r.workspaceId, f.path)] === f.hash,
+                ).length
+              }
+              comments={(fs) =>
+                fs.reduce((n, f) => n + commentCount(ref(f)), 0)
+              }
+              onToggle={onToggleDir}
+              row={row}
+            />
+          );
         return (
           <div
             key={r.workspaceId}
@@ -151,7 +283,7 @@ export function FileTree({
                 {r.error}
               </div>
             )}
-            {normal.map(row)}
+            {files(normal)}
             {generated.length > 0 && (
               <>
                 <button
@@ -167,7 +299,7 @@ export function FileTree({
                 >
                   {`Generated (${generated.length})`}
                 </button>
-                {openGenerated[r.workspaceId] && generated.map(row)}
+                {openGenerated[r.workspaceId] && files(generated)}
               </>
             )}
           </div>
