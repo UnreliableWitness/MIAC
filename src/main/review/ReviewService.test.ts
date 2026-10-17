@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { viewedKey } from '../../shared/review';
-import { GitClient } from '../services/GitClient';
+import { GitClient, GitError } from '../services/GitClient';
 import {
   cleanupTempRepos,
   commitFile,
@@ -242,5 +242,62 @@ describe('ReviewService', () => {
     });
     writeFileSync(path.join(repo, 'a.ts'), 'l1\nl2\nCHANGED\nl4\nl5\nmore\n');
     expect((await service.summary(task)).notViewed).toBe(2);
+  });
+
+  it('anchors a before-side comment on a renamed file at its old path, and keeps it there', async () => {
+    const { task, service, repo } = setup();
+    git(repo, 'mv', 'a.ts', 'renamed.ts');
+    const s = await service.addComment(task, {
+      workspaceId: 'home',
+      path: 'renamed.ts',
+      oldPath: 'a.ts',
+      side: 'before',
+      startLine: 3,
+      endLine: 3,
+      text: 'Removed?',
+    });
+    expect(s.comments[0]).toMatchObject({
+      path: 'renamed.ts',
+      oldPath: 'a.ts',
+      snippet: 'l3',
+    });
+    expect((await service.state(task)).comments[0]).toMatchObject({
+      status: 'open',
+      startLine: 3,
+    });
+  });
+
+  it('rejects an oldPath outside the worktree', async () => {
+    const { task, service } = setup();
+    await expect(
+      service.addComment(task, {
+        workspaceId: 'home',
+        path: 'a.ts',
+        oldPath: '../x.ts',
+        side: 'before',
+        startLine: 1,
+        endLine: 1,
+        text: 'x',
+      }),
+    ).rejects.toThrow('Outside the worktree');
+  });
+
+  it('shows the error message when git fails with an empty stderr', async () => {
+    const { repo } = setup();
+    const failing = {
+      resolveBase: async () => {
+        throw new GitError(['merge-base'], '', 128);
+      },
+    } as unknown as GitClient;
+    const service = new ReviewService({
+      git: failing,
+      store: new ReviewStore(mkdtempSync(path.join(os.tmpdir(), 'miac-rs-'))),
+      repoName: () => 'web',
+      collapseOf: async () => [],
+    });
+    const r = await service.files(testTask({ worktreePath: repo }), {
+      kind: 'all',
+    });
+    expect(r.repos[0].error).toBe('git merge-base failed (128):');
   });
 });

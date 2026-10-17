@@ -10,14 +10,17 @@ export const EDITOR_LABELS: Record<EditorId, string> = {
 };
 export type EditorChoice = { id: EditorId; label: string };
 
+/** A stored editor id this version does not know (removed, or from a newer MIAC) reads as no choice. */
+const StoredEditorId = EditorIdSchema.nullable().default(null).catch(null);
+
 /** Personal editor choices (settings.json, never `.miac.yml`): a default and one per repo, with Visual Studio's solution. */
 export const EditorPrefsSchema = z.object({
-  default: EditorIdSchema.nullable().default(null),
+  default: StoredEditorId,
   repos: z
     .record(
       z.string(),
       z.object({
-        editor: EditorIdSchema.nullable().default(null),
+        editor: StoredEditorId,
         solution: z.string().nullable().default(null),
       }),
     )

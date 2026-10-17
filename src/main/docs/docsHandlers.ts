@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { z } from 'zod';
 import type { Handlers } from '../../shared/ipc';
 import type { TelemetryProps } from '../../shared/telemetry';
 import type { Task } from '../../shared/types';
@@ -28,6 +29,8 @@ type DocsChannels =
   | 'docs:reveal'
   | 'docs:watch'
   | 'links:open';
+
+const Position = z.number().int().min(1).optional();
 
 export type DocsDeps = {
   taskById: (id: string) => Task;
@@ -100,9 +103,11 @@ export function createDocsHandlers(d: DocsDeps): Pick<Handlers, DocsChannels> {
       return null;
     },
     'docs:openInEditor': async (target, p, line, col) => {
+      const at = Position.parse(line);
+      const column = Position.parse(col);
       const ws = workspace(target);
       const abs = await resolveInWorktree(ws.worktreePath, p);
-      await d.openFile(ws, abs, line, col);
+      await d.openFile(ws, abs, at, column);
     },
     'docs:reveal': async (target, p) => {
       d.revealFile(await resolveInWorktree(worktree(target), p));

@@ -65,6 +65,21 @@ describe('docs handlers', () => {
       2,
     ]);
   });
+  it('refuses a line or column that is not a positive integer', async () => {
+    const { h, launch } = setup();
+    for (const [line, col] of [
+      [0, 1],
+      [1.5, 1],
+      [3, -1],
+      ['3', 1],
+    ] as const)
+      await expect(
+        h['docs:openInEditor']('t1', 'README.md', line as number, col),
+      ).rejects.toThrow();
+    expect(launch).not.toHaveBeenCalled();
+    await h['docs:openInEditor']('t1', 'README.md');
+    expect(launch.mock.calls[0].slice(2)).toEqual([undefined, undefined]);
+  });
   it('refuses to reveal or open outside the worktree', async () => {
     const { h, revealFile } = setup();
     await expect(h['docs:reveal']('t1', '../x')).rejects.toThrow(

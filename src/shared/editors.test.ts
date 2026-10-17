@@ -54,4 +54,26 @@ describe('editor settings', () => {
       repos: {},
     });
   });
+  it('drops an unknown editor id without resetting the other settings', () => {
+    const stored = {
+      ...defaultSettings(),
+      idleMinutes: 7,
+      editor: {
+        default: 'notepad',
+        repos: {
+          r1: { editor: 'emacs', solution: 'App.sln' },
+          r2: { editor: 'vscode', solution: null },
+        },
+      },
+    };
+    const parsed = AppSettingsSchema.parse(stored);
+    expect(parsed.editor).toEqual({
+      default: null,
+      repos: {
+        r1: { editor: null, solution: 'App.sln' },
+        r2: { editor: 'vscode', solution: null },
+      },
+    });
+    expect(parsed.idleMinutes).toBe(7);
+  });
 });

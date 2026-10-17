@@ -81,6 +81,8 @@ export const ReviewCommentSchema = z.object({
   id: z.string().min(1),
   workspaceId: z.string().min(1),
   path: z.string().min(1),
+  /** The base path of a renamed file; the before side is read there. */
+  oldPath: z.string().min(1).optional(),
   side: ReviewSideSchema,
   startLine: z.number().int().min(1),
   endLine: z.number().int().min(1),
@@ -100,6 +102,7 @@ export type ReviewComment = z.infer<typeof ReviewCommentSchema>;
 export const NewReviewCommentSchema = z.object({
   workspaceId: z.string().min(1),
   path: z.string().min(1),
+  oldPath: z.string().min(1).optional(),
   side: ReviewSideSchema,
   startLine: z.number().int().min(1),
   endLine: z.number().int().min(1),
@@ -126,6 +129,13 @@ export type ReviewSummary = {
   notViewed: number;
   unresolved: number;
 };
+
+/** Where a comment's lines are read: the base path for a before-side comment on a renamed file. */
+export const commentReadPath = (c: {
+  path: string;
+  oldPath?: string;
+  side: ReviewSide;
+}): string => (c.side === 'before' ? (c.oldPath ?? c.path) : c.path);
 
 export const viewedKey = (workspaceId: string, path: string): string =>
   `${workspaceId}:${path}`;

@@ -10,6 +10,7 @@ import {
   type ReviewScope,
   type ReviewState,
   type ReviewSummary,
+  commentReadPath,
   viewedKey,
 } from '../../shared/review';
 import { anchorComment, captureAnchor } from '../../shared/reviewAnchor';
@@ -37,7 +38,11 @@ export type ReviewServiceDeps = {
 };
 
 const message = (e: unknown): string =>
-  e instanceof GitError ? e.stderr : e instanceof Error ? e.message : String(e);
+  e instanceof GitError
+    ? e.stderr.trim() || e.message.trim()
+    : e instanceof Error
+      ? e.message
+      : String(e);
 
 export class ReviewService {
   private readonly now: () => Date;
@@ -150,7 +155,7 @@ export class ReviewService {
     for (const c of cur.comments) {
       if (c.status === 'resolved') continue;
       const ws = active.get(c.workspaceId);
-      const text = ws ? await textOf(ws, c.side, c.path) : null;
+      const text = ws ? await textOf(ws, c.side, commentReadPath(c)) : null;
       const at = text === null ? null : anchorComment(c, text);
       const revived = at && c.status === 'outdated';
       const moved =
@@ -188,11 +193,17 @@ export class ReviewService {
 
   async addComment(task: Task, input: NewReviewComment): Promise<ReviewState> {
     assertRelPath(input.path);
+    if (input.oldPath) assertRelPath(input.oldPath);
     const ws = this.workspace(task, input.workspaceId);
     const ref = input.side === 'after' ? null : await this.base(ws);
     if (input.side === 'before' && !ref)
       throw new Error('No base for this task');
-    const text = await readSide(this.d.git, ws.worktreePath, ref, input.path);
+    const text = await readSide(
+      this.d.git,
+      ws.worktreePath,
+      ref,
+      commentReadPath(input),
+    );
     if (text === null) throw new Error('The file is not there any more');
     const at = captureAnchor(text, input.startLine, input.endLine);
     return this.d.store.update(task.id, (s) => {
@@ -200,6 +211,7 @@ export class ReviewService {
         id: this.newId(),
         workspaceId: input.workspaceId,
         path: input.path,
+        ...(input.oldPath ? { oldPath: input.oldPath } : {}),
         side: input.side,
         text: input.text,
         ...at,
