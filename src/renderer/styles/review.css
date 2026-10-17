@@ -91,9 +91,43 @@
   border-right: 1px solid var(--line);
   padding: 4px 0;
 }
+.review-repo + .review-repo {
+  margin-top: 6px;
+  border-top: 1px solid var(--line);
+}
+.review-repo-head {
+  padding: 6px 12px 4px;
+  cursor: pointer;
+}
+.review-repo-head:hover {
+  background: var(--bg-hover);
+}
+.review-repo-head.no-changes {
+  cursor: default;
+}
+.review-repo-head.no-changes:hover {
+  background: none;
+}
+.review-repo-line {
+  display: grid;
+  grid-template-columns: 12px auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px;
+}
 .review-repo-name {
-  padding: 6px 12px 2px;
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.review-repo-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  padding-left: 25px;
+}
+.review-uncommitted {
+  color: var(--warn);
 }
 .review-repo-error {
   margin: 4px 12px;
@@ -165,6 +199,9 @@
   min-height: 0;
 }
 .review-path {
+  /* The file shown is the toolbar's first fact: it keeps room, the controls wrap below it. */
+  flex: 1 1 260px;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -296,4 +333,34 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+.review-path .repo-mark {
+  vertical-align: middle;
+}
+.review-crumb {
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+}
+.review-repos {
+  display: inline-flex;
+  gap: 2px;
+}
+.review-repos [aria-pressed='true'] {
+  background: var(--bg-selected);
+}
+.review-repo-chip {
+  gap: 6px;
+}
+.review-repo-chip .repo-mark-dot {
+  margin-right: 0;
+}
+.review-head,
+.review-toolbar {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+.review-head > .small,
+.review-toolbar label {
+  white-space: nowrap;
 }

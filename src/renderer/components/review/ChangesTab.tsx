@@ -22,6 +22,11 @@ import {
   viewedKey,
 } from '../../../shared/review';
 import type { TaskView } from '../../../shared/types';
+import {
+  activeWorkspaces,
+  dropsAtFinish,
+  repoColor,
+} from '../../../shared/workspaces';
 import { api, tryInvoke } from '../../api';
 import {
   readReviewPrefs,
@@ -29,6 +34,7 @@ import {
   writeReviewPrefs,
 } from '../../review/reviewPrefs';
 import { dirKey, holds, viewOrder } from '../../review/fileTree';
+import { isFolded, repoSignature, viewedIn } from '../../review/repoGroups';
 import { useReview } from '../../review/useReview';
 import {
   DEFAULT_REVIEW_VIEW,
@@ -47,6 +53,8 @@ import {
   type DiffZone,
 } from './DiffView';
 import { FileTree, type FileRef } from './FileTree';
+import { RepoMark } from '../RepoMark';
+import { RepoFilter } from './RepoFilter';
 import { ScopePicker } from './ScopePicker';
 import { SendComments } from './SendComments';
 
@@ -138,10 +146,46 @@ export function ChangesTab({ task }: { task: TaskView }) {
   const tracked = useRef(false);
 
   const [collapsed, setCollapsed] = useViewField(task.id, 'collapsed');
-  const list = useMemo(
-    () => (files ? ordered(files.repos, prefs.fileView) : []),
-    [files, prefs.fileView],
+  const [storedFilter, setRepoFilter] = useViewField(task.id, 'repoFilter');
+  const [repoFolds, setRepoFolds] = useViewField(task.id, 'repoFolds');
+  const inTask = activeWorkspaces(task);
+  const multiRepo = inTask.length > 1;
+  // A repo that left the task drops the filter.
+  const repoFilter =
+    multiRepo && inTask.some((w) => w.id === storedFilter)
+      ? storedFilter
+      : null;
+  const viewedMap = state?.viewed ?? {};
+  const shownRepos = useMemo(
+    () =>
+      (files?.repos ?? []).filter(
+        (r) => repoFilter === null || r.workspaceId === repoFilter,
+      ),
+    [files, repoFilter],
   );
+  const list = useMemo(
+    () => (files ? ordered(shownRepos, prefs.fileView) : []),
+    [files, shownRepos, prefs.fileView],
+  );
+  const repoNameOf = (id: string) =>
+    files?.repos.find((r) => r.workspaceId === id)?.name ??
+    repos.find((r) => r.id === inTask.find((w) => w.id === id)?.repoId)?.name ??
+    id;
+  const filterTo = (
+    id: string | null,
+    via: 'chip' | 'key' | 'breadcrumb' | 'commit' | 'comment',
+  ) => {
+    if (id === repoFilter) return;
+    setRepoFilter(id);
+    track('review.repoFiltered', { via });
+  };
+  const folded = (r: ReviewRepo) =>
+    isFolded(r, viewedMap, repoFolds[r.workspaceId]);
+  const setFold = (r: ReviewRepo, how: 'open' | 'closed') =>
+    setRepoFolds((f) => ({
+      ...f,
+      [r.workspaceId]: { how, at: repoSignature(r) },
+    }));
   const current =
     list.find(
       (x) =>
@@ -149,16 +193,33 @@ export function ChangesTab({ task }: { task: TaskView }) {
         x.file.path === selected.path,
     ) ?? null;
 
-  // Keep the selection while the file is still listed; otherwise open the first file.
+  // Keep the selection while the file is still listed; otherwise open the first file (narrowed to one
+  // repo: its first file not viewed yet).
   useEffect(() => {
     if (!files) return;
-    if (!current)
-      setSelected(
-        list[0]
-          ? { workspaceId: list[0].repo.workspaceId, path: list[0].file.path }
-          : null,
-      );
+    if (current) return;
+    const first =
+      (repoFilter !== null &&
+        list.find(
+          (x) =>
+            viewedMap[viewedKey(x.repo.workspaceId, x.file.path)] !==
+            x.file.hash,
+        )) ||
+      list[0];
+    setSelected(
+      first
+        ? { workspaceId: first.repo.workspaceId, path: first.file.path }
+        : null,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [files, current, list]);
+
+  // A file opened inside a folded repo opens the repo.
+  useEffect(() => {
+    if (!current || !multiRepo || !folded(current.repo)) return;
+    setFold(current.repo, 'open');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.workspaceId, selected?.path]);
 
   // The selected file is always in sight: unfold the folders that hold it.
   useEffect(() => {
@@ -233,6 +294,14 @@ export function ChangesTab({ task }: { task: TaskView }) {
     if (s) {
       setState(s);
       if (on) track('review.fileViewed');
+      const fold = repoFolds[repo.workspaceId];
+      if (
+        on &&
+        multiRepo &&
+        !(fold && fold.at === repoSignature(repo)) &&
+        viewedIn(repo, s.viewed) === repo.files.length
+      )
+        track('review.repoCollapsed', { how: 'auto' });
     }
   };
 
@@ -354,6 +423,8 @@ export function ChangesTab({ task }: { task: TaskView }) {
     ? comments.filter((c) => onThisFile(c) && c.status === 'outdated')
     : [];
   const openComment = (c: ReviewComment) => {
+    if (repoFilter !== null && repoFilter !== c.workspaceId)
+      filterTo(c.workspaceId, 'comment');
     setScope({ kind: 'all' });
     setPanel('files');
     setSelected({ workspaceId: c.workspaceId, path: c.path });
@@ -379,8 +450,28 @@ export function ChangesTab({ task }: { task: TaskView }) {
     const next = list[(i + by + list.length) % list.length];
     pick({ workspaceId: next.repo.workspaceId, path: next.file.path });
   };
+  const chips = multiRepo
+    ? inTask.map((w) => {
+        const r = files?.repos.find((x) => x.workspaceId === w.id);
+        return {
+          workspaceId: w.id,
+          name: repoNameOf(w.id),
+          color: repoColor(task, w.id),
+          // No count for a repo this scope does not list, or one without changes.
+          unviewed:
+            r && r.files.length > 0
+              ? r.files.length - viewedIn(r, viewedMap)
+              : undefined,
+        };
+      })
+    : [];
   const onKey = (key: DiffKey) => {
-    if (key === 'j') step(1);
+    if (/^[0-9]$/.test(key)) {
+      if (!multiRepo || scope.kind === 'commits') return;
+      const n = Number(key);
+      if (n === 0) filterTo(null, 'key');
+      else if (chips[n - 1]) filterTo(chips[n - 1].workspaceId, 'key');
+    } else if (key === 'j') step(1);
     else if (key === 'k') step(-1);
     else if (key === 'n') handle.current?.goToChange('next');
     else if (key === 'p') handle.current?.goToChange('previous');
@@ -480,7 +571,7 @@ export function ChangesTab({ task }: { task: TaskView }) {
           t.closest('input, textarea, select, .monaco-editor, [role="menu"]')
         )
           return;
-        if (['j', 'k', 'n', 'p', 'v', 'c'].includes(e.key)) {
+        if (/^[jknpvc0-9]$/.test(e.key)) {
           e.preventDefault();
           onKey(e.key as DiffKey);
         }
@@ -490,9 +581,23 @@ export function ChangesTab({ task }: { task: TaskView }) {
         <ScopePicker
           scope={scope}
           repos={files?.repos ?? []}
-          onChange={(s) => setScope(s)}
+          onChange={(s) => {
+            setScope(s);
+            if (s.kind === 'commits' && multiRepo)
+              filterTo(s.workspaceId, 'commit');
+          }}
         />
-        <span className="small muted">{`${viewedCount} / ${total} viewed`}</span>
+        {multiRepo && (
+          <RepoFilter
+            chips={chips}
+            value={repoFilter}
+            locked={scope.kind === 'commits'}
+            onChange={(id) => filterTo(id, 'chip')}
+          />
+        )}
+        <span className="small muted">
+          {`${viewedCount} / ${total} viewed${repoFilter === null ? '' : ` in ${repoNameOf(repoFilter)}`}`}
+        </span>
         <span className="small muted">{`${unresolved} open ${unresolved === 1 ? 'comment' : 'comments'}`}</span>
         <span className="grow" />
         <SendComments
@@ -567,7 +672,23 @@ export function ChangesTab({ task }: { task: TaskView }) {
           </div>
           {panel === 'files' ? (
             <FileTree
-              repos={files?.repos ?? []}
+              repos={shownRepos}
+              grouped={multiRepo}
+              colorOf={(id) => repoColor(task, id)}
+              folded={folded}
+              dropsAtFinish={(r) =>
+                dropsAtFinish({
+                  baseKnown: r.base !== null,
+                  commits: r.commits.length,
+                  uncommitted: r.uncommitted,
+                })
+              }
+              onToggleRepo={(r) => {
+                const how = folded(r) ? 'open' : 'closed';
+                setFold(r, how);
+                if (how === 'closed')
+                  track('review.repoCollapsed', { how: 'manual' });
+              }}
               view={prefs.fileView}
               selected={selected}
               collapsed={collapsed}
@@ -608,6 +729,25 @@ export function ChangesTab({ task }: { task: TaskView }) {
           {current && (
             <div className="review-toolbar">
               <span className="mono small review-path">
+                {multiRepo && (
+                  <>
+                    <RepoMark
+                      color={repoColor(task, current.repo.workspaceId)}
+                      shape="bar"
+                    />
+                    <button
+                      type="button"
+                      className="link review-crumb"
+                      title={`Show only ${current.repo.name}`}
+                      onClick={() =>
+                        filterTo(current.repo.workspaceId, 'breadcrumb')
+                      }
+                    >
+                      {current.repo.name}
+                    </button>
+                    <span className="muted">{' › '}</span>
+                  </>
+                )}
                 {current.file.oldPath
                   ? `${current.file.oldPath} → ${current.file.path}`
                   : current.file.path}

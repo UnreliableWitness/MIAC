@@ -38,7 +38,7 @@ A **Changes** pivot on the task page, next to Docs and Usage, as a full page (#1
 - **Uncommitted:** HEAD → working tree.
 - **Commit…:** a dropdown of the branch's commits (subject, author, relative time), showing one commit; shift-click picks a range.
 
-**Left: file tree.** Grouped by repo when the task has more than one (same names as the repo chips). Per file: status (A, M, D, R), +/- counts, a viewed checkbox, a comment count. A **Comments** filter lists all comments; a click jumps to one. Generated files are collapsed under **Generated**: `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `*.min.js`, `*.map`, `dist/**`, plus the repo's `review.collapse` globs in `.miac.yml` *(our call)*.
+**Left: file tree.** Grouped by repo when the task has more than one (same names as the repo chips). Multi-repo headers, colors, filter chips and the breadcrumb: `2026-10-17-changes-multi-repo-design.md`. Per file: status (A, M, D, R), +/- counts, a viewed checkbox, a comment count. A **Comments** filter lists all comments; a click jumps to one. Generated files are collapsed under **Generated**: `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `*.min.js`, `*.map`, `dist/**`, plus the repo's `review.collapse` globs in `.miac.yml` *(our call)*.
 
 **Right: Monaco diff editor** for the selected file. Toolbar: side-by-side / inline, ignore whitespace, hide unchanged regions (on by default), previous / next change, previous / next file, Open file in editor. Binary files and files over 2 MB show "binary, 12 KB → 14 KB" (or "too large") with Open in editor instead of a diff.
 

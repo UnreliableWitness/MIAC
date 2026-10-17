@@ -4,7 +4,10 @@ import {
   activeHome,
   activeWorkspaces,
   isReopening,
+  dropsAtFinish,
   pushedBranches,
+  REPO_COLORS,
+  repoColor,
   taskConnectionId,
   taskWorkspaces,
   workspaceById,
@@ -131,5 +134,63 @@ describe('workspaces', () => {
       ],
     });
     expect(pushedBranches(t)).toEqual(['feature/b']);
+  });
+});
+
+describe('repoColor', () => {
+  const ws = (n: number) =>
+    Array.from({ length: n }, (_, i) =>
+      extra({ id: `w${i + 2}`, repoId: `r${i + 2}` }),
+    );
+
+  it('gives a single-repo task no color', () => {
+    expect(repoColor(mkTask(), 'home')).toBeNull();
+    // An extra repo that left the task does not count.
+    const t = mkTask({ extraWorkspaces: [extra({ dropped: true })] });
+    expect(repoColor(t, 'home')).toBeNull();
+  });
+
+  it('numbers the repos in task order, home first', () => {
+    const t = mkTask({ extraWorkspaces: ws(2) });
+    expect(repoColor(t, 'home')).toBe(1);
+    expect(repoColor(t, 'w2')).toBe(2);
+    expect(repoColor(t, 'w3')).toBe(3);
+  });
+
+  it('keeps a color when an earlier repo leaves the task', () => {
+    const t = mkTask({
+      extraWorkspaces: [extra({ id: 'w2', dropped: true }), ...ws(3).slice(1)],
+    });
+    expect(repoColor(t, 'w3')).toBe(3);
+    expect(repoColor(t, 'w2')).toBeNull();
+  });
+
+  it('wraps after the last color', () => {
+    const t = mkTask({ extraWorkspaces: ws(REPO_COLORS) });
+    expect(repoColor(t, `w${REPO_COLORS + 1}`)).toBe(1);
+  });
+
+  it('has no color for an unknown repo', () => {
+    expect(repoColor(mkTask({ extraWorkspaces: ws(1) }), 'nope')).toBeNull();
+  });
+});
+
+describe('dropsAtFinish', () => {
+  it('drops a repo with a known base, no commits and nothing uncommitted', () => {
+    expect(dropsAtFinish({ baseKnown: true, commits: 0, uncommitted: 0 })).toBe(
+      true,
+    );
+  });
+
+  it('keeps a repo with commits, uncommitted files or an unknown base', () => {
+    expect(dropsAtFinish({ baseKnown: true, commits: 2, uncommitted: 0 })).toBe(
+      false,
+    );
+    expect(dropsAtFinish({ baseKnown: true, commits: 0, uncommitted: 1 })).toBe(
+      false,
+    );
+    expect(
+      dropsAtFinish({ baseKnown: false, commits: 0, uncommitted: 0 }),
+    ).toBe(false);
   });
 });

@@ -12,7 +12,15 @@ export type DiffZone = {
   afterLine: number;
   node: ReactNode;
 };
-export type DiffKey = 'j' | 'k' | 'n' | 'p' | 'v' | 'c';
+const DIGITS = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'] as const;
+export type DiffKey =
+  | 'j'
+  | 'k'
+  | 'n'
+  | 'p'
+  | 'v'
+  | 'c'
+  | (typeof DIGITS)[number];
 export type DiffViewHandle = {
   goToChange(dir: 'next' | 'previous'): void;
   selection(): { side: ReviewSide; startLine: number; endLine: number } | null;
@@ -119,6 +127,8 @@ export function DiffView(p: Props) {
       ['p', m.KeyCode.KeyP],
       ['v', m.KeyCode.KeyV],
       ['c', m.KeyCode.KeyC],
+      // Digit0 to Digit9 are consecutive key codes: the repo filter.
+      ...DIGITS.map((d, i): [DiffKey, number] => [d, m.KeyCode.Digit0 + i]),
     ];
     for (const [side, ed] of sides) {
       let hover: string[] = [];

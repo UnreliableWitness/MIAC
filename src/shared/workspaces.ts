@@ -29,6 +29,30 @@ export function activeWorkspaces(task: Task): WorkspaceView[] {
   return taskWorkspaces(task).filter((w) => !w.dropped);
 }
 
+/** How many repo colors there are (`--repo-1` … in tokens.css); repos past the last wrap around. */
+export const REPO_COLORS = 6;
+
+/**
+ * A repo's color, 1 to REPO_COLORS, by its place among all the task's workspaces (dropped ones keep their
+ * slot, so a color never shifts). Null when the task has one repo, or the repo has left it.
+ */
+export function repoColor(task: Task, workspaceId: string): number | null {
+  if (activeWorkspaces(task).length < 2) return null;
+  const all = taskWorkspaces(task);
+  const i = all.findIndex((w) => w.id === workspaceId);
+  if (i < 0 || all[i].dropped) return null;
+  return (i % REPO_COLORS) + 1;
+}
+
+/** Finish removes a repo without pushing when it has nothing: a known base, no commits, nothing uncommitted. */
+export function dropsAtFinish(c: {
+  baseKnown: boolean;
+  commits: number;
+  uncommitted: number;
+}): boolean {
+  return c.baseKnown && c.commits === 0 && c.uncommitted === 0;
+}
+
 /** The home workspace unless dropped, else the first extra still in the task, else home. */
 export function activeHome(task: Task): WorkspaceView {
   const all = taskWorkspaces(task);

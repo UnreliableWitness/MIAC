@@ -60,6 +60,8 @@ This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 
 | `review.fileViewed` | none |
 | `review.commentsSent` | number of comments sent |
 | `review.commentResolved` | `outdated`: whether the comment was outdated when resolved |
+| `review.repoFiltered` | `via`: how the Changes tab was narrowed to one repo or back to all (`chip`, `key`, `breadcrumb`, `commit`, `comment`) |
+| `review.repoCollapsed` | `how`: a repo group folded by hand (`manual`) or by itself once every file was viewed (`auto`) |
 | `usage.exportCsv` | none |
 | `focus.toggled`, `nav.toggled` | on / collapsed |
 | `settings.changed` | names of the changed settings (not their values) |

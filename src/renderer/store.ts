@@ -8,6 +8,7 @@ import type {
   WorkItemRef,
 } from '../shared/types';
 import { api } from './api';
+import type { RepoFold } from './review/repoGroups';
 import { track, trackScreen } from './telemetry';
 import { readPrefs, writePref } from './uiPrefs';
 
@@ -24,12 +25,18 @@ export type ReviewView = {
   draft: ReviewDraft | null;
   /** Folders folded in the file tree, as `dirKey` keys. */
   collapsed: string[];
+  /** The repo the Changes tab is narrowed to (multi-repo tasks), null for all. */
+  repoFilter: string | null;
+  /** Repo groups folded or opened by hand, per workspace id; absent means automatic. */
+  repoFolds: Record<string, RepoFold>;
 };
 export const DEFAULT_REVIEW_VIEW: ReviewView = {
   scope: { kind: 'all' },
   selected: null,
   draft: null,
   collapsed: [],
+  repoFilter: null,
+  repoFolds: {},
 };
 
 /** Every screen is a full page next to the nav; `task` shows the selected task. */
