@@ -7,6 +7,7 @@ import type {
 } from '../../shared/types';
 import {
   activeWorkspaces,
+  dropsAtFinish,
   HOME_ID,
   taskConnectionId,
 } from '../../shared/workspaces';
@@ -35,7 +36,7 @@ type Choices = Record<string, boolean>;
 
 /** No commits and a clean worktree: the wrong first guess, removed without a push by default. */
 const noChanges = (c: WorkspaceCheck) =>
-  c.baseKnown && c.commits === 0 && c.uncommitted.length === 0;
+  dropsAtFinish({ ...c, uncommitted: c.uncommitted.length });
 
 /**
  * A worktree on another branch than the task's (a long-lived `dev` joined by hand): Finish never removes it or its

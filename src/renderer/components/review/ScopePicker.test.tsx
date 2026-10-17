@@ -9,6 +9,7 @@ const repo: ReviewRepo = {
   name: 'web',
   base: sha('b'),
   collapse: [],
+  uncommitted: 0,
   files: [],
   commits: [
     { sha: sha('c'), subject: 'second', author: 'Dev', date: '' },

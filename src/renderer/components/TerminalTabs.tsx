@@ -23,6 +23,7 @@ import {
   activeHome,
   activeWorkspaces,
   parseDocsTarget,
+  repoColor,
   type WorkspaceView,
 } from '../../shared/workspaces';
 import { OpenInEditor } from './OpenInEditor';
@@ -194,7 +195,11 @@ export function TerminalTabs({
   const home = activeHome(task);
   const repoName = (w: WorkspaceView) =>
     repos.find((r) => r.id === w.repoId)?.name ?? w.branch;
-  const workspaces = inTask.map((w) => ({ id: w.id, name: repoName(w) }));
+  const workspaces = inTask.map((w) => ({
+    id: w.id,
+    name: repoName(w),
+    color: repoColor(task, w.id),
+  }));
   const runFrom = inTask.length > 1 ? inTask : [home];
 
   const open = async (def: NewTerminal) => {

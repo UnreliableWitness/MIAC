@@ -70,6 +70,29 @@ export async function rangeFor(
   return { from: parent || EMPTY_TREE, to: scope.to };
 }
 
+/** Paths `git status` lists (staged, unstaged, untracked), as Finish counts them. */
+export async function countUncommitted(
+  git: GitClient,
+  worktree: string,
+): Promise<number> {
+  const out = await git.run(worktree, [
+    '--no-optional-locks',
+    'status',
+    '--porcelain=v1',
+    '-z',
+  ]);
+  // -z: one NUL-terminated entry per path; a rename adds its old path as an extra entry.
+  let n = 0;
+  const entries = out.split('\0');
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i];
+    if (e.length < 4) continue;
+    n++;
+    if (e[0] === 'R' || e[0] === 'C') i++;
+  }
+  return n;
+}
+
 const STATUS: Record<string, ReviewFileStatus> = {
   A: 'A',
   C: 'A',

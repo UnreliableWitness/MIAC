@@ -24,6 +24,13 @@
   /* Usage charts: Claude Code in the accent blue, Copilot CLI in purple. */
   --chart-claude: #2b88d8;
   --chart-copilot: #a083e0;
+  /* Repos of a multi-repo task (repoColor): clear of the A/M/D status colors and the primary blue. */
+  --repo-1: #5fb3f5;
+  --repo-2: #b38ef2;
+  --repo-3: #3cc5b0;
+  --repo-4: #f08c4f;
+  --repo-5: #ef7fc8;
+  --repo-6: #8a95f7;
   --font-ui:
     'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, 'Helvetica Neue',
     sans-serif;

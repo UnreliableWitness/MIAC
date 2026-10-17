@@ -915,6 +915,11 @@ describe('TaskScreen workspaces', () => {
         .getAllByRole('button')
         .map((b) => b.getAttribute('aria-label')),
     ).toEqual(['Repo webshop', 'Repo api']);
+    expect(
+      [...group.querySelectorAll('.repo-mark')].map((m) =>
+        m.getAttribute('data-color'),
+      ),
+    ).toEqual(['1', '2']);
 
     await userEvent.click(
       within(group).getByRole('button', { name: /webshop/ }),

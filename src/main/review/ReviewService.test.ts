@@ -51,6 +51,26 @@ describe('ReviewService', () => {
     expect(r.repos[0].commits.map((c) => c.subject)).toEqual(['add b.ts']);
   });
 
+  it('counts uncommitted paths against HEAD in every scope', async () => {
+    const { task, service, repo } = setup();
+    // a.ts is modified (unstaged); add a staged file and an untracked one.
+    writeFileSync(path.join(repo, 'staged.ts'), 's\n');
+    git(repo, 'add', 'staged.ts');
+    writeFileSync(path.join(repo, 'new.ts'), 'n\n');
+    const all = await service.files(task, { kind: 'all' });
+    expect(all.repos[0].uncommitted).toBe(3);
+    const un = await service.files(task, { kind: 'uncommitted' });
+    expect(un.repos[0].uncommitted).toBe(3);
+    const sha = all.repos[0].commits[0].sha;
+    const one = await service.files(task, {
+      kind: 'commits',
+      workspaceId: 'home',
+      from: sha,
+      to: sha,
+    });
+    expect(one.repos[0].uncommitted).toBe(3);
+  });
+
   it('reports a missing worktree and no base per repo instead of failing', async () => {
     const { task, service, repo } = setup();
     const noBase = testTask({

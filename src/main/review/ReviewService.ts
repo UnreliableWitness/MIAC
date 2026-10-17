@@ -20,6 +20,7 @@ import { GitError, type GitClient } from '../services/GitClient';
 import type { ReviewStore } from './ReviewStore';
 import {
   assertRelPath,
+  countUncommitted,
   listCommits,
   listFiles,
   rangeFor,
@@ -85,6 +86,7 @@ export class ReviewService {
           base: null,
           commits: [],
           files: [],
+          uncommitted: 0,
           collapse: [],
         };
         if (!existsSync(ws.worktreePath))
@@ -92,11 +94,12 @@ export class ReviewService {
         try {
           const wt = ws.worktreePath;
           const base = await this.base(ws);
-          const [commits, collapse] = await Promise.all([
+          const [commits, uncommitted, collapse] = await Promise.all([
             listCommits(this.d.git, wt, base),
+            countUncommitted(this.d.git, wt),
             this.d.collapseOf(wt).catch(() => []),
           ]);
-          Object.assign(repo, { base, commits, collapse });
+          Object.assign(repo, { base, commits, uncommitted, collapse });
           repo.files = await listFiles(
             this.d.git,
             wt,

@@ -9,6 +9,7 @@ import {
   type ReviewRepo,
   viewedKey,
 } from '../../../shared/review';
+import { RepoMark } from '../RepoMark';
 import {
   buildTree,
   dirKey,
@@ -196,9 +197,91 @@ function Level(props: Parameters<typeof Dir>[0]) {
   );
 }
 
+const plural = (n: number, one: string, many = `${one}s`) =>
+  `${n} ${n === 1 ? one : many}`;
+
+/** A repo's group header in a multi-repo task: name and viewed count, then what the group holds. */
+function RepoHeader({
+  repo,
+  color,
+  folded,
+  viewedCount,
+  comments,
+  dropped,
+  onToggle,
+}: {
+  repo: ReviewRepo;
+  color: number | null;
+  folded: boolean;
+  viewedCount: number;
+  comments: number;
+  /** Finish would remove this repo without a push. */
+  dropped: boolean;
+  onToggle: () => void;
+}) {
+  const empty = repo.files.length === 0 && !repo.error;
+  const added = repo.files.reduce((n, f) => n + f.added, 0);
+  const removed = repo.files.reduce((n, f) => n + f.removed, 0);
+  const allViewed = viewedCount === repo.files.length;
+  return (
+    <div
+      role="treeitem"
+      aria-selected={false}
+      aria-expanded={empty ? undefined : !folded}
+      aria-label={repo.name}
+      className={`review-repo-head${empty ? ' empty' : ''}`}
+      onClick={empty ? undefined : onToggle}
+    >
+      <div className="review-repo-line">
+        {empty ? (
+          <span />
+        ) : folded ? (
+          <ChevronRight12Regular aria-hidden="true" />
+        ) : (
+          <ChevronDown12Regular aria-hidden="true" />
+        )}
+        {color === null ? <span /> : <RepoMark color={color} shape="bar" />}
+        <span className="review-repo-name">{repo.name}</span>
+        {empty ? (
+          <span className="small muted">
+            {dropped ? 'No changes · not in Finish' : 'No changes'}
+          </span>
+        ) : (
+          !repo.error && (
+            <span
+              className={`small mono ${allViewed ? 'review-plus' : 'muted'}`}
+              aria-label={`${viewedCount} of ${repo.files.length} viewed in ${repo.name}`}
+            >
+              {`${viewedCount}/${repo.files.length}`}
+            </span>
+          )
+        )}
+      </div>
+      {!empty && !repo.error && (
+        <div className="review-repo-stats small muted">
+          <span>{plural(repo.files.length, 'file')}</span>
+          <span className="mono">
+            <span className="review-plus">+{added}</span>{' '}
+            <span className="review-minus">−{removed}</span>
+          </span>
+          {comments > 0 && <span>{plural(comments, 'comment')}</span>}
+          {repo.uncommitted > 0 && (
+            <span className="review-uncommitted">{`● ${repo.uncommitted} uncommitted`}</span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Changed files per repo, as a folder tree or a flat list; generated files (lock files, dist, the repo's review.collapse) folded away. */
 export function FileTree({
   repos,
+  grouped = repos.length > 1,
+  colorOf = () => null,
+  folded = () => false,
+  dropsAtFinish = () => false,
+  onToggleRepo = () => {},
   view,
   selected,
   viewed,
@@ -209,6 +292,12 @@ export function FileTree({
   onToggleDir,
 }: {
   repos: ReviewRepo[];
+  /** Show a header per repo: the task has more than one, even when the list is narrowed to one. */
+  grouped?: boolean;
+  colorOf?: (workspaceId: string) => number | null;
+  folded?: (repo: ReviewRepo) => boolean;
+  dropsAtFinish?: (repo: ReviewRepo) => boolean;
+  onToggleRepo?: (repo: ReviewRepo) => void;
   view: 'tree' | 'list';
   selected: FileRef | null;
   viewed: Record<string, string>;
@@ -222,7 +311,6 @@ export function FileTree({
   const [openGenerated, setOpenGenerated] = useState<Record<string, boolean>>(
     {},
   );
-  const grouped = repos.length > 1;
   return (
     <div role="tree" aria-label="Changed files" className="review-tree">
       {repos.map((r) => {
@@ -270,6 +358,7 @@ export function FileTree({
               row={row}
             />
           );
+        const isFolded = grouped && folded(r);
         return (
           <div
             key={r.workspaceId}
@@ -277,14 +366,28 @@ export function FileTree({
             aria-label={r.name}
             className="review-repo"
           >
-            {grouped && <div className="review-repo-name">{r.name}</div>}
+            {grouped && (
+              <RepoHeader
+                repo={r}
+                color={colorOf(r.workspaceId)}
+                folded={isFolded}
+                viewedCount={
+                  r.files.filter(
+                    (f) => viewed[viewedKey(r.workspaceId, f.path)] === f.hash,
+                  ).length
+                }
+                comments={r.files.reduce((n, f) => n + commentCount(ref(f)), 0)}
+                dropped={dropsAtFinish(r)}
+                onToggle={() => onToggleRepo(r)}
+              />
+            )}
             {r.error && (
               <div role="alert" className="review-repo-error small">
                 {r.error}
               </div>
             )}
-            {files(normal)}
-            {generated.length > 0 && (
+            {!isFolded && files(normal)}
+            {!isFolded && generated.length > 0 && (
               <>
                 <button
                   type="button"

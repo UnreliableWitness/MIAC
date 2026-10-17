@@ -1,5 +1,6 @@
 import { Add16Regular } from '@fluentui/react-icons';
 import { type KeyboardEvent, useEffect, useRef, useState } from 'react';
+import { RepoMark } from './RepoMark';
 import type { NewTerminal } from '../../shared/types';
 
 /** What the + menu can open; the shell is named after the platform's shell by main. */
@@ -29,7 +30,7 @@ export function NewTerminalMenu({
 }: {
   disabled?: boolean;
   /** With more than one, choosing a terminal type asks for the repo to open it in. */
-  workspaces?: { id: string; name: string }[];
+  workspaces?: { id: string; name: string; color?: number | null }[];
   onOpen: (def: NewTerminal) => void;
 }) {
   const [at, setAt] = useState<{ left: number; top: number } | null>(null);
@@ -121,7 +122,10 @@ export function NewTerminalMenu({
                   onOpen({ ...choosing, workspaceId: w.id });
                 }}
               >
-                <span className="menu-title">{w.name}</span>
+                <span className="menu-title">
+                  <RepoMark color={w.color ?? null} />
+                  {w.name}
+                </span>
               </button>
             ))}
           {!choosing &&

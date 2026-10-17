@@ -1,18 +1,16 @@
-import {
-  Add16Regular,
-  MoreHorizontal16Regular,
-  Folder16Regular,
-} from '@fluentui/react-icons';
+import { Add16Regular, MoreHorizontal16Regular } from '@fluentui/react-icons';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import type { TaskView } from '../../shared/types';
 import {
   activeWorkspaces,
   HOME_ID,
+  repoColor,
   type WorkspaceView,
 } from '../../shared/workspaces';
 import { api, tryInvoke } from '../api';
 import { useGitSummary } from '../hooks/useGitSummary';
 import { useStore } from '../store';
+import { RepoMark } from './RepoMark';
 
 /** A button that opens a small menu under itself; fixed-positioned because the task row clips overflow. */
 function PopMenu({
@@ -152,7 +150,7 @@ export function WorkspaceChips({
             className="btn btn-sm chip"
             trigger={
               <>
-                <Folder16Regular aria-hidden="true" />
+                <RepoMark color={repoColor(task, w.id)} />
                 {name} <ChipGit task={task} w={w} visible={visible} />
               </>
             }

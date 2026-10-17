@@ -108,6 +108,7 @@ beforeEach(() => {
           },
         ],
         collapse: [],
+        uncommitted: 0,
         files: [
           file('src/a.ts', 'h1'),
           file('package-lock.json', 'h2'),
@@ -239,6 +240,7 @@ describe('ChangesTab', () => {
           base: null,
           commits: [],
           collapse: [],
+          uncommitted: 0,
           files: [file('x.cs', 'h4')],
         },
       ],
@@ -826,5 +828,262 @@ describe('ChangesTab file tree', () => {
     mount();
     await after('new z.md');
     expect(screen.queryByText('a.ts')).toBeNull();
+  });
+});
+
+describe('ChangesTab with several repos', () => {
+  const ws = (id: string, repoId: string) => ({
+    id,
+    repoId,
+    branch: 'task',
+    worktreePath: `/wt/${id}`,
+    baseRef: 'main',
+    baseSha: null,
+    source: 'detected',
+    summary: null,
+    pullRequest: null,
+    reopen: null,
+    dropped: false,
+  });
+  const multi = {
+    ...task,
+    extraWorkspaces: [ws('w2', 'r2'), ws('w3', 'r3')],
+  } as unknown as TaskView;
+  const repo = (
+    workspaceId: string,
+    name: string,
+    paths: string[],
+    over: Partial<ReviewFiles['repos'][number]> = {},
+  ) => ({
+    workspaceId,
+    name,
+    base: 'b'.repeat(40),
+    commits: [],
+    collapse: [],
+    uncommitted: 0,
+    files: paths.map((p) => file(p, `h-${workspaceId}-${p}`)),
+    ...over,
+  });
+  const after = async (text: string) =>
+    waitFor(() => expect(screen.getByTestId('after').textContent).toBe(text));
+  const tree = () => screen.getByRole('tree', { name: 'Changed files' });
+  const page = () => screen.getByRole('region', { name: 'Changes' });
+  const viewedLabel = () =>
+    screen.getByText(/ viewed/, { selector: '.review-head span' }).textContent;
+
+  beforeEach(() => {
+    files = {
+      repos: [
+        repo('home', 'web', ['web1.ts', 'web2.ts'], {
+          uncommitted: 2,
+          commits: [
+            {
+              sha: 'c'.repeat(40),
+              subject: 'web commit',
+              author: 'Dev',
+              date: '2026-10-17T09:00:00Z',
+            },
+          ],
+        }),
+        repo('w2', 'api', ['api1.cs']),
+        repo('w3', 'shared', []),
+      ],
+    };
+  });
+  function mountMulti() {
+    const api = installApi();
+    render(<ChangesTab task={multi} />);
+    return api;
+  }
+
+  it('shows a header per repo with its counts, color and a no-changes row', async () => {
+    mountMulti();
+    await after('new web1.ts');
+    const web = within(tree()).getByRole('group', { name: 'web' });
+    expect(within(web).getByText('2 files')).toBeTruthy();
+    expect(within(web).getByText('● 2 uncommitted')).toBeTruthy();
+    expect(within(web).getByLabelText('0 of 2 viewed in web')).toBeTruthy();
+    expect(web.querySelector('.repo-mark')?.getAttribute('data-color')).toBe(
+      '1',
+    );
+    const shared = within(tree()).getByRole('group', { name: 'shared' });
+    expect(within(shared).getByText('No changes · not in Finish')).toBeTruthy();
+    expect(shared.querySelector('.repo-mark')?.getAttribute('data-color')).toBe(
+      '3',
+    );
+  });
+
+  it('says no changes without "not in Finish" when the repo still has commits', async () => {
+    files.repos[2] = repo('w3', 'shared', [], {
+      commits: [{ sha: 'e'.repeat(40), subject: 'x', author: 'Dev', date: '' }],
+    });
+    mountMulti();
+    await after('new web1.ts');
+    const shared = within(tree()).getByRole('group', { name: 'shared' });
+    expect(within(shared).getByText('No changes')).toBeTruthy();
+  });
+
+  it('folds a repo by hand, and folds it by itself once every file is viewed', async () => {
+    mountMulti();
+    await after('new web1.ts');
+    fireEvent.click(within(tree()).getByRole('treeitem', { name: 'api' }));
+    expect(within(tree()).queryByText('api1.cs')).toBeNull();
+    fireEvent.click(within(tree()).getByRole('treeitem', { name: 'api' }));
+    expect(within(tree()).getByText('api1.cs')).toBeTruthy();
+
+    fireEvent.click(screen.getByLabelText('Viewed web1.ts'));
+    fireEvent.click(screen.getByLabelText('Viewed web2.ts'));
+    await waitFor(() =>
+      expect(within(tree()).queryByText('web2.ts')).toBeNull(),
+    );
+    expect(
+      within(tree())
+        .getByRole('treeitem', { name: 'web' })
+        .getAttribute('aria-expanded'),
+    ).toBe('false');
+  });
+
+  it('opens a folded repo when j walks into it', async () => {
+    mountMulti();
+    await after('new web1.ts');
+    fireEvent.click(within(tree()).getByRole('treeitem', { name: 'api' }));
+    expect(within(tree()).queryByText('api1.cs')).toBeNull();
+    fireEvent.keyDown(page(), { key: 'j' });
+    fireEvent.keyDown(page(), { key: 'j' });
+    await after('new api1.cs');
+    expect(within(tree()).getByText('api1.cs')).toBeTruthy();
+  });
+
+  it('narrows the tree, j and the counter to one repo with a chip or a key', async () => {
+    mountMulti();
+    await after('new web1.ts');
+    expect(viewedLabel()).toBe('0 / 3 viewed');
+    const chips = screen.getByRole('group', { name: 'Repos' });
+    fireEvent.click(within(chips).getByRole('button', { name: /api/ }));
+    await after('new api1.cs');
+    expect(within(tree()).queryByText('web1.ts')).toBeNull();
+    expect(viewedLabel()).toBe('0 / 1 viewed in api');
+    fireEvent.keyDown(page(), { key: 'j' });
+    await after('new api1.cs');
+
+    fireEvent.keyDown(page(), { key: '0' });
+    await waitFor(() => expect(viewedLabel()).toBe('0 / 3 viewed'));
+    expect(screen.getByTestId('after').textContent).toBe('new api1.cs');
+    fireEvent.keyDown(page(), { key: '1' });
+    await after('new web1.ts');
+    expect(viewedLabel()).toBe('0 / 2 viewed in web');
+  });
+
+  it('opens the first file not viewed yet of the repo it narrows to', async () => {
+    state = {
+      ...state,
+      viewed: { 'home:web1.ts': 'h-home-web1.ts' },
+    };
+    mountMulti();
+    await after('new web1.ts');
+    fireEvent.keyDown(page(), { key: '2' });
+    await after('new api1.cs');
+    fireEvent.keyDown(page(), { key: '1' });
+    await after('new web2.ts');
+  });
+
+  it('ignores the digit keys while typing a comment', async () => {
+    mountMulti();
+    await after('new web1.ts');
+    fireEvent.click(screen.getByRole('button', { name: 'add on line 2' }));
+    const box = await screen.findByRole('textbox');
+    fireEvent.keyDown(box, { key: '2' });
+    expect(viewedLabel()).toBe('0 / 3 viewed');
+  });
+
+  it('shows the repo in the breadcrumb and narrows to it on a click', async () => {
+    mountMulti();
+    await after('new web1.ts');
+    const crumb = screen.getByRole('button', { name: 'web' });
+    expect(crumb.closest('.review-path')?.textContent).toContain(
+      'web › web1.ts',
+    );
+    fireEvent.click(crumb);
+    await waitFor(() => expect(viewedLabel()).toBe('0 / 2 viewed in web'));
+  });
+
+  it('narrows to the repo of a picked commit and locks the other chips', async () => {
+    mountMulti();
+    await after('new web1.ts');
+    fireEvent.click(screen.getByRole('button', { name: 'Commits' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /web commit/ }));
+    const chips = screen.getByRole('group', { name: 'Repos' });
+    await waitFor(() =>
+      expect(
+        (
+          within(chips).getByRole('button', {
+            name: /api/,
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(true),
+    );
+    expect(
+      within(chips)
+        .getByRole('button', { name: /web/ })
+        .getAttribute('aria-pressed'),
+    ).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: 'All changes' }));
+    await waitFor(() =>
+      expect(
+        (
+          within(chips).getByRole('button', {
+            name: /api/,
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(false),
+    );
+    expect(viewedLabel()).toBe('0 / 2 viewed in web');
+  });
+
+  it("narrows to a comment's repo when it is opened from the list", async () => {
+    state = {
+      ...state,
+      comments: [comment({ workspaceId: 'w2', path: 'api1.cs', text: 'x' })],
+    };
+    mountMulti();
+    await after('new web1.ts');
+    fireEvent.keyDown(page(), { key: '1' });
+    await waitFor(() => expect(viewedLabel()).toBe('0 / 2 viewed in web'));
+    fireEvent.click(screen.getByRole('tab', { name: 'Comments (1)' }));
+    fireEvent.click(screen.getByRole('listitem'));
+    await after('new api1.cs');
+    expect(viewedLabel()).toBe('0 / 1 viewed in api');
+  });
+
+  it('falls back to all repos when the filtered repo leaves the task', async () => {
+    mountMulti();
+    await after('new web1.ts');
+    fireEvent.keyDown(page(), { key: '2' });
+    await waitFor(() => expect(viewedLabel()).toBe('0 / 1 viewed in api'));
+    cleanup();
+    files = { repos: [files.repos[0], files.repos[2]] };
+    installApi();
+    render(
+      <ChangesTab
+        task={
+          {
+            ...multi,
+            extraWorkspaces: [
+              { ...ws('w2', 'r2'), dropped: true },
+              ws('w3', 'r3'),
+            ],
+          } as unknown as TaskView
+        }
+      />,
+    );
+    await waitFor(() => expect(viewedLabel()).toBe('0 / 2 viewed'));
+  });
+
+  it('shows no chips, headers or colors for a single-repo task', async () => {
+    mount();
+    await after('new web1.ts');
+    expect(screen.queryByRole('group', { name: 'Repos' })).toBeNull();
+    expect(document.querySelector('.repo-mark')).toBeNull();
+    expect(document.querySelector('.review-repo-head')).toBeNull();
   });
 });
