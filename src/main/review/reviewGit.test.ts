@@ -275,3 +275,53 @@ describe('readContent', () => {
     expect(await readSide(client, repo, base, 'nope.ts')).toBeNull();
   });
 });
+
+describe('listFiles edge cases', () => {
+  it('lists a moved submodule as a binary entry with its commit as hash', async () => {
+    const inner = makeRepo('inner');
+    const repo = makeRepo();
+    git(
+      repo,
+      '-c',
+      'protocol.file.allow=always',
+      'submodule',
+      'add',
+      '-q',
+      inner,
+      'sub',
+    );
+    git(repo, 'commit', '-q', '-m', 'add submodule');
+    const base = git(repo, 'rev-parse', 'HEAD').trim();
+    const sub = path.join(repo, 'sub');
+    git(sub, 'config', 'user.email', 't@miac.local');
+    git(sub, 'config', 'user.name', 'MIAC tests');
+    commitFile(sub, 'x.txt', 'x\n');
+    const files = await listFiles(client, repo, { from: base, to: null });
+    expect(files).toHaveLength(1);
+    expect(files[0]).toMatchObject({ path: 'sub', binary: true });
+    expect(files[0].hash).toBe(git(sub, 'rev-parse', 'HEAD').trim());
+  });
+
+  it('survives a file that cannot be hashed', async () => {
+    const repo = makeRepo();
+    const base = git(repo, 'rev-parse', 'HEAD').trim();
+    writeFileSync(path.join(repo, 'a.txt'), 'a\n');
+    writeFileSync(path.join(repo, 'b.txt'), 'b\n');
+    const real = client.run.bind(client);
+    const spy = vi
+      .spyOn(client, 'run')
+      .mockImplementation(async (cwd, args) => {
+        if (args.includes('hash-object') && args.length > 3)
+          throw new Error('boom');
+        if (args.includes('hash-object') && args.includes('b.txt'))
+          throw new Error('gone');
+        return real(cwd, args);
+      });
+    const files = await listFiles(client, repo, { from: base, to: null });
+    spy.mockRestore();
+    expect(files.map((f) => [f.path, f.hash === ''])).toEqual([
+      ['a.txt', false],
+      ['b.txt', true],
+    ]);
+  });
+});

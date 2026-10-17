@@ -162,11 +162,22 @@ async function hashes(
   const m = new Map<string, string>();
   for (const part of chunks(paths)) {
     if (range.to === null) {
-      const out = await git.run(worktree, ['hash-object', '--', ...part]);
-      out
-        .trim()
-        .split('\n')
-        .forEach((h, i) => m.set(part[i], h.trim()));
+      try {
+        const out = await git.run(worktree, ['hash-object', '--', ...part]);
+        out
+          .trim()
+          .split('\n')
+          .forEach((h, i) => m.set(part[i], h.trim()));
+      } catch {
+        // A file vanished or cannot be hashed: hash one by one, '' for the ones that fail.
+        for (const p of part) {
+          const h = await git
+            .run(worktree, ['hash-object', '--', p])
+            .then((o) => o.trim())
+            .catch(() => '');
+          m.set(p, h);
+        }
+      }
     } else {
       const out = await git.run(worktree, [
         '-c',
@@ -220,12 +231,32 @@ export async function listFiles(
     const s = await untrackedStats(worktree, p).catch(() => null);
     if (s) files.push({ status: 'A', path: p, removed: 0, ...s });
   }
-  const live = files.filter((f) => f.status !== 'D').map((f) => f.path);
+  // In the working tree a moved submodule is a folder: no blob to hash and no text to show.
+  const gitlinks = new Map<string, string>();
+  if (range.to === null) {
+    for (const f of files) {
+      if (f.status === 'D') continue;
+      const st = await fs.lstat(path.join(worktree, f.path)).catch(() => null);
+      if (!st?.isDirectory()) continue;
+      const sha = await git
+        .run(path.join(worktree, f.path), ['rev-parse', 'HEAD'])
+        .then((o) => o.trim())
+        .catch(() => '');
+      gitlinks.set(f.path, sha);
+    }
+  }
+  const live = files
+    .filter((f) => f.status !== 'D' && !gitlinks.has(f.path))
+    .map((f) => f.path);
   const h = await hashes(git, worktree, range, live);
   return files
     .map((f) => ({
       ...f,
-      hash: f.status === 'D' ? DELETED_HASH : (h.get(f.path) ?? ''),
+      binary: f.binary || gitlinks.has(f.path),
+      hash:
+        f.status === 'D'
+          ? DELETED_HASH
+          : (gitlinks.get(f.path) ?? h.get(f.path) ?? ''),
     }))
     .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 }
