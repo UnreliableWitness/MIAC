@@ -908,6 +908,10 @@ describe('ChangesTab with several repos', () => {
     );
     const shared = within(tree()).getByRole('group', { name: 'shared' });
     expect(within(shared).getByText('No changes · not in Finish')).toBeTruthy();
+    const chips = screen.getByRole('group', { name: 'Repos', exact: true });
+    expect(
+      within(chips).getByRole('button', { name: 'shared' }).textContent,
+    ).toBe('shared');
     expect(shared.querySelector('.repo-mark')?.getAttribute('data-color')).toBe(
       '3',
     );

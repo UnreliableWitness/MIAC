@@ -102,10 +102,10 @@
 .review-repo-head:hover {
   background: var(--bg-hover);
 }
-.review-repo-head.empty {
+.review-repo-head.no-changes {
   cursor: default;
 }
-.review-repo-head.empty:hover {
+.review-repo-head.no-changes:hover {
   background: none;
 }
 .review-repo-line {
@@ -199,6 +199,9 @@
   min-height: 0;
 }
 .review-path {
+  /* The file shown is the toolbar's first fact: it keeps room, the controls wrap below it. */
+  flex: 1 1 260px;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -351,4 +354,13 @@
 }
 .review-repo-chip .repo-mark-dot {
   margin-right: 0;
+}
+.review-head,
+.review-toolbar {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+.review-head > .small,
+.review-toolbar label {
+  white-space: nowrap;
 }

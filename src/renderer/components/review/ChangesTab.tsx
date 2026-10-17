@@ -457,7 +457,11 @@ export function ChangesTab({ task }: { task: TaskView }) {
           workspaceId: w.id,
           name: repoNameOf(w.id),
           color: repoColor(task, w.id),
-          unviewed: r ? r.files.length - viewedIn(r, viewedMap) : undefined,
+          // No count for a repo this scope does not list, or one without changes.
+          unviewed:
+            r && r.files.length > 0
+              ? r.files.length - viewedIn(r, viewedMap)
+              : undefined,
         };
       })
     : [];

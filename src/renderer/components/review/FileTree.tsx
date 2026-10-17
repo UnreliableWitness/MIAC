@@ -229,7 +229,7 @@ function RepoHeader({
       aria-selected={false}
       aria-expanded={empty ? undefined : !folded}
       aria-label={repo.name}
-      className={`review-repo-head${empty ? ' empty' : ''}`}
+      className={`review-repo-head${empty ? ' no-changes' : ''}`}
       onClick={empty ? undefined : onToggle}
     >
       <div className="review-repo-line">
@@ -242,21 +242,20 @@ function RepoHeader({
         )}
         {color === null ? <span /> : <RepoMark color={color} shape="bar" />}
         <span className="review-repo-name">{repo.name}</span>
-        {empty ? (
-          <span className="small muted">
-            {dropped ? 'No changes · not in Finish' : 'No changes'}
+        {!empty && !repo.error && (
+          <span
+            className={`small mono ${allViewed ? 'review-plus' : 'muted'}`}
+            aria-label={`${viewedCount} of ${repo.files.length} viewed in ${repo.name}`}
+          >
+            {`${viewedCount}/${repo.files.length}`}
           </span>
-        ) : (
-          !repo.error && (
-            <span
-              className={`small mono ${allViewed ? 'review-plus' : 'muted'}`}
-              aria-label={`${viewedCount} of ${repo.files.length} viewed in ${repo.name}`}
-            >
-              {`${viewedCount}/${repo.files.length}`}
-            </span>
-          )
         )}
       </div>
+      {empty && (
+        <div className="review-repo-stats small muted">
+          {dropped ? 'No changes · not in Finish' : 'No changes'}
+        </div>
+      )}
       {!empty && !repo.error && (
         <div className="review-repo-stats small muted">
           <span>{plural(repo.files.length, 'file')}</span>
