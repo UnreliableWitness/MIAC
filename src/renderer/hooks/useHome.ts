@@ -7,6 +7,12 @@ import {
 import { api, tryInvoke } from '../api';
 import { useStore } from '../store';
 
+const idsKey = (connections: { id: string }[]) =>
+  connections
+    .map((c) => c.id)
+    .sort()
+    .join(',');
+
 const old = (s: HomeSnapshot | null) =>
   !s || Date.now() - Date.parse(s.builtAt) > HOME_MAX_AGE_MS;
 
@@ -44,8 +50,15 @@ export function useHome(): {
       })
       .catch(() => live && refresh());
     const off = api().on('home:updated', (s) => keep(s));
-    // A connection added or removed changes what Home shows.
-    const offConnections = api().on('connections:changed', () => refresh());
+    // A connection added or removed changes what Home shows. Main also sends this
+    // on every failed call (status only), so refreshing on those would loop.
+    let ids = idsKey(useStore.getState().connections);
+    const offConnections = api().on('connections:changed', (connections) => {
+      const next = idsKey(connections);
+      if (next === ids) return;
+      ids = next;
+      refresh();
+    });
     const onFocus = () => {
       if (old(current.current)) refresh();
     };

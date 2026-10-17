@@ -165,14 +165,30 @@ describe('Home page', () => {
     expect(screen.queryByText(/Old PR/)).toBeNull();
   });
 
-  it('rebuilds when connections change', async () => {
+  it('rebuilds when a connection is added', async () => {
     const { calls, emit } = installFakeApi({ 'home:get': () => snapshot() });
     render(<Shell />);
     await screen.findByRole('heading', { name: 'Home' });
-    act(() => emit('connections:changed', [connection]));
+    act(() =>
+      emit('connections:changed', [connection, { ...connection, id: 'c2' }]),
+    );
     await waitFor(() =>
       expect(calls.some((c) => c.channel === 'home:refresh')).toBe(true),
     );
+  });
+
+  it('does not rebuild when only a connection status changes', async () => {
+    const { calls, emit } = installFakeApi({ 'home:get': () => snapshot() });
+    render(<Shell />);
+    await screen.findByRole('heading', { name: 'Home' });
+    act(() =>
+      emit('connections:changed', [{ ...connection, status: 'unauthorized' }]),
+    );
+    act(() =>
+      emit('connections:changed', [{ ...connection, status: 'unreachable' }]),
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    expect(calls.filter((c) => c.channel === 'home:refresh')).toHaveLength(0);
   });
 
   it('without connections it asks for one', async () => {
