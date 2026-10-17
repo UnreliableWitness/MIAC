@@ -15,6 +15,7 @@ export const DOCS_TAB = 'docs';
 
 /** Every screen is a full page next to the nav; `task` shows the selected task. */
 export type Screen =
+  | { kind: 'home' }
   | { kind: 'sprint' }
   | { kind: 'task' }
   | { kind: 'new-task'; workItem?: WorkItemRef; repoId?: string }
@@ -74,7 +75,7 @@ let noticeSeq = 0;
 const TRANSIENT = new Set<Screen['kind']>(['new-task', 'finish']);
 
 export const useStore = create<Store>((set, get) => ({
-  screen: { kind: 'sprint' },
+  screen: { kind: 'home' },
   previous: null,
   repos: [],
   tasks: [],
@@ -102,7 +103,7 @@ export const useStore = create<Store>((set, get) => ({
     const gone =
       previous?.kind === 'task' && !tasks.some((t) => t.id === selectedTaskId);
     set({
-      screen: previous && !gone ? previous : { kind: 'sprint' },
+      screen: previous && !gone ? previous : { kind: 'home' },
       previous: null,
     });
   },
@@ -119,7 +120,7 @@ export const useStore = create<Store>((set, get) => ({
   setConnectionId: (connectionId) => set({ connectionId }),
   setSprintName: (sprintName) => set({ sprintName }),
   setTasks: (tasks) => {
-    // No auto-select: the app opens on Sprint and only the user picks a task.
+    // No auto-select: the app opens on Home and only the user picks a task.
     const selected = get().selectedTaskId;
     const stillThere = tasks.some((t) => t.id === selected);
     set({ tasks, selectedTaskId: stillThere ? selected : null });

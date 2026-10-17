@@ -159,14 +159,14 @@ describe('HeaderBar', () => {
     render(<HeaderBar />);
     expect(crumbs()).toEqual(['MIAC', 'Sprint']);
   });
-  it('goes to Sprint from the MIAC crumb', async () => {
+  it('goes to Home from the MIAC crumb', async () => {
     installFakeApi();
     useStore.setState({ screen: { kind: 'settings' } });
     render(<HeaderBar />);
     await userEvent.click(
-      screen.getByRole('button', { name: 'MIAC, go to Sprint' }),
+      screen.getByRole('button', { name: 'MIAC, go to Home' }),
     );
-    expect(useStore.getState().screen).toEqual({ kind: 'sprint' });
+    expect(useStore.getState().screen).toEqual({ kind: 'home' });
   });
   it('has New task and Settings actions', async () => {
     installFakeApi();

@@ -1,0 +1,12 @@
+.home-bands { display: flex; flex-direction: column; gap: 16px; padding: 0 24px 24px; }
+.home-band { background: var(--bg-card); border: 1px solid var(--line); border-radius: 4px; padding: 12px 16px; }
+.home-band-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; margin: 0 0 8px; }
+.home-split { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.home-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.home-chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 12px; padding: 1px 10px; background: none; color: inherit; font: inherit; font-size: 12px; cursor: pointer; }
+.home-chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+.home-chip.is-stale .dot { background: var(--warn); }
+.home-chip.is-error .dot { background: var(--red); }
+.home-warning { margin: 0 24px 8px; color: var(--red); }
+.home-connect { align-self: flex-start; }
+.is-stale-data { opacity: .55; }
