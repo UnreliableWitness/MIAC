@@ -162,7 +162,8 @@ export class ReviewService {
     return this.d.store.update(task.id, (s) => {
       for (const c of s.comments) {
         const ch = changes.get(c.id);
-        if (!ch) continue;
+        // A resolve that landed while the files were read wins.
+        if (!ch || c.status === 'resolved') continue;
         if (!ch.at) c.status = 'outdated';
         else {
           c.startLine = ch.at.startLine;

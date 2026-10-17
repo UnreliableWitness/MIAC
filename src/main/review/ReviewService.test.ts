@@ -178,6 +178,23 @@ describe('ReviewService', () => {
     expect((await service.state(dropped)).comments[0].status).toBe('outdated');
   });
 
+  it('keeps a comment resolved when it is resolved while state() is reading files', async () => {
+    const { task, service, repo } = setup();
+    await service.addComment(task, {
+      workspaceId: 'home',
+      path: 'a.ts',
+      side: 'after',
+      startLine: 3,
+      endLine: 3,
+      text: 'x',
+    });
+    writeFileSync(path.join(repo, 'a.ts'), 'gone\n');
+    const pending = service.state(task);
+    const resolved = service.updateComment(task, 'c1', { status: 'resolved' });
+    await Promise.all([pending, resolved]);
+    expect((await service.state(task)).comments[0].status).toBe('resolved');
+  });
+
   it('resolves, reopens, edits and deletes comments; markSent only touches open ones', async () => {
     const { task, service } = setup();
     for (const line of [1, 2])
