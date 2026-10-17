@@ -30,6 +30,8 @@ type Props = {
   onGlyph?: (side: ReviewSide, line: number) => void;
   onKey?: (key: DiffKey) => void;
   onReady?: (h: DiffViewHandle | null) => void;
+  /** Scrolls a line into the centre of a side whenever `seq` changes. */
+  reveal?: { side: ReviewSide; line: number; seq: number };
 };
 
 /** Events inside a comment card must not reach Monaco (its keybindings and mouse handling). */
@@ -206,6 +208,39 @@ export function DiffView(p: Props) {
     cur?.original.dispose();
     cur?.modified.dispose();
   }, [m, diff, p.uriKey, p.before, p.after]);
+
+  useEffect(() => {
+    const r = latest.current.reveal;
+    if (!diff || !r) return;
+    const go = () => {
+      // Inline, the original editor is hidden: a before-side line is shown at its mapped line.
+      const inline = !latest.current.sideBySide;
+      const ed =
+        r.side === 'before' && !inline
+          ? diff.getOriginalEditor()
+          : diff.getModifiedEditor();
+      const line =
+        r.side === 'before' && inline
+          ? mapOriginalLine(r.line, diff.getLineChanges() ?? [])
+          : r.line;
+      // Moving the cursor also opens a hidden unchanged region around the line (Monaco does that
+      // for every cursor move), so the reveal works with Hide unchanged on.
+      ed.setPosition({ lineNumber: line, column: 1 });
+      ed.revealLineInCenter(line);
+    };
+    if (diff.getLineChanges() !== null) {
+      go();
+      return;
+    }
+    // A new file's diff is not computed yet, so its unchanged regions are not known: wait for it.
+    const sub = diff.onDidUpdateDiff(() => {
+      sub.dispose();
+      go();
+    });
+    return () => sub.dispose();
+    // Only a new seq (or a new file) moves the view.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [diff, p.reveal?.seq, p.uriKey]);
 
   const zoneSig = useMemo(
     () =>

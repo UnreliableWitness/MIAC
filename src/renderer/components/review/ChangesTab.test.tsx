@@ -6,6 +6,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   ReviewFileStatus,
@@ -14,27 +15,37 @@ import type {
 } from '../../../shared/review';
 import type { TaskView } from '../../../shared/types';
 import { useStore } from '../../store';
-import { installFakeApi } from '../../test-helpers/fakeApi';
+import { type FakeHandlers, installFakeApi } from '../../test-helpers/fakeApi';
 import { ChangesTab } from './ChangesTab';
 
 // Monaco does not run in jsdom: a stand-in that shows what it was given and renders the zones inline.
+// Like the real view, a change in the zones' ids or lines remounts every zone's content.
 vi.mock('./DiffView', () => ({
   DiffView: (p: {
     uriKey: string;
     before: string;
     after: string;
-    zones?: { id: string; node: unknown }[];
-  }) => (
-    <div data-testid="diff" data-key={p.uriKey}>
-      <pre data-testid="before">{p.before}</pre>
-      <pre data-testid="after">{p.after}</pre>
-      {(p.zones ?? []).map((z) => (
-        <div key={z.id} data-testid={`zone-${z.id}`}>
-          {z.node as never}
-        </div>
-      ))}
-    </div>
-  ),
+    zones?: { id: string; afterLine: number; node: unknown }[];
+    onGlyph?: (side: 'before' | 'after', line: number) => void;
+  }) => {
+    const sig = (p.zones ?? []).map((z) => `${z.id}@${z.afterLine}`).join(',');
+    return (
+      <div data-testid="diff" data-key={p.uriKey}>
+        <pre data-testid="before">{p.before}</pre>
+        <pre data-testid="after">{p.after}</pre>
+        {p.onGlyph && (
+          <button type="button" onClick={() => p.onGlyph?.('after', 2)}>
+            add on line 2
+          </button>
+        )}
+        {(p.zones ?? []).map((z) => (
+          <div key={`${z.id}|${sig}`} data-testid={`zone-${z.id}`}>
+            {z.node as never}
+          </div>
+        ))}
+      </div>
+    );
+  },
 }));
 
 const task = {
@@ -89,7 +100,7 @@ beforeEach(() => {
   state = { version: 1, viewed: {}, comments: [] };
 });
 
-function mount(over = {}) {
+function mount(over: FakeHandlers = {}) {
   const api = installFakeApi({
     'review:files': () => files,
     'review:state': () => state,
@@ -281,6 +292,177 @@ describe('ChangesTab while a file loads', () => {
     await act(async () => answer());
     expect((await screen.findByTestId('after')).textContent).toBe(
       'new src/b.ts',
+    );
+  });
+});
+
+const comment = (over: Partial<ReviewState['comments'][number]> = {}) => ({
+  id: 'c1',
+  workspaceId: 'home',
+  path: 'src/a.ts',
+  side: 'after' as const,
+  startLine: 2,
+  endLine: 2,
+  snippet: 'x',
+  contextBefore: '',
+  contextAfter: '',
+  text: 'Please rename',
+  status: 'open' as const,
+  createdAt: '2026-10-17T10:00:00.000Z',
+  sentAt: null,
+  resolvedAt: null,
+  ...over,
+});
+
+describe('ChangesTab comments', () => {
+  it('adds a comment from the gutter', async () => {
+    const api = mount({
+      'review:addComment': (_t, input) =>
+        (state = { ...state, comments: [comment({ text: input.text })] }),
+    });
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'add on line 2' }),
+    );
+    await userEvent.type(
+      within(screen.getByTestId('zone-draft')).getByRole('textbox', {
+        name: 'Comment',
+      }),
+      'Rename this',
+    );
+    fireEvent.click(
+      within(screen.getByTestId('zone-draft')).getByRole('button', {
+        name: 'Comment',
+      }),
+    );
+    await screen.findByTestId('zone-c1');
+    expect(
+      api.calls.find((c) => c.channel === 'review:addComment')?.args,
+    ).toEqual([
+      't1',
+      {
+        workspaceId: 'home',
+        path: 'src/a.ts',
+        side: 'after',
+        startLine: 2,
+        endLine: 2,
+        text: 'Rename this',
+      },
+    ]);
+    expect(screen.queryByTestId('zone-draft')).toBeNull();
+    expect(screen.getByLabelText('1 comments')).toBeTruthy();
+  });
+
+  it('keeps a draft across a refresh', async () => {
+    const api = mount();
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'add on line 2' }),
+    );
+    await userEvent.type(
+      screen.getByRole('textbox', { name: 'Comment' }),
+      'half a thought',
+    );
+    const reads = api.calls.filter((c) => c.channel === 'review:files').length;
+    act(() => api.emit('review:changed', { taskId: 't1' }));
+    await waitFor(() =>
+      expect(
+        api.calls.filter((c) => c.channel === 'review:files').length,
+      ).toBeGreaterThan(reads),
+    );
+    expect(
+      (screen.getByRole('textbox', { name: 'Comment' }) as HTMLTextAreaElement)
+        .value,
+    ).toBe('half a thought');
+  });
+
+  it('keeps a draft when the zones are rebuilt around it', async () => {
+    const api = mount();
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'add on line 2' }),
+    );
+    await userEvent.type(
+      screen.getByRole('textbox', { name: 'Comment' }),
+      'half a thought',
+    );
+    const draftBox = screen.getByRole('textbox', { name: 'Comment' });
+    // Another comment on this file arrives: every zone is remounted.
+    state = {
+      ...state,
+      comments: [
+        comment({ id: 'c2', startLine: 5, endLine: 5, text: 'Other' }),
+      ],
+    };
+    act(() => api.emit('review:changed', { taskId: 't1' }));
+    await screen.findByTestId('zone-c2');
+    const box = within(screen.getByTestId('zone-draft')).getByRole('textbox', {
+      name: 'Comment',
+    }) as HTMLTextAreaElement;
+    expect(box).not.toBe(draftBox);
+    expect(box.value).toBe('half a thought');
+  });
+
+  it('resolves a comment and counts it out', async () => {
+    state = { ...state, comments: [comment()] };
+    const api = mount({
+      'review:updateComment': (_t, _id, patch) =>
+        (state = {
+          ...state,
+          comments: [
+            comment({
+              status: patch.status === 'resolved' ? 'resolved' : 'open',
+            }),
+          ],
+        }),
+    });
+    fireEvent.click(
+      within(await screen.findByTestId('zone-c1')).getByRole('button', {
+        name: 'Resolve',
+      }),
+    );
+    await waitFor(() => expect(screen.queryByTestId('zone-c1')).toBeNull());
+    expect(
+      api.calls.find((c) => c.channel === 'review:updateComment')?.args,
+    ).toEqual(['t1', 'c1', { status: 'resolved' }]);
+    expect(api.tracked).toContainEqual({
+      type: 'event',
+      name: 'review.commentResolved',
+      props: { outdated: false },
+    });
+  });
+
+  it('shows outdated comments of the file above the diff', async () => {
+    state = {
+      ...state,
+      comments: [
+        comment({ status: 'outdated', sentAt: '2026-10-17T10:05:00.000Z' }),
+      ],
+    };
+    mount();
+    expect(
+      await screen.findByText('Code changed, probably addressed'),
+    ).toBeTruthy();
+  });
+
+  it('lists all comments and opens one', async () => {
+    state = {
+      ...state,
+      comments: [comment({ path: 'src/b.ts', text: 'On b' })],
+    };
+    mount();
+    fireEvent.click(await screen.findByRole('tab', { name: 'Comments (1)' }));
+    fireEvent.click(screen.getByRole('listitem'));
+    await waitFor(() =>
+      expect(screen.getByTestId('after').textContent).toBe('new src/b.ts'),
+    );
+  });
+
+  it('offers no new comments outside All changes', async () => {
+    mount();
+    await screen.findByRole('button', { name: 'add on line 2' });
+    fireEvent.click(screen.getByRole('button', { name: 'Uncommitted' }));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', { name: 'add on line 2' }),
+      ).toBeNull(),
     );
   });
 });

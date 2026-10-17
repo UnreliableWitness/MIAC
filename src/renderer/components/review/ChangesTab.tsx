@@ -3,9 +3,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   type FileContent,
   isGenerated,
+  type ReviewComment,
   type ReviewFile,
   type ReviewRepo,
   type ReviewScope,
+  type ReviewSide,
+  type ReviewState,
   viewedKey,
 } from '../../../shared/review';
 import type { TaskView } from '../../../shared/types';
@@ -19,9 +22,26 @@ import { useReview } from '../../review/useReview';
 import { useStore } from '../../store';
 import { track } from '../../telemetry';
 import { OpenInEditor } from '../OpenInEditor';
-import { DiffView, type DiffKey, type DiffViewHandle } from './DiffView';
+import { CommentBox, CommentCard } from './CommentCard';
+import { CommentsList } from './CommentsList';
+import {
+  DiffView,
+  type DiffKey,
+  type DiffViewHandle,
+  type DiffZone,
+} from './DiffView';
 import { FileTree, type FileRef } from './FileTree';
 import { ScopePicker } from './ScopePicker';
+
+/** A comment being written; its text lives here so a rebuilt diff zone does not lose it. */
+type Draft = {
+  workspaceId: string;
+  path: string;
+  side: ReviewSide;
+  startLine: number;
+  endLine: number;
+  text: string;
+};
 
 const kb = (n: number) =>
   n < 1024
@@ -54,6 +74,13 @@ export function ChangesTab({ task }: { task: TaskView }) {
     content: FileContent | null;
   } | null>(null);
   const [prefs, setPrefs] = useState<ReviewPrefs>(() => readReviewPrefs());
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const [panel, setPanel] = useState<'files' | 'comments'>('files');
+  // The line to scroll to, for the file it belongs to.
+  const [reveal, setReveal] = useState<
+    (FileRef & { side: ReviewSide; line: number; seq: number }) | undefined
+  >();
+  const repos = useStore((s) => s.repos);
   const handle = useRef<DiffViewHandle | null>(null);
   const tracked = useRef(false);
 
@@ -142,6 +169,123 @@ export function ChangesTab({ task }: { task: TaskView }) {
     }
   };
 
+  const canComment = scope.kind === 'all';
+  const comments = state?.comments ?? [];
+  const onThisFile = (c: { workspaceId: string; path: string }) =>
+    current !== null &&
+    c.workspaceId === current.repo.workspaceId &&
+    c.path === current.file.path;
+  const startDraft = (
+    side: ReviewSide,
+    startLine: number,
+    endLine = startLine,
+  ) => {
+    if (!canComment || !current) return;
+    setDraft({
+      workspaceId: current.repo.workspaceId,
+      path: current.file.path,
+      side,
+      startLine,
+      endLine,
+      text: '',
+    });
+  };
+  const apply = async (run: () => Promise<ReviewState>) => {
+    const s = await tryInvoke(run, notify);
+    if (s) setState(s);
+    return s;
+  };
+  const saveDraft = async (text: string) => {
+    if (!draft) return;
+    const { text: _typed, ...where } = draft;
+    if (
+      await apply(() =>
+        api().invoke('review:addComment', task.id, { ...where, text }),
+      )
+    )
+      setDraft(null);
+  };
+  const resolve = (c: ReviewComment) => {
+    track('review.commentResolved', { outdated: c.status === 'outdated' });
+    void apply(() =>
+      api().invoke('review:updateComment', task.id, c.id, {
+        status: 'resolved',
+      }),
+    );
+  };
+  const card = (c: ReviewComment) => (
+    <CommentCard
+      comment={c}
+      onEdit={(text) =>
+        void apply(() =>
+          api().invoke('review:updateComment', task.id, c.id, { text }),
+        )
+      }
+      onResolve={() => resolve(c)}
+      onReopen={() =>
+        void apply(() =>
+          api().invoke('review:updateComment', task.id, c.id, {
+            status: 'open',
+          }),
+        )
+      }
+      onDelete={() =>
+        void apply(() => api().invoke('review:deleteComment', task.id, c.id))
+      }
+    />
+  );
+  const zones: DiffZone[] = canComment
+    ? [
+        ...comments
+          .filter(
+            (c) =>
+              onThisFile(c) && (c.status === 'open' || c.status === 'sent'),
+          )
+          .map((c) => ({
+            id: c.id,
+            side: c.side,
+            afterLine: c.endLine,
+            node: card(c),
+          })),
+        ...(draft && onThisFile(draft)
+          ? [
+              {
+                id: 'draft',
+                side: draft.side,
+                afterLine: draft.endLine,
+                node: (
+                  <CommentBox
+                    value={draft.text}
+                    onChange={(text) =>
+                      setDraft((d) => (d ? { ...d, text } : d))
+                    }
+                    onSave={(t) => void saveDraft(t)}
+                    onCancel={() => setDraft(null)}
+                  />
+                ),
+              },
+            ]
+          : []),
+      ]
+    : [];
+  const outdatedHere = canComment
+    ? comments.filter((c) => onThisFile(c) && c.status === 'outdated')
+    : [];
+  const openComment = (c: ReviewComment) => {
+    setScope({ kind: 'all' });
+    setPanel('files');
+    setSelected({ workspaceId: c.workspaceId, path: c.path });
+    setReveal({
+      workspaceId: c.workspaceId,
+      path: c.path,
+      side: c.side,
+      line: c.startLine,
+      seq: Date.now(),
+    });
+  };
+  const unresolved = comments.filter((c) => c.status !== 'resolved').length;
+  const revealHere = reveal && onThisFile(reveal) ? reveal : undefined;
+
   const step = (by: number) => {
     if (list.length === 0) return;
     const i = list.findIndex((x) => x === current);
@@ -161,6 +305,10 @@ export function ChangesTab({ task }: { task: TaskView }) {
           viewedKey(current.repo.workspaceId, current.file.path)
         ] !== current.file.hash,
       );
+    else if (key === 'c') {
+      const s = handle.current?.selection();
+      if (s) startDraft(s.side, s.startLine, s.endLine);
+    }
   };
 
   const total = list.length;
@@ -202,6 +350,19 @@ export function ChangesTab({ task }: { task: TaskView }) {
         ignoreWhitespace={prefs.ignoreWhitespace}
         hideUnchanged={prefs.hideUnchanged}
         onKey={onKey}
+        zones={zones}
+        onGlyph={
+          canComment ? (side, line) => startDraft(side, line) : undefined
+        }
+        reveal={
+          revealHere
+            ? {
+                side: revealHere.side,
+                line: revealHere.line,
+                seq: revealHere.seq,
+              }
+            : undefined
+        }
         onReady={(h) => {
           handle.current = h;
         }}
@@ -218,6 +379,7 @@ export function ChangesTab({ task }: { task: TaskView }) {
           onChange={(s) => setScope(s)}
         />
         <span className="small muted">{`${viewedCount} / ${total} viewed`}</span>
+        <span className="small muted">{`${unresolved} open comments`}</span>
         <span className="grow" />
         <OpenInEditor
           taskId={task.id}
@@ -230,14 +392,60 @@ export function ChangesTab({ task }: { task: TaskView }) {
         </div>
       )}
       <div className="review-body">
-        <FileTree
-          repos={files?.repos ?? []}
-          selected={selected}
-          viewed={state?.viewed ?? {}}
-          commentCount={() => 0}
-          onSelect={setSelected}
-          onViewed={(r, f, on) => void setViewed(r, f, on)}
-        />
+        <div className="review-side">
+          <div
+            role="tablist"
+            aria-label="Review lists"
+            className="review-side-tabs"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={panel === 'files'}
+              className="pivot"
+              onClick={() => setPanel('files')}
+            >
+              Files
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={panel === 'comments'}
+              className="pivot"
+              onClick={() => setPanel('comments')}
+            >
+              {`Comments (${comments.length})`}
+            </button>
+          </div>
+          {panel === 'files' ? (
+            <FileTree
+              repos={files?.repos ?? []}
+              selected={selected}
+              viewed={state?.viewed ?? {}}
+              commentCount={(ref) =>
+                comments.filter(
+                  (c) =>
+                    c.workspaceId === ref.workspaceId &&
+                    c.path === ref.path &&
+                    c.status !== 'resolved',
+                ).length
+              }
+              onSelect={setSelected}
+              onViewed={(r, f, on) => void setViewed(r, f, on)}
+            />
+          ) : (
+            <CommentsList
+              comments={comments}
+              multiRepo={(files?.repos.length ?? 0) > 1}
+              repoName={(id) =>
+                files?.repos.find((r) => r.workspaceId === id)?.name ??
+                repos.find((r) => r.id === id)?.name ??
+                id
+              }
+              onOpen={openComment}
+            />
+          )}
+        </div>
         <div className="review-main">
           {current && (
             <div className="review-toolbar">
@@ -327,6 +535,13 @@ export function ChangesTab({ task }: { task: TaskView }) {
               >
                 Open file in editor
               </button>
+            </div>
+          )}
+          {outdatedHere.length > 0 && (
+            <div className="review-outdated" aria-label="Outdated comments">
+              {outdatedHere.map((c) => (
+                <div key={c.id}>{card(c)}</div>
+              ))}
             </div>
           )}
           {body()}
