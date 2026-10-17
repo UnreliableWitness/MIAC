@@ -71,6 +71,7 @@ const defaults: FakeHandlers = {
     writeCostToAdo: true,
     showSplash: true,
     sendTelemetry: true,
+    editor: { default: null, repos: {} },
   }),
   'app:info': () => ({ version: '1.0.0', windowsBuild: null }),
   'update:status': () => null,

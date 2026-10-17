@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
+import type { AppSettings } from '../../shared/usage';
 import type { Repo } from '../../shared/types';
 import { useStore } from '../store';
 import { installFakeApi } from '../test-helpers/fakeApi';
@@ -349,11 +350,12 @@ describe('SettingsScreen', () => {
       writeCostToAdo: true,
       showSplash: false,
       sendTelemetry: true,
+      editor: { default: null, repos: {} },
     });
   });
 
   it('keeps fields saved by the other section', async () => {
-    let stored = {
+    let stored: AppSettings = {
       version: 1 as const,
       receiverPort: 4319,
       hourlySync: true,
@@ -363,6 +365,7 @@ describe('SettingsScreen', () => {
       writeCostToAdo: true,
       showSplash: true,
       sendTelemetry: true,
+      editor: { default: null, repos: {} },
     };
     const { calls } = installFakeApi({
       'settings:get': () => stored,
@@ -398,6 +401,7 @@ describe('SettingsScreen', () => {
       writeCostToAdo: true,
       showSplash: false,
       sendTelemetry: true,
+      editor: { default: null, repos: {} },
     });
   });
 

@@ -258,6 +258,7 @@ describe('UsagePanel', () => {
         writeCostToAdo: false,
         showSplash: true,
         sendTelemetry: true,
+        editor: { default: null, repos: {} },
       }),
     });
     render(<UsagePanel taskId="t1" />);

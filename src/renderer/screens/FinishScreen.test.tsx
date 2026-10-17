@@ -472,6 +472,7 @@ describe('FinishScreen AI usage', () => {
         writeCostToAdo: false,
         showSplash: true,
         sendTelemetry: true,
+        editor: { default: null, repos: {} },
       }),
       'tasks:finishChecks': () => clean,
       'tasks:finish': () => undefined,

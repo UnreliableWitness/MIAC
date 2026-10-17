@@ -65,6 +65,7 @@ describe('SettingsStore', () => {
       workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
       showSplash: true,
       sendTelemetry: true,
+      editor: { default: null, repos: {} },
     });
     await s.save({ ...s.get(), hourlySync: true });
     expect(JSON.parse(readFileSync(f, 'utf8'))).toEqual({
@@ -77,6 +78,7 @@ describe('SettingsStore', () => {
       workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
       showSplash: true,
       sendTelemetry: true,
+      editor: { default: null, repos: {} },
     });
   });
   it('rejects invalid values', async () => {
