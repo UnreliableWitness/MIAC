@@ -276,4 +276,79 @@ describe('HomeService', () => {
     const again = service([conn('a')], { a: fakeClient() }, first.file);
     expect((await again.home.get())?.connections[0].sprints).toHaveLength(1);
   });
+
+  it('keeps status error when a never-worked connection fails again', async () => {
+    const { home } = service([conn('a')], {
+      a: fakeClient({
+        me: async () => {
+          throw new AdoError('unreachable', '/x', 'Could not reach');
+        },
+      }),
+    });
+    await home.refresh();
+    expect((await home.refresh()).connections[0]).toMatchObject({
+      status: 'error',
+      fetchedAt: null,
+      sprints: [],
+    });
+  });
+
+  it('one team failing its iteration still counts the other team', async () => {
+    const { home } = service([conn('a')], {
+      a: fakeClient({
+        myTeams: async () => [
+          { id: 't1', name: 'Team 1' },
+          { id: 't2', name: 'Team 2' },
+        ],
+        currentIteration: async (_p, team) => {
+          if (team === 'Team 2')
+            throw new AdoError('http', '/x', 'team 2 broke');
+          return {
+            id: 'i1',
+            name: 'Sprint 1',
+            path: 'P\\Sprint 1',
+            startDate: null,
+            finishDate: null,
+          };
+        },
+        activePullRequests: async (_p, c) =>
+          'creatorId' in c
+            ? [pr(5, { createdBy: { id: 'me', displayName: 'Me' } })]
+            : [],
+      }),
+    });
+    const c = (await home.refresh()).connections[0];
+    expect(c.status).toBe('ok');
+    expect(c.sprints).toHaveLength(1);
+    expect(c.sprintsError).toBe('team 2 broke');
+    expect(c.prsError).toBeNull();
+    expect(c.myPrs.map((p) => p.id)).toEqual([5]);
+  });
+
+  it('a failing myTeams fails only the sprints part', async () => {
+    let fail = false;
+    const { home } = service([conn('a')], {
+      a: fakeClient({
+        myTeams: async () => {
+          if (fail) throw new AdoError('http', '/x', 'teams broke');
+          return [{ id: 't1', name: 'Team 1' }];
+        },
+        activePullRequests: async (_p, c) => {
+          if ('creatorId' in c)
+            return [pr(5, { createdBy: { id: 'me', displayName: 'Me' } })];
+          return c.reviewerId === 'me'
+            ? [pr(1, { reviewers: [{ id: 'me', vote: 0 }] })]
+            : [];
+        },
+      }),
+    });
+    await home.refresh();
+    fail = true;
+    const c = (await home.refresh()).connections[0];
+    expect(c.status).toBe('ok');
+    expect(c.sprintsError).toBe('teams broke');
+    expect(c.sprints).toHaveLength(1);
+    expect(c.reviews.map((p) => p.id)).toEqual([1]);
+    expect(c.myPrs.map((p) => p.id)).toEqual([5]);
+  });
 });

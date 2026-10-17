@@ -136,7 +136,7 @@ export class HomeService {
     error: string,
   ): HomeConnection {
     const base = { connectionId: c.id, name: c.name, project: c.project };
-    return prev
+    return prev && prev.fetchedAt !== null
       ? { ...prev, ...base, status: 'stale', error }
       : {
           ...base,
@@ -160,19 +160,15 @@ export class HomeService {
     const call: Call = (run) =>
       this.d.withConnection ? this.d.withConnection(c.id, run) : run();
     const me = await call(() => client.me());
-    const teams = await call(() => client.myTeams(c.project));
-    const found = await Promise.all(
-      teams.map((t) => call(() => client.currentIteration(c.project, t.name))),
+    const teamsResult = await call(() => client.myTeams(c.project)).then(
+      (value) => ({ ok: true as const, value }),
+      (reason: unknown) => ({ ok: false as const, reason }),
     );
-    const iterations = [
-      ...new Map(
-        found
-          .filter((i): i is SprintIteration => i !== null)
-          .map((i) => [i.path, i]),
-      ).values(),
-    ];
+    const teams = teamsResult.ok ? teamsResult.value : [];
     const [sprints, prs] = await Promise.allSettled([
-      this.sprints(c, client, call, iterations),
+      teamsResult.ok
+        ? this.sprintsOf(c, client, call, teams)
+        : Promise.reject(teamsResult.reason),
       this.prs(
         c,
         client,
@@ -181,6 +177,7 @@ export class HomeService {
         teams.map((t) => t.id),
       ),
     ]);
+    const part = sprints.status === 'fulfilled' ? sprints.value : null;
     return {
       connectionId: c.id,
       name: c.name,
@@ -188,19 +185,47 @@ export class HomeService {
       status: 'ok',
       error: null,
       fetchedAt: this.now().toISOString(),
-      sprints:
-        sprints.status === 'fulfilled' ? sprints.value : (prev?.sprints ?? []),
-      sprintsError:
-        sprints.status === 'rejected' ? message(sprints.reason) : null,
+      sprints: part?.sprints ?? prev?.sprints ?? [],
+      sprintsError: part
+        ? part.error
+        : sprints.status === 'rejected'
+          ? message(sprints.reason)
+          : null,
       reviews:
         prs.status === 'fulfilled' ? prs.value.reviews : (prev?.reviews ?? []),
       teamReviews:
-        prs.status === 'fulfilled'
+        prs.status === 'fulfilled' && teamsResult.ok
           ? prs.value.teamReviews
           : (prev?.teamReviews ?? []),
       myPrs: prs.status === 'fulfilled' ? prs.value.myPrs : (prev?.myPrs ?? []),
       prsError: prs.status === 'rejected' ? message(prs.reason) : null,
     };
+  }
+
+  /** Current iterations of my teams, each team on its own: a failing team sets the error, the others still count. */
+  private async sprintsOf(
+    c: Connection,
+    client: HomeClient,
+    call: Call,
+    teams: { id: string; name: string }[],
+  ): Promise<{ sprints: HomeSprint[] | null; error: string | null }> {
+    const found = await Promise.allSettled(
+      teams.map((t) => call(() => client.currentIteration(c.project, t.name))),
+    );
+    const failure = found.find((f) => f.status === 'rejected');
+    const error = failure ? message(failure.reason) : null;
+    if (failure && found.every((f) => f.status === 'rejected'))
+      return { sprints: null, error };
+    const iterations = [
+      ...new Map(
+        found
+          .flatMap((f) =>
+            f.status === 'fulfilled' && f.value ? [f.value] : [],
+          )
+          .map((i: SprintIteration) => [i.path, i]),
+      ).values(),
+    ];
+    return { sprints: await this.sprints(c, client, call, iterations), error };
   }
 
   private async sprints(
