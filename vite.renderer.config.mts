@@ -19,4 +19,8 @@ function cspForBuild(): Plugin {
   };
 }
 
-export default defineConfig({ plugins: [react(), cspForBuild()] });
+export default defineConfig({
+  plugins: [react(), cspForBuild()],
+  // Monaco's workers are ES modules with imports.
+  worker: { format: 'es' },
+});

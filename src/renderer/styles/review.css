@@ -14,3 +14,33 @@
   padding-right: 4px;
   border-left: 1px solid var(--line);
 }
+.review-diff {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+.review-empty {
+  padding: 24px;
+  color: var(--muted);
+}
+/* The + that starts a comment, in the glyph margin of the hovered line. */
+.review-add-glyph {
+  cursor: pointer;
+}
+.review-add-glyph::before {
+  content: '+';
+  display: block;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  line-height: 16px;
+  text-align: center;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: #fff;
+  font: 600 13px var(--font-ui);
+}
+.review-zone {
+  padding: 4px 16px 4px 8px;
+  font-family: var(--font-ui);
+}
