@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { Band } from '../components/home/Band';
 import { PrBand } from '../components/home/PrBand';
 import { SprintsBand } from '../components/home/SprintsBand';
+import { StatsBand } from '../components/home/StatsBand';
 import { TasksBand } from '../components/home/TasksBand';
 import { PageHeader } from '../components/ui';
 import { ago } from '../format';
@@ -109,9 +110,7 @@ export function HomeScreen() {
             )}
           </>
         )}
-        <Band title="Stats">
-          <p className="muted">No activity yet.</p>
-        </Band>
+        <StatsBand />
       </div>
     </div>
   );
