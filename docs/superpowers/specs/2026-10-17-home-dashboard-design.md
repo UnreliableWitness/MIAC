@@ -51,6 +51,7 @@ The app opens on the Sprint page, which shows one project's default team. A conn
 ### Band 2: Reviews for me | My pull requests (side by side)
 
 - **Reviews for me:** active PRs where I'm a named reviewer and my vote is 0 (no vote), oldest first. Row: repo, title, author, age, draft, merge conflict, my vote. Below them a collapsed **Team requests (n)** row: active PRs that list one of my teams as reviewer and not me by name. Expanding it shows the same rows.
+- PRs I authored never appear under Reviews or Team requests, even when I am a named reviewer on them *(our call)*.
 - **My pull requests:** my active PRs: repo, title, age, votes summary (approved, waiting, rejected), draft, merge conflict.
 - A row click opens the PR in the browser (`shell.openExternal` through the existing link handler).
 
