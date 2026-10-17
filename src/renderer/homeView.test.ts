@@ -4,11 +4,14 @@ import type { Connection } from '../shared/types';
 import { chipState } from './homeView';
 
 const connection = { id: 'c1', status: 'ok' } as Connection;
-const home = (status: HomeConnection['status']) => ({ status }) as HomeConnection;
+const home = (status: HomeConnection['status']) =>
+  ({ status }) as HomeConnection;
 
 describe('chipState', () => {
   it('is error when the connection or the build says so', () => {
-    expect(chipState(home('ok'), { ...connection, status: 'unauthorized' })).toBe('error');
+    expect(
+      chipState(home('ok'), { ...connection, status: 'unauthorized' }),
+    ).toBe('error');
     expect(chipState(home('error'), connection)).toBe('error');
   });
   it('is stale when the last build failed but data is kept', () => {

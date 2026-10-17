@@ -60,13 +60,17 @@ describe('Home page', () => {
     const { calls } = installFakeApi({ 'home:get': () => snapshot() });
     render(<Shell />);
     expect(await screen.findByRole('heading', { name: 'Home' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'uw: MIAC, connected' })).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: 'uw: MIAC, connected' }),
+    ).toBeTruthy();
     // Fresh snapshot: no rebuild on open.
     expect(calls.some((c) => c.channel === 'home:refresh')).toBe(false);
   });
 
   it('rebuilds a snapshot older than a minute, and with none', async () => {
-    const old = snapshot({ builtAt: new Date(Date.now() - 120_000).toISOString() });
+    const old = snapshot({
+      builtAt: new Date(Date.now() - 120_000).toISOString(),
+    });
     const { calls } = installFakeApi({ 'home:get': () => old });
     render(<Shell />);
     await waitFor(() =>
@@ -77,7 +81,9 @@ describe('Home page', () => {
   it('the refresh button rebuilds', async () => {
     const { calls } = installFakeApi({ 'home:get': () => snapshot() });
     render(<Shell />);
-    await userEvent.click(await screen.findByRole('button', { name: 'Refresh' }));
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Refresh' }),
+    );
     expect(calls.filter((c) => c.channel === 'home:refresh')).toHaveLength(1);
   });
 
@@ -86,17 +92,26 @@ describe('Home page', () => {
     render(<Shell />);
     await screen.findByRole('heading', { name: 'Home' });
     act(() =>
-      emit('home:updated', snapshot({
-        connections: [{ ...snapshot().connections[0], status: 'stale', error: 'refused' }],
-      })),
+      emit(
+        'home:updated',
+        snapshot({
+          connections: [
+            { ...snapshot().connections[0], status: 'stale', error: 'refused' },
+          ],
+        }),
+      ),
     );
-    expect(await screen.findByRole('button', { name: 'uw: MIAC, stale: refused' })).toBeTruthy();
+    expect(
+      await screen.findByRole('button', { name: 'uw: MIAC, stale: refused' }),
+    ).toBeTruthy();
   });
 
   it('a chip opens Settings', async () => {
     installFakeApi({ 'home:get': () => snapshot() });
     render(<Shell />);
-    await userEvent.click(await screen.findByRole('button', { name: 'uw: MIAC, connected' }));
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'uw: MIAC, connected' }),
+    );
     expect(useStore.getState().screen.kind).toBe('settings');
   });
 
@@ -104,7 +119,11 @@ describe('Home page', () => {
     useStore.setState({ connections: [] });
     installFakeApi();
     render(<Shell />);
-    expect(await screen.findByRole('button', { name: 'Add an Azure DevOps connection' })).toBeTruthy();
+    expect(
+      await screen.findByRole('button', {
+        name: 'Add an Azure DevOps connection',
+      }),
+    ).toBeTruthy();
     expect(screen.getByRole('region', { name: 'My tasks' })).toBeTruthy();
     expect(screen.getByRole('region', { name: 'Stats' })).toBeTruthy();
     expect(screen.queryByRole('region', { name: 'My sprints' })).toBeNull();
@@ -114,7 +133,9 @@ describe('Home page', () => {
     installFakeApi();
     useStore.setState({ screen: { kind: 'settings' } });
     render(<Shell />);
-    await userEvent.click(screen.getByRole('button', { name: 'MIAC, go to Home' }));
+    await userEvent.click(
+      screen.getByRole('button', { name: 'MIAC, go to Home' }),
+    );
     expect(useStore.getState().screen.kind).toBe('home');
     await userEvent.click(screen.getByRole('button', { name: 'Sprint' }));
     expect(useStore.getState().screen.kind).toBe('sprint');

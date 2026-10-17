@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { HOME_MAX_AGE_MS, HOME_POLL_MS, type HomeSnapshot } from '../../shared/home';
+import {
+  HOME_MAX_AGE_MS,
+  HOME_POLL_MS,
+  type HomeSnapshot,
+} from '../../shared/home';
 import { api, tryInvoke } from '../api';
 import { useStore } from '../store';
 

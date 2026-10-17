@@ -6,7 +6,11 @@ import { useHome } from '../hooks/useHome';
 import { chipState } from '../homeView';
 import { useStore } from '../store';
 
-const CHIP_TEXT = { ok: 'connected', stale: 'stale', error: 'not connected' } as const;
+const CHIP_TEXT = {
+  ok: 'connected',
+  stale: 'stale',
+  error: 'not connected',
+} as const;
 
 export function HomeScreen() {
   const { snapshot, refreshing, refresh } = useHome();
@@ -31,7 +35,10 @@ export function HomeScreen() {
               {connections.map((c) => {
                 const h = byId.get(c.id);
                 const state = chipState(h, c);
-                const detail = state === 'ok' ? CHIP_TEXT.ok : `${CHIP_TEXT[state]}${h?.error ? `: ${h.error}` : ''}`;
+                const detail =
+                  state === 'ok'
+                    ? CHIP_TEXT.ok
+                    : `${CHIP_TEXT[state]}${h?.error ? `: ${h.error}` : ''}`;
                 return (
                   <button
                     key={c.id}
@@ -61,7 +68,8 @@ export function HomeScreen() {
       />
       {refused.map((c) => (
         <p key={c.id} className="home-warning" role="status">
-          Azure DevOps refused the token for {c.name}/{c.project}. Update it in Settings.
+          Azure DevOps refused the token for {c.name}/{c.project}. Update it in
+          Settings.
         </p>
       ))}
       <div className="home-bands">
@@ -69,7 +77,11 @@ export function HomeScreen() {
           <p className="muted">No open tasks.</p>
         </Band>
         {connections.length === 0 ? (
-          <button type="button" className="btn btn-primary home-connect" onClick={() => go({ kind: 'settings' })}>
+          <button
+            type="button"
+            className="btn btn-primary home-connect"
+            onClick={() => go({ kind: 'settings' })}
+          >
             Add an Azure DevOps connection
           </button>
         ) : (
@@ -83,7 +95,9 @@ export function HomeScreen() {
               </Band>
             </div>
             <Band title="My sprints">
-              <p className="muted">Nothing assigned to you in a current sprint.</p>
+              <p className="muted">
+                Nothing assigned to you in a current sprint.
+              </p>
             </Band>
           </>
         )}
