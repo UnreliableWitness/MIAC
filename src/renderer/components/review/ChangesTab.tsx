@@ -48,7 +48,11 @@ export function ChangesTab({ task }: { task: TaskView }) {
   const [scope, setScope] = useState<ReviewScope>({ kind: 'all' });
   const { files, state, setState, changedAt } = useReview(task, scope, true);
   const [selected, setSelected] = useState<FileRef | null>(null);
-  const [content, setContent] = useState<FileContent | null>(null);
+  // The content with the file and scope it was read for, so another file's text is never shown.
+  const [loaded, setLoaded] = useState<{
+    key: string;
+    content: FileContent | null;
+  } | null>(null);
   const [prefs, setPrefs] = useState<ReviewPrefs>(() => readReviewPrefs());
   const handle = useRef<DiffViewHandle | null>(null);
   const tracked = useRef(false);
@@ -85,12 +89,18 @@ export function ChangesTab({ task }: { task: TaskView }) {
   const fileKey = current
     ? `${current.repo.workspaceId}/${current.file.path}/${current.file.hash}`
     : null;
+  const scopeKey = JSON.stringify(scope);
+  const showKey = current
+    ? `${current.repo.workspaceId}/${current.file.path}|${scopeKey}`
+    : null;
+  const content = loaded && loaded.key === showKey ? loaded.content : null;
   useEffect(() => {
-    if (!current) {
-      setContent(null);
+    if (!current || !showKey) {
+      setLoaded(null);
       return;
     }
     let live = true;
+    const key = showKey;
     const { path, oldPath, status, binary } = current.file;
     void api()
       .invoke(
@@ -100,14 +110,14 @@ export function ChangesTab({ task }: { task: TaskView }) {
         { path, ...(oldPath ? { oldPath } : {}), status, binary },
         scope,
       )
-      .then((c) => live && setContent(c))
-      .catch(() => live && setContent(null));
+      .then((c) => live && setLoaded({ key, content: c }))
+      .catch(() => live && setLoaded({ key, content: null }));
     return () => {
       live = false;
     };
     // fileKey covers the file and its content hash; changedAt reloads after a watcher event.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fileKey, changedAt, task.id, JSON.stringify(scope)]);
+  }, [fileKey, changedAt, task.id, scopeKey]);
 
   const setPref = (patch: Partial<ReviewPrefs>) => {
     const next = { ...prefs, ...patch };

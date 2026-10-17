@@ -253,3 +253,34 @@ describe('ChangesTab', () => {
     ).toBeTruthy();
   });
 });
+
+describe('ChangesTab while a file loads', () => {
+  it('does not show the previous file under the new name', async () => {
+    let answer: () => void = () => {};
+    mount({
+      'review:file': (_t: string, _w: string, f: { path: string }) => {
+        const c = {
+          before: `old ${f.path}`,
+          after: `new ${f.path}`,
+          binary: false,
+          tooLarge: false,
+          beforeSize: 1,
+          afterSize: 1,
+        };
+        return f.path === 'src/b.ts'
+          ? new Promise((r) => (answer = () => r(c)))
+          : c;
+      },
+    });
+    expect((await screen.findByTestId('after')).textContent).toBe(
+      'new src/a.ts',
+    );
+    fireEvent.click(screen.getByText('b.ts'));
+    await screen.findByText('Loading src/b.ts…');
+    expect(screen.queryByTestId('diff')).toBeNull();
+    await act(async () => answer());
+    expect((await screen.findByTestId('after')).textContent).toBe(
+      'new src/b.ts',
+    );
+  });
+});

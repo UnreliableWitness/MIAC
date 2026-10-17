@@ -21,18 +21,15 @@ export function ScopePicker({
   const withCommits = repos.filter((r) => r.commits.length > 0);
   const pick = (r: ReviewRepo, index: number, range: boolean) => {
     const sha = r.commits[index].sha;
-    if (
-      range &&
-      scope.kind === 'commits' &&
-      scope.workspaceId === r.workspaceId
-    ) {
+    const inRepo =
+      scope.kind === 'commits' && scope.workspaceId === r.workspaceId;
+    const ia = inRepo ? r.commits.findIndex((c) => c.sha === scope.from) : -1;
+    const ib = inRepo ? r.commits.findIndex((c) => c.sha === scope.to) : -1;
+    // A range end that is no longer listed (amend, rebase) makes this a single-commit pick.
+    if (range && ia >= 0 && ib >= 0) {
       // Commits are newest first: the older end of the range has the higher index.
-      const ia = r.commits.findIndex((c) => c.sha === scope.from);
       const lo = Math.max(ia, index);
-      const hi = Math.min(
-        r.commits.findIndex((c) => c.sha === scope.to),
-        index,
-      );
+      const hi = Math.min(ib, index);
       onChange({
         kind: 'commits',
         workspaceId: r.workspaceId,

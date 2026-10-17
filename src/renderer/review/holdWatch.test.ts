@@ -36,4 +36,19 @@ describe('holdWatch', () => {
     expect(calls.filter((c) => c.channel === 'review:watch')).toHaveLength(1);
     expect(lives).toEqual([true, false]);
   });
+
+  it('reports not live when main refuses the hold, and sends no off', async () => {
+    const { calls } = installFakeApi({
+      'review:watch': () => {
+        throw new Error('no watcher');
+      },
+    });
+    const lives: boolean[] = [];
+    const release = holdWatch('review:watch', 't1', (l) => lives.push(l));
+    await flush();
+    release();
+    await flush();
+    expect(lives).toEqual([false]);
+    expect(calls.filter((c) => c.channel === 'review:watch')).toHaveLength(1);
+  });
 });

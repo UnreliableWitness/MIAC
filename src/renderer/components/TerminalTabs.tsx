@@ -127,7 +127,11 @@ export function TerminalTabs({
   // Same rule as the shell: Focus chrome only for a ready task.
   const ready = task.status === 'ready';
   const inFocus = useStore((s) => s.focus) && ready;
-  const changeCount = useChangeCount(task, visible && ready);
+  // Not while Changes is open (it loads the same list); the badge keeps its count and refreshes on leaving.
+  const changeCount = useChangeCount(
+    task,
+    visible && ready && active !== CHANGES_TAB,
+  );
   const toggleFocus = useStore((s) => s.toggleFocus);
   const [unseen, setUnseen] = useState(false);
   const [docsUnseen, setDocsUnseen] = useState(false);

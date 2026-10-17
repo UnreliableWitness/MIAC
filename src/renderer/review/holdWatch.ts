@@ -35,7 +35,11 @@ export function holdWatch(
         if (!released) onLive(r.live);
         return true;
       },
-      () => false,
+      () => {
+        // No watcher: the holder polls instead.
+        if (!released) onLive(false);
+        return false;
+      },
     );
   return () => {
     released = true;
