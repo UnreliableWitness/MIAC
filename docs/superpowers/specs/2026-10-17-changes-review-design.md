@@ -166,3 +166,11 @@ New events in `docs/telemetry.md`: `review.opened` (scope, file count, repo coun
 - An unreadable review file is kept as `<taskId>.json.corrupt-<time>` (JsonFileStore) and a notice says so. Tasks are never deleted, so review files are not removed.
 - Monaco is the full `monaco-editor` package with its JSON, CSS, HTML and TypeScript workers (diagnostics off), loaded as a separate chunk on first use.
 - A repo whose git call fails shows git's message in its group; it refreshes with the next change or scope switch (no separate Retry button).
+- Telemetry events sent: `review.opened` (scope, files, repos), `review.fileViewed` (no properties), `review.commentsSent` (count, only after the comments were marked sent) and `review.commentResolved` (outdated). `editor.opened` carries `editor` and `at`.
+- Inline diff view: Side by side is honoured at any width. In inline view, before-side comments are shown in the after editor at the mapped line, and new comments can only be added on the after side.
+- Comment links: http(s) links open in the browser; other links render as plain text.
+- A non-empty comment draft is kept when + is clicked elsewhere ("Finish or cancel the open comment first"), and drafts survive refreshes.
+- The pivot badge pauses while the Changes tab itself is open. Refreshes are debounced (200 ms after the last change) with one git call in flight.
+- Paste to an agent: the whole prompt, including paths, is stripped of control characters; terminals without bracketed paste get a single-line prompt; only agent tabs (Claude Code, Copilot, OpenCode) are send targets.
+- Settings > Editor looks for editors again each time Settings opens.
+- Not yet checked: Visual Studio's go-to-line on Windows (see the checklist).

@@ -60,4 +60,11 @@ Download the installer from GitHub: open the Actions run for the commit, then th
     - Select text in the Docs tab and use Send to Claude, then Send to PowerShell. PowerShell 7 gets a multi-line paste; Windows PowerShell 5.1 without PSReadLine gets one line (`path:N-M "text"`). Enter is never sent.
     - Finish the task with the Docs tab open: the worktree is removed with no "in use" error.
 
+15. **Changes page and Visual Studio.**
+    - With Visual Studio installed, Settings > Editor lists it; a repo with a `.sln` opens that solution from the task row's Open in Visual Studio, from the worktree (not the main checkout).
+    - With two solutions, the menu lists both and the pick is remembered for the repo.
+    - Open file in editor on the Changes page opens the file in the running Visual Studio at the cursor line (`/command "Edit.GoTo <line>"`). If it opens at the top, record it as a known gap.
+    - The Changes tab shows a diff (Monaco loads in the packaged build, no CSP errors in the DevTools console).
+    - A commit made in the task's shell refreshes the Changes tab within a second.
+
 If a setup command or a shim fails with "running scripts is disabled on this system": MIAC passes `-ExecutionPolicy Bypass`, but an execution policy set by Group Policy overrides it. Ask IT, or install claude and copilot as native `.exe` builds.
