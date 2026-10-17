@@ -40,7 +40,7 @@ The app opens on the Sprint page, which shows one project's default team. A conn
 
 - Home is the top item in the left nav (`TaskNav`), and a new screen kind `{ kind: 'home' }` in `store.ts`. The app starts on it, and it replaces `{ kind: 'sprint' }` as the fallback when a task's screen goes away.
 - The Sprint item and the project switcher stay as they are.
-- Header breadcrumb: "Home". On the right of the page header: a refresh button, "updated 2 min ago", and a **health chip per connection**: green when OK, red when unauthorized or unreachable, amber when its data is stale. A chip click opens Settings › Connections.
+- Header breadcrumb: "Home". On the right of the page header: a refresh button, "updated 2 min ago", and a **health chip per connection**: green when OK, red when the token is refused or the connection never loaded, amber when unreachable or its data is stale. A chip click opens Settings › Connections.
 
 ### Band 1: My tasks
 
