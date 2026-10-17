@@ -44,7 +44,7 @@ The app opens on the Sprint page, which shows one project's default team. A conn
 
 ### Band 1: My tasks
 
-- A card per open MIAC task over all connections (states other than done): work item ID and title, connection name, status (setting up, ready, needs attention), live cost and active time. Click opens the task (`select`), and a task that needs attention (failed setup, failed push or PR at Finish) shows its Retry action, which goes to the screen that offers it.
+- A card per open MIAC task over all connections (states other than done): work item ID and title, connection name, status (setting up, open, finishing, needs attention), live cost and active time. Click opens the task (`openTask`). A task needs attention when its setup failed or its folder is missing; the card is outlined red and its click lands on the Setup page with Retry. A failed push or PR at Finish puts the task back to open and is not stored, so it is not flagged *(our call)*.
 - The last card is **Up next**: up to 3 items assigned to me in a current sprint, in a state of category Proposed, with no MIAC task, each with Start (the same `startTask` flow as the Sprint page). Order: sprint order as returned, oldest sprint end first *(our call)*.
 - Cards wrap onto more rows when there are many.
 
@@ -79,27 +79,23 @@ The app opens on the Sprint page, which shows one project's default team. A conn
 
 ### `HomeService` (main, `src/main/home/`)
 
-Builds a `HomeSnapshot` (schema in `src/shared/types.ts`, zod like the rest):
+Builds a `HomeSnapshot` (zod schemas in `src/shared/home.ts`), grouped per connection so a failing connection keeps its own last data:
 
 ```ts
-HomeSnapshot = {
-  builtAt: string;
-  connections: {
-    id: string; name: string;
-    status: 'ok' | 'error' | 'stale';
-    error: string | null;      // short, user-facing
-    fetchedAt: string | null;  // last successful fetch
-  }[];
-  sprints: HomeSprint[];        // connectionId, iteration id/name/path, start/finish dates, my items
-  upNext: HomeWorkItem[];
-  reviews: { named: HomePr[]; team: HomePr[] };
-  myPrs: HomePr[];
+HomeSnapshot = { version: 1; builtAt: string; connections: HomeConnection[] }
+HomeConnection = {
+  connectionId: string; name: string; project: string;
+  status: 'ok' | 'stale' | 'error'; // stale: this build failed, last data kept; error: failed with no earlier data
+  error: string | null;             // short, user-facing
+  fetchedAt: string | null;         // last successful fetch
+  sprints: HomeSprint[];   sprintsError: string | null;   // iterations holding items assigned to me, with the items
+  reviews: HomePr[]; teamReviews: HomePr[]; myPrs: HomePr[]; prsError: string | null;
 }
 ```
 
-`HomeWorkItem` carries id, type, title, state, state category, iteration path, and the estimate fields time tracking already reads. `HomePr` carries connection id, repo, id, title, author, created date, draft, merge status, my vote, votes summary and web URL.
+`HomeSprint` carries the iteration id, name, path, start and finish dates and my items (the Sprint page's `SprintItem` fields: id, type, title, state, paths, assignee, URL and the three estimate fields). `HomePr` carries id, repo, title, author and author id, created date, draft, conflicts, my vote (null when I am not a named reviewer), a votes summary and the web URL.
 
-Tasks are not in the snapshot: the renderer already has them in its store. Stats are a separate local call (below).
+Not in the snapshot: tasks (the renderer has them), **Up next** (derived in the renderer from the sprints, the tasks and the state categories of `workItems:types`, so starting a task removes the item at once *(our call)*), and stats (a separate local call).
 
 ### Per connection, in parallel
 
@@ -119,7 +115,7 @@ Steps 1, 2, 3 and 5 were checked live against `unreliablewitness/MIAC` on 2026-1
 ### Caching and refresh
 
 - The last snapshot is written to `home.json` in the data folder through `JsonFileStore`, so Home renders straight away at launch.
-- Rebuild when Home is opened and the snapshot is older than 60 s, every 5 minutes while the window has focus, and on the refresh button. One rebuild at a time: a request during a rebuild joins it.
+- The renderer asks for a rebuild when Home is opened or the window regains focus and the snapshot is older than 60 s, every 5 minutes while Home is showing and the window has focus, and on the refresh button. One rebuild at a time in main: a request during a rebuild joins it.
 - A connection that fails keeps its previous data in the snapshot, marked `stale`, with `error` set. A connection that was removed is dropped from the snapshot.
 
 ### Stats (`src/main/home/homeStats.ts`)
@@ -129,8 +125,8 @@ Steps 1, 2, 3 and 5 were checked live against `unreliablewitness/MIAC` on 2026-1
 ### IPC (`src/shared/ipc.ts`)
 
 - `home:get` → the cached `HomeSnapshot | null`.
-- `home:refresh` → starts a rebuild and resolves when it finishes, with the new snapshot.
-- `home:updated` (main → renderer event) → a rebuild finished (also the 5-minute ones).
+- `home:refresh` → starts a rebuild (or joins the running one) and resolves with the new snapshot.
+- `home:updated` (main → renderer event) → a rebuild finished, with the snapshot.
 - `home:stats` `(period: 'week' | 'month')` → stats.
 
 ### Renderer
@@ -140,7 +136,7 @@ Steps 1, 2, 3 and 5 were checked live against `unreliablewitness/MIAC` on 2026-1
 
 ### Telemetry
 
-`home_viewed`, `home_refresh` (duration, connection count, failed connection count), `home_click` (band: task, up-next, review, team-review, my-pr, sprint, stats-period). No names or IDs. Added to `docs/telemetry.md`.
+The screen view `home` (automatic through `trackScreen`), `home.refreshed` (connection count, failed connection count, duration in ms; main) and `home.clicked` (`band`: task, up-next, review, team-review, my-pr, sprint, stats-period; renderer). No names or IDs. Added to `docs/telemetry.md`.
 
 ## 3. Errors
 
