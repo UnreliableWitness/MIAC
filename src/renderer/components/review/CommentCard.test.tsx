@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { ReviewComment } from '../../../shared/review';
+import { installFakeApi } from '../../test-helpers/fakeApi';
 import { CommentBox, CommentCard } from './CommentCard';
 
 const base: ReviewComment = {
@@ -111,6 +112,31 @@ describe('CommentCard', () => {
     );
     expect(screen.getByText('Code changed, probably addressed')).toBeTruthy();
     expect(screen.getByText(/x\(\)/)).toBeTruthy();
+  });
+
+  it('never navigates the app window from a link: web links open outside, others are text', async () => {
+    const api = installFakeApi({ 'links:open': () => undefined });
+    render(
+      <CommentCard
+        comment={{
+          ...base,
+          text: 'See [notes](docs/plan.md) and [the docs](https://example.com/x)',
+        }}
+        onEdit={vi.fn()}
+        onResolve={vi.fn()}
+        onReopen={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('notes').closest('a')).toBeNull();
+    const web = screen.getByText('the docs').closest('a') as HTMLAnchorElement;
+    // fireEvent returns false when the default (following the href) was prevented.
+    expect(fireEvent.click(web)).toBe(false);
+    await vi.waitFor(() =>
+      expect(api.calls.find((c) => c.channel === 'links:open')?.args).toEqual([
+        'https://example.com/x',
+      ]),
+    );
   });
 
   it('edits in place', () => {

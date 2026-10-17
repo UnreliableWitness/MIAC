@@ -76,6 +76,9 @@ export function ChangesTab({ task }: { task: TaskView }) {
   const [prefs, setPrefs] = useState<ReviewPrefs>(() => readReviewPrefs());
   const [draft, setDraft] = useState<Draft | null>(null);
   const [panel, setPanel] = useState<'files' | 'comments'>('files');
+  // A save of the draft is on its way: a second submit is ignored.
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   // The line to scroll to, for the file it belongs to.
   const [reveal, setReveal] = useState<
     (FileRef & { side: ReviewSide; line: number; seq: number }) | undefined
@@ -181,6 +184,11 @@ export function ChangesTab({ task }: { task: TaskView }) {
     endLine = startLine,
   ) => {
     if (!canComment || !current) return;
+    // A draft with text is never thrown away by another + or c.
+    if (draft?.text.trim()) {
+      notify('info', 'Finish or cancel the open comment first');
+      return;
+    }
     setDraft({
       workspaceId: current.repo.workspaceId,
       path: current.file.path,
@@ -196,14 +204,21 @@ export function ChangesTab({ task }: { task: TaskView }) {
     return s;
   };
   const saveDraft = async (text: string) => {
-    if (!draft) return;
+    if (!draft || savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
     const { text: _typed, ...where } = draft;
-    if (
-      await apply(() =>
-        api().invoke('review:addComment', task.id, { ...where, text }),
+    try {
+      if (
+        await apply(() =>
+          api().invoke('review:addComment', task.id, { ...where, text }),
+        )
       )
-    )
-      setDraft(null);
+        setDraft(null);
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
   };
   const resolve = (c: ReviewComment) => {
     track('review.commentResolved', { outdated: c.status === 'outdated' });
@@ -256,6 +271,7 @@ export function ChangesTab({ task }: { task: TaskView }) {
                 node: (
                   <CommentBox
                     value={draft.text}
+                    busy={saving}
                     onChange={(text) =>
                       setDraft((d) => (d ? { ...d, text } : d))
                     }
@@ -285,12 +301,17 @@ export function ChangesTab({ task }: { task: TaskView }) {
   };
   const unresolved = comments.filter((c) => c.status !== 'resolved').length;
   const revealHere = reveal && onThisFile(reveal) ? reveal : undefined;
+  // A file the user picks drops a pending reveal, so it never fires on a later visit.
+  const pick = (ref: FileRef) => {
+    setReveal(undefined);
+    setSelected(ref);
+  };
 
   const step = (by: number) => {
     if (list.length === 0) return;
     const i = list.findIndex((x) => x === current);
     const next = list[(i + by + list.length) % list.length];
-    setSelected({ workspaceId: next.repo.workspaceId, path: next.file.path });
+    pick({ workspaceId: next.repo.workspaceId, path: next.file.path });
   };
   const onKey = (key: DiffKey) => {
     if (key === 'j') step(1);
@@ -363,6 +384,7 @@ export function ChangesTab({ task }: { task: TaskView }) {
               }
             : undefined
         }
+        onRevealed={() => setReveal(undefined)}
         onReady={(h) => {
           handle.current = h;
         }}
@@ -430,7 +452,7 @@ export function ChangesTab({ task }: { task: TaskView }) {
                     c.status !== 'resolved',
                 ).length
               }
-              onSelect={setSelected}
+              onSelect={pick}
               onViewed={(r, f, on) => void setViewed(r, f, on)}
             />
           ) : (

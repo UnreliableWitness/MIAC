@@ -7,6 +7,7 @@ import {
   within,
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useEffect } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   ReviewFileStatus,
@@ -20,6 +21,8 @@ import { ChangesTab } from './ChangesTab';
 
 // Monaco does not run in jsdom: a stand-in that shows what it was given and renders the zones inline.
 // Like the real view, a change in the zones' ids or lines remounts every zone's content.
+// Every reveal the view carries out, like the real one: on a new seq or a new file.
+const reveals = vi.hoisted(() => [] as { path: string; line: number }[]);
 vi.mock('./DiffView', () => ({
   DiffView: (p: {
     uriKey: string;
@@ -27,7 +30,15 @@ vi.mock('./DiffView', () => ({
     after: string;
     zones?: { id: string; afterLine: number; node: unknown }[];
     onGlyph?: (side: 'before' | 'after', line: number) => void;
+    reveal?: { side: 'before' | 'after'; line: number; seq: number };
+    onRevealed?: () => void;
   }) => {
+    useEffect(() => {
+      if (!p.reveal) return;
+      reveals.push({ path: p.uriKey, line: p.reveal.line });
+      p.onRevealed?.();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [p.reveal?.seq, p.uriKey]);
     const sig = (p.zones ?? []).map((z) => `${z.id}@${z.afterLine}`).join(',');
     return (
       <div data-testid="diff" data-key={p.uriKey}>
@@ -67,6 +78,7 @@ let state: ReviewState;
 
 beforeEach(() => {
   localStorage.clear();
+  reveals.length = 0;
   useStore.setState({ repos: [], tabByTask: {} });
   files = {
     repos: [
@@ -453,6 +465,86 @@ describe('ChangesTab comments', () => {
     await waitFor(() =>
       expect(screen.getByTestId('after').textContent).toBe('new src/b.ts'),
     );
+  });
+
+  it('reveals an opened comment once, not again on a later visit to its file', async () => {
+    state = {
+      ...state,
+      comments: [
+        comment({ path: 'src/b.ts', startLine: 7, endLine: 7, text: 'On b' }),
+      ],
+    };
+    mount();
+    fireEvent.click(await screen.findByRole('tab', { name: 'Comments (1)' }));
+    fireEvent.click(screen.getByRole('listitem'));
+    await waitFor(() =>
+      expect(reveals).toEqual([{ path: 'home/src/b.ts', line: 7 }]),
+    );
+    fireEvent.click(screen.getByText('a.ts'));
+    await waitFor(() =>
+      expect(screen.getByTestId('after').textContent).toBe('new src/a.ts'),
+    );
+    fireEvent.click(screen.getByText('b.ts'));
+    await waitFor(() =>
+      expect(screen.getByTestId('after').textContent).toBe('new src/b.ts'),
+    );
+    expect(reveals).toHaveLength(1);
+  });
+
+  it('keeps a draft with text when + is clicked again, and moves an empty one', async () => {
+    mount();
+    const add = await screen.findByRole('button', { name: 'add on line 2' });
+    fireEvent.click(add);
+    fireEvent.click(add);
+    expect(screen.getAllByRole('textbox', { name: 'Comment' })).toHaveLength(1);
+    await userEvent.type(
+      screen.getByRole('textbox', { name: 'Comment' }),
+      'keep me',
+    );
+    fireEvent.click(add);
+    expect(
+      (screen.getByRole('textbox', { name: 'Comment' }) as HTMLTextAreaElement)
+        .value,
+    ).toBe('keep me');
+    expect(useStore.getState().notices.map((n) => n.message)).toContain(
+      'Finish or cancel the open comment first',
+    );
+  });
+
+  it('adds a comment once when it is submitted twice quickly', async () => {
+    let answer: () => void = () => {};
+    const api = mount({
+      'review:addComment': (_t, input) =>
+        new Promise((r) => {
+          answer = () =>
+            r(
+              (state = { ...state, comments: [comment({ text: input.text })] }),
+            );
+        }),
+    });
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'add on line 2' }),
+    );
+    const box = screen.getByRole('textbox', { name: 'Comment' });
+    await userEvent.type(box, 'Once');
+    fireEvent.click(
+      within(screen.getByTestId('zone-draft')).getByRole('button', {
+        name: 'Comment',
+      }),
+    );
+    fireEvent.keyDown(box, { key: 'Enter', ctrlKey: true });
+    expect(
+      (
+        within(screen.getByTestId('zone-draft')).getByRole('button', {
+          name: 'Comment',
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    await act(async () => answer());
+    await screen.findByTestId('zone-c1');
+    expect(
+      api.calls.filter((c) => c.channel === 'review:addComment'),
+    ).toHaveLength(1);
   });
 
   it('offers no new comments outside All changes', async () => {

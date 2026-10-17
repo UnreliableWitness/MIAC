@@ -32,6 +32,8 @@ type Props = {
   onReady?: (h: DiffViewHandle | null) => void;
   /** Scrolls a line into the centre of a side whenever `seq` changes. */
   reveal?: { side: ReviewSide; line: number; seq: number };
+  /** Called once a `reveal` has been carried out, so the owner can drop it. */
+  onRevealed?: () => void;
 };
 
 /** Events inside a comment card must not reach Monaco (its keybindings and mouse handling). */
@@ -227,6 +229,7 @@ export function DiffView(p: Props) {
       // for every cursor move), so the reveal works with Hide unchanged on.
       ed.setPosition({ lineNumber: line, column: 1 });
       ed.revealLineInCenter(line);
+      latest.current.onRevealed?.();
     };
     if (diff.getLineChanges() !== null) {
       go();

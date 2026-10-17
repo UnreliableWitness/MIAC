@@ -1,8 +1,35 @@
 // src/renderer/components/review/CommentCard.tsx
 import { type KeyboardEvent, useState } from 'react';
-import Markdown from 'react-markdown';
+import Markdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { ReviewComment } from '../../../shared/review';
+import { api } from '../../api';
+import { webLink } from '../../docs/linkify';
+
+/**
+ * Links in a comment never navigate the app window: web links open in the browser, anything
+ * else (relative paths, other schemes) is shown as plain text.
+ */
+const components: Components = {
+  a: ({ href, children }) => {
+    const url = href ? webLink(href) : null;
+    if (!url) return <span>{children}</span>;
+    return (
+      <a
+        href={url}
+        onClick={(e) => {
+          e.preventDefault();
+          void api()
+            .invoke('links:open', url)
+            .catch(() => {});
+        }}
+        onAuxClick={(e) => e.preventDefault()}
+      >
+        {children}
+      </a>
+    );
+  },
+};
 
 const time = (iso: string) =>
   new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -20,6 +47,7 @@ export function CommentBox({
   value,
   onChange,
   saveLabel = 'Comment',
+  busy = false,
   onSave,
   onCancel,
 }: {
@@ -27,6 +55,8 @@ export function CommentBox({
   value?: string;
   onChange?: (text: string) => void;
   saveLabel?: string;
+  /** While a save is on its way: the save button is disabled and another save is ignored. */
+  busy?: boolean;
   onSave: (text: string) => void;
   onCancel: () => void;
 }) {
@@ -37,7 +67,7 @@ export function CommentBox({
     onChange?.(t);
   };
   const save = () => {
-    if (text.trim()) onSave(text.trim());
+    if (text.trim() && !busy) onSave(text.trim());
   };
   const onKey = (e: KeyboardEvent) => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -64,7 +94,7 @@ export function CommentBox({
         <button
           type="button"
           className="btn btn-primary btn-sm"
-          disabled={!text.trim()}
+          disabled={!text.trim() || busy}
           onClick={save}
         >
           {saveLabel}
@@ -139,7 +169,9 @@ export function CommentCard({
         <pre className="review-snippet mono small">{c.snippet}</pre>
       )}
       <div className="review-card-text">
-        <Markdown remarkPlugins={[remarkGfm]}>{c.text}</Markdown>
+        <Markdown remarkPlugins={[remarkGfm]} components={components}>
+          {c.text}
+        </Markdown>
       </div>
       <div className="review-card-actions">
         {c.status === 'resolved' ? (
