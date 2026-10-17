@@ -4,6 +4,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { ReviewSide } from '../../../shared/review';
 import { loadMonaco } from '../../review/loadMonaco';
+import { type LineChange, mapOriginalLine } from '../../review/mapOriginalLine';
 
 export type DiffZone = {
   id: string;
@@ -53,6 +54,7 @@ export function DiffView(p: Props) {
   const [diff, setDiff] = useState<Monaco.editor.IStandaloneDiffEditor | null>(
     null,
   );
+  const [lineChanges, setLineChanges] = useState<LineChange[]>([]);
   const [mounted, setMounted] = useState<{ id: string; dom: HTMLElement }[]>(
     [],
   );
@@ -83,7 +85,8 @@ export function DiffView(p: Props) {
       minimap: { enabled: false },
       scrollBeyondLastLine: false,
       renderSideBySide: latest.current.sideBySide,
-      useInlineViewWhenSpaceIsLimited: true,
+      // The Side by side toggle means what it says: no silent switch to inline on narrow windows.
+      useInlineViewWhenSpaceIsLimited: false,
       ignoreTrimWhitespace: latest.current.ignoreWhitespace,
       hideUnchangedRegions: { enabled: latest.current.hideUnchanged },
       fontSize: 13,
@@ -130,12 +133,26 @@ export function DiffView(p: Props) {
             latest.current.onGlyph?.(side, e.target.position.lineNumber);
         }),
       );
-      // Plain letters only: Cmd/Ctrl+C still copies.
+      // Plain letters only (Cmd/Ctrl+C still copies). An action is scoped to this editor, and
+      // `editorTextFocus` keeps the letters typeable in the find widget.
       for (const [key, code] of keys)
-        ed.addCommand(code, () => latest.current.onKey?.(key));
+        subs.push(
+          ed.addAction({
+            id: `miac.review.${key}`,
+            label: `Review: ${key}`,
+            keybindings: [code],
+            keybindingContext: 'editorTextFocus',
+            run: () => latest.current.onKey?.(key),
+          }),
+        );
     }
+    subs.push(
+      d.onDidUpdateDiff(() => setLineChanges(d.getLineChanges() ?? [])),
+    );
     const handle: DiffViewHandle = {
       goToChange: (dir) => d.goToDiff(dir),
+      // In the inline view only the modified editor is shown, so the "+" and the selection
+      // offer the after side only.
       selection: () => {
         const focused = sides.find(([, ed]) => ed.hasTextFocus()) ?? sides[1];
         const s = focused[1].getSelection();
@@ -195,6 +212,8 @@ export function DiffView(p: Props) {
       JSON.stringify((p.zones ?? []).map((z) => [z.id, z.side, z.afterLine])),
     [p.zones],
   );
+  // Inline, before-side zones sit in the modified editor at mapped lines, so they move with the diff.
+  const inlineMap = p.sideBySide ? '' : JSON.stringify(lineChanges);
 
   useEffect(() => {
     if (!diff) return;
@@ -202,19 +221,30 @@ export function DiffView(p: Props) {
       before: diff.getOriginalEditor(),
       after: diff.getModifiedEditor(),
     };
+    const inline = !latest.current.sideBySide;
+    const changes: LineChange[] = inline
+      ? (JSON.parse(inlineMap) as LineChange[])
+      : [];
     const made: {
       id: string;
-      side: ReviewSide;
+      host: ReviewSide;
       zoneId: string;
       zone: Monaco.editor.IViewZone;
       inner: HTMLElement;
       ro: ResizeObserver;
     }[] = [];
-    for (const side of ['before', 'after'] as const) {
-      eds[side].changeViewZones((acc) => {
-        for (const z of (latest.current.zones ?? []).filter(
-          (x) => x.side === side,
-        )) {
+    // The inline view hides the original editor: every zone goes to the modified one there.
+    const placed = (latest.current.zones ?? []).map((z) => ({
+      z,
+      host: inline ? ('after' as const) : z.side,
+      line:
+        inline && z.side === 'before'
+          ? mapOriginalLine(z.afterLine, changes)
+          : z.afterLine,
+    }));
+    for (const host of ['before', 'after'] as const) {
+      eds[host].changeViewZones((acc) => {
+        for (const { z, line } of placed.filter((x) => x.host === host)) {
           const dom = document.createElement('div');
           dom.className = 'review-zone';
           for (const ev of SHIELD)
@@ -222,7 +252,7 @@ export function DiffView(p: Props) {
           const inner = document.createElement('div');
           dom.appendChild(inner);
           const zone: Monaco.editor.IViewZone = {
-            afterLineNumber: z.afterLine,
+            afterLineNumber: line,
             heightInPx: 96,
             domNode: dom,
             suppressMouseDown: true,
@@ -232,25 +262,26 @@ export function DiffView(p: Props) {
             const h = inner.offsetHeight + 8;
             if (h > 8 && Math.abs(h - (zone.heightInPx ?? 0)) > 1) {
               zone.heightInPx = h;
-              eds[side].changeViewZones((a) => a.layoutZone(zoneId));
+              eds[host].changeViewZones((a) => a.layoutZone(zoneId));
             }
           });
           ro.observe(inner);
-          made.push({ id: z.id, side, zoneId, zone, inner, ro });
+          made.push({ id: z.id, host, zoneId, zone, inner, ro });
         }
       });
     }
     setMounted(made.map((x) => ({ id: x.id, dom: x.inner })));
     return () => {
       for (const x of made) x.ro.disconnect();
-      for (const side of ['before', 'after'] as const)
-        eds[side].changeViewZones((acc) => {
-          for (const x of made) if (x.side === side) acc.removeZone(x.zoneId);
+      for (const host of ['before', 'after'] as const)
+        eds[host].changeViewZones((acc) => {
+          for (const x of made) if (x.host === host) acc.removeZone(x.zoneId);
         });
       setMounted([]);
     };
-    // Zones are rebuilt when their ids or lines change, or a new file is shown (setModel clears them).
-  }, [diff, zoneSig, p.uriKey]);
+    // Zones are rebuilt when their ids or lines change, a new file is shown (setModel clears
+    // them), the view switches between side by side and inline, or (inline) the diff changes.
+  }, [diff, zoneSig, p.uriKey, p.sideBySide, inlineMap]);
 
   const nodes = new Map((p.zones ?? []).map((z) => [z.id, z.node]));
   if (failed)
