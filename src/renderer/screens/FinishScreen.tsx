@@ -19,6 +19,7 @@ import { useEstimateHours } from '../hooks/useEstimateHours';
 import { useTaskTime } from '../hooks/useTaskTime';
 import { PageHeader } from '../components/ui';
 import { useEscape } from '../hooks/useEscape';
+import type { ReviewSummary } from '../../shared/review';
 import { useStore } from '../store';
 import {
   readPrChoice,
@@ -85,6 +86,17 @@ export function FinishScreen({ taskId }: { taskId: string }) {
   const select = useStore((s) => s.select);
   const notify = useStore((s) => s.notify);
   const [checks, setChecks] = useState<FinishChecks | null>(null);
+  const [review, setReview] = useState<ReviewSummary | null>(null);
+  useEffect(() => {
+    let live = true;
+    void api()
+      .invoke('review:summary', taskId)
+      .then((r) => live && setReview(r))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [taskId]);
   const [closeTerminals, setCloseTerminals] = useState(true);
   const [removeWorktree, setRemoveWorktree] = useState(true);
   const [deleteBranch, setDeleteBranch] = useState(true);
@@ -443,6 +455,28 @@ export function FinishScreen({ taskId }: { taskId: string }) {
 
         <div className="finish-section">
           <h2>Safety checks</h2>
+          {review && (review.notViewed > 0 || review.unresolved > 0) && (
+            <div className="check check-warn">
+              <span aria-hidden="true">{G.WARN}</span>
+              <div className="body">
+                {[
+                  review.notViewed > 0 &&
+                    `${review.notViewed} ${review.notViewed === 1 ? 'file' : 'files'} not viewed`,
+                  review.unresolved > 0 &&
+                    `${review.unresolved} ${review.unresolved === 1 ? 'comment' : 'comments'} unresolved`,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </div>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => useStore.getState().openChanges(taskId)}
+              >
+                Review changes
+              </button>
+            </div>
+          )}
           {!checks && !checksFailed && (
             <div className="muted">Checking{ELLIPSIS}</div>
           )}

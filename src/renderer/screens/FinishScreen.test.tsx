@@ -1,4 +1,10 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type {
@@ -7,7 +13,7 @@ import type {
   WorkspaceCheck,
 } from '../../shared/types';
 import { readPrChoice, readPushChoice, writePrChoice } from '../uiPrefs';
-import { useStore } from '../store';
+import { CHANGES_TAB, useStore } from '../store';
 import { emptyTime, emptyUsage, installFakeApi } from '../test-helpers/fakeApi';
 import { FinishScreen } from './FinishScreen';
 
@@ -1540,5 +1546,31 @@ describe('FinishScreen with several repos', () => {
       within(group('webshop')).getByLabelText('Remove, no changes (no push)'),
     );
     expect(screen.queryByText(note)).toBeNull();
+  });
+});
+
+describe('FinishScreen review reminder', () => {
+  it('shows files not viewed and unresolved comments, and opens Changes', async () => {
+    installFakeApi({
+      'tasks:finishChecks': () => clean,
+      'review:summary': () => ({ files: 5, notViewed: 2, unresolved: 1 }),
+    });
+    render(<FinishScreen taskId="a" />);
+    expect(
+      await screen.findByText('2 files not viewed · 1 comment unresolved'),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Review changes' }));
+    expect(useStore.getState().activeTab('a')).toBe(CHANGES_TAB);
+    expect(useStore.getState().screen.kind).toBe('task');
+  });
+
+  it('stays hidden when everything is viewed and resolved', async () => {
+    installFakeApi({
+      'tasks:finishChecks': () => clean,
+      'review:summary': () => ({ files: 5, notViewed: 0, unresolved: 0 }),
+    });
+    render(<FinishScreen taskId="a" />);
+    await screen.findByText('No uncommitted changes');
+    expect(screen.queryByText(/not viewed/)).toBeNull();
   });
 });
