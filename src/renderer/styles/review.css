@@ -44,3 +44,124 @@
   padding: 4px 16px 4px 8px;
   font-family: var(--font-ui);
 }
+
+.review {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.review-head,
+.review-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.review-head .grow,
+.review-toolbar .grow {
+  flex: 1;
+}
+.review-note {
+  padding: 4px 12px;
+  background: var(--bg-card);
+}
+.review-scope {
+  display: inline-flex;
+  gap: 2px;
+}
+.review-scope [aria-pressed='true'] {
+  background: var(--bg-selected);
+}
+.review-scope-hint {
+  padding: 6px 12px;
+}
+.review-body {
+  display: grid;
+  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+}
+.review-tree {
+  overflow: auto;
+  border-right: 1px solid var(--line);
+  padding: 4px 0;
+}
+.review-repo-name {
+  padding: 6px 12px 2px;
+  font-weight: 600;
+}
+.review-repo-error {
+  margin: 4px 12px;
+  color: var(--warn);
+}
+.review-file {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto auto 16px;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 12px;
+  cursor: pointer;
+}
+.review-file:hover {
+  background: var(--bg-hover);
+}
+.review-file.selected {
+  background: var(--bg-selected);
+}
+.review-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.review-status {
+  font: 600 11px var(--font-code);
+  text-align: center;
+}
+.review-status-A {
+  color: var(--green);
+}
+.review-status-D {
+  color: var(--red);
+}
+.review-status-R,
+.review-status-M {
+  color: var(--link);
+}
+.review-plus {
+  color: var(--green);
+}
+.review-minus {
+  color: var(--red);
+}
+.review-count {
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--accent-bg);
+}
+.review-changed {
+  margin-left: 6px;
+}
+.review-generated {
+  margin: 4px 8px;
+}
+.review-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.review-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pivot-count {
+  margin-left: 4px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--bg-selected);
+  font-size: 11px;
+}

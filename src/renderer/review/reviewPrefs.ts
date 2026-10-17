@@ -1,0 +1,46 @@
+export type ReviewPrefs = {
+  sideBySide: boolean;
+  ignoreWhitespace: boolean;
+  hideUnchanged: boolean;
+};
+const KEY = 'miac.review.prefs';
+const DEFAULT: ReviewPrefs = {
+  sideBySide: true,
+  ignoreWhitespace: false,
+  hideUnchanged: true,
+};
+
+export function readReviewPrefs(
+  storage: Storage | undefined = globalThis.localStorage,
+): ReviewPrefs {
+  try {
+    const v = JSON.parse(
+      storage?.getItem(KEY) ?? 'null',
+    ) as Partial<ReviewPrefs> | null;
+    return {
+      sideBySide:
+        typeof v?.sideBySide === 'boolean' ? v.sideBySide : DEFAULT.sideBySide,
+      ignoreWhitespace:
+        typeof v?.ignoreWhitespace === 'boolean'
+          ? v.ignoreWhitespace
+          : DEFAULT.ignoreWhitespace,
+      hideUnchanged:
+        typeof v?.hideUnchanged === 'boolean'
+          ? v.hideUnchanged
+          : DEFAULT.hideUnchanged,
+    };
+  } catch {
+    return { ...DEFAULT };
+  }
+}
+
+export function writeReviewPrefs(
+  p: ReviewPrefs,
+  storage: Storage | undefined = globalThis.localStorage,
+): void {
+  try {
+    storage?.setItem(KEY, JSON.stringify(p));
+  } catch {
+    /* best effort */
+  }
+}

@@ -12,6 +12,7 @@ import { readPrefs, writePref } from './uiPrefs';
 
 export const USAGE_TAB = 'usage';
 export const DOCS_TAB = 'docs';
+export const CHANGES_TAB = 'changes';
 
 /** Every screen is a full page next to the nav; `task` shows the selected task. */
 export type Screen =
@@ -59,6 +60,7 @@ type Store = {
   setTab(taskId: string, tab: string): void;
   activeTab(taskId: string): string;
   openUsage(taskId: string): void;
+  openChanges(taskId: string): void;
   openDoc(
     taskId: string,
     path: string,
@@ -144,6 +146,7 @@ export const useStore = create<Store>((set, get) => ({
     const want = get().tabByTask[taskId];
     if (want === USAGE_TAB) return USAGE_TAB;
     if (want === DOCS_TAB) return DOCS_TAB;
+    if (want === CHANGES_TAB) return CHANGES_TAB;
     if (task && want && task.terminals.some((t) => t.id === want)) return want;
     return task?.terminals[0]?.id ?? USAGE_TAB;
   },
@@ -152,6 +155,11 @@ export const useStore = create<Store>((set, get) => ({
     get().select(taskId);
     get().go({ kind: 'task' });
     set({ tabByTask: { ...get().tabByTask, [taskId]: USAGE_TAB } });
+  },
+  openChanges: (taskId) => {
+    get().select(taskId);
+    get().go({ kind: 'task' });
+    set({ tabByTask: { ...get().tabByTask, [taskId]: CHANGES_TAB } });
   },
   openDoc: (taskId, path, line, workspaceId) => {
     get().select(taskId);

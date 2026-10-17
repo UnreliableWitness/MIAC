@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { TaskView } from '../shared/types';
-import { activeConnection, type Screen, USAGE_TAB, useStore } from './store';
+import {
+  activeConnection,
+  CHANGES_TAB,
+  type Screen,
+  USAGE_TAB,
+  useStore,
+} from './store';
 import { installFakeApi } from './test-helpers/fakeApi';
 
 const base = useStore.getState();
@@ -91,6 +97,16 @@ describe('tabs', () => {
     const first = s.docTarget.t1.nonce;
     s.openDoc('t1', 'a.md', 4);
     expect(useStore.getState().docTarget.t1.nonce).not.toBe(first);
+  });
+
+  it('keeps the Changes tab and opens it for a task', () => {
+    useStore.setState({
+      tasks: [{ id: 't1', terminals: [] } as never],
+      tabByTask: {},
+    });
+    useStore.getState().openChanges('t1');
+    expect(useStore.getState().selectedTaskId).toBe('t1');
+    expect(useStore.getState().activeTab('t1')).toBe(CHANGES_TAB);
   });
 });
 

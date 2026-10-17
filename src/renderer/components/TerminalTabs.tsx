@@ -1,5 +1,6 @@
 import {
   Branch16Regular,
+  BranchCompare16Regular,
   Dismiss12Regular,
   Warning16Regular,
   DataPie16Regular,
@@ -15,7 +16,8 @@ import { useGitSummary } from '../hooks/useGitSummary';
 import { useRepoConfig } from '../hooks/useRepoConfig';
 import { useTaskUsage } from '../hooks/useTaskUsage';
 import { holdDocsWatch } from '../docs/holdDocsWatch';
-import { DOCS_TAB, USAGE_TAB, useStore } from '../store';
+import { useChangeCount } from '../review/useReview';
+import { CHANGES_TAB, DOCS_TAB, USAGE_TAB, useStore } from '../store';
 import { DocsTab } from './docs/DocsTab';
 import {
   activeHome,
@@ -24,6 +26,7 @@ import {
   type WorkspaceView,
 } from '../../shared/workspaces';
 import { OpenInEditor } from './OpenInEditor';
+import { ChangesTab } from './review/ChangesTab';
 import { NewTerminalMenu } from './NewTerminalMenu';
 import { TerminalView } from './TerminalView';
 import { IconButton, MindMark, modKey } from './ui';
@@ -124,6 +127,7 @@ export function TerminalTabs({
   // Same rule as the shell: Focus chrome only for a ready task.
   const ready = task.status === 'ready';
   const inFocus = useStore((s) => s.focus) && ready;
+  const changeCount = useChangeCount(task, visible && ready);
   const toggleFocus = useStore((s) => s.toggleFocus);
   const [unseen, setUnseen] = useState(false);
   const [docsUnseen, setDocsUnseen] = useState(false);
@@ -244,6 +248,24 @@ export function TerminalTabs({
               {docsUnseen && <span className="tab-new" aria-hidden="true" />}
             </button>
           )}
+          {ready && !task.worktreeMissing && (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={active === CHANGES_TAB}
+              aria-label={
+                changeCount ? `Changes, ${changeCount} files` : 'Changes'
+              }
+              className="pivot"
+              onClick={() => setTab(task.id, CHANGES_TAB)}
+            >
+              <BranchCompare16Regular aria-hidden="true" />
+              Changes
+              {changeCount ? (
+                <span className="pivot-count">{changeCount}</span>
+              ) : null}
+            </button>
+          )}
           {task.terminals.map((t) => (
             <span key={t.id} className="term-tab">
               <button
@@ -336,6 +358,9 @@ export function TerminalTabs({
         {visible && active === USAGE_TAB && <UsagePanel taskId={task.id} />}
         {visible && active === DOCS_TAB && !task.worktreeMissing && (
           <DocsTab task={task} />
+        )}
+        {visible && active === CHANGES_TAB && !task.worktreeMissing && (
+          <ChangesTab task={task} />
         )}
         {task.terminals.map((t) => (
           <TerminalView

@@ -277,7 +277,9 @@ describe('TaskScreen', () => {
     });
     render(<Shell />);
     const tabs = await screen.findAllByRole('tab');
-    const terminal = tabs.find((t) => !/Usage|Docs/.test(t.textContent ?? ''));
+    const terminal = tabs.find(
+      (t) => !/Usage|Docs|Changes/.test(t.textContent ?? ''),
+    );
     const label = terminal?.textContent ?? '';
     await userEvent.click(
       screen.getByRole('button', { name: `Close ${label}` }),
@@ -515,6 +517,7 @@ describe('tabs and focus', () => {
     expect(tabs.map((t) => t.textContent)).toEqual([
       expect.stringContaining('Usage'),
       expect.stringContaining('Docs'),
+      expect.stringContaining('Changes'),
       'Claude Code',
       'zsh',
     ]);

@@ -60,6 +60,10 @@ const defaults: FakeHandlers = {
   'time:sprint': () => ({}),
   'docs:list': () => ({ files: [] }),
   'docs:watch': () => ({ live: true }),
+  'review:files': () => ({ repos: [] }),
+  'review:state': () => ({ version: 1, viewed: {}, comments: [] }),
+  'review:summary': () => ({ files: 0, notViewed: 0, unresolved: 0 }),
+  'review:watch': () => ({ live: true }),
   'docs:resolve': () => null,
   'settings:get': () => ({
     version: 1,
