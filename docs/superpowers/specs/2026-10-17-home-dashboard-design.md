@@ -44,7 +44,7 @@ The app opens on the Sprint page, which shows one project's default team. A conn
 
 ### Band 1: My tasks
 
-- A card per open MIAC task over all connections (states other than done): work item ID and title, connection name, status (setting up, open, finishing, needs attention), live cost and active time. Click opens the task (`openTask`). A task needs attention when its setup failed or its folder is missing; the card is outlined red and its click lands on the Setup page with Retry. A failed push or PR at Finish puts the task back to open and is not stored, so it is not flagged *(our call)*.
+- A card per open MIAC task over all connections (states other than done): work item ID and title, connection name, status (setting up, open, finishing, needs attention), live cost and active time. Click opens the task (`openTask`). A task needs attention when its setup failed or its folder is missing; the card is outlined red. Its click opens the task as everywhere else (`openTask`): a failed setup lands on the Setup page with Retry, a missing folder on the task page, which already handles that state. A failed push or PR at Finish puts the task back to open and is not stored, so it is not flagged *(our call)*.
 - The last card is **Up next**: up to 3 items assigned to me in a current sprint, in a state of category Proposed, with no MIAC task, each with Start (the same `startTask` flow as the Sprint page). Order: sprint order as returned, oldest sprint end first *(our call)*.
 - Cards wrap onto more rows when there are many.
 
