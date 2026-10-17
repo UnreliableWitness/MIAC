@@ -46,6 +46,9 @@
 }
 
 .review {
+  /* .termhost is a flex row: fill it, as .docs does (#60). */
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   height: 100%;
