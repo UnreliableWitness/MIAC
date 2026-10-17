@@ -11,7 +11,7 @@ import {
   HOME_ID,
   parseDocsTarget,
 } from '../../shared/workspaces';
-import { api } from '../api';
+import { api, ipcErrorMessage } from '../api';
 import { holdWatch } from './holdWatch';
 
 const POLL_MS = 5000;
@@ -103,20 +103,30 @@ export function useReview(
   const [files, setFiles] = useState<ReviewFiles | null>(null);
   const [state, setState] = useState<ReviewState | null>(null);
   const [changedAt, setChangedAt] = useState(0);
+  // Why the last load failed; cleared by the next one that works.
+  const [error, setError] = useState<string | null>(null);
   const key = `${task.id}|${JSON.stringify(scope)}`;
   const latestKey = useRef(key);
   latestKey.current = key;
 
   const refresh = useSerialRefresh(async () => {
     const asked = key;
-    const [f, s] = await Promise.all([
-      api().invoke('review:files', task.id, scope),
-      api().invoke('review:state', task.id),
-    ]);
+    let f: ReviewFiles;
+    let s: ReviewState;
+    try {
+      [f, s] = await Promise.all([
+        api().invoke('review:files', task.id, scope),
+        api().invoke('review:state', task.id),
+      ]);
+    } catch (e) {
+      if (asked === latestKey.current) setError(ipcErrorMessage(e));
+      return;
+    }
     // An answer for an older task or scope is dropped (the scope change queued a fresh load).
     if (asked !== latestKey.current) return;
     setFiles(f);
     setState(s);
+    setError(null);
     setChangedAt((x) => x + 1);
   });
 
@@ -125,7 +135,7 @@ export function useReview(
   }, [visible, key, refresh]);
   useWorktreeChanges(task, visible, refresh);
 
-  return { files, state, setState, refresh, changedAt };
+  return { files, state, setState, refresh, changedAt, error };
 }
 
 /** The number of files in All changes, for the pivot's badge; keeps its last count while not `enabled`. */

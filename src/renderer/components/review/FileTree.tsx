@@ -66,7 +66,7 @@ function Row({
       {comments > 0 && (
         <span
           className="small review-count"
-          aria-label={`${comments} comments`}
+          aria-label={`${comments} ${comments === 1 ? 'comment' : 'comments'}`}
         >
           {comments}
         </span>

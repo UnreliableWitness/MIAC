@@ -1,12 +1,17 @@
 import { ArrowDown16Regular, ArrowUp16Regular } from '@fluentui/react-icons';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type SetStateAction,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   type FileContent,
   isGenerated,
   type ReviewComment,
   type ReviewFile,
   type ReviewRepo,
-  type ReviewScope,
   type ReviewSide,
   type ReviewState,
   viewedKey,
@@ -19,7 +24,12 @@ import {
   writeReviewPrefs,
 } from '../../review/reviewPrefs';
 import { useReview } from '../../review/useReview';
-import { useStore } from '../../store';
+import {
+  DEFAULT_REVIEW_VIEW,
+  type ReviewDraft,
+  type ReviewView,
+  useStore,
+} from '../../store';
 import { track } from '../../telemetry';
 import { OpenInEditor } from '../OpenInEditor';
 import { CommentBox, CommentCard } from './CommentCard';
@@ -34,14 +44,37 @@ import { FileTree, type FileRef } from './FileTree';
 import { ScopePicker } from './ScopePicker';
 import { SendComments } from './SendComments';
 
-/** A comment being written; its text lives here so a rebuilt diff zone does not lose it. */
-type Draft = {
-  workspaceId: string;
-  path: string;
-  side: ReviewSide;
-  startLine: number;
-  endLine: number;
-  text: string;
+/**
+ * One field of the task's ReviewView in the store, as a useState pair: scope, selection and the draft
+ * (its text too, so a rebuilt diff zone or leaving the tab loses nothing) outlive this component.
+ */
+function useViewField<K extends keyof ReviewView>(
+  taskId: string,
+  key: K,
+): [ReviewView[K], (v: SetStateAction<ReviewView[K]>) => void] {
+  const value = useStore(
+    (s) => (s.reviewByTask[taskId] ?? DEFAULT_REVIEW_VIEW)[key],
+  );
+  const setView = useStore((s) => s.setReviewView);
+  const set = (v: SetStateAction<ReviewView[K]>) =>
+    setView(taskId, (cur) => ({
+      [key]:
+        typeof v === 'function'
+          ? (v as (p: ReviewView[K]) => ReviewView[K])(cur[key])
+          : v,
+    }));
+  return [value, set];
+}
+
+/** Scroll and cursor per file, per task: kept for the app's lifetime, like the rest of the view. */
+const viewStatesByTask = new Map<string, Map<string, unknown>>();
+const viewStatesOf = (taskId: string) => {
+  let m = viewStatesByTask.get(taskId);
+  if (!m) {
+    m = new Map();
+    viewStatesByTask.set(taskId, m);
+  }
+  return m;
 };
 
 const kb = (n: number) =>
@@ -66,16 +99,20 @@ function ordered(
 
 export function ChangesTab({ task }: { task: TaskView }) {
   const notify = useStore((s) => s.notify);
-  const [scope, setScope] = useState<ReviewScope>({ kind: 'all' });
-  const { files, state, setState, changedAt } = useReview(task, scope, true);
-  const [selected, setSelected] = useState<FileRef | null>(null);
+  const [scope, setScope] = useViewField(task.id, 'scope');
+  const { files, state, setState, changedAt, error } = useReview(
+    task,
+    scope,
+    true,
+  );
+  const [selected, setSelected] = useViewField(task.id, 'selected');
   // The content with the file and scope it was read for, so another file's text is never shown.
   const [loaded, setLoaded] = useState<{
     key: string;
     content: FileContent | null;
   } | null>(null);
   const [prefs, setPrefs] = useState<ReviewPrefs>(() => readReviewPrefs());
-  const [draft, setDraft] = useState<Draft | null>(null);
+  const [draft, setDraft] = useViewField(task.id, 'draft');
   const [panel, setPanel] = useState<'files' | 'comments'>('files');
   // A save of the draft is on its way: a second submit is ignored.
   const [saving, setSaving] = useState(false);
@@ -190,14 +227,18 @@ export function ChangesTab({ task }: { task: TaskView }) {
       notify('info', 'Finish or cancel the open comment first');
       return;
     }
-    setDraft({
+    const { oldPath } = current.file;
+    const d: ReviewDraft = {
       workspaceId: current.repo.workspaceId,
       path: current.file.path,
+      // The base side of a renamed file is read at its old path.
+      ...(side === 'before' && oldPath ? { oldPath } : {}),
       side,
       startLine,
       endLine,
       text: '',
-    });
+    };
+    setDraft(d);
   };
   const apply = async (run: () => Promise<ReviewState>) => {
     const s = await tryInvoke(run, notify);
@@ -229,6 +270,12 @@ export function ChangesTab({ task }: { task: TaskView }) {
       }),
     );
   };
+  const reopen = (c: ReviewComment) =>
+    void apply(() =>
+      api().invoke('review:updateComment', task.id, c.id, { status: 'open' }),
+    );
+  const remove = (c: ReviewComment) =>
+    void apply(() => api().invoke('review:deleteComment', task.id, c.id));
   const card = (c: ReviewComment) => (
     <CommentCard
       comment={c}
@@ -238,16 +285,8 @@ export function ChangesTab({ task }: { task: TaskView }) {
         )
       }
       onResolve={() => resolve(c)}
-      onReopen={() =>
-        void apply(() =>
-          api().invoke('review:updateComment', task.id, c.id, {
-            status: 'open',
-          }),
-        )
-      }
-      onDelete={() =>
-        void apply(() => api().invoke('review:deleteComment', task.id, c.id))
-      }
+      onReopen={() => reopen(c)}
+      onDelete={() => remove(c)}
     />
   );
   const zones: DiffZone[] = canComment
@@ -343,7 +382,14 @@ export function ChangesTab({ task }: { task: TaskView }) {
     : 0;
 
   const body = () => {
-    if (!files) return <div className="review-empty">Loading changes…</div>;
+    if (!files)
+      return (
+        <div className="review-empty">
+          {error
+            ? `The changes could not be loaded: ${error}`
+            : 'Loading changes…'}
+        </div>
+      );
     if (total === 0 && files.repos.every((r) => !r.error))
       return (
         <div className="review-empty">
@@ -386,6 +432,7 @@ export function ChangesTab({ task }: { task: TaskView }) {
             : undefined
         }
         onRevealed={() => setReveal(undefined)}
+        viewStates={viewStatesOf(task.id)}
         onReady={(h) => {
           handle.current = h;
         }}
@@ -420,7 +467,7 @@ export function ChangesTab({ task }: { task: TaskView }) {
           onChange={(s) => setScope(s)}
         />
         <span className="small muted">{`${viewedCount} / ${total} viewed`}</span>
-        <span className="small muted">{`${unresolved} open comments`}</span>
+        <span className="small muted">{`${unresolved} open ${unresolved === 1 ? 'comment' : 'comments'}`}</span>
         <span className="grow" />
         <SendComments
           task={task}
@@ -493,6 +540,9 @@ export function ChangesTab({ task }: { task: TaskView }) {
                 id
               }
               onOpen={openComment}
+              onResolve={resolve}
+              onReopen={reopen}
+              onDelete={remove}
             />
           )}
         </div>

@@ -10,7 +10,7 @@ import {
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TaskView } from '../../shared/types';
-import { useStore } from '../store';
+import { CHANGES_TAB, useStore } from '../store';
 import { installFakeApi } from '../test-helpers/fakeApi';
 import { Shell } from '../App';
 import { invalidateRepoConfig } from '../hooks/useRepoConfig';
@@ -802,6 +802,15 @@ describe('tabs and focus', () => {
     ).toBeNull();
     // Focus does nothing for a task that is not ready, so no button offers it.
     expect(within(row).queryByRole('button', { name: 'Focus' })).toBeNull();
+  });
+
+  it('does not show the Changes panel of a finishing task', async () => {
+    const { calls } = setup({ status: 'finishing' });
+    useStore.setState({ tabByTask: { a: CHANGES_TAB } });
+    render(<Shell />);
+    await screen.findByRole('tablist', { name: 'Terminals' });
+    expect(screen.queryByRole('region', { name: 'Changes' })).toBeNull();
+    expect(calls.some((c) => c.channel === 'review:files')).toBe(false);
   });
 
   it('shows the Focus chrome in the tab row for a ready task', async () => {

@@ -1,7 +1,11 @@
+import type { ReviewSide } from '../../shared/review';
 import { cleanPasteText } from '../docs/quote';
 
 export type PromptComment = {
   path: string;
+  /** The base path of a renamed file, used for a before-side location. */
+  oldPath?: string;
+  side: ReviewSide;
   startLine: number;
   endLine: number;
   snippet: string;
@@ -10,11 +14,18 @@ export type PromptComment = {
 
 const HEAD = 'Review comments on the changes in this task:';
 const MAX_SNIPPET_LINES = 12;
+const cleanPath = (p: string) => cleanPasteText(p).replace(/\s+/g, ' ');
+/** `path:N` for the working tree; a before-side line is a base line, so it says so (and names a rename). */
 const loc = (c: PromptComment) => {
-  const path = cleanPasteText(c.path).replace(/\s+/g, ' ');
-  return c.startLine === c.endLine
-    ? `${path}:${c.startLine}`
-    : `${path}:${c.startLine}-${c.endLine}`;
+  const one = c.startLine === c.endLine;
+  const lines = one ? `${c.startLine}` : `${c.startLine}-${c.endLine}`;
+  const path = cleanPath(c.path);
+  if (c.side === 'after') return `${path}:${lines}`;
+  const old = c.oldPath && c.oldPath !== c.path ? cleanPath(c.oldPath) : null;
+  const what = `${one ? 'removed line' : 'removed lines'}, base version`;
+  return old
+    ? `${old}:${lines} (${what}; now ${path})`
+    : `${path}:${lines} (${what})`;
 };
 
 /**

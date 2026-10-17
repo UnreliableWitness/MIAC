@@ -81,6 +81,44 @@ describe('SendComments', () => {
     off();
   });
 
+  it('sends a base-side comment on a renamed file at its old path, repo-prefixed', async () => {
+    const paste = vi.fn();
+    const off = registerTerminal('cl', {
+      paste,
+      focus: vi.fn(),
+      modes: { bracketedPasteMode: true },
+    } as never);
+    installFakeApi({
+      'terminals:isRunning': () => true,
+      'review:markSent': () => ({ version: 1, viewed: {}, comments: [] }),
+    });
+    render(
+      <SendComments
+        task={task([{ id: 'cl', kind: 'claude', label: 'Claude Code' }])}
+        comments={[
+          {
+            ...c('a', 'open', 'src/new.ts'),
+            oldPath: 'src/old.ts',
+            side: 'before',
+            startLine: 30,
+            endLine: 30,
+          },
+        ]}
+        repoName={() => 'web'}
+        multiRepo
+        onSent={vi.fn()}
+      />,
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Send 1 comment to Claude Code' }),
+    );
+    await waitFor(() => expect(paste).toHaveBeenCalled());
+    expect(paste.mock.calls[0][0]).toContain(
+      '1. web/src/old.ts:30 (removed line, base version; now web/src/new.ts)',
+    );
+    off();
+  });
+
   it('prefixes the repo name in a multi-repo task and flattens without bracketed paste', async () => {
     const paste = vi.fn();
     const off = registerTerminal('cp', {

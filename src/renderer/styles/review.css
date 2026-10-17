@@ -238,6 +238,23 @@
   border-left: 3px solid var(--accent);
   background: none;
   text-align: left;
+  cursor: pointer;
+}
+.review-comment-open {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.review-comment-actions {
+  display: flex;
+  gap: 4px;
 }
 .review-comment-row:hover {
   background: var(--bg-hover);

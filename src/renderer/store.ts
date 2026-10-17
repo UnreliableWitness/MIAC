@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { NewReviewComment, ReviewScope } from '../shared/review';
 import type {
   Connection,
   Notice,
@@ -13,6 +14,20 @@ import { readPrefs, writePref } from './uiPrefs';
 export const USAGE_TAB = 'usage';
 export const DOCS_TAB = 'docs';
 export const CHANGES_TAB = 'changes';
+
+/** A comment being written on the Changes tab. */
+export type ReviewDraft = NewReviewComment;
+/** Where the Changes tab was, kept per task so leaving the tab (Send to an agent does) loses nothing. */
+export type ReviewView = {
+  scope: ReviewScope;
+  selected: { workspaceId: string; path: string } | null;
+  draft: ReviewDraft | null;
+};
+export const DEFAULT_REVIEW_VIEW: ReviewView = {
+  scope: { kind: 'all' },
+  selected: null,
+  draft: null,
+};
 
 /** Every screen is a full page next to the nav; `task` shows the selected task. */
 export type Screen =
@@ -43,6 +58,7 @@ type Store = {
     string,
     { path: string; line?: number; workspaceId?: string; nonce: number }
   >;
+  reviewByTask: Record<string, ReviewView>;
   focus: boolean;
   navCollapsed: boolean;
   go(screen: Screen): void;
@@ -67,6 +83,10 @@ type Store = {
     line?: number,
     workspaceId?: string,
   ): void;
+  setReviewView(
+    taskId: string,
+    patch: Partial<ReviewView> | ((v: ReviewView) => Partial<ReviewView>),
+  ): void;
   toggleFocus(): void;
   setNavCollapsed(v: boolean): void;
 };
@@ -88,6 +108,7 @@ export const useStore = create<Store>((set, get) => ({
   notices: [],
   tabByTask: {},
   docTarget: {},
+  reviewByTask: {},
   ...readPrefs(),
   go: (screen) => {
     const current = get().screen;
@@ -176,6 +197,14 @@ export const useStore = create<Store>((set, get) => ({
         },
       },
     });
+  },
+  setReviewView: (taskId, patch) => {
+    const cur = get().reviewByTask[taskId] ?? DEFAULT_REVIEW_VIEW;
+    const next = {
+      ...cur,
+      ...(typeof patch === 'function' ? patch(cur) : patch),
+    };
+    set({ reviewByTask: { ...get().reviewByTask, [taskId]: next } });
   },
   toggleFocus: () => {
     const focus = !get().focus;

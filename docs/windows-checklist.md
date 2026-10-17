@@ -66,5 +66,6 @@ Download the installer from GitHub: open the Actions run for the commit, then th
     - Open file in editor on the Changes page opens the file in the running Visual Studio at the cursor line (`/command "Edit.GoTo <line>"`). If it opens at the top, record it as a known gap.
     - The Changes tab shows a diff (Monaco loads in the packaged build, no CSP errors in the DevTools console).
     - A commit made in the task's shell refreshes the Changes tab within a second.
+    - Finish with the Changes tab open: the worktree is removed with no in-use error.
 
 If a setup command or a shim fails with "running scripts is disabled on this system": MIAC passes `-ExecutionPolicy Bypass`, but an execution policy set by Group Policy overrides it. Ask IT, or install claude and copilot as native `.exe` builds.

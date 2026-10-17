@@ -363,9 +363,10 @@ export function TerminalTabs({
         {visible && active === DOCS_TAB && !task.worktreeMissing && (
           <DocsTab task={task} />
         )}
-        {visible && active === CHANGES_TAB && !task.worktreeMissing && (
-          <ChangesTab task={task} />
-        )}
+        {visible &&
+          active === CHANGES_TAB &&
+          ready &&
+          !task.worktreeMissing && <ChangesTab task={task} />}
         {task.terminals.map((t) => (
           <TerminalView
             key={t.id}

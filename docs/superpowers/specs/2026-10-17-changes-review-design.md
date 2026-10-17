@@ -140,7 +140,7 @@ The **Open in ⟨editor⟩ ▾** split button opens the worktree (the selected f
 
 ## Telemetry
 
-New events in `docs/telemetry.md`: `review.opened` (scope, file count, repo count), `review.fileViewed` (count only), `review.commentsSent` (count), `review.commentResolved` (was it outdated). `editor.opened` gains an `editor` property (`vscode` | `visualstudio`) and `at` (`file` | `folder`). No paths, names or comment text.
+New events in `docs/telemetry.md`: `review.opened` (scope, file count, repo count), `review.fileViewed` (no properties), `review.commentsSent` (count), `review.commentResolved` (was it outdated). `editor.opened` gains an `editor` property (`vscode` | `visualstudio`) and `at` (`file` | `folder`). No paths, names or comment text.
 
 ## Testing
 
@@ -173,4 +173,5 @@ New events in `docs/telemetry.md`: `review.opened` (scope, file count, repo coun
 - The pivot badge pauses while the Changes tab itself is open. Refreshes are debounced (200 ms after the last change) with one git call in flight.
 - Paste to an agent: the whole prompt, including paths, is stripped of control characters; terminals without bracketed paste get a single-line prompt; only agent tabs (Claude Code, Copilot, OpenCode) are send targets.
 - Settings > Editor looks for editors again each time Settings opens.
+- Final review fixes: each row of the Comments list has Resolve (or Reopen) and Delete, so a comment on a file that left the change list can still be closed. The scope, the selected file and the draft are kept per task in the renderer store, so leaving the Changes tab (Send does, it switches to the agent's tab) and coming back loses nothing; a stored file that is no longer listed falls back to the first file. Scroll and cursor are kept per file for the app's lifetime (DiffView saves the view when it leaves a file and restores it when the file is shown again). DiffView keeps each zone's portal node across view-zone rebuilds, so a comment being edited keeps its text. A before-side comment on a renamed file stores `oldPath` and is read, re-anchored and sent at the old path; a before-side location is sent as `old.ts:30 (removed line, base version; now new.ts)`, or `src/x.ts:30 (removed line, base version)` without a rename. The Changes panel is shown for ready tasks only, and a failed file list shows "The changes could not be loaded: <reason>". An unknown editor id in settings.json reads as no choice instead of resetting all settings.
 - Not yet checked: Visual Studio's go-to-line on Windows (see the checklist).

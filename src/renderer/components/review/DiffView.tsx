@@ -34,6 +34,11 @@ type Props = {
   reveal?: { side: ReviewSide; line: number; seq: number };
   /** Called once a `reveal` has been carried out, so the owner can drop it. */
   onRevealed?: () => void;
+  /**
+   * Scroll and cursor per `uriKey`, owned by the caller so they outlive this view: a file's view is
+   * saved when another file is shown or the view unmounts, and restored when the file is shown again.
+   */
+  viewStates?: Map<string, unknown>;
 };
 
 /** Events inside a comment card must not reach Monaco (its keybindings and mouse handling). */
@@ -62,6 +67,12 @@ export function DiffView(p: Props) {
   const [mounted, setMounted] = useState<{ id: string; dom: HTMLElement }[]>(
     [],
   );
+  // The node each zone's portal renders into, per zone id. A rebuild of the Monaco view zones puts
+  // the same node in the new zone, so the portal (and the state of what it shows, an edit in a
+  // comment card for one) stays mounted; a node goes when its zone id does.
+  const zoneNodes = useRef(new Map<string, HTMLElement>());
+  // The uriKey whose models the diff editor shows.
+  const shown = useRef<string | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -174,6 +185,9 @@ export function DiffView(p: Props) {
     latest.current.onReady?.(handle);
     return () => {
       latest.current.onReady?.(null);
+      if (shown.current)
+        latest.current.viewStates?.set(shown.current, d.saveViewState());
+      shown.current = null;
       for (const s of subs) s.dispose();
       const model = d.getModel();
       d.dispose();
@@ -204,9 +218,14 @@ export function DiffView(p: Props) {
       if (view) diff.restoreViewState(view);
       return;
     }
+    const views = latest.current.viewStates;
+    if (cur && shown.current) views?.set(shown.current, diff.saveViewState());
     const original = m.editor.createModel(p.before, undefined, uri('before'));
     const modified = m.editor.createModel(p.after, undefined, uri('after'));
     diff.setModel({ original, modified });
+    shown.current = p.uriKey;
+    const view = views?.get(p.uriKey);
+    if (view) diff.restoreViewState(view as Monaco.editor.IDiffEditorViewState);
     cur?.original.dispose();
     cur?.modified.dispose();
   }, [m, diff, p.uriKey, p.before, p.after]);
@@ -254,7 +273,10 @@ export function DiffView(p: Props) {
   const inlineMap = p.sideBySide ? '' : JSON.stringify(lineChanges);
 
   useEffect(() => {
-    if (!diff) return;
+    if (!diff) {
+      setMounted([]);
+      return;
+    }
     const eds = {
       before: diff.getOriginalEditor(),
       after: diff.getModifiedEditor(),
@@ -287,8 +309,13 @@ export function DiffView(p: Props) {
           dom.className = 'review-zone';
           for (const ev of SHIELD)
             dom.addEventListener(ev, (e) => e.stopPropagation());
-          const inner = document.createElement('div');
+          let inner = zoneNodes.current.get(z.id);
+          if (!inner) {
+            inner = document.createElement('div');
+            zoneNodes.current.set(z.id, inner);
+          }
           dom.appendChild(inner);
+          const node = inner;
           const zone: Monaco.editor.IViewZone = {
             afterLineNumber: line,
             heightInPx: 96,
@@ -297,17 +324,21 @@ export function DiffView(p: Props) {
           };
           const zoneId = acc.addZone(zone);
           const ro = new ResizeObserver(() => {
-            const h = inner.offsetHeight + 8;
+            const h = node.offsetHeight + 8;
             if (h > 8 && Math.abs(h - (zone.heightInPx ?? 0)) > 1) {
               zone.heightInPx = h;
               eds[host].changeViewZones((a) => a.layoutZone(zoneId));
             }
           });
-          ro.observe(inner);
-          made.push({ id: z.id, host, zoneId, zone, inner, ro });
+          ro.observe(node);
+          made.push({ id: z.id, host, zoneId, zone, inner: node, ro });
         }
       });
     }
+    const ids = new Set(placed.map((x) => x.z.id));
+    for (const id of zoneNodes.current.keys())
+      if (!ids.has(id)) zoneNodes.current.delete(id);
+    // Same ids, same nodes: React keeps those portals and their state.
     setMounted(made.map((x) => ({ id: x.id, dom: x.inner })));
     return () => {
       for (const x of made) x.ro.disconnect();
@@ -315,7 +346,6 @@ export function DiffView(p: Props) {
         eds[host].changeViewZones((acc) => {
           for (const x of made) if (x.host === host) acc.removeZone(x.zoneId);
         });
-      setMounted([]);
     };
     // Zones are rebuilt when their ids or lines change, a new file is shown (setModel clears
     // them), the view switches between side by side and inline, or (inline) the diff changes.

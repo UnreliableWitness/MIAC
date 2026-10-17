@@ -20,7 +20,8 @@ import { type FakeHandlers, installFakeApi } from '../../test-helpers/fakeApi';
 import { ChangesTab } from './ChangesTab';
 
 // Monaco does not run in jsdom: a stand-in that shows what it was given and renders the zones inline.
-// Like the real view, a change in the zones' ids or lines remounts every zone's content.
+// A change in the zones' ids or lines remounts every zone's content here, the worst case: the real
+// view keeps each zone's node across rebuilds (DiffView.test.tsx), and the draft must survive either way.
 // Every reveal the view carries out, like the real one: on a new seq or a new file.
 const reveals = vi.hoisted(() => [] as { path: string; line: number }[]);
 vi.mock('./DiffView', () => ({
@@ -47,6 +48,11 @@ vi.mock('./DiffView', () => ({
         {p.onGlyph && (
           <button type="button" onClick={() => p.onGlyph?.('after', 2)}>
             add on line 2
+          </button>
+        )}
+        {p.onGlyph && (
+          <button type="button" onClick={() => p.onGlyph?.('before', 3)}>
+            add on base line 3
           </button>
         )}
         {(p.zones ?? []).map((z) => (
@@ -79,7 +85,7 @@ let state: ReviewState;
 beforeEach(() => {
   localStorage.clear();
   reveals.length = 0;
-  useStore.setState({ repos: [], tabByTask: {} });
+  useStore.setState({ repos: [], tabByTask: {}, reviewByTask: {} });
   files = {
     repos: [
       {
@@ -113,6 +119,12 @@ beforeEach(() => {
 });
 
 function mount(over: FakeHandlers = {}) {
+  const api = installApi(over);
+  render(<ChangesTab task={task} />);
+  return api;
+}
+
+function installApi(over: FakeHandlers = {}) {
   const api = installFakeApi({
     'review:files': () => files,
     'review:state': () => state,
@@ -132,7 +144,6 @@ function mount(over: FakeHandlers = {}) {
     },
     ...over,
   });
-  render(<ChangesTab task={task} />);
   return api;
 }
 
@@ -361,7 +372,8 @@ describe('ChangesTab comments', () => {
       },
     ]);
     expect(screen.queryByTestId('zone-draft')).toBeNull();
-    expect(screen.getByLabelText('1 comments')).toBeTruthy();
+    expect(screen.getByLabelText('1 comment')).toBeTruthy();
+    expect(screen.getByText('1 open comment')).toBeTruthy();
   });
 
   it('keeps a draft across a refresh', async () => {
@@ -569,5 +581,182 @@ describe('ChangesTab comments', () => {
     await waitFor(() =>
       expect(screen.getByTestId('after').textContent).toBe('new src/b.ts'),
     );
+  });
+});
+
+describe('ChangesTab more', () => {
+  it('resolves and deletes, from the Comments list, a comment on a file that is no longer listed', async () => {
+    state = {
+      ...state,
+      comments: [
+        comment({ id: 'gone', path: 'src/old.ts', status: 'outdated' }),
+      ],
+    };
+    const api = mount({
+      'review:updateComment': (_t, id, patch) =>
+        (state = {
+          ...state,
+          comments: state.comments.map((c) =>
+            c.id === id
+              ? {
+                  ...c,
+                  status: patch.status === 'resolved' ? 'resolved' : 'open',
+                }
+              : c,
+          ),
+        }),
+      'review:deleteComment': (_t, id) =>
+        (state = {
+          ...state,
+          comments: state.comments.filter((c) => c.id !== id),
+        }),
+    });
+    await screen.findByText('1 open comment');
+    fireEvent.click(screen.getByRole('tab', { name: 'Comments (1)' }));
+    const row = screen.getByRole('listitem');
+    fireEvent.click(within(row).getByRole('button', { name: 'Resolve' }));
+    await screen.findByText('0 open comments');
+    expect(
+      api.calls.find((c) => c.channel === 'review:updateComment')?.args,
+    ).toEqual(['t1', 'gone', { status: 'resolved' }]);
+    // The row stays on the Comments list (a click on an action does not open the file).
+    expect(screen.getByRole('tab', { name: 'Comments (1)' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    fireEvent.click(
+      within(screen.getByRole('listitem')).getByRole('button', {
+        name: 'Reopen',
+      }),
+    );
+    await screen.findByText('1 open comment');
+    fireEvent.click(
+      within(screen.getByRole('listitem')).getByRole('button', {
+        name: 'Delete',
+      }),
+    );
+    await screen.findByRole('tab', { name: 'Comments (0)' });
+    expect(
+      api.calls.find((c) => c.channel === 'review:deleteComment')?.args,
+    ).toEqual(['t1', 'gone']);
+  });
+
+  it('keeps the scope, the selected file and the draft when the tab is left and opened again', async () => {
+    installApi();
+    const first = render(<ChangesTab task={task} />);
+    fireEvent.click(await screen.findByText('b.ts'));
+    await waitFor(() =>
+      expect(screen.getByTestId('after').textContent).toBe('new src/b.ts'),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'add on line 2' }));
+    await userEvent.type(
+      screen.getByRole('textbox', { name: 'Comment' }),
+      'half a thought',
+    );
+    first.unmount();
+    render(<ChangesTab task={task} />);
+    await waitFor(() =>
+      expect(screen.getByTestId('after').textContent).toBe('new src/b.ts'),
+    );
+    expect(
+      (screen.getByRole('textbox', { name: 'Comment' }) as HTMLTextAreaElement)
+        .value,
+    ).toBe('half a thought');
+  });
+
+  it('keeps the scope across a remount, and falls back to the first file when the stored one is gone', async () => {
+    const api = installApi();
+    const first = render(<ChangesTab task={task} />);
+    fireEvent.click(await screen.findByText('b.ts'));
+    fireEvent.click(screen.getByRole('button', { name: 'Uncommitted' }));
+    await waitFor(() =>
+      expect(
+        api.calls.some(
+          (c) =>
+            c.channel === 'review:files' &&
+            (c.args[1] as { kind: string }).kind === 'uncommitted',
+        ),
+      ).toBe(true),
+    );
+    first.unmount();
+    files = {
+      repos: [{ ...files.repos[0], files: [file('src/a.ts', 'h1')] }],
+    };
+    const n = api.calls.length;
+    render(<ChangesTab task={task} />);
+    await waitFor(() =>
+      expect(screen.getByTestId('after').textContent).toBe('new src/a.ts'),
+    );
+    const again = api.calls
+      .slice(n)
+      .filter((c) => c.channel === 'review:files');
+    expect(again.length).toBeGreaterThan(0);
+    expect(
+      again.every(
+        (c) => (c.args[1] as { kind: string }).kind === 'uncommitted',
+      ),
+    ).toBe(true);
+  });
+
+  it('comments on the base side of a renamed file with its old path', async () => {
+    files = {
+      repos: [
+        {
+          ...files.repos[0],
+          files: [{ ...file('src/new.ts', 'h1', 'R'), oldPath: 'src/old.ts' }],
+        },
+      ],
+    };
+    const api = mount({
+      'review:addComment': (_t, input) =>
+        (state = {
+          ...state,
+          comments: [comment({ ...input, path: input.path })],
+        }),
+    });
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'add on base line 3' }),
+    );
+    await userEvent.type(
+      screen.getByRole('textbox', { name: 'Comment' }),
+      'Why removed?',
+    );
+    fireEvent.click(
+      within(screen.getByTestId('zone-draft')).getByRole('button', {
+        name: 'Comment',
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        api.calls.find((c) => c.channel === 'review:addComment')?.args,
+      ).toEqual([
+        't1',
+        {
+          workspaceId: 'home',
+          path: 'src/new.ts',
+          oldPath: 'src/old.ts',
+          side: 'before',
+          startLine: 3,
+          endLine: 3,
+          text: 'Why removed?',
+        },
+      ]),
+    );
+  });
+
+  it('shows why the changes could not be loaded instead of loading forever', async () => {
+    mount({
+      'review:files': () => {
+        throw new Error(
+          "Error invoking remote method 'review:files': Error: The task is not ready (finishing)",
+        );
+      },
+    });
+    expect(
+      await screen.findByText(
+        'The changes could not be loaded: The task is not ready (finishing)',
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText('Loading changes…')).toBeNull();
   });
 });

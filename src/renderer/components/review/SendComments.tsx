@@ -64,8 +64,12 @@ export function SendComments({
       notify('warn', `${t.label} is not running`);
       return;
     }
+    const inRepo = (c: ReviewComment, p: string) =>
+      multiRepo ? `${repoName(c.workspaceId)}/${p}` : p;
     const items = open.map((c) => ({
-      path: multiRepo ? `${repoName(c.workspaceId)}/${c.path}` : c.path,
+      path: inRepo(c, c.path),
+      ...(c.oldPath ? { oldPath: inRepo(c, c.oldPath) } : {}),
+      side: c.side,
       startLine: c.startLine,
       endLine: c.endLine,
       snippet: c.snippet,
