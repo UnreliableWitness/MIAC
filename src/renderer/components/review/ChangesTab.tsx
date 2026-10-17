@@ -32,6 +32,7 @@ import {
 } from './DiffView';
 import { FileTree, type FileRef } from './FileTree';
 import { ScopePicker } from './ScopePicker';
+import { SendComments } from './SendComments';
 
 /** A comment being written; its text lives here so a rebuilt diff zone does not lose it. */
 type Draft = {
@@ -393,7 +394,25 @@ export function ChangesTab({ task }: { task: TaskView }) {
   };
 
   return (
-    <section className="review" aria-label="Changes">
+    <section
+      className="review"
+      aria-label="Changes"
+      tabIndex={-1}
+      onKeyDown={(e) => {
+        const t = e.target as HTMLElement;
+        if (
+          e.metaKey ||
+          e.ctrlKey ||
+          e.altKey ||
+          t.closest('input, textarea, select, .monaco-editor, [role="menu"]')
+        )
+          return;
+        if (['j', 'k', 'n', 'p', 'v', 'c'].includes(e.key)) {
+          e.preventDefault();
+          onKey(e.key as DiffKey);
+        }
+      }}
+    >
       <div className="review-head">
         <ScopePicker
           scope={scope}
@@ -403,6 +422,15 @@ export function ChangesTab({ task }: { task: TaskView }) {
         <span className="small muted">{`${viewedCount} / ${total} viewed`}</span>
         <span className="small muted">{`${unresolved} open comments`}</span>
         <span className="grow" />
+        <SendComments
+          task={task}
+          comments={comments}
+          multiRepo={(files?.repos.length ?? 0) > 1}
+          repoName={(id) =>
+            files?.repos.find((r) => r.workspaceId === id)?.name ?? id
+          }
+          onSent={setState}
+        />
         <OpenInEditor
           taskId={task.id}
           workspaceId={current?.repo.workspaceId}

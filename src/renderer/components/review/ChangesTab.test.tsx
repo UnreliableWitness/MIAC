@@ -557,4 +557,17 @@ describe('ChangesTab comments', () => {
       ).toBeNull(),
     );
   });
+
+  it('moves to the next file with j on the page', async () => {
+    mount();
+    await waitFor(() =>
+      expect(screen.getByTestId('after').textContent).toBe('new src/a.ts'),
+    );
+    fireEvent.keyDown(screen.getByRole('region', { name: 'Changes' }), {
+      key: 'j',
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('after').textContent).toBe('new src/b.ts'),
+    );
+  });
 });
