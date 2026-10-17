@@ -186,7 +186,7 @@ describe('SetupScreen', () => {
     await waitFor(() =>
       expect(calls.some((c) => c.channel === 'tasks:cancelSetup')).toBe(true),
     );
-    expect(useStore.getState().screen).toEqual({ kind: 'sprint' });
+    expect(useStore.getState().screen).toEqual({ kind: 'home' });
   });
 
   it('for a failed reopen, cancelling puts the task back on its Done page', async () => {

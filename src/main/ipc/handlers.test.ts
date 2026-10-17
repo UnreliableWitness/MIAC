@@ -4139,3 +4139,49 @@ describe('handlers: estimate baseline at create', () => {
     expect(hx.services.time.baseline(`${c.id}:48231`)).toBeNull();
   });
 });
+
+describe('home', () => {
+  it('builds the snapshot over the connections and broadcasts it', async () => {
+    const hx = await harness();
+    routeHealthyOrg(hx.server);
+    hx.server.route('GET', '/unreliablewitness/_apis/connectionData', {
+      body: { authenticatedUser: { id: 'me-1', providerDisplayName: 'Dries' } },
+    });
+    hx.server.route('GET', '/unreliablewitness/_apis/projects/MIAC/teams', {
+      body: { value: [{ id: 't1', name: 'MIAC Team' }] },
+    });
+    hx.server.route(
+      'GET',
+      '/unreliablewitness/MIAC/MIAC%20Team/_apis/work/teamsettings/iterations',
+      {
+        body: {
+          value: [{ id: 'it-1', name: 'Sprint 1', path: 'MIAC\\Sprint 1' }],
+        },
+      },
+    );
+    hx.server.route('GET', '/unreliablewitness/MIAC/_apis/git/pullrequests', {
+      body: { value: [] },
+    });
+    await hx.h['connections:save']({
+      organizationUrl: `${hx.server.url}/unreliablewitness`,
+      project: 'MIAC',
+      pat: 'secret-pat',
+    });
+    expect(await hx.h['home:get']()).toBeNull();
+    const s = await hx.h['home:refresh']();
+    expect(s.connections).toHaveLength(1);
+    expect(s.connections[0].status).toBe('ok');
+    expect(s.connections[0].sprints[0].items.map((i) => i.id)).toEqual(['5']);
+    expect(hx.broadcasts.some((b) => b.event === 'home:updated')).toBe(true);
+    expect(await hx.h['home:get']()).toEqual(s);
+  });
+
+  it('stats come from the local stores', async () => {
+    const hx = await harness();
+    expect(await hx.h['home:stats']('week')).toMatchObject({
+      period: 'week',
+      costEur: 0,
+      tasksFinished: 0,
+    });
+  });
+});

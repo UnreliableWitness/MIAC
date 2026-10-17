@@ -9,6 +9,7 @@ import { useShortcuts } from './hooks/useShortcuts';
 import { FinishScreen } from './screens/FinishScreen';
 import { NewTaskScreen } from './screens/NewTaskScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
+import { HomeScreen } from './screens/HomeScreen';
 import { SetupScreen } from './screens/SetupScreen';
 import { SprintScreen } from './screens/SprintScreen';
 import { TaskScreen, TaskTerminals } from './screens/TaskScreen';
@@ -18,6 +19,8 @@ import { useWorkItemTypes } from './workItemTypes';
 function Page() {
   const screen = useStore((s) => s.screen);
   switch (screen.kind) {
+    case 'home':
+      return <HomeScreen />;
     case 'sprint':
       return <SprintScreen />;
     case 'task':

@@ -3,6 +3,7 @@ import {
   ChevronDown12Regular,
   ChevronRight12Regular,
   Document16Regular,
+  Home20Regular,
   PanelLeftContract20Regular,
   PanelLeftExpand20Regular,
   Settings20Regular,
@@ -299,6 +300,13 @@ export function TaskNav() {
   return (
     <nav aria-label="Tasks" className={rail ? 'leftnav is-rail' : 'leftnav'}>
       <ProjectTile rail={rail} />
+      <NavItem
+        icon={<Home20Regular aria-hidden="true" />}
+        label="Home"
+        rail={rail}
+        current={screenKind === 'home'}
+        onClick={() => go({ kind: 'home' })}
+      />
       <NavItem
         icon={<ArrowSprint20Regular aria-hidden="true" />}
         label="Sprint"

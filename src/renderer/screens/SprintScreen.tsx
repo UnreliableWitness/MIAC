@@ -11,17 +11,22 @@ import type {
   Connection,
   SprintIteration,
   SprintRow,
-  TaskStatus,
   TaskView,
 } from '../../shared/types';
 import { api, tryInvoke } from '../api';
-import { PageHeader, StateDot, WorkItemTypeIcon } from '../components/ui';
+import {
+  PageHeader,
+  StateDot,
+  TimeBar,
+  WorkItemTypeIcon,
+} from '../components/ui';
 import { sprintTime, type SprintTimeCell } from '../../shared/sprintTime';
 import { formatDuration, type LocalItemTime } from '../../shared/time';
 import { eur, sprintDates } from '../format';
 import { useTaskUsage } from '../hooks/useTaskUsage';
 import { startTaskFor } from '../startTask';
 import { activeConnection, useStore } from '../store';
+import { TASK_STATUS } from '../taskStatus';
 
 /** Window focus refreshes the sprint at most this often. */
 const FOCUS_REFRESH_MS = 60_000;
@@ -65,11 +70,7 @@ function TimeCell({
       title={parts.length ? parts.join(', ') : undefined}
     >
       <span>{text}</span>
-      {pct !== null && (
-        <span className={over ? 'time-bar over' : 'time-bar'}>
-          <i style={{ width: `${Math.min(100, pct)}%` }} />
-        </span>
-      )}
+      {pct !== null && <TimeBar pct={pct} over={over} />}
     </span>
   );
 }
@@ -84,14 +85,6 @@ type Load =
       /** Without a current sprint: the open work assigned to me. */
       mine: SprintRow[];
     };
-
-const TASK_STATUS: Record<TaskStatus, { label: string; color: string }> = {
-  'setting-up': { label: 'Setting up', color: 'var(--accent)' },
-  ready: { label: 'Open', color: 'var(--green)' },
-  'setup-failed': { label: 'Setup failed', color: 'var(--red)' },
-  finishing: { label: 'Finishing', color: 'var(--accent)' },
-  done: { label: 'Done', color: 'var(--muted)' },
-};
 
 const NO_REPO = 'Link a repo to this project in Settings to start a task';
 

@@ -199,7 +199,7 @@ export function HeaderBar() {
   const home = () => go({ kind: 'sprint' });
 
   const crumbs: ReactNode[] = [];
-  if (connection && screen.kind !== 'settings')
+  if (connection && screen.kind !== 'settings' && screen.kind !== 'home')
     crumbs.push(
       <Crumb key="project" onClick={home}>
         {connection.project}
@@ -216,15 +216,17 @@ export function HeaderBar() {
       <TaskCrumb key="task" task={task} current={screen.kind === 'task'} />,
     );
   const page =
-    screen.kind === 'setup'
-      ? 'Setup'
-      : screen.kind === 'finish'
-        ? 'Finish'
-        : screen.kind === 'new-task'
-          ? 'New task'
-          : screen.kind === 'settings'
-            ? 'Settings'
-            : null;
+    screen.kind === 'home'
+      ? 'Home'
+      : screen.kind === 'setup'
+        ? 'Setup'
+        : screen.kind === 'finish'
+          ? 'Finish'
+          : screen.kind === 'new-task'
+            ? 'New task'
+            : screen.kind === 'settings'
+              ? 'Settings'
+              : null;
   if (page)
     crumbs.push(
       <Crumb key="page" current onClick={() => undefined}>
@@ -238,8 +240,8 @@ export function HeaderBar() {
         <button
           type="button"
           className="crumb crumb-home"
-          aria-label="MIAC, go to Sprint"
-          onClick={home}
+          aria-label="MIAC, go to Home"
+          onClick={() => go({ kind: 'home' })}
         >
           <MindMark />
           <span className="crumb-text">MIAC</span>

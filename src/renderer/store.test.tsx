@@ -236,3 +236,12 @@ describe('telemetry', () => {
     ]);
   });
 });
+
+describe('home start', () => {
+  it('starts on Home and Back falls back to Home', () => {
+    expect(useStore.getInitialState().screen).toEqual({ kind: 'home' });
+    useStore.setState({ previous: null, screen: { kind: 'settings' } });
+    useStore.getState().back();
+    expect(useStore.getState().screen).toEqual({ kind: 'home' });
+  });
+});
