@@ -2,12 +2,15 @@ export type ReviewPrefs = {
   sideBySide: boolean;
   ignoreWhitespace: boolean;
   hideUnchanged: boolean;
+  /** The Files panel as a folder tree or a flat list. */
+  fileView: 'tree' | 'list';
 };
 const KEY = 'miac.review.prefs';
 const DEFAULT: ReviewPrefs = {
   sideBySide: true,
   ignoreWhitespace: false,
   hideUnchanged: true,
+  fileView: 'tree',
 };
 
 export function readReviewPrefs(
@@ -28,6 +31,10 @@ export function readReviewPrefs(
         typeof v?.hideUnchanged === 'boolean'
           ? v.hideUnchanged
           : DEFAULT.hideUnchanged,
+      fileView:
+        v?.fileView === 'list' || v?.fileView === 'tree'
+          ? v.fileView
+          : DEFAULT.fileView,
     };
   } catch {
     return { ...DEFAULT };
