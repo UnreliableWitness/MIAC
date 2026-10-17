@@ -30,6 +30,7 @@ vi.mock('./DiffView', () => ({
     uriKey: string;
     before: string;
     after: string;
+    sideBySide: boolean;
     zones?: { id: string; afterLine: number; node: unknown }[];
     onGlyph?: (side: 'before' | 'after', line: number) => void;
     reveal?: { side: 'before' | 'after'; line: number; seq: number };
@@ -43,7 +44,11 @@ vi.mock('./DiffView', () => ({
     }, [p.reveal?.seq, p.uriKey]);
     const sig = (p.zones ?? []).map((z) => `${z.id}@${z.afterLine}`).join(',');
     return (
-      <div data-testid="diff" data-key={p.uriKey}>
+      <div
+        data-testid="diff"
+        data-key={p.uriKey}
+        data-side-by-side={String(p.sideBySide)}
+      >
         <pre data-testid="before">{p.before}</pre>
         <pre data-testid="after">{p.after}</pre>
         {p.onGlyph && (
@@ -161,6 +166,27 @@ describe('ChangesTab', () => {
       'new src/a.ts',
     );
     expect(screen.getByText('0 / 3 viewed')).toBeTruthy();
+  });
+
+  it('keeps the diff options in the View menu and shows no comment controls without comments', async () => {
+    mount();
+    const diff = await screen.findByTestId('diff');
+    const before = diff.getAttribute('data-side-by-side');
+    fireEvent.click(screen.getByRole('button', { name: 'View' }));
+    const side = screen.getByRole('menuitemcheckbox', { name: /Side by side/ });
+    expect(side.getAttribute('aria-checked')).toBe(before);
+    fireEvent.click(side);
+    expect(screen.getByTestId('diff').getAttribute('data-side-by-side')).toBe(
+      String(before !== 'true'),
+    );
+    expect(screen.queryByText(/open comment/)).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Send/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Open in / })).toBeNull();
+    expect(
+      screen
+        .getByRole('progressbar', { name: 'Viewed' })
+        .getAttribute('aria-valuemax'),
+    ).toBe('3');
   });
 
   it('marks a file viewed, and shows it changed since when its hash moves', async () => {
@@ -618,7 +644,7 @@ describe('ChangesTab more', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Comments (1)' }));
     const row = screen.getByRole('listitem');
     fireEvent.click(within(row).getByRole('button', { name: 'Resolve' }));
-    await screen.findByText('0 open comments');
+    await waitFor(() => expect(screen.queryByText(/open comment/)).toBeNull());
     expect(
       api.calls.find((c) => c.channel === 'review:updateComment')?.args,
     ).toEqual(['t1', 'gone', { status: 'resolved' }]);
@@ -908,10 +934,13 @@ describe('ChangesTab with several repos', () => {
     );
     const shared = within(tree()).getByRole('group', { name: 'shared' });
     expect(within(shared).getByText('No changes · not in Finish')).toBeTruthy();
-    const chips = screen.getByRole('group', { name: 'Repos' });
+    fireEvent.click(screen.getByRole('button', { name: 'Repos: all' }));
+    // A repo without changes has no count: not 0, not "all viewed".
     expect(
-      within(chips).getByRole('button', { name: 'shared' }).textContent,
-    ).toBe('shared');
+      within(screen.getByRole('menu', { name: 'Repos' }))
+        .getByRole('menuitemradio', { name: 'shared' })
+        .querySelector('.review-repo-count')?.textContent,
+    ).toBe('');
     expect(shared.querySelector('.repo-mark')?.getAttribute('data-color')).toBe(
       '3',
     );
@@ -962,8 +991,9 @@ describe('ChangesTab with several repos', () => {
     mountMulti();
     await after('new web1.ts');
     expect(viewedLabel()).toBe('0 / 3 viewed');
-    const chips = screen.getByRole('group', { name: 'Repos' });
-    fireEvent.click(within(chips).getByRole('button', { name: /api/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Repos: all' }));
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /^api/ }));
+    expect(screen.getByRole('button', { name: 'Repos: api' })).toBeTruthy();
     await after('new api1.cs');
     expect(within(tree()).queryByText('web1.ts')).toBeNull();
     expect(viewedLabel()).toBe('0 / 1 viewed in api');
@@ -1016,31 +1046,19 @@ describe('ChangesTab with several repos', () => {
     await after('new web1.ts');
     fireEvent.click(screen.getByRole('button', { name: 'Commits' }));
     fireEvent.click(screen.getByRole('menuitem', { name: /web commit/ }));
-    const chips = screen.getByRole('group', { name: 'Repos' });
-    await waitFor(() =>
-      expect(
-        (
-          within(chips).getByRole('button', {
-            name: /api/,
-          }) as HTMLButtonElement
-        ).disabled,
-      ).toBe(true),
-    );
-    expect(
-      within(chips)
-        .getByRole('button', { name: /web/ })
-        .getAttribute('aria-pressed'),
-    ).toBe('true');
+    const item = (name: RegExp) => {
+      fireEvent.click(screen.getByRole('button', { name: /^Repos: / }));
+      const el = screen.getByRole('menuitemradio', {
+        name,
+      }) as HTMLButtonElement;
+      fireEvent.keyDown(el, { key: 'Escape' });
+      return el;
+    };
+    await screen.findByRole('button', { name: 'Repos: web' });
+    expect(item(/^api/).disabled).toBe(true);
+    expect(item(/^web/).getAttribute('aria-checked')).toBe('true');
     fireEvent.click(screen.getByRole('button', { name: 'All changes' }));
-    await waitFor(() =>
-      expect(
-        (
-          within(chips).getByRole('button', {
-            name: /api/,
-          }) as HTMLButtonElement
-        ).disabled,
-      ).toBe(false),
-    );
+    await waitFor(() => expect(item(/^api/).disabled).toBe(false));
     expect(viewedLabel()).toBe('0 / 2 viewed in web');
   });
 
@@ -1086,7 +1104,7 @@ describe('ChangesTab with several repos', () => {
   it('shows no chips, headers or colors for a single-repo task', async () => {
     mount();
     await after('new web1.ts');
-    expect(screen.queryByRole('group', { name: 'Repos' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Repos: / })).toBeNull();
     expect(document.querySelector('.repo-mark')).toBeNull();
     expect(document.querySelector('.review-repo-head')).toBeNull();
   });

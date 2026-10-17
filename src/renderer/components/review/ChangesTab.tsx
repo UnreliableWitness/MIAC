@@ -1,11 +1,16 @@
 import {
   ArrowDown16Regular,
   ArrowUp16Regular,
+  ChevronDown16Regular,
+  ChevronLeft16Regular,
+  ChevronRight16Regular,
+  Open16Regular,
   TextBulletListLtr16Regular,
   TextBulletListTree16Regular,
 } from '@fluentui/react-icons';
 import {
   type SetStateAction,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -43,7 +48,7 @@ import {
   useStore,
 } from '../../store';
 import { track } from '../../telemetry';
-import { OpenInEditor } from '../OpenInEditor';
+import { PopupMenu } from '../ui';
 import { CommentBox, CommentCard } from './CommentCard';
 import { CommentsList } from './CommentsList';
 import {
@@ -595,10 +600,26 @@ export function ChangesTab({ task }: { task: TaskView }) {
             onChange={(id) => filterTo(id, 'chip')}
           />
         )}
-        <span className="small muted">
+        <span className="small muted review-progress">
+          <span
+            className="review-progress-bar"
+            role="progressbar"
+            aria-label="Viewed"
+            aria-valuemin={0}
+            aria-valuemax={total}
+            aria-valuenow={viewedCount}
+          >
+            <span
+              style={{
+                width: `${total ? (100 * viewedCount) / total : 0}%`,
+              }}
+            />
+          </span>
           {`${viewedCount} / ${total} viewed${repoFilter === null ? '' : ` in ${repoNameOf(repoFilter)}`}`}
         </span>
-        <span className="small muted">{`${unresolved} open ${unresolved === 1 ? 'comment' : 'comments'}`}</span>
+        {unresolved > 0 && (
+          <span className="small muted">{`${unresolved} open ${unresolved === 1 ? 'comment' : 'comments'}`}</span>
+        )}
         <span className="grow" />
         <SendComments
           task={task}
@@ -608,10 +629,6 @@ export function ChangesTab({ task }: { task: TaskView }) {
             files?.repos.find((r) => r.workspaceId === id)?.name ?? id
           }
           onSent={setState}
-        />
-        <OpenInEditor
-          taskId={task.id}
-          workspaceId={current?.repo.workspaceId}
         />
       </div>
       {scope.kind !== 'all' && (
@@ -752,33 +769,7 @@ export function ChangesTab({ task }: { task: TaskView }) {
                   ? `${current.file.oldPath} → ${current.file.path}`
                   : current.file.path}
               </span>
-              <span className="grow" />
-              <label className="small">
-                <input
-                  type="checkbox"
-                  checked={prefs.sideBySide}
-                  onChange={(e) => setPref({ sideBySide: e.target.checked })}
-                />{' '}
-                Side by side
-              </label>
-              <label className="small">
-                <input
-                  type="checkbox"
-                  checked={prefs.ignoreWhitespace}
-                  onChange={(e) =>
-                    setPref({ ignoreWhitespace: e.target.checked })
-                  }
-                />{' '}
-                Ignore whitespace
-              </label>
-              <label className="small">
-                <input
-                  type="checkbox"
-                  checked={prefs.hideUnchanged}
-                  onChange={(e) => setPref({ hideUnchanged: e.target.checked })}
-                />{' '}
-                Hide unchanged
-              </label>
+              <ViewMenu prefs={prefs} onChange={setPref} />
               <button
                 type="button"
                 className="btn btn-subtle btn-sm"
@@ -797,25 +788,31 @@ export function ChangesTab({ task }: { task: TaskView }) {
               >
                 <ArrowDown16Regular />
               </button>
+              <span className="review-sep" />
               <button
                 type="button"
                 className="btn btn-subtle btn-sm"
+                aria-label="Previous file"
                 title="Previous file (k)"
                 onClick={() => onKey('k')}
               >
-                Previous file
+                <ChevronLeft16Regular />
               </button>
               <button
                 type="button"
                 className="btn btn-subtle btn-sm"
+                aria-label="Next file"
                 title="Next file (j)"
                 onClick={() => onKey('j')}
               >
-                Next file
+                <ChevronRight16Regular />
               </button>
+              <span className="review-sep" />
               <button
                 type="button"
                 className="btn btn-subtle btn-sm"
+                aria-label="Open file in editor"
+                title="Open file in editor"
                 disabled={current.file.status === 'D'}
                 onClick={() =>
                   tryInvoke(
@@ -831,7 +828,8 @@ export function ChangesTab({ task }: { task: TaskView }) {
                   )
                 }
               >
-                Open file in editor
+                <Open16Regular aria-hidden="true" />
+                Open file
               </button>
             </div>
           )}
@@ -846,5 +844,58 @@ export function ChangesTab({ task }: { task: TaskView }) {
         </div>
       </div>
     </section>
+  );
+}
+
+const VIEW_OPTIONS = [
+  ['sideBySide', 'Side by side'],
+  ['ignoreWhitespace', 'Ignore whitespace'],
+  ['hideUnchanged', 'Hide unchanged'],
+] as const;
+
+/** The diff's display options, folded into one menu: they are set once and seldom changed. */
+function ViewMenu({
+  prefs,
+  onChange,
+}: {
+  prefs: Pick<ReviewPrefs, (typeof VIEW_OPTIONS)[number][0]>;
+  onChange: (p: Partial<ReviewPrefs>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
+  const close = useCallback(() => setOpen(false), []);
+  return (
+    <>
+      <button
+        ref={setAnchor}
+        type="button"
+        className="btn btn-subtle btn-sm"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        View
+        <ChevronDown16Regular aria-hidden="true" />
+      </button>
+      <PopupMenu label="View" anchor={anchor} open={open} onClose={close}>
+        {VIEW_OPTIONS.map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            role="menuitemcheckbox"
+            aria-checked={prefs[key]}
+            className="menu-item review-view-item"
+            onClick={() => onChange({ [key]: !prefs[key] })}
+          >
+            <span className="menu-title">
+              <span className="review-view-check" aria-hidden="true">
+                {prefs[key] ? '✓' : ''}
+              </span>
+              {label}
+            </span>
+          </button>
+        ))}
+      </PopupMenu>
+    </>
   );
 }

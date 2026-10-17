@@ -199,8 +199,8 @@
   min-height: 0;
 }
 .review-path {
-  /* The file shown is the toolbar's first fact: it keeps room, the controls wrap below it. */
-  flex: 1 1 260px;
+  /* The file shown takes what the few toolbar controls leave; a long path ends in an ellipsis. */
+  flex: 1 1 0;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -342,25 +342,74 @@
   font: inherit;
   font-weight: 600;
 }
-.review-repos {
-  display: inline-flex;
-  gap: 2px;
-}
-.review-repos [aria-pressed='true'] {
-  background: var(--bg-selected);
-}
-.review-repo-chip {
+.review-repo-pick {
   gap: 6px;
 }
-.review-repo-chip .repo-mark-dot {
+.review-repo-pick .repo-mark-dot,
+.review-repo-item .repo-mark-dot {
   margin-right: 0;
 }
-.review-head,
-.review-toolbar {
+.review-repo-item .menu-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+.review-repo-item:disabled {
+  opacity: 0.5;
+}
+.review-repo-item {
+  align-items: stretch;
+  min-width: 220px;
+}
+.review-repo-item kbd {
+  margin-left: auto;
+  padding-left: 16px;
+  font-family: var(--font-code);
+}
+.review-head {
   flex-wrap: wrap;
   row-gap: 6px;
 }
-.review-head > .small,
-.review-toolbar label {
+.review-head > .small {
   white-space: nowrap;
+}
+.review-toolbar {
+  gap: 4px;
+}
+.review-toolbar > :not(.review-path) {
+  flex: none;
+}
+/* The viewed counter's thin bar. */
+.review-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.review-progress-bar {
+  width: 64px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line);
+  overflow: hidden;
+}
+.review-progress-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--link);
+}
+.review-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: var(--line);
+}
+.review-view-item .menu-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.review-view-check {
+  width: 12px;
+  color: var(--link);
 }

@@ -1,4 +1,8 @@
-import { Add16Regular, MoreHorizontal16Regular } from '@fluentui/react-icons';
+import {
+  Add16Regular,
+  ChevronDown12Regular,
+  MoreHorizontal16Regular,
+} from '@fluentui/react-icons';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import type { TaskView } from '../../shared/types';
 import {
@@ -55,7 +59,11 @@ function PopMenu({
         onClick={() => {
           if (at) return setAt(null);
           const r = button.current?.getBoundingClientRect();
-          if (r) setAt({ left: r.left, top: r.bottom + 2 });
+          if (r)
+            setAt({
+              left: Math.max(4, Math.min(r.left, window.innerWidth - 284)),
+              top: r.bottom + 2,
+            });
         }}
       >
         {trigger}
@@ -105,17 +113,9 @@ const UP = String.fromCharCode(0x2191);
 const DOWN = String.fromCharCode(0x2193);
 const BULLET = String.fromCharCode(0x2022);
 
-/** "↑ahead ↓behind •changes" of one repo's worktree, polled like the task's own git state. */
-function ChipGit({
-  task,
-  w,
-  visible,
-}: {
-  task: TaskView;
-  w: WorkspaceView;
-  visible: boolean;
-}) {
-  const git = useGitSummary(task.id, task.worktreeMissing, visible, w.id);
+/** "↑ahead ↓behind •changes" of one repo's worktree, polled while the repos menu is open. */
+function RepoGit({ task, w }: { task: TaskView; w: WorkspaceView }) {
+  const git = useGitSummary(task.id, task.worktreeMissing, true, w.id);
   if (!git) return null;
   return (
     <span className="mono small muted ws-chip-git">
@@ -124,85 +124,92 @@ function ChipGit({
   );
 }
 
-/** One chip per repo of a task with more than one; shown only then, so a single-repo task looks as before. */
-export function WorkspaceChips({
-  task,
-  visible = true,
-}: {
-  task: TaskView;
-  /** False while the task page is hidden: git is not polled. */
-  visible?: boolean;
-}) {
+/** One "3 repos" chip for a task with more than one; its menu has each repo's git state and actions. A single-repo task shows nothing. */
+export function WorkspaceChips({ task }: { task: TaskView }) {
   const notify = useStore((s) => s.notify);
   const repos = useStore((s) => s.repos);
   const setTab = useStore((s) => s.setTab);
   const workspaces = activeWorkspaces(task);
   if (workspaces.length < 2) return null;
   const ready = task.status === 'ready';
+  const nameOf = (w: WorkspaceView) =>
+    repos.find((r) => r.id === w.repoId)?.name ?? w.branch;
   return (
-    <span className="ws-chips" role="group" aria-label="Repos of this task">
-      {workspaces.map((w) => {
-        const name = repos.find((r) => r.id === w.repoId)?.name ?? w.branch;
-        return (
-          <PopMenu
-            key={w.id}
-            label={`Repo ${name}`}
-            className="btn btn-sm chip"
-            trigger={
-              <>
+    <PopMenu
+      label="Repos of this task"
+      className="btn btn-sm chip ws-chip"
+      trigger={
+        <>
+          <span className="ws-chip-marks">
+            {workspaces.map((w) => (
+              <RepoMark key={w.id} color={repoColor(task, w.id)} />
+            ))}
+          </span>
+          {`${workspaces.length} repos`}
+          <ChevronDown12Regular aria-hidden="true" />
+        </>
+      }
+    >
+      {(close) =>
+        workspaces.map((w) => {
+          const name = nameOf(w);
+          return (
+            <div
+              key={w.id}
+              role="group"
+              aria-label={name}
+              className="ws-menu-repo"
+            >
+              <div className="ws-menu-head">
                 <RepoMark color={repoColor(task, w.id)} />
-                {name} <ChipGit task={task} w={w} visible={visible} />
-              </>
-            }
-          >
-            {(close) => (
-              <>
-                <Item
-                  onClick={() => {
-                    close();
-                    void tryInvoke(async () => {
-                      const created = await api().invoke(
-                        'terminals:open',
-                        task.id,
-                        { kind: 'shell', label: 'shell', workspaceId: w.id },
-                      );
-                      setTab(task.id, created.id);
-                    }, notify);
-                  }}
-                >
-                  New shell here
-                </Item>
+                <span className="ws-menu-name">{name}</span>
+                <RepoGit task={task} w={w} />
+              </div>
+              <Item
+                onClick={() => {
+                  close();
+                  void tryInvoke(async () => {
+                    const created = await api().invoke(
+                      'terminals:open',
+                      task.id,
+                      { kind: 'shell', label: 'shell', workspaceId: w.id },
+                    );
+                    setTab(task.id, created.id);
+                  }, notify);
+                }}
+              >
+                New shell here
+              </Item>
+              <Item
+                onClick={() => {
+                  close();
+                  void tryInvoke(
+                    () => api().invoke('tasks:openInEditor', task.id, w.id),
+                    notify,
+                  );
+                }}
+              >
+                Open in editor
+              </Item>
+              {w.id !== HOME_ID && ready && (
                 <Item
                   onClick={() => {
                     close();
                     void tryInvoke(
-                      () => api().invoke('tasks:openInEditor', task.id, w.id),
+                      () =>
+                        api().invoke('tasks:removeWorkspace', task.id, w.id),
                       notify,
                     );
                   }}
                 >
-                  Open in editor
+                  Remove from task
                 </Item>
-                {w.id !== HOME_ID && ready && (
-                  <Item
-                    onClick={() => {
-                      close();
-                      void tryInvoke(
-                        () =>
-                          api().invoke('tasks:removeWorkspace', task.id, w.id),
-                        notify,
-                      );
-                    }}
-                  >
-                    Remove from task
-                  </Item>
-                )}
-              </>
-            )}
-          </PopMenu>
-        );
-      })}
-    </span>
+              )}
+            </div>
+          );
+        })
+      }
+    </PopMenu>
   );
 }
 
