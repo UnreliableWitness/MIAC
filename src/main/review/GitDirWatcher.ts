@@ -23,6 +23,10 @@ export class GitDirWatcher {
     private readonly gitDir: (worktree: string) => Promise<string>,
     private readonly emit: (target: string) => void,
     private readonly debounceMs = 300,
+    /** A target closed by a watcher error (not by stop); its holders must fall back to polling. */
+    private readonly onStopped: (target: string) => void = () => {},
+    /** Test seam. */
+    private readonly watchFn: typeof watch = watch,
   ) {}
 
   async start(target: string, worktree: string): Promise<boolean> {
@@ -62,11 +66,13 @@ export class GitDirWatcher {
       }, this.debounceMs);
     };
     const add = (folder: string, names: Set<string>) => {
-      const w = watch(folder);
+      const w = this.watchFn(folder);
       w.on('change', (_ev, name) => {
         if (name && names.has(String(name))) fire();
       });
-      w.on('error', () => this.close(target));
+      w.on('error', () => {
+        if (this.close(target)) this.onStopped(target);
+      });
       entry.watchers.push(w);
     };
     try {
@@ -101,11 +107,12 @@ export class GitDirWatcher {
     for (const key of [...this.entries.keys()]) this.close(key);
   }
 
-  private close(target: string): void {
+  private close(target: string): boolean {
     const e = this.entries.get(target);
-    if (!e) return;
+    if (!e) return false;
     if (e.timer) clearTimeout(e.timer);
     for (const w of e.watchers) w.close();
     this.entries.delete(target);
+    return true;
   }
 }

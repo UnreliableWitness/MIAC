@@ -1021,6 +1021,8 @@ export function createHandlers(s: Services): Handlers {
     new GitDirWatcher(
       (wt) => s.git.gitDir(wt),
       (target) => s.broadcast('review:changed', { taskId: target }),
+      undefined,
+      (target) => docsWatcher.stopTarget(target),
     );
   const docsWatcher =
     s.docsWatcher ??

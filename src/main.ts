@@ -124,6 +124,8 @@ let pendingUpdate: PendingUpdate | null = null;
 const gitDirWatcher = new GitDirWatcher(
   (wt) => new GitClient().gitDir(wt),
   (target) => broadcast('review:changed', { taskId: target }),
+  undefined,
+  (target) => docsWatcher.stopTarget(target),
 );
 const docsWatcher = new DocsWatcher(
   (taskId, paths) => broadcast('docs:changed', { taskId, paths }),

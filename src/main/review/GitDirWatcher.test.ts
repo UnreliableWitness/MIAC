@@ -1,4 +1,6 @@
 // src/main/review/GitDirWatcher.test.ts
+import { EventEmitter } from 'node:events';
+import { type FSWatcher, watch } from 'node:fs';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { GitClient } from '../services/GitClient';
 import {
@@ -52,5 +54,32 @@ describe('GitDirWatcher', () => {
     commitFile(a, 'x.txt', 'x\n');
     await new Promise((r) => setTimeout(r, 300));
     expect(emit).not.toHaveBeenCalled();
+  });
+
+  it('reports a watcher error through onStopped, once, and not a normal stop', async () => {
+    const repo = makeRepo();
+    const made: EventEmitter[] = [];
+    const seam = ((folder: string) => {
+      const real = watch(folder);
+      made.push(real);
+      return real as FSWatcher;
+    }) as typeof watch;
+    const onStopped = vi.fn();
+    const w = new GitDirWatcher(
+      (wt) => client.gitDir(wt),
+      () => undefined,
+      20,
+      onStopped,
+      seam,
+    );
+    await w.start('t1', repo);
+    await w.start('t2', repo);
+    w.stop('t2');
+    expect(onStopped).not.toHaveBeenCalled();
+    made[0].emit('error', new Error('boom'));
+    made[0].emit('error', new Error('boom'));
+    expect(onStopped).toHaveBeenCalledTimes(1);
+    expect(onStopped).toHaveBeenCalledWith('t1');
+    w.stopAll();
   });
 });
