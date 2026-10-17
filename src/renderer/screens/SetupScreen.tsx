@@ -141,11 +141,11 @@ export function SetupScreen({ taskId }: { taskId: string }) {
     if (ok && reopening) {
       select(taskId);
       go({ kind: 'task' });
-    } else if (ok) go({ kind: 'sprint' });
+    } else if (ok) go({ kind: 'home' });
   };
 
   if (!task) return <div className="empty">Task not found.</div>;
-  const back = () => go({ kind: 'sprint' });
+  const back = () => go({ kind: 'home' });
   const reopening = isReopening(task);
 
   return (

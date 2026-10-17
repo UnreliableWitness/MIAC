@@ -5,6 +5,7 @@ import type {
   HomeSnapshot,
 } from '../../../shared/home';
 import { api, tryInvoke } from '../../api';
+import { connectionNote } from '../../homeView';
 import { ago, dateTime } from '../../format';
 import { useStore } from '../../store';
 import { track } from '../../telemetry';
@@ -89,13 +90,28 @@ export function PrBand({ snapshot }: { snapshot: HomeSnapshot | null }) {
         Couldn't load pull requests for {c.name}/{c.project}
       </p>
     ));
+  const notes = (snapshot?.connections ?? []).flatMap((c) => {
+    const note = connectionNote(c);
+    return note
+      ? [
+          <p key={c.connectionId} className="muted small">
+            {note}
+          </p>,
+        ]
+      : [];
+  });
+  const allOk =
+    notes.length === 0 &&
+    !(snapshot?.connections ?? []).some((c) => c.prsError);
   return (
     <div className="home-split">
       <Band title="Reviews for me">
         {reviews.map((r) => (
           <PrRow key={key(r)} row={r} kind="review" />
         ))}
-        {reviews.length === 0 && <p className="muted">No reviews waiting.</p>}
+        {reviews.length === 0 && allOk && (
+          <p className="muted">No reviews waiting.</p>
+        )}
         {team.length > 0 && (
           <>
             <button
@@ -112,13 +128,17 @@ export function PrBand({ snapshot }: { snapshot: HomeSnapshot | null }) {
               ))}
           </>
         )}
+        {notes}
         {errors}
       </Band>
       <Band title="My pull requests">
         {mine.map((r) => (
           <PrRow key={key(r)} row={r} kind="my-pr" />
         ))}
-        {mine.length === 0 && <p className="muted">No open pull requests.</p>}
+        {mine.length === 0 && allOk && (
+          <p className="muted">No open pull requests.</p>
+        )}
+        {notes}
         {errors}
       </Band>
     </div>

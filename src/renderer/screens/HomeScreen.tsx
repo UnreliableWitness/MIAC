@@ -1,5 +1,5 @@
 import { ArrowClockwise16Regular } from '@fluentui/react-icons';
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Band } from '../components/home/Band';
 import { PrBand } from '../components/home/PrBand';
 import { SprintsBand } from '../components/home/SprintsBand';
@@ -7,6 +7,7 @@ import { StatsBand } from '../components/home/StatsBand';
 import { TasksBand } from '../components/home/TasksBand';
 import { PageHeader } from '../components/ui';
 import { ago } from '../format';
+import { useClock } from '../hooks/useClock';
 import { useHome } from '../hooks/useHome';
 import { chipState } from '../homeView';
 import { useStore } from '../store';
@@ -19,8 +20,20 @@ const CHIP_TEXT = {
 } as const;
 
 export function HomeScreen() {
-  const { snapshot, refreshing, refresh } = useHome();
+  const { snapshot: raw, refreshing, refresh } = useHome();
+  useClock(60_000);
   const connections = useStore((s) => s.connections);
+  // A removed connection's rows stay in the cached snapshot until the next rebuild; show none of them.
+  const snapshot = useMemo(
+    () =>
+      raw && {
+        ...raw,
+        connections: raw.connections.filter((h) =>
+          connections.some((c) => c.id === h.connectionId),
+        ),
+      },
+    [raw, connections],
+  );
   const go = useStore((s) => s.go);
   const loadTypes = useWorkItemTypes((s) => s.load);
   useEffect(() => {
@@ -78,8 +91,11 @@ export function HomeScreen() {
       />
       {refused.map((c) => (
         <p key={c.id} className="home-warning" role="status">
-          Azure DevOps refused the token for {c.name}/{c.project}. Update it in
-          Settings.
+          Azure DevOps refused the token for {c.name}/{c.project}. Update it in{' '}
+          <button type="button" onClick={() => go({ kind: 'settings' })}>
+            Settings
+          </button>
+          .
         </p>
       ))}
       <div className="home-bands">
@@ -97,9 +113,14 @@ export function HomeScreen() {
             {snapshot ? (
               <PrBand snapshot={snapshot} />
             ) : (
-              <Band title="Reviews for me">
-                <p className="muted">Loading</p>
-              </Band>
+              <div className="home-split">
+                <Band title="Reviews for me">
+                  <p className="muted">Loading</p>
+                </Band>
+                <Band title="My pull requests">
+                  <p className="muted">Loading</p>
+                </Band>
+              </div>
             )}
             {snapshot ? (
               <SprintsBand snapshot={snapshot} />

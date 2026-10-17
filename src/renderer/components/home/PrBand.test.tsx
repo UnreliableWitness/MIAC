@@ -127,6 +127,41 @@ describe('PrBand', () => {
     ).toHaveLength(2);
   });
 
+  it('names a stale connection in both columns and hides the empty lines', () => {
+    installFakeApi();
+    render(
+      <PrBand
+        snapshot={snap(
+          conn({
+            status: 'stale',
+            error: 'down',
+            fetchedAt: '2026-10-17T09:12:00Z',
+          }),
+        )}
+      />,
+    );
+    expect(
+      screen.getAllByText(/^Stale since \d\d:\d\d for uw\/MIAC: down$/),
+    ).toHaveLength(2);
+    expect(screen.queryByText('No reviews waiting.')).toBeNull();
+    expect(screen.queryByText('No open pull requests.')).toBeNull();
+  });
+
+  it('names a connection that could not load', () => {
+    installFakeApi();
+    render(
+      <PrBand
+        snapshot={snap(
+          conn({ status: 'error', error: 'refused', fetchedAt: null }),
+        )}
+      />,
+    );
+    expect(screen.getAllByText("Couldn't load uw/MIAC: refused")).toHaveLength(
+      2,
+    );
+    expect(screen.queryByText('No reviews waiting.')).toBeNull();
+  });
+
   it('empty states', () => {
     installFakeApi();
     render(<PrBand snapshot={snap(conn({}))} />);

@@ -1,21 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import type { HomeConnection, HomeItem, HomeSnapshot } from '../shared/home';
 import type { Connection, Repo, TaskView } from '../shared/types';
-import { chipState, sprintTotals, upNext } from './homeView';
+import { chipState, connectionNote, sprintTotals, upNext } from './homeView';
 
 const connection = { id: 'c1', status: 'ok' } as Connection;
 const home = (status: HomeConnection['status']) =>
   ({ status }) as HomeConnection;
 
 describe('chipState', () => {
-  it('is error when the connection or the build says so', () => {
+  it('is error when the token is refused or the build never loaded', () => {
     expect(
       chipState(home('ok'), { ...connection, status: 'unauthorized' }),
     ).toBe('error');
     expect(chipState(home('error'), connection)).toBe('error');
   });
-  it('is stale when the last build failed but data is kept', () => {
+  it('is stale when unreachable or the last build failed but data is kept', () => {
     expect(chipState(home('stale'), connection)).toBe('stale');
+    expect(
+      chipState(home('ok'), { ...connection, status: 'unreachable' }),
+    ).toBe('stale');
+    expect(chipState(undefined, { ...connection, status: 'unreachable' })).toBe(
+      'stale',
+    );
   });
   it('is ok otherwise, also before the first build', () => {
     expect(chipState(home('ok'), connection)).toBe('ok');
@@ -151,5 +157,36 @@ describe('sprintTotals', () => {
   it('has no estimate when no item has one', () => {
     const bare = { ...sprint, items: [hi('9')] };
     expect(sprintTotals(bare, {}, () => undefined).estimateHours).toBeNull();
+  });
+});
+
+describe('connectionNote', () => {
+  const c = (over: Partial<HomeConnection>) =>
+    ({
+      name: 'uw',
+      project: 'MIAC',
+      status: 'ok',
+      error: null,
+      fetchedAt: null,
+      ...over,
+    }) as HomeConnection;
+  it('is null when ok', () => {
+    expect(connectionNote(c({}))).toBeNull();
+  });
+  it('says stale since the fetch time', () => {
+    expect(
+      connectionNote(
+        c({
+          status: 'stale',
+          fetchedAt: '2026-10-17T09:12:00Z',
+          error: 'down',
+        }),
+      ),
+    ).toMatch(/^Stale since \d\d:\d\d for uw\/MIAC: down$/);
+  });
+  it('says it could not load with the error', () => {
+    expect(connectionNote(c({ status: 'error', error: 'refused' }))).toBe(
+      "Couldn't load uw/MIAC: refused",
+    );
   });
 });

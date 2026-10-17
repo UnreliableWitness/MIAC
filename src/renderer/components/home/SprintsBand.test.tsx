@@ -1,6 +1,6 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { HomeConnection, HomeSnapshot } from '../../../shared/home';
 import type { Repo } from '../../../shared/types';
 import { useStore } from '../../store';
@@ -129,6 +129,74 @@ describe('SprintsBand', () => {
     installFakeApi();
     render(<SprintsBand snapshot={snap(conn({ sprintsError: 'boom' }))} />);
     expect(screen.getByText("Couldn't load sprints for uw/MIAC")).toBeTruthy();
+  });
+
+  it('names a stale connection and hides the empty line', () => {
+    installFakeApi();
+    render(
+      <SprintsBand
+        snapshot={snap(
+          conn({
+            status: 'stale',
+            error: 'down',
+            fetchedAt: '2026-10-17T09:12:00Z',
+          }),
+        )}
+      />,
+    );
+    expect(
+      screen.getByText(/^Stale since \d\d:\d\d for uw\/MIAC: down$/),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText('Nothing assigned to you in a current sprint.'),
+    ).toBeNull();
+  });
+
+  it('names a connection that could not load', () => {
+    installFakeApi();
+    render(
+      <SprintsBand
+        snapshot={snap(
+          conn({ status: 'error', error: 'refused', fetchedAt: null }),
+        )}
+      />,
+    );
+    expect(screen.getByText("Couldn't load uw/MIAC: refused")).toBeTruthy();
+    expect(
+      screen.queryByText('Nothing assigned to you in a current sprint.'),
+    ).toBeNull();
+  });
+
+  it('refetches time when the snapshot is rebuilt and, throttled, on time:changed', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const { calls, emit } = installFakeApi();
+    const sprints = [
+      {
+        iterationId: 'i',
+        name: 'Sprint 1',
+        path: 'p',
+        startDate: null,
+        finishDate: null,
+        items: [item('1', 'To Do')],
+      },
+    ];
+    const count = () => calls.filter((c) => c.channel === 'time:sprint').length;
+    const view = render(
+      <SprintsBand snapshot={{ ...snap(conn({ sprints })), builtAt: 'a' }} />,
+    );
+    await waitFor(() => expect(count()).toBe(1));
+    view.rerender(
+      <SprintsBand snapshot={{ ...snap(conn({ sprints })), builtAt: 'b' }} />,
+    );
+    await waitFor(() => expect(count()).toBe(2));
+    act(() => {
+      emit('time:changed', { taskId: 't' });
+      emit('time:changed', { taskId: 't' });
+    });
+    expect(count()).toBe(2);
+    await act(() => vi.advanceTimersByTimeAsync(5_100));
+    expect(count()).toBe(3);
+    vi.useRealTimers();
   });
 
   it('empty state', () => {

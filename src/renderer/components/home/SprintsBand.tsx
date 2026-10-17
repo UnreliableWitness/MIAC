@@ -6,12 +6,14 @@ import type {
 } from '../../../shared/home';
 import { formatDuration, type LocalItemTime } from '../../../shared/time';
 import { api } from '../../api';
-import { sprintTotals } from '../../homeView';
+import { connectionNote, sprintTotals } from '../../homeView';
 import { useStore } from '../../store';
 import { track } from '../../telemetry';
 import { stateMeta, useWorkItemTypes } from '../../workItemTypes';
 import { TimeBar } from '../ui';
 import { Band } from './Band';
+
+const REFETCH_MS = 5_000;
 
 const daysLeft = (finish: string | null): string | null => {
   if (!finish) return null;
@@ -56,7 +58,7 @@ function SprintCard({
       className={
         connection.status === 'ok' ? 'home-card' : 'home-card is-stale-data'
       }
-      aria-label={`${connection.name}/${connection.project}, ${sprint.name}`}
+      aria-label={`${connection.name}/${connection.project}, ${sprint.name}, ${left ? `${left}, ` : ''}${t.todo} to do, ${t.doing} in progress, ${t.done} done, ${formatDuration(t.spentSeconds)}${t.estimateHours !== null ? ` of ${formatDuration(t.estimateHours * 3600)}` : ''}`}
       onClick={() => {
         track('home.clicked', { band: 'sprint' });
         setConnectionId(connection.connectionId);
@@ -90,17 +92,32 @@ export function SprintsBand({ snapshot }: { snapshot: HomeSnapshot | null }) {
     .filter((c) => c.sprints.length > 0)
     .map((c) => c.connectionId)
     .join(',');
+  const builtAt = snapshot?.builtAt;
   useEffect(() => {
     let live = true;
-    for (const id of ids ? ids.split(',') : [])
-      api()
-        .invoke('time:sprint', id)
-        .then((t) => live && setLocal((l) => ({ ...l, [id]: t })))
-        .catch(() => undefined);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const load = () => {
+      for (const id of ids ? ids.split(',') : [])
+        api()
+          .invoke('time:sprint', id)
+          .then((t) => live && setLocal((l) => ({ ...l, [id]: t })))
+          .catch(() => undefined);
+    };
+    // Time changes arrive every few seconds while the clock runs; refetch at most this often.
+    const later = () => {
+      timer ??= setTimeout(() => {
+        timer = null;
+        load();
+      }, REFETCH_MS);
+    };
+    load();
+    const off = api().on('time:changed', later);
     return () => {
       live = false;
+      if (timer) clearTimeout(timer);
+      off();
     };
-  }, [ids]);
+  }, [ids, builtAt]);
   const linked = new Set(
     repos.filter((r) => !r.discovered).map((r) => r.connectionId),
   );
@@ -121,6 +138,10 @@ export function SprintsBand({ snapshot }: { snapshot: HomeSnapshot | null }) {
       !c.sprintsError &&
       linked.has(c.connectionId),
   );
+  const notes = connections.flatMap((c) => {
+    const note = connectionNote(c);
+    return note ? [{ id: c.connectionId, note }] : [];
+  });
   return (
     <Band title="My sprints">
       <div className="home-cards">
@@ -131,9 +152,17 @@ export function SprintsBand({ snapshot }: { snapshot: HomeSnapshot | null }) {
           </div>
         ))}
       </div>
-      {cards.length === 0 && empty.length === 0 && (
-        <p className="muted">Nothing assigned to you in a current sprint.</p>
-      )}
+      {cards.length === 0 &&
+        empty.length === 0 &&
+        notes.length === 0 &&
+        !connections.some((c) => c.sprintsError) && (
+          <p className="muted">Nothing assigned to you in a current sprint.</p>
+        )}
+      {notes.map((n) => (
+        <p key={n.id} className="muted small">
+          {n.note}
+        </p>
+      ))}
       {connections
         .filter((c) => c.sprintsError)
         .map((c) => (

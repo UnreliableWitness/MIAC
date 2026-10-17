@@ -10,13 +10,15 @@ import type { LocalItemTime } from '../shared/time';
 import type { Connection, Repo, TaskView } from '../shared/types';
 import { taskConnectionId } from '../shared/workspaces';
 
-/** The health chip of a connection: red when its token was refused or it never loaded, amber when Home shows old data. */
+/** The health chip of a connection: red when its token was refused or it never loaded, amber when unreachable or Home shows old data. */
 export function chipState(
   home: HomeConnection | undefined,
   connection: Connection,
 ): 'ok' | 'stale' | 'error' {
-  if (connection.status !== 'ok' || home?.status === 'error') return 'error';
-  if (home?.status === 'stale') return 'stale';
+  if (connection.status === 'unauthorized' || home?.status === 'error')
+    return 'error';
+  if (connection.status === 'unreachable' || home?.status === 'stale')
+    return 'stale';
   return 'ok';
 }
 
@@ -118,4 +120,20 @@ export function sprintTotals(
     spentSeconds: spent,
     estimateHours: anyEstimate ? estimate : null,
   };
+}
+
+const hhmm = (iso: string): string => {
+  const d = new Date(iso);
+  const two = (n: number) => String(n).padStart(2, '0');
+  return `${two(d.getHours())}:${two(d.getMinutes())}`;
+};
+
+/** The visible line for a connection that is not ok: its data is old, or it never loaded; null when all is well. */
+export function connectionNote(c: HomeConnection): string | null {
+  const name = `${c.name}/${c.project}`;
+  if (c.status === 'stale')
+    return `Stale since ${c.fetchedAt ? hhmm(c.fetchedAt) : '?'} for ${name}${c.error ? `: ${c.error}` : ''}`;
+  if (c.status === 'error')
+    return `Couldn't load ${name}${c.error ? `: ${c.error}` : ''}`;
+  return null;
 }

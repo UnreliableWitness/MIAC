@@ -36,7 +36,7 @@ function TaskCard({ task }: { task: TaskView }) {
     <button
       type="button"
       className={attention ? 'home-card is-attention' : 'home-card'}
-      aria-label={`${label}, ${attention ? 'needs attention' : status.label}`}
+      aria-label={`${label}, ${attention ? 'needs attention' : status.label}${connection ? `, ${connection.name}/${connection.project}` : ''}${usage && usage.billable.costEur > 0 ? `, ${eur(usage.billable.costEur)}` : ''}${time && time.activeSeconds > 0 ? `, ${formatDuration(time.activeSeconds)}` : ''}`}
       onClick={() => {
         track('home.clicked', { band: 'task' });
         openTask(task.id);

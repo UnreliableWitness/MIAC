@@ -56,6 +56,15 @@
   margin: 0 24px 8px;
   color: var(--red);
 }
+.home-warning button {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
 .home-connect {
   align-self: flex-start;
 }

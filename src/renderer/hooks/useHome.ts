@@ -44,6 +44,8 @@ export function useHome(): {
       })
       .catch(() => live && refresh());
     const off = api().on('home:updated', (s) => keep(s));
+    // A connection added or removed changes what Home shows.
+    const offConnections = api().on('connections:changed', () => refresh());
     const onFocus = () => {
       if (old(current.current)) refresh();
     };
@@ -54,6 +56,7 @@ export function useHome(): {
     return () => {
       live = false;
       off();
+      offConnections();
       window.removeEventListener('focus', onFocus);
       clearInterval(poll);
     };

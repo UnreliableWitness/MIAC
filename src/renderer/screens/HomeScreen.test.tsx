@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { HomeSnapshot } from '../../shared/home';
@@ -78,13 +78,13 @@ describe('Home page', () => {
     );
   });
 
-  it('shows Loading in the PR and sprint bands until a snapshot exists', async () => {
+  it('shows Loading in the PR (both columns) and sprint bands until a snapshot exists', async () => {
     installFakeApi({
       'home:get': () => null,
       'home:refresh': () => new Promise(() => {}),
     });
     render(<Shell />);
-    expect(await screen.findAllByText('Loading')).toHaveLength(2);
+    expect(await screen.findAllByText('Loading')).toHaveLength(3);
     expect(screen.queryByText('No reviews waiting.')).toBeNull();
   });
 
@@ -123,6 +123,56 @@ describe('Home page', () => {
       await screen.findByRole('button', { name: 'uw: MIAC, connected' }),
     );
     expect(useStore.getState().screen.kind).toBe('settings');
+  });
+
+  it('the refused-token notice has a Settings button', async () => {
+    useStore.setState({
+      connections: [{ ...connection, status: 'unauthorized' }],
+    });
+    installFakeApi({ 'home:get': () => snapshot() });
+    render(<Shell />);
+    await userEvent.click(
+      await within(
+        (await screen.findByText(/refused the token/)) as HTMLElement,
+      ).findByRole('button', {
+        name: 'Settings',
+      }),
+    );
+    expect(useStore.getState().screen.kind).toBe('settings');
+  });
+
+  it('hides rows of a connection that was removed', async () => {
+    const withPr = snapshot();
+    withPr.connections[0].myPrs = [
+      {
+        id: 7,
+        repo: 'web',
+        title: 'Old PR',
+        author: 'A',
+        authorId: 'a',
+        createdAt: '2026-10-10T00:00:00Z',
+        isDraft: false,
+        conflicts: false,
+        myVote: null,
+        votes: { approved: 0, waiting: 0, rejected: 0 },
+        url: 'u',
+      },
+    ];
+    installFakeApi({ 'home:get': () => withPr });
+    render(<Shell />);
+    expect(await screen.findByText(/Old PR/)).toBeTruthy();
+    act(() => useStore.setState({ connections: [] }));
+    expect(screen.queryByText(/Old PR/)).toBeNull();
+  });
+
+  it('rebuilds when connections change', async () => {
+    const { calls, emit } = installFakeApi({ 'home:get': () => snapshot() });
+    render(<Shell />);
+    await screen.findByRole('heading', { name: 'Home' });
+    act(() => emit('connections:changed', [connection]));
+    await waitFor(() =>
+      expect(calls.some((c) => c.channel === 'home:refresh')).toBe(true),
+    );
   });
 
   it('without connections it asks for one', async () => {
