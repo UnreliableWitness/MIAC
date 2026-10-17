@@ -1149,3 +1149,94 @@ describe('work item state and pull request calls', () => {
     );
   });
 });
+
+describe('Home calls', () => {
+  const org = '/unreliablewitness';
+  it('me reads the authenticated user id', async () => {
+    server.route('GET', `${org}/_apis/connectionData`, {
+      body: { authenticatedUser: { id: 'me-1' } },
+    });
+    expect(await client.me()).toBe('me-1');
+  });
+  it('myTeams asks for my teams only', async () => {
+    server.route('GET', `${org}/_apis/projects/MIAC/teams`, {
+      body: { value: [{ id: 't1', name: 'MIAC Team' }] },
+    });
+    expect(await client.myTeams('MIAC')).toEqual([
+      { id: 't1', name: 'MIAC Team' },
+    ]);
+    expect(server.requests.at(-1)?.path).toContain('$mine=true');
+  });
+  it('currentIteration takes a team', async () => {
+    server.route(
+      'GET',
+      `${org}/MIAC/Web%20Team/_apis/work/teamsettings/iterations`,
+      {
+        body: {
+          value: [
+            {
+              id: 'i1',
+              name: 'Sprint 3',
+              path: 'MIAC\\Sprint 3',
+              attributes: {
+                startDate: '2026-10-12T00:00:00Z',
+                finishDate: '2026-10-23T00:00:00Z',
+              },
+            },
+          ],
+        },
+      },
+    );
+    expect(await client.currentIteration('MIAC', 'Web Team')).toEqual({
+      id: 'i1',
+      name: 'Sprint 3',
+      path: 'MIAC\\Sprint 3',
+      startDate: '2026-10-12T00:00:00Z',
+      finishDate: '2026-10-23T00:00:00Z',
+    });
+  });
+  it('assignedInIterations queries my items in the given iterations', async () => {
+    server.route('POST', `${org}/MIAC/_apis/wit/wiql`, {
+      body: { workItems: [{ id: 4 }, { id: 9 }] },
+    });
+    expect(
+      await client.assignedInIterations('MIAC', [
+        'MIAC\\Sprint 1',
+        "MIAC\\It's 2",
+      ]),
+    ).toEqual([4, 9]);
+    const q = JSON.parse(server.requests.at(-1)!.body).query as string;
+    expect(q).toContain('[System.AssignedTo] = @Me');
+    expect(q).toContain(
+      "[System.IterationPath] IN ('MIAC\\Sprint 1', 'MIAC\\It''s 2')",
+    );
+  });
+  it('assignedInIterations without paths makes no call', async () => {
+    expect(await client.assignedInIterations('MIAC', [])).toEqual([]);
+    expect(server.requests).toHaveLength(0);
+  });
+  it('activePullRequests filters by reviewer or creator', async () => {
+    server.route('GET', `${org}/MIAC/_apis/git/pullrequests`, {
+      body: { value: [{ pullRequestId: 7 }] },
+    });
+    expect(
+      await client.activePullRequests('MIAC', { reviewerId: 'me-1' }),
+    ).toEqual([{ pullRequestId: 7 }]);
+    expect(server.requests.at(-1)?.path).toContain(
+      'searchCriteria.reviewerId=me-1',
+    );
+    expect(server.requests.at(-1)?.path).toContain(
+      'searchCriteria.status=active',
+    );
+    await client.activePullRequests('MIAC', { creatorId: 'me-1' });
+    expect(server.requests.at(-1)?.path).toContain(
+      'searchCriteria.creatorId=me-1',
+    );
+  });
+  it('activePullRequests reports a missing Code scope', async () => {
+    server.route('GET', `${org}/MIAC/_apis/git/pullrequests`, { status: 401 });
+    await expect(
+      client.activePullRequests('MIAC', { reviewerId: 'me-1' }),
+    ).rejects.toThrow(CODE_READ_DENIED);
+  });
+});

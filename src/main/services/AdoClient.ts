@@ -99,6 +99,18 @@ export type RawPr = {
   isDraft: boolean;
 };
 
+/** An active pull request as the list API returns it; only the fields Home reads. */
+export type RawHomePr = {
+  pullRequestId?: number;
+  title?: string;
+  creationDate?: string;
+  isDraft?: boolean;
+  mergeStatus?: string;
+  repository?: { name?: string };
+  createdBy?: { id?: string; displayName?: string };
+  reviewers?: { id?: string; vote?: number; isContainer?: boolean }[];
+};
+
 type Json = Record<string, unknown>;
 
 const PR_STATUSES: readonly RawPr['status'][] = [
@@ -172,7 +184,13 @@ export class AdoClient {
     };
   }
 
-  async currentIteration(project: string): Promise<SprintIteration | null> {
+  async currentIteration(
+    project: string,
+    team?: string,
+  ): Promise<SprintIteration | null> {
+    const scope = team
+      ? `${encodeURIComponent(project)}/${encodeURIComponent(team)}`
+      : encodeURIComponent(project);
     const data = await this.request<{
       value?: {
         id: string;
@@ -181,7 +199,7 @@ export class AdoClient {
         attributes?: { startDate?: string | null; finishDate?: string | null };
       }[];
     }>(
-      `/${encodeURIComponent(project)}/_apis/work/teamsettings/iterations?$timeframe=current&${API}`,
+      `/${scope}/_apis/work/teamsettings/iterations?$timeframe=current&${API}`,
     );
     const first = (data.value ?? [])[0];
     return first
@@ -193,6 +211,68 @@ export class AdoClient {
           finishDate: first.attributes?.finishDate ?? null,
         }
       : null;
+  }
+
+  /** The id of the user the token belongs to. */
+  async me(): Promise<string> {
+    const data = await this.request<Json>(
+      '/_apis/connectionData?api-version=7.1-preview',
+    );
+    const id = (data.authenticatedUser as Json | undefined)?.id;
+    if (typeof id !== 'string' || !id)
+      throw new AdoError(
+        'http',
+        '/_apis/connectionData',
+        'Azure DevOps did not say who the token belongs to',
+      );
+    return id;
+  }
+
+  /** The project's teams the token's user is a member of. */
+  async myTeams(project: string): Promise<{ id: string; name: string }[]> {
+    const data = await this.request<{
+      value?: { id?: string; name?: string }[];
+    }>(
+      `/_apis/projects/${encodeURIComponent(project)}/teams?$mine=true&${API}`,
+    );
+    return (data.value ?? []).flatMap((t) =>
+      t.id && t.name ? [{ id: t.id, name: t.name }] : [],
+    );
+  }
+
+  /** Ids of open and closed work items assigned to me in any of the iteration paths, at most 200. */
+  async assignedInIterations(
+    project: string,
+    paths: string[],
+  ): Promise<number[]> {
+    if (paths.length === 0) return [];
+    const query = `SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = @project AND [System.AssignedTo] = @Me AND [System.IterationPath] IN (${paths.map(wiqlString).join(', ')}) ORDER BY [System.Id]`;
+    const result = await this.request<{ workItems?: { id: number }[] }>(
+      `/${encodeURIComponent(project)}/_apis/wit/wiql?${API}`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ query }),
+      },
+    );
+    return (result.workItems ?? []).slice(0, BATCH).map((w) => w.id);
+  }
+
+  /** Active pull requests in the project where the identity is a reviewer, or that it created. */
+  async activePullRequests(
+    project: string,
+    criteria: { reviewerId: string } | { creatorId: string },
+  ): Promise<RawHomePr[]> {
+    const filter =
+      'reviewerId' in criteria
+        ? `searchCriteria.reviewerId=${encodeURIComponent(criteria.reviewerId)}`
+        : `searchCriteria.creatorId=${encodeURIComponent(criteria.creatorId)}`;
+    const data = await this.request<{ value?: RawHomePr[] }>(
+      `/${encodeURIComponent(project)}/_apis/git/pullrequests?${filter}&searchCriteria.status=active&$top=100&${API}`,
+      {},
+      { code: true },
+    );
+    return data.value ?? [];
   }
 
   /**
