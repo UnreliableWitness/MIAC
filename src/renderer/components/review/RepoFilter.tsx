@@ -1,5 +1,10 @@
-import { CheckmarkCircle12Filled } from '@fluentui/react-icons';
+import {
+  CheckmarkCircle12Filled,
+  ChevronDown16Regular,
+} from '@fluentui/react-icons';
+import { type ReactNode, useCallback, useState } from 'react';
 import { RepoMark } from '../RepoMark';
+import { PopupMenu } from '../ui';
 
 type RepoChip = {
   workspaceId: string;
@@ -9,7 +14,23 @@ type RepoChip = {
   unviewed?: number;
 };
 
-/** All plus one chip per repo of a multi-repo task; keys 0 to 9 pick them. */
+function Unviewed({ n }: { n?: number }) {
+  if (n === 0)
+    return (
+      <CheckmarkCircle12Filled
+        className="review-plus"
+        aria-label="all viewed"
+      />
+    );
+  if (n === undefined) return null;
+  return (
+    <span className="small muted" aria-label={`${n} not viewed`}>
+      {n}
+    </span>
+  );
+}
+
+/** One dropdown for a multi-repo task: All repos or one repo; keys 0 to 9 pick them too. */
 export function RepoFilter({
   chips,
   value,
@@ -18,54 +39,84 @@ export function RepoFilter({
 }: {
   chips: RepoChip[];
   value: string | null;
-  /** Commits scope: the list is one repo's, the other chips cannot be picked. */
+  /** Commits scope: the list is one repo's, the others cannot be picked. */
   locked: boolean;
   onChange: (workspaceId: string | null) => void;
 }) {
-  return (
-    <div className="review-repos" role="group" aria-label="Repos">
+  const [open, setOpen] = useState(false);
+  const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
+  const close = useCallback(() => setOpen(false), []);
+  const current = chips.find((c) => c.workspaceId === value);
+  const pick = (id: string | null) => {
+    setOpen(false);
+    onChange(id);
+  };
+  const item = (id: string | null, key: number, body: ReactNode) => {
+    const off = locked && id !== value;
+    return (
       <button
+        key={id ?? 'all'}
         type="button"
-        className="btn btn-sm"
-        aria-pressed={value === null}
-        disabled={locked}
-        title={locked ? 'Commits are per repo' : 'All repos (0)'}
-        onClick={() => onChange(null)}
+        role="menuitemradio"
+        aria-checked={id === value}
+        className="menu-item review-repo-item"
+        disabled={off}
+        title={off ? 'Commits are per repo' : undefined}
+        onClick={() => pick(id)}
       >
-        All
+        <span className="menu-title">
+          {body}
+          <kbd className="small muted" aria-hidden="true">
+            {key}
+          </kbd>
+        </span>
       </button>
-      {chips.map((c, i) => {
-        const off = locked && c.workspaceId !== value;
-        return (
-          <button
-            key={c.workspaceId}
-            type="button"
-            className="btn btn-sm review-repo-chip"
-            aria-pressed={value === c.workspaceId}
-            disabled={off}
-            title={off ? 'Commits are per repo' : `${c.name} (${i + 1})`}
-            onClick={() => onChange(c.workspaceId)}
-          >
-            <RepoMark color={c.color} />
-            {c.name}
-            {c.unviewed === 0 ? (
-              <CheckmarkCircle12Filled
-                className="review-plus"
-                aria-label="all viewed"
-              />
-            ) : (
-              c.unviewed !== undefined && (
-                <span
-                  className="small muted"
-                  aria-label={`${c.unviewed} not viewed`}
-                >
-                  {c.unviewed}
-                </span>
-              )
-            )}
-          </button>
-        );
-      })}
-    </div>
+    );
+  };
+  return (
+    <>
+      <button
+        ref={setAnchor}
+        type="button"
+        className="btn btn-sm review-repo-pick"
+        aria-label={`Repos: ${current?.name ?? 'all'}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title={locked ? 'Commits are per repo' : 'Show one repo (0-9)'}
+        onClick={() => setOpen(!open)}
+      >
+        {current ? (
+          <>
+            <RepoMark color={current.color} />
+            {current.name}
+          </>
+        ) : (
+          'All repos'
+        )}
+        <ChevronDown16Regular aria-hidden="true" />
+      </button>
+      <PopupMenu
+        label="Repos"
+        anchor={anchor}
+        open={open}
+        align="start"
+        onClose={close}
+      >
+        {item(null, 0, 'All repos')}
+        {chips.map((c, i) =>
+          item(
+            c.workspaceId,
+            i + 1,
+            <>
+              <RepoMark color={c.color} />
+              {c.name}
+              <span className="review-repo-count">
+                <Unviewed n={c.unviewed} />
+              </span>
+            </>,
+          ),
+        )}
+      </PopupMenu>
+    </>
   );
 }
