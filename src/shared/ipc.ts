@@ -36,6 +36,7 @@ import type {
 import type { RendererTelemetry } from './telemetry';
 import type { TitleBarKind } from './titleBar';
 import type { LocalItemTime, TaskTime } from './time';
+import type { HomePeriod, HomeSnapshot, HomeStats } from './home';
 
 /** Request/response channels. `args` is the tuple the renderer passes; `result` is what main resolves. */
 export type Channels = {
@@ -168,6 +169,12 @@ export type Channels = {
   'terminals:restart': { args: [id: string]; result: void };
   'terminals:buffer': { args: [id: string]; result: string };
   'terminals:isRunning': { args: [id: string]; result: boolean };
+  /** The last Home snapshot (from disk at launch), null before the first build. */
+  'home:get': { args: []; result: HomeSnapshot | null };
+  /** Rebuilds the Home snapshot over every connection, or joins the rebuild already running. */
+  'home:refresh': { args: []; result: HomeSnapshot };
+  /** The developer's own totals for this week or month, from local data. */
+  'home:stats': { args: [period: HomePeriod]; result: HomeStats };
   'usage:task': { args: [taskId: string]; result: TaskUsage };
   'usage:setBillable': {
     args: [taskId: string, sessionId: string, billable: boolean];
@@ -220,6 +227,8 @@ export type Events = {
   notice: { level: 'info' | 'warn' | 'error'; message: string };
   /** An update finished downloading; the renderer offers Restart and update. */
   'update:ready': PendingUpdate;
+  /** A Home rebuild finished. */
+  'home:updated': HomeSnapshot;
   /** The main window entered or left full screen (also sent on every load). */
   'window:fullScreen': boolean;
 };

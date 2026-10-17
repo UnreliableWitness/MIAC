@@ -35,6 +35,26 @@ export const emptyTime = (taskId: string): TaskTime => ({
 });
 
 const defaults: FakeHandlers = {
+  'home:get': () => null,
+  'home:refresh': () => ({
+    version: 1,
+    builtAt: '2026-10-17T09:00:00.000Z',
+    connections: [],
+  }),
+  'home:stats': (period) => ({
+    period,
+    from: '2026-10-12T00:00:00.000Z',
+    to: '2026-10-17T09:00:00.000Z',
+    costEur: 0,
+    costByTool: { 'claude-code': 0, 'copilot-cli': 0 },
+    costByConnection: [],
+    activeSeconds: 0,
+    agentSeconds: 0,
+    accuracy: null,
+    accuracyTasks: 0,
+    tasksFinished: 0,
+    prsOpened: 0,
+  }),
   'time:focus': () => undefined,
   'time:task': (taskId) => emptyTime(taskId),
   'time:sprint': () => ({}),

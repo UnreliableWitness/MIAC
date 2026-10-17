@@ -37,6 +37,8 @@ import {
   type WorkspaceView,
 } from '../../shared/workspaces';
 import { worktreeRoot } from '../paths';
+import { HomeService } from '../home/HomeService';
+import { homeStats } from '../home/homeStats';
 import { DocsWatcher } from '../docs/DocsWatcher';
 import { createDocsHandlers } from '../docs/docsHandlers';
 import type { ActivityTracker } from '../time/ActivityTracker';
@@ -118,6 +120,8 @@ export type Services = {
   receiver: Pick<UsageReceiver, 'start' | 'status'>;
   copilot: Pick<CopilotFileTailer, 'stats' | 'poll'>;
   usageDir: string;
+  /** Home's snapshot builder; handlers build one in usageDir when absent (tests). */
+  home?: HomeService;
   /** Registers a function to run every hour (main uses setInterval; tests capture it). */
   onHourly: (fn: () => void) => void;
   /** How long Finish waits after closing terminals so the last telemetry batch arrives (main 2500, tests 0). */
@@ -253,6 +257,23 @@ export function createHandlers(s: Services): Handlers {
     }
     return result;
   };
+
+  const home =
+    s.home ??
+    new HomeService({
+      file: path.join(s.usageDir, 'home.json'),
+      connections: () => s.connections.list(),
+      client: (id) => s.ado.client(id),
+      withConnection,
+      onBuilt: (snapshot, info) => {
+        s.broadcast('home:updated', snapshot);
+        tel.event(
+          'home.refreshed',
+          { connections: info.connections, failed: info.failed },
+          { durationMs: info.durationMs },
+        );
+      },
+    });
 
   const verifyConnection = async (
     connectionId: string,
@@ -2133,6 +2154,17 @@ export function createHandlers(s: Services): Handlers {
       const error = await syncTime(taskId);
       if (error) throw new Error(error);
     },
+    'home:get': () => home.get(),
+    'home:refresh': () => home.refresh(),
+    'home:stats': async (period) =>
+      homeStats({
+        period,
+        now: new Date(),
+        tasks: s.store.state.tasks,
+        repos: s.repos.list(),
+        usage: s.usage,
+        time: s.time,
+      }),
     'usage:task': async (taskId) => s.usage.summarize(taskId),
     'usage:setBillable': async (taskId, sessionId, billable) => {
       await s.usage.setBillable(taskId, sessionId, billable);
