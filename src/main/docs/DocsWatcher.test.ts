@@ -90,4 +90,22 @@ describe('DocsWatcher', () => {
     w.stopAll();
     expect(stopped).toEqual(['b', 'c']);
   });
+
+  it('stopTarget closes one key, reports it and leaves other keys of the task', () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'miac-watch-'));
+    const stopped: string[] = [];
+    const w = new DocsWatcher(
+      () => undefined,
+      50,
+      (t) => stopped.push(t),
+    );
+    w.start('t1', dir);
+    w.start('t1#ws2', dir);
+    w.stopTarget('t1#ws2');
+    w.stopTarget('t1#ws2');
+    expect(stopped).toEqual(['t1#ws2']);
+    expect(w.active('t1')).toBe(true);
+    expect(w.active('t1#ws2')).toBe(false);
+    w.stopAll();
+  });
 });

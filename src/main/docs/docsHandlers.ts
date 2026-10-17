@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { z } from 'zod';
 import type { Handlers } from '../../shared/ipc';
 import type { TelemetryProps } from '../../shared/telemetry';
 import type { Task } from '../../shared/types';
@@ -6,9 +7,9 @@ import {
   activeHome,
   activeWorkspaces,
   parseDocsTarget,
+  type WorkspaceView,
   workspaceById,
 } from '../../shared/workspaces';
-import type { Command } from '../platform/Platform';
 import type { GitClient } from '../services/GitClient';
 import type { DocsWatcher } from './DocsWatcher';
 import {
@@ -29,16 +30,18 @@ type DocsChannels =
   | 'docs:watch'
   | 'links:open';
 
+const Position = z.number().int().min(1).optional();
+
 export type DocsDeps = {
   taskById: (id: string) => Task;
   git: GitClient;
-  editorGoto: (
-    worktree: string,
-    file: string,
+  /** Opens a file of the workspace at a line in the developer's editor (EditorService). */
+  openFile: (
+    ws: WorkspaceView,
+    absFile: string,
     line?: number,
     col?: number,
-  ) => Command;
-  launch: (cmd: Command) => Promise<void>;
+  ) => Promise<void>;
   openExternal: (url: string) => Promise<void>;
   revealFile: (absPath: string) => void;
   watcher: DocsWatcher;
@@ -100,10 +103,11 @@ export function createDocsHandlers(d: DocsDeps): Pick<Handlers, DocsChannels> {
       return null;
     },
     'docs:openInEditor': async (target, p, line, col) => {
-      const wt = worktree(target);
-      const abs = await resolveInWorktree(wt, p);
-      await d.launch(d.editorGoto(wt, abs, line, col));
-      d.event('editor.opened', { at: 'file' });
+      const at = Position.parse(line);
+      const column = Position.parse(col);
+      const ws = workspace(target);
+      const abs = await resolveInWorktree(ws.worktreePath, p);
+      await d.openFile(ws, abs, at, column);
     },
     'docs:reveal': async (target, p) => {
       d.revealFile(await resolveInWorktree(worktree(target), p));

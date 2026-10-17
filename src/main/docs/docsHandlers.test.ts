@@ -2,7 +2,6 @@ import { realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { Task } from '../../shared/types';
-import type { Command } from '../platform/Platform';
 import { GitClient } from '../services/GitClient';
 import {
   cleanupTempRepos,
@@ -24,18 +23,17 @@ function setup(status: Task['status'] = 'ready') {
     homeDropped: false,
     extraWorkspaces: [],
   } as unknown as Task;
-  const launch = vi.fn(async (_cmd: Command) => undefined);
+  const launch = vi.fn(
+    async (_ws: unknown, _file: string, _line?: number, _col?: number) =>
+      undefined,
+  );
   const openExternal = vi.fn(async () => undefined);
   const revealFile = vi.fn();
   const watcher = new DocsWatcher(() => undefined);
   const h = createDocsHandlers({
     taskById: () => task,
     git: new GitClient(),
-    editorGoto: (wt, f, l, c) => ({
-      command: 'code',
-      args: [wt, '-g', `${f}:${l ?? 1}:${c ?? 1}`],
-    }),
-    launch,
+    openFile: launch,
     openExternal,
     revealFile,
     watcher,
@@ -58,13 +56,29 @@ describe('docs handlers', () => {
       'Cannot read docs of a task that is done',
     );
   });
-  it('opens the editor at the file and line through the platform', async () => {
+  it('opens the editor at the file and line', async () => {
     const { h, launch, repo } = setup();
     await h['docs:openInEditor']('t1', 'README.md', 3, 2);
-    const call = launch.mock.calls[0][0];
-    expect(call.args[2]).toBe(
-      `${realpathSync(path.join(repo, 'README.md'))}:3:2`,
-    );
+    expect(launch.mock.calls[0].slice(1)).toEqual([
+      realpathSync(path.join(repo, 'README.md')),
+      3,
+      2,
+    ]);
+  });
+  it('refuses a line or column that is not a positive integer', async () => {
+    const { h, launch } = setup();
+    for (const [line, col] of [
+      [0, 1],
+      [1.5, 1],
+      [3, -1],
+      ['3', 1],
+    ] as const)
+      await expect(
+        h['docs:openInEditor']('t1', 'README.md', line as number, col),
+      ).rejects.toThrow();
+    expect(launch).not.toHaveBeenCalled();
+    await h['docs:openInEditor']('t1', 'README.md');
+    expect(launch.mock.calls[0].slice(2)).toEqual([undefined, undefined]);
   });
   it('refuses to reveal or open outside the worktree', async () => {
     const { h, revealFile } = setup();
@@ -109,8 +123,7 @@ describe('docs handlers across workspaces', () => {
     const h = createDocsHandlers({
       taskById: () => task,
       git: new GitClient(),
-      editorGoto: (wt, f) => ({ command: 'code', args: [wt, f] }),
-      launch: vi.fn(async () => undefined),
+      openFile: vi.fn(async () => undefined),
       openExternal: vi.fn(async () => undefined),
       revealFile: vi.fn(),
       watcher: new DocsWatcher(() => undefined),

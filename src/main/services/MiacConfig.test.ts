@@ -148,4 +148,16 @@ describe('loadMiacConfig', () => {
     expect(c.found).toBe(true);
     expect(c.base).toBe('main');
   });
+
+  it('reads review.collapse globs', async () => {
+    const r = repo();
+    writeFileSync(
+      path.join(r, '.miac.yml'),
+      'review:\n  collapse: [src/gen/**, "*.snap"]\n',
+    );
+    expect((await loadMiacConfig(r)).reviewCollapse).toEqual([
+      'src/gen/**',
+      '*.snap',
+    ]);
+  });
 });

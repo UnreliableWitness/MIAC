@@ -373,6 +373,45 @@ export class GitClient {
   }
 
   /**
+   * Where the task's branch left its base: the recorded `baseSha` when it is still a commit, else the merge
+   * base with `baseRef` (tasks from before MIAC recorded it), else null.
+   */
+  async resolveBase(
+    worktree: string,
+    o: { baseRef: string; baseSha: string | null },
+  ): Promise<string | null> {
+    if (o.baseSha) {
+      try {
+        const sha = (
+          await this.run(worktree, [
+            'rev-parse',
+            '--verify',
+            '--quiet',
+            `${o.baseSha}^{commit}`,
+          ])
+        ).trim();
+        if (sha) return sha;
+      } catch {
+        /* fall through to the merge base */
+      }
+    }
+    try {
+      return (
+        (await this.run(worktree, ['merge-base', o.baseRef, 'HEAD'])).trim() ||
+        null
+      );
+    } catch {
+      return null;
+    }
+  }
+
+  /** The worktree's own git dir (`.git/worktrees/<name>` for a linked worktree), absolute. */
+  async gitDir(worktree: string): Promise<string> {
+    const out = await this.run(worktree, ['rev-parse', '--absolute-git-dir']);
+    return nativePath(out.trim());
+  }
+
+  /**
    * What the task's branch did since it left its base: its commits (the newest 50, oldest first), the diff
    * stat, and whether it is pushed. The range starts at the recorded `baseSha`, else at the merge base with
    * `baseRef` (tasks from before MIAC recorded it). With neither, commits and changes are left unknown.
@@ -382,30 +421,7 @@ export class GitClient {
     o: { baseRef: string; baseSha: string | null; branch: string },
   ): Promise<TaskSummary> {
     const { baseRef, branch } = o;
-    let base: string | null = null;
-    if (o.baseSha) {
-      try {
-        base = (
-          await this.run(worktree, [
-            'rev-parse',
-            '--verify',
-            '--quiet',
-            `${o.baseSha}^{commit}`,
-          ])
-        ).trim();
-      } catch {
-        base = null;
-      }
-    }
-    if (!base) {
-      try {
-        base = (
-          await this.run(worktree, ['merge-base', baseRef, 'HEAD'])
-        ).trim();
-      } catch {
-        base = null;
-      }
-    }
+    const base = await this.resolveBase(worktree, o);
     let commits: TaskSummary['commits'] = [];
     let commitCount = 0;
     let filesChanged = 0;

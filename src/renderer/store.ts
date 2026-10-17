@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { NewReviewComment, ReviewScope } from '../shared/review';
 import type {
   Connection,
   Notice,
@@ -12,6 +13,21 @@ import { readPrefs, writePref } from './uiPrefs';
 
 export const USAGE_TAB = 'usage';
 export const DOCS_TAB = 'docs';
+export const CHANGES_TAB = 'changes';
+
+/** A comment being written on the Changes tab. */
+export type ReviewDraft = NewReviewComment;
+/** Where the Changes tab was, kept per task so leaving the tab (Send to an agent does) loses nothing. */
+export type ReviewView = {
+  scope: ReviewScope;
+  selected: { workspaceId: string; path: string } | null;
+  draft: ReviewDraft | null;
+};
+export const DEFAULT_REVIEW_VIEW: ReviewView = {
+  scope: { kind: 'all' },
+  selected: null,
+  draft: null,
+};
 
 /** Every screen is a full page next to the nav; `task` shows the selected task. */
 export type Screen =
@@ -42,6 +58,7 @@ type Store = {
     string,
     { path: string; line?: number; workspaceId?: string; nonce: number }
   >;
+  reviewByTask: Record<string, ReviewView>;
   focus: boolean;
   navCollapsed: boolean;
   go(screen: Screen): void;
@@ -59,11 +76,16 @@ type Store = {
   setTab(taskId: string, tab: string): void;
   activeTab(taskId: string): string;
   openUsage(taskId: string): void;
+  openChanges(taskId: string): void;
   openDoc(
     taskId: string,
     path: string,
     line?: number,
     workspaceId?: string,
+  ): void;
+  setReviewView(
+    taskId: string,
+    patch: Partial<ReviewView> | ((v: ReviewView) => Partial<ReviewView>),
   ): void;
   toggleFocus(): void;
   setNavCollapsed(v: boolean): void;
@@ -86,6 +108,7 @@ export const useStore = create<Store>((set, get) => ({
   notices: [],
   tabByTask: {},
   docTarget: {},
+  reviewByTask: {},
   ...readPrefs(),
   go: (screen) => {
     const current = get().screen;
@@ -144,6 +167,7 @@ export const useStore = create<Store>((set, get) => ({
     const want = get().tabByTask[taskId];
     if (want === USAGE_TAB) return USAGE_TAB;
     if (want === DOCS_TAB) return DOCS_TAB;
+    if (want === CHANGES_TAB) return CHANGES_TAB;
     if (task && want && task.terminals.some((t) => t.id === want)) return want;
     return task?.terminals[0]?.id ?? USAGE_TAB;
   },
@@ -152,6 +176,11 @@ export const useStore = create<Store>((set, get) => ({
     get().select(taskId);
     get().go({ kind: 'task' });
     set({ tabByTask: { ...get().tabByTask, [taskId]: USAGE_TAB } });
+  },
+  openChanges: (taskId) => {
+    get().select(taskId);
+    get().go({ kind: 'task' });
+    set({ tabByTask: { ...get().tabByTask, [taskId]: CHANGES_TAB } });
   },
   openDoc: (taskId, path, line, workspaceId) => {
     get().select(taskId);
@@ -168,6 +197,14 @@ export const useStore = create<Store>((set, get) => ({
         },
       },
     });
+  },
+  setReviewView: (taskId, patch) => {
+    const cur = get().reviewByTask[taskId] ?? DEFAULT_REVIEW_VIEW;
+    const next = {
+      ...cur,
+      ...(typeof patch === 'function' ? patch(cur) : patch),
+    };
+    set({ reviewByTask: { ...get().reviewByTask, [taskId]: next } });
   },
   toggleFocus: () => {
     const focus = !get().focus;

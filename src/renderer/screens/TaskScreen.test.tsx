@@ -10,7 +10,7 @@ import {
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TaskView } from '../../shared/types';
-import { useStore } from '../store';
+import { CHANGES_TAB, useStore } from '../store';
 import { installFakeApi } from '../test-helpers/fakeApi';
 import { Shell } from '../App';
 import { invalidateRepoConfig } from '../hooks/useRepoConfig';
@@ -277,7 +277,9 @@ describe('TaskScreen', () => {
     });
     render(<Shell />);
     const tabs = await screen.findAllByRole('tab');
-    const terminal = tabs.find((t) => !/Usage|Docs/.test(t.textContent ?? ''));
+    const terminal = tabs.find(
+      (t) => !/Usage|Docs|Changes/.test(t.textContent ?? ''),
+    );
     const label = terminal?.textContent ?? '';
     await userEvent.click(
       screen.getByRole('button', { name: `Close ${label}` }),
@@ -301,10 +303,10 @@ describe('TaskScreen', () => {
     });
     render(<Shell />);
     await userEvent.click(
-      screen.getByRole('button', { name: 'Open in VS Code' }),
+      await screen.findByRole('button', { name: 'Open in VS Code' }),
     );
     await waitFor(() =>
-      expect(calls.some((c) => c.channel === 'tasks:openInEditor')).toBe(true),
+      expect(calls.some((c) => c.channel === 'editor:openFolder')).toBe(true),
     );
     await userEvent.click(screen.getByRole('button', { name: 'Finish task' }));
     expect(useStore.getState().screen).toEqual({ kind: 'finish', taskId: 'a' });
@@ -447,7 +449,7 @@ describe('TaskScreen', () => {
     useStore.setState({ tasks: [{ ...task, worktreeMissing: true }] });
     const { unmount } = render(<Shell />);
     expect(
-      screen.getByRole('button', { name: 'Open in VS Code' }),
+      await screen.findByRole('button', { name: 'Open in VS Code' }),
     ).toBeDisabled();
     unmount();
     useStore.setState({ tasks: [{ ...task, status: 'finishing' }] });
@@ -515,6 +517,7 @@ describe('tabs and focus', () => {
     expect(tabs.map((t) => t.textContent)).toEqual([
       expect.stringContaining('Usage'),
       expect.stringContaining('Docs'),
+      expect.stringContaining('Changes'),
       'Claude Code',
       'zsh',
     ]);
@@ -799,6 +802,15 @@ describe('tabs and focus', () => {
     ).toBeNull();
     // Focus does nothing for a task that is not ready, so no button offers it.
     expect(within(row).queryByRole('button', { name: 'Focus' })).toBeNull();
+  });
+
+  it('does not show the Changes panel of a finishing task', async () => {
+    const { calls } = setup({ status: 'finishing' });
+    useStore.setState({ tabByTask: { a: CHANGES_TAB } });
+    render(<Shell />);
+    await screen.findByRole('tablist', { name: 'Terminals' });
+    expect(screen.queryByRole('region', { name: 'Changes' })).toBeNull();
+    expect(calls.some((c) => c.channel === 'review:files')).toBe(false);
   });
 
   it('shows the Focus chrome in the tab row for a ready task', async () => {

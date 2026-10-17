@@ -29,6 +29,7 @@ const settings = {
   writeCostToAdo: true,
   showSplash: true,
   sendTelemetry: true,
+  editor: { default: null, repos: {} },
 };
 
 beforeEach(() => {
@@ -100,6 +101,7 @@ describe('CostSection', () => {
       writeCostToAdo: true,
       showSplash: true,
       sendTelemetry: true,
+      editor: { default: null, repos: {} },
     });
   });
   it('shows the receiver status and Copilot counters', async () => {

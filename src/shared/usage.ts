@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { defaultEditorPrefs, EditorPrefsSchema } from './editors';
 import { WorkHoursSchema } from './time';
 
 export type UsageTool = 'claude-code' | 'copilot-cli';
@@ -68,6 +69,8 @@ export const AppSettingsSchema = z.object({
   showSplash: z.boolean().default(true),
   /** Send anonymous usage and error data (see docs/telemetry.md). */
   sendTelemetry: z.boolean().default(true),
+  /** Which editor Open in editor uses, globally and per repo. */
+  editor: EditorPrefsSchema.default(defaultEditorPrefs()),
   /** Auto-update (packaged Windows builds). No UI yet: set false in settings.json to turn it off. */
   autoUpdate: z.boolean().optional(),
 });
@@ -82,6 +85,7 @@ export const defaultSettings = (): AppSettings => ({
   workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
   showSplash: true,
   sendTelemetry: true,
+  editor: defaultEditorPrefs(),
 });
 
 export type SessionSummary = {

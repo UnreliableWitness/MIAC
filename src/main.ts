@@ -25,6 +25,7 @@ import {
   recoverInterruptedTasks,
 } from './main/ipc/handlers';
 import { DocsWatcher } from './main/docs/DocsWatcher';
+import { GitDirWatcher } from './main/review/GitDirWatcher';
 import { registerIpc } from './main/ipc/register';
 import { createPlatform } from './main/platform';
 import { AdoRegistry } from './main/services/AdoRegistry';
@@ -120,10 +121,19 @@ let updates: AutoUpdate | null = null;
 /** Set when an update has downloaded; the renderer offers Restart and update. */
 let pendingUpdate: PendingUpdate | null = null;
 
+const gitDirWatcher = new GitDirWatcher(
+  (wt) => new GitClient().gitDir(wt),
+  (target) => broadcast('review:changed', { taskId: target }),
+  undefined,
+  (target) => docsWatcher.stopTarget(target),
+);
 const docsWatcher = new DocsWatcher(
   (taskId, paths) => broadcast('docs:changed', { taskId, paths }),
   undefined,
-  (taskId) => broadcast('docs:watchStopped', { taskId }),
+  (taskId) => {
+    gitDirWatcher.stopTarget(taskId);
+    broadcast('docs:watchStopped', { taskId });
+  },
 );
 
 // The app's own pages, from the same values the windows are loaded with (dev server or renderer folder).
@@ -394,6 +404,8 @@ async function boot(): Promise<void> {
       openExternal: (url) => shell.openExternal(url),
       revealFile: (p) => shell.showItemInFolder(p),
       docsWatcher,
+      gitDirWatcher,
+      reviewDir: path.join(userData, 'review'),
       store,
       git,
       platform,
@@ -643,6 +655,7 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   stopTime();
   docsWatcher.stopAll();
+  gitDirWatcher.stopAll();
   for (const id of terminals.ids()) terminals.kill(id);
   stopUsage();
   stopUpdates();

@@ -586,4 +586,31 @@ describe('GitClient worktree helpers', () => {
     expect(await client.defaultBaseRef(repo)).toBe('main');
     expect(await client.currentBranch(wt)).toBe('feat/y');
   });
+
+  it('resolveBase prefers the recorded baseSha, else the merge base, else null', async () => {
+    const repo = makeRepo();
+    const first = git(repo, 'rev-parse', 'HEAD').trim();
+    git(repo, 'checkout', '-q', '-b', 'task');
+    commitFile(repo, 'a.txt', 'a\n');
+    expect(
+      await client.resolveBase(repo, { baseRef: 'main', baseSha: first }),
+    ).toBe(first);
+    expect(
+      await client.resolveBase(repo, {
+        baseRef: 'main',
+        baseSha: 'f'.repeat(40),
+      }),
+    ).toBe(first);
+    expect(
+      await client.resolveBase(repo, { baseRef: 'nope', baseSha: null }),
+    ).toBeNull();
+  });
+
+  it('gitDir is the worktree’s own git dir', async () => {
+    const repo = makeRepo();
+    const wt = path.join(path.dirname(repo), 'wt');
+    git(repo, 'worktree', 'add', '-q', '-b', 'x', wt);
+    const dir = await client.gitDir(wt);
+    expect(dir).toBe(path.join(repo, '.git', 'worktrees', 'wt'));
+  });
 });

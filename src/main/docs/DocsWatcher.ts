@@ -70,6 +70,11 @@ export class DocsWatcher {
         if (this.close(key)) this.onStopped(key);
   }
 
+  /** Stops one target's watcher whatever its count, and reports it; other targets of the task stay. */
+  stopTarget(target: string): void {
+    if (this.close(target)) this.onStopped(target);
+  }
+
   stopAll(): void {
     for (const id of [...this.entries.keys()]) this.close(id);
   }

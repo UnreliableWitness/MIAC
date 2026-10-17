@@ -40,6 +40,17 @@ import { worktreeRoot } from '../paths';
 import { HomeService } from '../home/HomeService';
 import { homeStats } from '../home/homeStats';
 import { DocsWatcher } from '../docs/DocsWatcher';
+import { GitDirWatcher } from '../review/GitDirWatcher';
+import { createEditorHandlers } from '../editors/editorHandlers';
+import {
+  detectEditors,
+  scanProject,
+  systemDetectDeps,
+} from '../editors/editors';
+import { EditorService } from '../editors/EditorService';
+import { createReviewHandlers } from '../review/reviewHandlers';
+import { ReviewService } from '../review/ReviewService';
+import { ReviewStore } from '../review/ReviewStore';
 import { createDocsHandlers } from '../docs/docsHandlers';
 import type { ActivityTracker } from '../time/ActivityTracker';
 import { baselineKey, createTimeHandlers } from '../time/timeHandlers';
@@ -100,11 +111,17 @@ export type Services = {
   revealFile?: (absPath: string) => void;
   /** Owned by main so it can stop on quit; handlers create their own when absent (tests). */
   docsWatcher?: DocsWatcher;
+  /** Watches worktrees' git dirs for the Changes page; owned by main so it stops on quit. */
+  gitDirWatcher?: GitDirWatcher;
+  /** Where `review/<taskId>.json` files live (main: `<userData>/review`); defaults to `<usageDir>/review`. */
+  reviewDir?: string;
   terminals: TerminalManager;
   runner: SetupRunner;
   loadConfig: (repoPath: string) => Promise<MiacConfig>;
   pickFolder: () => Promise<string | null>;
   launch: (cmd: Command) => Promise<void>;
+  /** Editor detection and launch; handlers build one from platform, settings and launch when absent (tests). */
+  editors?: EditorService;
   broadcast: <K extends keyof Events>(event: K, payload: Events[K]) => void;
   usage: UsageStore;
   /** Measured active and agent time per task. */
@@ -1008,13 +1025,49 @@ export function createHandlers(s: Services): Handlers {
       event: (n, p) => tel.event(n, p),
     });
 
+  const gitDirWatcher =
+    s.gitDirWatcher ??
+    new GitDirWatcher(
+      (wt) => s.git.gitDir(wt),
+      (target) => s.broadcast('review:changed', { taskId: target }),
+      undefined,
+      (target) => docsWatcher.stopTarget(target),
+    );
   const docsWatcher =
     s.docsWatcher ??
     new DocsWatcher(
       (taskId, paths) => s.broadcast('docs:changed', { taskId, paths }),
       undefined,
-      (taskId) => s.broadcast('docs:watchStopped', { taskId }),
+      (taskId) => {
+        gitDirWatcher.stopTarget(taskId);
+        s.broadcast('docs:watchStopped', { taskId });
+      },
     );
+  const review = new ReviewService({
+    git: s.git,
+    store: new ReviewStore(s.reviewDir ?? path.join(s.usageDir, 'review'), () =>
+      s.broadcast('notice', {
+        level: 'warn',
+        message:
+          'The review notes of a task could not be read and were started again',
+      }),
+    ),
+    repoName: (id) => s.repos.list().find((r) => r.id === id)?.name ?? id,
+    collapseOf: async (wt) => (await s.loadConfig(wt)).reviewCollapse ?? [],
+  });
+  const editors =
+    s.editors ??
+    new EditorService({
+      platform: s.platform,
+      detect: () => detectEditors(systemDetectDeps()),
+      scan: scanProject,
+      prefs: () => s.settings.get().editor,
+      savePrefs: async (editor) => {
+        await s.settings.save({ ...s.settings.get(), editor });
+      },
+      launch: s.launch,
+      event: (n, p) => tel.event(n, p),
+    });
 
   /** What the Finish page shows for one workspace; a folder removed by hand is `missing`, never an error. */
   const workspaceCheck = async (
@@ -1194,6 +1247,7 @@ export function createHandlers(s: Services): Handlers {
   /** Closes the task's terminals (and its Docs watcher), keeping the tabs so Reopen can bring them back. */
   const closeTaskTerminals = async (taskId: string) => {
     docsWatcher.stopTask(taskId);
+    gitDirWatcher.stopTask(taskId);
     await s.terminals.killAllForTask(taskId);
     await patchTask(taskId, {
       closedTerminals: taskById(taskId).terminals,
@@ -1472,13 +1526,15 @@ export function createHandlers(s: Services): Handlers {
     ...createDocsHandlers({
       taskById,
       git: s.git,
-      editorGoto: (wt, f, l, c) => s.platform.editorGotoCommand(wt, f, l, c),
-      launch: s.launch,
+      openFile: (ws, abs, line, col) =>
+        editors.openFile(ws.repoId, ws.worktreePath, abs, line, col),
       openExternal: s.openExternal,
       revealFile: s.revealFile ?? (() => undefined),
       watcher: docsWatcher,
       event: (n, p) => tel.event(n, p),
     }),
+    ...createEditorHandlers({ taskById, editors }),
+    ...createReviewHandlers({ taskById, review, docsWatcher, gitDirWatcher }),
     ...createTimeHandlers({
       time: s.time,
       tasks: () => s.store.state.tasks,
@@ -1622,6 +1678,7 @@ export function createHandlers(s: Services): Handlers {
         const repo = s.repos.get(task.repoId);
         // Windows will not remove a folder that a running process has as its cwd.
         docsWatcher.stopTask(taskId);
+        gitDirWatcher.stopTask(taskId);
         await s.terminals.killAllForTask(taskId);
         if (isReopening(task)) {
           // A failed reopen goes back to Done; the task, its branches and its history stay. Only the worktrees
@@ -1894,10 +1951,8 @@ export function createHandlers(s: Services): Handlers {
       }
     },
     'tasks:openInEditor': async (taskId, workspaceId) => {
-      const task = taskById(taskId);
-      const ws = workspaceById(task, workspaceId);
-      await s.launch(s.platform.editorCommand(ws.worktreePath));
-      tel.event('editor.opened');
+      const ws = workspaceById(taskById(taskId), workspaceId);
+      await editors.openFolder(ws.repoId, ws.worktreePath);
     },
 
     'terminals:open': async (taskId, def) => {
