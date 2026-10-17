@@ -1,6 +1,7 @@
 import { ArrowClockwise16Regular } from '@fluentui/react-icons';
 import { useEffect } from 'react';
 import { Band } from '../components/home/Band';
+import { PrBand } from '../components/home/PrBand';
 import { TasksBand } from '../components/home/TasksBand';
 import { PageHeader } from '../components/ui';
 import { ago } from '../format';
@@ -91,14 +92,13 @@ export function HomeScreen() {
           </button>
         ) : (
           <>
-            <div className="home-split">
+            {snapshot ? (
+              <PrBand snapshot={snapshot} />
+            ) : (
               <Band title="Reviews for me">
-                <p className="muted">No reviews waiting.</p>
+                <p className="muted">Loading</p>
               </Band>
-              <Band title="My pull requests">
-                <p className="muted">No open pull requests.</p>
-              </Band>
-            </div>
+            )}
             <Band title="My sprints">
               <p className="muted">
                 Nothing assigned to you in a current sprint.

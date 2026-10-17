@@ -78,6 +78,16 @@ describe('Home page', () => {
     );
   });
 
+  it('shows Loading in the PR band until a snapshot exists', async () => {
+    installFakeApi({
+      'home:get': () => null,
+      'home:refresh': () => new Promise(() => {}),
+    });
+    render(<Shell />);
+    expect(await screen.findByText('Loading')).toBeTruthy();
+    expect(screen.queryByText('No reviews waiting.')).toBeNull();
+  });
+
   it('the refresh button rebuilds', async () => {
     const { calls } = installFakeApi({ 'home:get': () => snapshot() });
     render(<Shell />);

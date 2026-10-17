@@ -98,3 +98,40 @@
   align-items: center;
   gap: 8px;
 }
+.home-pr {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  column-gap: 6px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  padding: 6px 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.home-pr .muted {
+  grid-column: 1 / -1;
+}
+.home-badge {
+  font-size: 11px;
+  padding: 0 6px;
+  border-radius: 8px;
+  color: var(--warn);
+  background: var(--warn-bg);
+}
+.home-badge.is-red {
+  color: var(--red);
+  background: var(--red-bg);
+}
+.home-toggle {
+  background: none;
+  border: 0;
+  color: var(--muted);
+  font: inherit;
+  padding: 6px 0;
+  cursor: pointer;
+}
