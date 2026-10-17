@@ -1,10 +1,10 @@
 import { mkdtempSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Connection, SprintItem } from '../../shared/types';
 import { AdoError, type RawHomePr } from '../services/AdoClient';
-import { HomeService, type HomeClient } from './HomeService';
+import { HomeService, type HomeClient, type HomeDeps } from './HomeService';
 
 const conn = (id: string): Connection => ({
   id,
@@ -71,8 +71,13 @@ function service(
     mkdtempSync(path.join(os.tmpdir(), 'miac-home-')),
     'home.json',
   ),
+  extra: Partial<HomeDeps> = {},
 ) {
-  const built: { connections: number; failed: number }[] = [];
+  const built: {
+    connections: number;
+    failed: number;
+    failures: { kind: string }[];
+  }[] = [];
   const home = new HomeService({
     file,
     connections: () => connections,
@@ -80,6 +85,7 @@ function service(
     now: () => new Date('2026-10-17T09:12:00Z'),
     timeoutMs: 200,
     onBuilt: (_s, info) => built.push(info),
+    ...extra,
   });
   return { home, file, built };
 }
@@ -228,6 +234,81 @@ describe('HomeService', () => {
     expect(c.sprints).toHaveLength(1);
   });
 
+  it('PR calls do not go through withConnection, so a missing scope never flips the connection', async () => {
+    const wrapped: string[] = [];
+    const { home } = service(
+      [conn('a')],
+      {
+        a: fakeClient({
+          activePullRequests: async () => {
+            throw new AdoError('unauthorized', '/x', 'no code scope');
+          },
+        }),
+      },
+      undefined,
+      {
+        withConnection: async (_id, run) => {
+          wrapped.push('call');
+          return run();
+        },
+      },
+    );
+    const c = (await home.refresh()).connections[0];
+    expect(c.prsError).toBe('no code scope');
+    expect(wrapped.length).toBeGreaterThan(0);
+    // me, myTeams, currentIteration, assignedInIterations, workItems only
+    expect(wrapped).toHaveLength(5);
+  });
+
+  it('refresh still resolves when onBuilt throws or connections() throws', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { home } = service([conn('a')], { a: fakeClient() }, undefined, {
+      onBuilt: () => {
+        throw new Error('telemetry broke');
+      },
+    });
+    expect((await home.refresh()).connections).toHaveLength(1);
+    const broken = service([conn('a')], { a: fakeClient() }, undefined, {
+      connections: () => {
+        throw new Error('store broke');
+      },
+    });
+    expect((await broken.home.refresh()).connections).toEqual([]);
+    spy.mockRestore();
+  });
+
+  it('reports a failure kind per non-ok connection, without names', async () => {
+    const { home, built } = service(
+      [conn('a'), conn('b'), conn('c'), conn('d')],
+      {
+        a: fakeClient({
+          me: async () => {
+            throw new AdoError('unauthorized', '/x', 'rejected');
+          },
+        }),
+        b: fakeClient({
+          me: async () => {
+            throw new AdoError('unreachable', '/x', 'down');
+          },
+        }),
+        c: fakeClient({ me: () => new Promise<string>(() => undefined) }),
+        d: fakeClient({
+          activePullRequests: async () => {
+            throw new AdoError('not-found', '/x', 'nope');
+          },
+        }),
+      },
+    );
+    await home.refresh();
+    expect(built[0].failures.map((f) => f.kind).sort()).toEqual([
+      'step',
+      'timeout',
+      'unauthorized',
+      'unreachable',
+    ]);
+    expect(built[0].failed).toBe(3);
+  });
+
   it('times out a connection that hangs', async () => {
     const { home } = service([conn('a')], {
       a: fakeClient({ me: () => new Promise<string>(() => undefined) }),
@@ -266,6 +347,7 @@ describe('HomeService', () => {
     expect(built.at(-1)).toEqual({
       connections: 1,
       failed: 0,
+      failures: [],
       durationMs: expect.any(Number),
     });
   });

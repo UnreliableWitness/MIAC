@@ -7,7 +7,7 @@ import {
   type HomeSprint,
 } from '../../shared/home';
 import type { Connection, SprintIteration } from '../../shared/types';
-import type { AdoClient } from '../services/AdoClient';
+import { AdoError, type AdoClient } from '../services/AdoClient';
 import { JsonFileStore } from '../usage/JsonFileStore';
 import { toHomePr } from './homePr';
 
@@ -34,9 +34,23 @@ export type HomeDeps = {
   timeoutMs?: number;
   onBuilt?: (
     snapshot: HomeSnapshot,
-    info: { connections: number; failed: number; durationMs: number },
+    info: {
+      connections: number;
+      failed: number;
+      /** One entry per connection that failed or had a failing step; no names or IDs. */
+      failures: { kind: HomeFailureKind }[];
+      durationMs: number;
+    },
   ) => void;
 };
+
+export type HomeFailureKind =
+  | 'unauthorized'
+  | 'unreachable'
+  | 'timeout'
+  | 'step';
+
+class HomeTimeout extends Error {}
 
 type Call = <T>(run: () => Promise<T>) => Promise<T>;
 
@@ -83,10 +97,15 @@ export class HomeService {
     const prev = new Map(
       (this.store.value?.connections ?? []).map((c) => [c.connectionId, c]),
     );
+    const failures: { kind: HomeFailureKind }[] = [];
+    let list: Connection[] = [];
+    try {
+      list = this.d.connections();
+    } catch (e) {
+      console.error('[home] could not list the connections', e);
+    }
     const connections = await Promise.all(
-      this.d
-        .connections()
-        .map((c) => this.connection(c, prev.get(c.id) ?? null)),
+      list.map((c) => this.connection(c, prev.get(c.id) ?? null, failures)),
     );
     const snapshot: HomeSnapshot = {
       version: 1,
@@ -98,11 +117,19 @@ export class HomeService {
       .catch((e: unknown) =>
         console.error('[home] could not save the snapshot', e),
       );
-    this.d.onBuilt?.(snapshot, {
-      connections: connections.length,
-      failed: connections.filter((c) => c.status !== 'ok').length,
-      durationMs: Date.now() - started,
-    });
+    for (const c of connections)
+      if (c.status === 'ok' && (c.sprintsError || c.prsError))
+        failures.push({ kind: 'step' });
+    try {
+      this.d.onBuilt?.(snapshot, {
+        connections: connections.length,
+        failed: connections.filter((c) => c.status !== 'ok').length,
+        failures,
+        durationMs: Date.now() - started,
+      });
+    } catch (e) {
+      console.error('[home] onBuilt failed', e);
+    }
     return snapshot;
   }
 
@@ -113,6 +140,7 @@ export class HomeService {
   private connection(
     c: Connection,
     prev: HomeConnection | null,
+    failures: { kind: HomeFailureKind }[],
   ): Promise<HomeConnection> {
     const ms = this.d.timeoutMs ?? HOME_TIMEOUT_MS;
     let timer: NodeJS.Timeout | undefined;
@@ -120,13 +148,25 @@ export class HomeService {
       timer = setTimeout(
         () =>
           reject(
-            new Error(`Azure DevOps did not answer within ${ms / 1000} s`),
+            new HomeTimeout(
+              `Azure DevOps did not answer within ${ms / 1000} s`,
+            ),
           ),
         ms,
       );
     });
     return Promise.race([this.fetch(c, prev), timeout])
-      .catch((e: unknown) => this.failed(c, prev, message(e)))
+      .catch((e: unknown) => {
+        failures.push({
+          kind:
+            e instanceof HomeTimeout
+              ? 'timeout'
+              : e instanceof AdoError && e.kind === 'unauthorized'
+                ? 'unauthorized'
+                : 'unreachable',
+        });
+        return this.failed(c, prev, message(e));
+      })
       .finally(() => clearTimeout(timer));
   }
 
@@ -172,7 +212,6 @@ export class HomeService {
       this.prs(
         c,
         client,
-        call,
         me,
         teams.map((t) => t.id),
       ),
@@ -259,7 +298,6 @@ export class HomeService {
   private async prs(
     c: Connection,
     client: HomeClient,
-    call: Call,
     me: string,
     teamIds: string[],
   ): Promise<{ reviews: HomePr[]; teamReviews: HomePr[]; myPrs: HomePr[] }> {
@@ -269,17 +307,12 @@ export class HomeService {
         const p = toHomePr(r, ctx);
         return p ? [p] : [];
       });
+    // Not through withConnection: a missing Code scope must only set prsError, never mark the connection unauthorized.
     const [named, mine, ...byTeam] = await Promise.all([
-      call(() => client.activePullRequests(c.project, { reviewerId: me })).then(
-        map,
-      ),
-      call(() => client.activePullRequests(c.project, { creatorId: me })).then(
-        map,
-      ),
+      client.activePullRequests(c.project, { reviewerId: me }).then(map),
+      client.activePullRequests(c.project, { creatorId: me }).then(map),
       ...teamIds.map((id) =>
-        call(() =>
-          client.activePullRequests(c.project, { reviewerId: id }),
-        ).then(map),
+        client.activePullRequests(c.project, { reviewerId: id }).then(map),
       ),
     ]);
     const team = new Map<number, HomePr>();

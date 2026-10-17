@@ -30,6 +30,7 @@ This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 
 | `app.started` | splash on/off; counts of repos, open tasks, connections; whether the usage receiver listens; boot step timings (see Performance) |
 | `app.quit` | session length in minutes |
 | `home.refreshed` | the Home page's data was rebuilt; number of connections, number that failed; duration in ms |
+| `home.failed` | a connection failed in a Home rebuild; `kind` (`unauthorized`, `unreachable`, `timeout`, `step`) |
 | `home.clicked` | a click on Home; `band` (`task`, `up-next`, `review`, `team-review`, `my-pr`, `sprint`, `stats-period`) |
 | `update.ready` | an update finished downloading (Windows); none |
 | `update.restart`, `update.later` | the choice on the update notice; none |

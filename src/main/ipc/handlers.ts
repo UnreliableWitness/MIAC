@@ -272,6 +272,8 @@ export function createHandlers(s: Services): Handlers {
           { connections: info.connections, failed: info.failed },
           { durationMs: info.durationMs },
         );
+        for (const f of info.failures)
+          tel.event('home.failed', { kind: f.kind });
       },
     });
 
