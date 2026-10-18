@@ -302,7 +302,9 @@ function AboutSection() {
         <MindMark size={40} />
         <div>
           <div className="about-name">Shellie</div>
-          <div className="muted">Me, I&apos;m Counting</div>
+          <div className="muted">
+            Development tasks as isolated workspaces, with AI cost per task
+          </div>
           <div className="small muted">
             General Systems Vehicle (accounting division)
           </div>

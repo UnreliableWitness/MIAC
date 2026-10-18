@@ -1,9 +1,9 @@
 {
   "name": "shellie",
-  "productName": "shellie",
+  "productName": "Shellie",
   "version": "1.0.0",
   "private": true,
-  "description": "Me, I'm Counting: isolated dev task workspaces with per-task AI cost tracking",
+  "description": "Development tasks as isolated workspaces, with AI cost per task",
   "keywords": [],
   "license": "MIT",
   "author": {

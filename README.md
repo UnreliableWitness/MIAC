@@ -1,4 +1,4 @@
-# Shellie — "Me, I'm Counting"
+# Shellie — Development tasks as isolated workspaces, with AI cost per task
 
 [![CI](https://github.com/UnreliableWitness/MIAC/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/UnreliableWitness/MIAC/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/UnreliableWitness/Shellie?include_prereleases&sort=semver)](https://github.com/UnreliableWitness/MIAC/releases) ![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS-blue) ![Electron](https://img.shields.io/badge/Electron-44.7.2-47848F?logo=electron&logoColor=white) [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 

@@ -409,7 +409,9 @@ describe('SettingsScreen', () => {
     installFakeApi();
     render(<SettingsScreen />);
     const about = await screen.findByRole('region', { name: 'About' });
-    expect(about).toHaveTextContent("Me, I'm Counting");
+    expect(about).toHaveTextContent(
+      'Development tasks as isolated workspaces, with AI cost per task',
+    );
     expect(about).toHaveTextContent(
       'General Systems Vehicle (accounting division)',
     );
