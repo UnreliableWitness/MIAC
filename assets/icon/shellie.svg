@@ -1,40 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <!-- Windows, 48 px and up: a trimaran (centre hull, two outrigger pods, swept wings) heading up and right,
-       on a near-full-bleed deep-space tile with a few stars. -->
+  <!-- Windows, 48 px and up: the Gemini conch (assets/ART.md) on a near-full-bleed tile. -->
   <defs>
-    <linearGradient id="deep" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#123a66"/>
-      <stop offset="1" stop-color="#061427"/>
-    </linearGradient>
-    <radialGradient id="glow" cx=".5" cy=".5" r=".5">
-      <stop offset="0" stop-color="#2b88d8" stop-opacity=".28"/>
-      <stop offset="1" stop-color="#2b88d8" stop-opacity="0"/>
-    </radialGradient>
+    <clipPath id="tile"><rect x="16" y="16" width="480" height="480" rx="72"/></clipPath>
   </defs>
-  <rect x="16" y="16" width="480" height="480" rx="72" fill="url(#deep)"/>
-  <circle cx="256" cy="256" r="220" fill="url(#glow)"/>
-  <g fill="#fff">
-    <circle cx="96" cy="118" r="5" opacity=".75"/>
-    <circle cx="190" cy="66" r="3.5" opacity=".55"/>
-    <circle cx="70" cy="262" r="3.5" opacity=".45"/>
-    <circle cx="124" cy="420" r="4" opacity=".55"/>
-    <circle cx="300" cy="448" r="3.5" opacity=".6"/>
-    <circle cx="446" cy="350" r="5" opacity=".65"/>
-    <circle cx="458" cy="196" r="3" opacity=".5"/>
-  </g>
-  <g transform="rotate(35 256 256) translate(256 256) scale(.8) translate(-256 -250)">
-    <polygon points="238,236 238,306 172,372 172,300" fill="#005ba1"/>
-    <polygon points="274,236 274,306 340,372 340,300" fill="#003a6c"/>
-    <polygon points="166,166 146,240 154,412 166,412" fill="#2b88d8"/>
-    <polygon points="166,166 186,240 178,412 166,412" fill="#0f6cbd"/>
-    <polygon points="346,166 326,240 334,412 346,412" fill="#0f6cbd"/>
-    <polygon points="346,166 366,240 358,412 346,412" fill="#004e8c"/>
-    <polygon points="256,16 228,150 236,466 256,466" fill="#cfe6fb"/>
-    <polygon points="256,16 284,150 276,466 256,466" fill="#2b88d8"/>
-    <g fill="#cfe6fb">
-      <ellipse cx="166" cy="420" rx="14" ry="7"/>
-      <ellipse cx="346" cy="420" rx="14" ry="7"/>
-      <ellipse cx="256" cy="474" rx="20" ry="9"/>
-    </g>
-  </g>
+  <image href="shellie-art.jpg" x="-4.3" y="-4.3" width="520.7" height="520.7" clip-path="url(#tile)"/>
 </svg>

@@ -60,3 +60,15 @@ Generated with `tools/art/generate.mjs` (see `tools/art/README.md`). Rejected ca
   > A precise, quiet engraving-like science fiction illustration on near-black, fine luminous amber and cream lines, like a ship's registry plate, symmetrical and calm. No text, no letters, no numbers, no logos, no watermark.
   >
   > A glowing ship Mind core, a small cream sphere with an amber halo, held in a cradle of fine concentric rings and tick marks like an instrument dial, floating in the dark. Portrait.
+
+## App icon (assets/icon)
+
+- Generated 2026-10-18 with `gemini-2.5-flash-image`, one candidate per subject (nautilus, scallop, prompt, hermit
+  crab, conch; prompts in the "App icon" section of `tools/art/prompts.md`).
+- Pick: the owner chose the conch (`icon-conch-2026-10-18-08-09-11.png`, kept local): an upright faceted conch with a
+  cursor glowing in its opening, so it says both seashell and terminal.
+- Shipped as the picture itself, as `assets/icon/shellie-art.jpg` (JPEG quality 90, 109 KB). A vector redraw was tried
+  first and rejected by the owner ("I liked the first one way better").
+- The four SVGs in `assets/icon` place it inside each platform's tile: the 48 px+ drawings crop to the inside of
+  Gemini's own rounded tile (pixels 40-984), the 16-32 px drawings crop closer to the shell (140-884). `npm run icons`
+  renders the PNGs, `.ico` and `.icns`; `MindMark.tsx` shows `png/64.png`.

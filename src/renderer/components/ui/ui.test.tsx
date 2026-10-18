@@ -224,7 +224,7 @@ describe('PageHeader and Pivots', () => {
 describe('MindMark', () => {
   it('is decorative', () => {
     const { container } = render(<MindMark />);
-    expect(container.querySelector('svg')).toHaveAttribute(
+    expect(container.querySelector('img')).toHaveAttribute(
       'aria-hidden',
       'true',
     );

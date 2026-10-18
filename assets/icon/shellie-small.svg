@@ -1,20 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <!-- Windows, 16-32 px: the same trimaran with thicker hulls and wings, on the tile without stars. -->
+  <!-- Windows, 16-32 px: the same picture cropped closer to the shell, on a full-bleed tile. -->
   <defs>
-    <linearGradient id="deep" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#164475"/>
-      <stop offset="1" stop-color="#071a31"/>
-    </linearGradient>
+    <clipPath id="tile"><rect x="0" y="0" width="512" height="512" rx="88"/></clipPath>
   </defs>
-  <rect x="0" y="0" width="512" height="512" rx="88" fill="url(#deep)"/>
-  <g transform="rotate(35 256 256) translate(256 256) scale(.9) translate(-256 -250)">
-    <polygon points="230,226 230,322 160,390 160,292" fill="#005ba1"/>
-    <polygon points="282,226 282,322 352,390 352,292" fill="#003a6c"/>
-    <polygon points="160,160 128,240 136,428 160,428" fill="#2b88d8"/>
-    <polygon points="160,160 192,240 184,428 160,428" fill="#0f6cbd"/>
-    <polygon points="352,160 320,240 328,428 352,428" fill="#0f6cbd"/>
-    <polygon points="352,160 384,240 376,428 352,428" fill="#004e8c"/>
-    <polygon points="256,16 216,150 224,474 256,474" fill="#cfe6fb"/>
-    <polygon points="256,16 296,150 288,474 256,474" fill="#2b88d8"/>
-  </g>
+  <image href="shellie-art.jpg" x="-96.3" y="-96.3" width="704.7" height="704.7" clip-path="url(#tile)"/>
 </svg>

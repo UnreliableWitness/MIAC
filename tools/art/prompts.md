@@ -27,3 +27,21 @@ section. Each image is the line starting with its file name in bold. A subject e
 > like a ship's registry plate, symmetrical and calm. No text, no letters, no numbers, no logos, no watermark.
 
 **about-registry.png** - A glowing ship Mind core, a small cream sphere with an amber halo, held in a cradle of fine concentric rings and tick marks like an instrument dial, floating in the dark. Portrait.
+
+## App icon
+
+> A modern flat app icon for a developer tool called Shellie, centred on a rounded square tile in deep navy blue
+> fading to near-black, with a soft blue glow behind the subject. Faceted low-poly style: every surface a few crisp
+> flat planes, one lit pale ice-blue face and one shaded mid-blue face, like folded paper. Bold simple silhouette
+> that still reads at 32 pixels, generous margin around it, no fine detail. No text, no letters, no logos, no
+> watermark, no frame, no border, no drop shadow outside the tile.
+
+**icon-nautilus.png** - A faceted nautilus shell seen from the side, its chambers spiralling inward, the outer chambers pale and the inner ones deeper blue.
+
+**icon-scallop.png** - A faceted scallop seashell, a fan of seven ribs rising from a small hinge, lit from the upper left.
+
+**icon-prompt.png** - A terminal prompt chevron pointing right, followed by a small spiral seashell whose tail unrolls into a flat underscore cursor line, both in pale ice-blue.
+
+**icon-hermit.png** - A tiny faceted hermit crab peeking out of a spiral shell, the shell's opening glowing faintly like a terminal screen.
+
+**icon-conch.png** - A faceted spiral conch shell standing upright, its opening facing the viewer with a faint glowing cursor bar inside.
