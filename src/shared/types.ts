@@ -143,7 +143,7 @@ export const TaskSchema = z.object({
 });
 export type Task = z.infer<typeof TaskSchema>;
 
-export const RepoSchema = z.object({
+const RepoObjectSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   path: z.string().min(1),
@@ -158,7 +158,15 @@ export const RepoSchema = z.object({
     stateOverrides: {},
   }),
 });
-export type Repo = z.infer<typeof RepoSchema>;
+// Repos saved before the rename have miacYmlFound.
+export const RepoSchema = z.preprocess(
+  (v) =>
+    v && typeof v === 'object' && 'miacYmlFound' in v && !('configFound' in v)
+      ? { ...v, configFound: (v as { miacYmlFound: unknown }).miacYmlFound }
+      : v,
+  RepoObjectSchema,
+);
+export type Repo = z.infer<typeof RepoObjectSchema>;
 
 export const StateSchema = z.object({
   version: z.literal(1),

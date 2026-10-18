@@ -2,6 +2,24 @@ import { describe, expect, it } from 'vitest';
 import { ConnectionsFileSchema, StateSchema, WorkItemRefSchema } from './types';
 
 describe('StateSchema', () => {
+  it('reads a repo saved with miacYmlFound', () => {
+    const s = StateSchema.parse({
+      version: 1,
+      repos: [
+        {
+          id: 'r',
+          name: 'n',
+          path: '/p',
+          baseBranch: 'main',
+          connectionId: null,
+          miacYmlFound: true,
+        },
+      ],
+      tasks: [],
+    });
+    expect(s.repos[0]?.configFound).toBe(true);
+  });
+
   it('accepts an empty state', () => {
     expect(StateSchema.parse({ version: 1, repos: [], tasks: [] })).toEqual({
       version: 1,

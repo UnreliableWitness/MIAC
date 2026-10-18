@@ -174,6 +174,45 @@ describe('timestamps', () => {
   });
 });
 
+describe('tasks tagged before the rename', () => {
+  it('reads miac.task.id from logs', () => {
+    const { events } = parseClaudeLogs(
+      body(full, [kv('miac.task.id', { stringValue: 'task-old' })]),
+    );
+    expect(events[0]?.taskId).toBe('task-old');
+  });
+  it('reads miac.task.id from metrics', () => {
+    const doc = {
+      resourceMetrics: [
+        {
+          resource: {
+            attributes: [kv('miac.task.id', { stringValue: 'task-old' })],
+          },
+          scopeMetrics: [
+            {
+              metrics: [
+                {
+                  name: 'claude_code.active_time.total',
+                  sum: {
+                    dataPoints: [
+                      {
+                        attributes: [kv('type', { stringValue: 'cli' })],
+                        timeUnixNano: '1760436000000000000',
+                        asInt: '5',
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    expect(parseClaudeActiveTime(doc)[0]?.taskId).toBe('task-old');
+  });
+});
+
 describe('parseClaudeActiveTime', () => {
   it('reads the cli active_time point of the recorded metrics body', () => {
     expect(parseClaudeActiveTime(fixture('metrics.json'))).toEqual([

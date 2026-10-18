@@ -40,21 +40,24 @@ async function exists(p: string): Promise<boolean> {
   }
 }
 
+/** `.shellie.yml`, else the pre-rename `.miac.yml`, else null. */
+export async function configFileFor(repoPath: string): Promise<string | null> {
+  for (const name of ['.shellie.yml', '.miac.yml']) {
+    const file = path.join(repoPath, name);
+    if (await exists(file)) return file;
+  }
+  return null;
+}
+
 export async function loadShellieConfig(
   repoPath: string,
 ): Promise<ShellieConfig> {
-  const file = path.join(repoPath, '.shellie.yml');
+  const file = await configFileFor(repoPath);
   const defaultSetup = (await exists(path.join(repoPath, 'package-lock.json')))
     ? ['npm ci']
     : [];
 
-  let text: string | null = null;
-  try {
-    text = await fs.readFile(file, 'utf8');
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
-  }
-  if (text === null) {
+  if (file === null) {
     return {
       base: 'main',
       branch: DEFAULT_BRANCH_TEMPLATE,
@@ -65,6 +68,7 @@ export async function loadShellieConfig(
     };
   }
 
+  const text = await fs.readFile(file, 'utf8');
   let doc: unknown;
   try {
     doc = parseYaml(text) ?? {};

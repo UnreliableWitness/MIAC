@@ -58,6 +58,7 @@ import {
   forwardRendererTelemetry,
   installId,
   sensitiveValues,
+  telemetryOptedOut,
   timedFetch,
   trackHandlerFailures,
 } from './main/telemetry/helpers';
@@ -246,10 +247,7 @@ async function boot(): Promise<void> {
     mark = now;
   };
   let sensitive: () => string[] = () => [];
-  if (
-    __APPINSIGHTS_CONNECTION_STRING__ &&
-    process.env.SHELLIE_TELEMETRY !== '0'
-  ) {
+  if (__APPINSIGHTS_CONNECTION_STRING__ && !telemetryOptedOut(process.env)) {
     try {
       telemetry = new AppInsightsClient({
         connectionString: __APPINSIGHTS_CONNECTION_STRING__,

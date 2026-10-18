@@ -58,6 +58,23 @@ describe('TerminalManager', () => {
     expect(m.isRunning('t1')).toBe(false);
   });
 
+  it('sets the task id under the new and the pre-rename name', async () => {
+    const m = create();
+    const exited = waitFor(m, 'env1');
+    m.spawn({
+      id: 'env1',
+      taskId: 'task-env',
+      cwd: os.tmpdir(),
+      ...sh(
+        isWindows
+          ? 'Write-Output "ids:$env:SHELLIE_TASK_ID,$env:MIAC_TASK_ID"'
+          : 'echo ids:$SHELLIE_TASK_ID,$MIAC_TASK_ID',
+      ),
+    });
+    await exited;
+    expect(m.buffer('env1')).toContain('ids:task-env,task-env');
+  });
+
   it('writes to stdin and counts running terminals per task', async () => {
     const m = create();
     const exited = waitFor(m, 't2');

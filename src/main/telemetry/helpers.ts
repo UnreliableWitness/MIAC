@@ -5,6 +5,10 @@ import type { Handlers } from '../../shared/ipc';
 import { RendererTelemetrySchema } from '../../shared/telemetry';
 import type { Telemetry } from './AppInsightsClient';
 
+/** `SHELLIE_TELEMETRY=0`, or the pre-rename `MIAC_TELEMETRY=0`, turns telemetry off for a launch. */
+export const telemetryOptedOut = (env: NodeJS.ProcessEnv): boolean =>
+  env.SHELLIE_TELEMETRY === '0' || env.MIAC_TELEMETRY === '0';
+
 /** A random id for this installation, kept in userData; created on first use. Not tied to the user or machine. */
 export async function installId(userData: string): Promise<string> {
   const file = path.join(userData, 'telemetry-id');

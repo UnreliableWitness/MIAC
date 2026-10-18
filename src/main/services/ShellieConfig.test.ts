@@ -160,4 +160,25 @@ describe('loadShellieConfig', () => {
       '*.snap',
     ]);
   });
+
+  it('reads .miac.yml when there is no .shellie.yml', async () => {
+    const dir = repo();
+    writeFileSync(path.join(dir, '.miac.yml'), 'base: develop\n');
+    const c = await loadShellieConfig(dir);
+    expect(c.base).toBe('develop');
+    expect(c.found).toBe(true);
+  });
+
+  it('prefers .shellie.yml over .miac.yml', async () => {
+    const dir = repo();
+    writeFileSync(path.join(dir, '.miac.yml'), 'base: old\n');
+    writeFileSync(path.join(dir, '.shellie.yml'), 'base: new\n');
+    expect((await loadShellieConfig(dir)).base).toBe('new');
+  });
+
+  it('names the file it read in errors', async () => {
+    const dir = repo();
+    writeFileSync(path.join(dir, '.miac.yml'), 'nope: 1\n');
+    await expect(loadShellieConfig(dir)).rejects.toThrow(/\.miac\.yml/);
+  });
 });

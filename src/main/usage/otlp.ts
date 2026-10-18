@@ -79,7 +79,8 @@ export function parseClaudeLogs(body: unknown): {
         if (!isObj(record)) continue;
         const attrs = { ...resource, ...attrMap(record.attributes) };
         if (!isApiRequest(record, attrs)) continue;
-        const taskId = str(attrs['shellie.task.id']);
+        const taskId =
+          str(attrs['shellie.task.id']) || str(attrs['miac.task.id']);
         if (!taskId) continue;
         const id = str(attrs.request_id);
         const model = str(attrs.model);
@@ -144,7 +145,8 @@ export function parseClaudeActiveTime(body: unknown): ClaudeActive[] {
           if (!isObj(dp)) continue;
           const attrs = { ...resource, ...attrMap(dp.attributes) };
           if (attrs.type !== 'cli') continue;
-          const taskId = str(attrs['shellie.task.id']);
+          const taskId =
+            str(attrs['shellie.task.id']) || str(attrs['miac.task.id']);
           if (!taskId) continue;
           const raw = dp.asDouble ?? dp.asInt;
           const value =

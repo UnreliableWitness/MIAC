@@ -10,6 +10,7 @@ import {
   forwardRendererTelemetry,
   installId,
   sensitiveValues,
+  telemetryOptedOut,
   timedFetch,
   trackHandlerFailures,
 } from './helpers';
@@ -218,5 +219,13 @@ describe('changedKeys and sensitiveValues', () => {
         'ssh-repo',
       ]),
     );
+  });
+});
+
+describe('telemetryOptedOut', () => {
+  it('honours both opt-out variables', () => {
+    expect(telemetryOptedOut({ SHELLIE_TELEMETRY: '0' })).toBe(true);
+    expect(telemetryOptedOut({ MIAC_TELEMETRY: '0' })).toBe(true);
+    expect(telemetryOptedOut({})).toBe(false);
   });
 });
