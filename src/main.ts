@@ -35,7 +35,9 @@ import { loadShellieConfig } from './main/services/ShellieConfig';
 import { RepoRegistry } from './main/services/RepoRegistry';
 import { claudeProjectsDir } from './main/services/claudeSessions';
 import { WorkspaceDetector } from './main/workspaces/WorkspaceDetector';
-import { SetupRunner } from './main/services/SetupRunner';
+import { taskWorkspaces } from './shared/workspaces';
+import { migrateTaskFolders } from './main/migrate/taskFolders';
+import { SetupRunner, ensureExcluded } from './main/services/SetupRunner';
 import { TaskStore } from './main/services/TaskStore';
 import { TerminalManager } from './main/services/TerminalManager';
 import { CopilotFileTailer } from './main/usage/CopilotFileTailer';
@@ -291,6 +293,21 @@ async function boot(): Promise<void> {
     );
     const connectionsLoaded = await connections.load();
     const repos = new RepoRegistry(store, git);
+    // Worktrees made before the rename keep their task file in .miac/; move it in the background.
+    void (async () => {
+      const pending: { worktreePath: string; repoPath: string }[] = [];
+      for (const task of store.state.tasks) {
+        if (task.status === 'done') continue;
+        for (const w of taskWorkspaces(task)) {
+          const repo = store.state.repos.find((r) => r.id === w.repoId);
+          if (w.worktreePath && repo)
+            pending.push({ worktreePath: w.worktreePath, repoPath: repo.path });
+        }
+      }
+      await migrateTaskFolders(pending, (repoPath) =>
+        ensureExcluded(git, repoPath, '.shellie/'),
+      );
+    })().catch(() => {});
     await pruneDanglingConnectionLinks(repos, connections);
     const username = (() => {
       try {
