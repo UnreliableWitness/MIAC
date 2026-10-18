@@ -10,7 +10,7 @@ afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 const file = () => {
-  const d = mkdtempSync(path.join(os.tmpdir(), 'miac-set-'));
+  const d = mkdtempSync(path.join(os.tmpdir(), 'shellie-set-'));
   dirs.push(d);
   return path.join(d, 'settings.json');
 };

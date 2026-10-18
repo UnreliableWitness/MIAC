@@ -60,7 +60,7 @@ const isApiRequest = (record: Obj, attrs: Record<string, Scalar>): boolean => {
   );
 };
 
-/** Picks `claude_code.api_request` events tagged with `miac.task.id` out of an OTLP/HTTP JSON logs body. */
+/** Picks `claude_code.api_request` events tagged with `shellie.task.id` out of an OTLP/HTTP JSON logs body. */
 export function parseClaudeLogs(body: unknown): {
   events: UsageEvent[];
   skipped: number;
@@ -79,7 +79,8 @@ export function parseClaudeLogs(body: unknown): {
         if (!isObj(record)) continue;
         const attrs = { ...resource, ...attrMap(record.attributes) };
         if (!isApiRequest(record, attrs)) continue;
-        const taskId = str(attrs['miac.task.id']);
+        const taskId =
+          str(attrs['shellie.task.id']) || str(attrs['miac.task.id']);
         if (!taskId) continue;
         const id = str(attrs.request_id);
         const model = str(attrs.model);
@@ -121,7 +122,7 @@ export type ClaudeActive = {
   cumulative: boolean;
 };
 
-/** Picks `claude_code.active_time.total` points of type `cli` tagged with `miac.task.id` out of an OTLP/HTTP JSON metrics body. */
+/** Picks `claude_code.active_time.total` points of type `cli` tagged with `shellie.task.id` out of an OTLP/HTTP JSON metrics body. */
 export function parseClaudeActiveTime(body: unknown): ClaudeActive[] {
   const out: ClaudeActive[] = [];
   if (!isObj(body)) return out;
@@ -144,7 +145,8 @@ export function parseClaudeActiveTime(body: unknown): ClaudeActive[] {
           if (!isObj(dp)) continue;
           const attrs = { ...resource, ...attrMap(dp.attributes) };
           if (attrs.type !== 'cli') continue;
-          const taskId = str(attrs['miac.task.id']);
+          const taskId =
+            str(attrs['shellie.task.id']) || str(attrs['miac.task.id']);
           if (!taskId) continue;
           const raw = dp.asDouble ?? dp.asInt;
           const value =

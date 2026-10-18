@@ -52,7 +52,8 @@ export class TerminalManager extends EventEmitter<{
       if (v !== undefined) env[k] = v;
     Object.assign(env, options.env ?? {});
     env.TERM = 'xterm-256color';
-    env.MIAC_TASK_ID = options.taskId;
+    env.SHELLIE_TASK_ID = options.taskId;
+    env.MIAC_TASK_ID = options.taskId; // for scripts written before the rename
     const proc = pty.spawn(options.command, options.args, {
       name: 'xterm-256color',
       cols: options.cols ?? 120,
@@ -60,7 +61,7 @@ export class TerminalManager extends EventEmitter<{
       cwd: options.cwd,
       env,
       // Windows: the bundled conpty.dll. The default (system ConPTY) kill path forks a helper with
-      // child_process.fork, which the RunAsNode fuse turns into a second MIAC.exe launch.
+      // child_process.fork, which the RunAsNode fuse turns into a second Shellie.exe launch.
       // node-pty is pinned to 1.2.0-beta.15 or later: 1.1.0 has a data race on its Windows pty handle
       // list (microsoft/node-pty#921, fixed in 1.2.0-beta.13) that crashes the process with an access
       // violation when one pty exits while another is spawned, resized or killed.

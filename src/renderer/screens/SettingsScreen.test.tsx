@@ -16,7 +16,7 @@ const webshop: Repo = {
   path: '/src/webshop',
   baseBranch: 'main',
   connectionId: null,
-  miacYmlFound: true,
+  configFound: true,
   discovered: false,
   workItemOnStart: {
     moveToInProgress: true,
@@ -36,7 +36,7 @@ beforeEach(() => {
 });
 
 describe('SettingsScreen', () => {
-  it('lists repos with their base branch and .miac.yml status', () => {
+  it('lists repos with their base branch and .shellie.yml status', () => {
     installFakeApi();
     useStore.setState({
       repos: [
@@ -47,7 +47,7 @@ describe('SettingsScreen', () => {
           name: 'api',
           path: '/src/api',
           baseBranch: 'develop',
-          miacYmlFound: false,
+          configFound: false,
           discovered: false,
           workItemOnStart: {
             moveToInProgress: true,
@@ -62,9 +62,9 @@ describe('SettingsScreen', () => {
     expect(
       screen.getByText(`/src/webshop ${DOT} base main`),
     ).toBeInTheDocument();
-    expect(screen.getByText('.miac.yml found')).toBeInTheDocument();
+    expect(screen.getByText('.shellie.yml found')).toBeInTheDocument();
     expect(
-      screen.getByText('No .miac.yml, using defaults'),
+      screen.getByText('No .shellie.yml, using defaults'),
     ).toBeInTheDocument();
   });
 
@@ -164,7 +164,7 @@ describe('SettingsScreen', () => {
           id: 'c1',
           name: 'unreliablewitness',
           organizationUrl: 'https://dev.azure.com/unreliablewitness',
-          project: 'MIAC',
+          project: 'Shellie',
           user: null,
           status: 'ok',
           checkedAt: null,
@@ -189,7 +189,7 @@ describe('SettingsScreen', () => {
       id: 'c1',
       name: 'unreliablewitness',
       organizationUrl: 'https://dev.azure.com/unreliablewitness',
-      project: 'MIAC',
+      project: 'Shellie',
       user: null,
       status: 'ok' as const,
       checkedAt: null,
@@ -409,7 +409,9 @@ describe('SettingsScreen', () => {
     installFakeApi();
     render(<SettingsScreen />);
     const about = await screen.findByRole('region', { name: 'About' });
-    expect(about).toHaveTextContent("Me, I'm Counting");
+    expect(about).toHaveTextContent(
+      'Development tasks as isolated workspaces, with AI cost per task',
+    );
     expect(about).toHaveTextContent(
       'General Systems Vehicle (accounting division)',
     );

@@ -10,10 +10,10 @@ export const EDITOR_LABELS: Record<EditorId, string> = {
 };
 export type EditorChoice = { id: EditorId; label: string };
 
-/** A stored editor id this version does not know (removed, or from a newer MIAC) reads as no choice. */
+/** A stored editor id this version does not know (removed, or from a newer Shellie) reads as no choice. */
 const StoredEditorId = EditorIdSchema.nullable().default(null).catch(null);
 
-/** Personal editor choices (settings.json, never `.miac.yml`): a default and one per repo, with Visual Studio's solution. */
+/** Personal editor choices (settings.json, never `.shellie.yml`): a default and one per repo, with Visual Studio's solution. */
 export const EditorPrefsSchema = z.object({
   default: StoredEditorId,
   repos: z

@@ -40,7 +40,7 @@ beforeEach(() => {
         id: 'c1',
         name: 'unreliablewitness',
         organizationUrl: 'https://dev.azure.com/unreliablewitness',
-        project: 'MIAC',
+        project: 'Shellie',
         user: 'D',
         status: 'ok',
         checkedAt: null,

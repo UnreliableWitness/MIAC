@@ -164,7 +164,7 @@ describe('connectionNote', () => {
   const c = (over: Partial<HomeConnection>) =>
     ({
       name: 'uw',
-      project: 'MIAC',
+      project: 'Shellie',
       status: 'ok',
       error: null,
       fetchedAt: null,
@@ -182,11 +182,11 @@ describe('connectionNote', () => {
           error: 'down',
         }),
       ),
-    ).toMatch(/^Stale since \d\d:\d\d for uw\/MIAC: down$/);
+    ).toMatch(/^Stale since \d\d:\d\d for uw\/Shellie: down$/);
   });
   it('says it could not load with the error', () => {
     expect(connectionNote(c({ status: 'error', error: 'refused' }))).toBe(
-      "Couldn't load uw/MIAC: refused",
+      "Couldn't load uw/Shellie: refused",
     );
   });
 });

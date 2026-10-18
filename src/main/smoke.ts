@@ -2,10 +2,10 @@ import os from 'node:os';
 import type { Platform } from './platform/Platform';
 import { type TerminalManager, UNKNOWN_EXIT } from './services/TerminalManager';
 
-const MARKER = 'miac-smoke-pty';
+const MARKER = 'shellie-smoke-pty';
 
 /**
- * The packaged-app smoke check (MIAC_SMOKE=1): one pty through TerminalManager, running a shell command
+ * The packaged-app smoke check (SHELLIE_SMOKE=1): one pty through TerminalManager, running a shell command
  * that prints a marker. True when the marker arrives and the command exits 0 (or with no known exit code)
  * within the timeout.
  * Touches no stores, so it is safe to run from CI against a fresh install.
@@ -16,7 +16,7 @@ export async function runSmoke(o: {
   log: (line: string) => void;
   timeoutMs?: number;
 }): Promise<boolean> {
-  const id = 'miac-smoke';
+  const id = 'shellie-smoke';
   const { terminals, log } = o;
   let timer: NodeJS.Timeout | undefined;
   try {
@@ -32,7 +32,7 @@ export async function runSmoke(o: {
     const cmd = o.platform.runCommand(`echo ${MARKER}`);
     terminals.spawn({
       id,
-      taskId: 'miac-smoke',
+      taskId: 'shellie-smoke',
       cwd: os.homedir(),
       ...cmd,
     });

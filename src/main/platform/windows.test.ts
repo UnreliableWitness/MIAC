@@ -3,17 +3,17 @@ import { shimSafePrompt, windowsPlatform } from './windows';
 
 const WRAP = (cmd: string) =>
   [
-    '$miacFailed = $false',
+    '$shellieFailed = $false',
     '& {',
     cmd,
     '} 2>&1 | ForEach-Object {',
     '  if ($_ -is [System.Management.Automation.ErrorRecord]) {',
-    `    if ("$($_.FullyQualifiedErrorId)" -notlike 'NativeCommandError*') { $miacFailed = $true }`,
+    `    if ("$($_.FullyQualifiedErrorId)" -notlike 'NativeCommandError*') { $shellieFailed = $true }`,
     '    [Console]::Error.WriteLine("$_")',
     '  } else { $_ }',
     '}',
     'if ($LASTEXITCODE) { exit $LASTEXITCODE }',
-    'if ($miacFailed) { exit 1 }',
+    'if ($shellieFailed) { exit 1 }',
   ].join('\n');
 const RUN_WRAP = (cmd: string) =>
   ['& {', cmd, '}', 'if ($LASTEXITCODE) { exit $LASTEXITCODE }'].join('\n');
@@ -120,9 +120,9 @@ describe('windowsPlatform', () => {
         'Bypass',
         '-NoProfile',
         '-Command',
-        "& claude '--append-system-prompt' $env:MIAC_CLAUDE_PROMPT",
+        "& claude '--append-system-prompt' $env:SHELLIE_CLAUDE_PROMPT",
       ],
-      env: { MIAC_CLAUDE_PROMPT: "it's 'quoted' b 50 x" },
+      env: { SHELLIE_CLAUDE_PROMPT: "it's 'quoted' b 50 x" },
     });
   });
 
@@ -144,7 +144,7 @@ describe('windowsPlatform', () => {
         .claudeCommand('go', ['--session-id', 'abc'])
         .args.at(-1),
     ).toBe(
-      "& claude '--session-id' 'abc' '--append-system-prompt' $env:MIAC_CLAUDE_PROMPT",
+      "& claude '--session-id' 'abc' '--append-system-prompt' $env:SHELLIE_CLAUDE_PROMPT",
     );
     const resume = make({ claude: 'C:\\npm\\claude.cmd' }).claudeCommand(null, [
       '--continue',

@@ -26,7 +26,7 @@ export function aiFieldValues(u: TaskUsage): Record<AiField, number> {
 export function renderUsageComment(u: TaskUsage, branches: string[]): string {
   const billable = u.sessions.filter((s) => s.billable);
   const lines = [
-    `AI usage for this work item (MIAC): ${eur(u.billable.costEur)}`,
+    `AI usage for this work item (Shellie): ${eur(u.billable.costEur)}`,
   ];
   for (const tool of ['claude-code', 'copilot-cli'] as const) {
     const t = u.byTool[tool];

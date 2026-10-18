@@ -142,7 +142,7 @@ export function TimeSection() {
                 lowers Remaining Work)
               </label>
               <span className="small muted">
-                Off: the time stays in MIAC (Usage tab, CSV export).
+                Off: the time stays in Shellie (Usage tab, CSV export).
               </span>
             </div>
             <div className="actions">

@@ -27,7 +27,7 @@ function setup() {
   let n = 0;
   const service = new ReviewService({
     git: new GitClient(),
-    store: new ReviewStore(mkdtempSync(path.join(os.tmpdir(), 'miac-rs-'))),
+    store: new ReviewStore(mkdtempSync(path.join(os.tmpdir(), 'shellie-rs-'))),
     repoName: () => 'web',
     collapseOf: async () => ['gen/**'],
     now: () => new Date('2026-10-17T10:00:00.000Z'),
@@ -311,7 +311,9 @@ describe('ReviewService', () => {
     } as unknown as GitClient;
     const service = new ReviewService({
       git: failing,
-      store: new ReviewStore(mkdtempSync(path.join(os.tmpdir(), 'miac-rs-'))),
+      store: new ReviewStore(
+        mkdtempSync(path.join(os.tmpdir(), 'shellie-rs-')),
+      ),
       repoName: () => 'web',
       collapseOf: async () => [],
     });

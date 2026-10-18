@@ -116,7 +116,7 @@ function InvoicingPart() {
             </label>
             <span className="small muted">
               The AI cost fields and a usage comment on the work item, and the
-              cost line in draft pull requests. Off: the cost stays in MIAC
+              cost line in draft pull requests. Off: the cost stays in Shellie
               (Usage tab, CSV export).
             </span>
           </div>

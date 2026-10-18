@@ -14,7 +14,7 @@ describe('telemetryEnv', () => {
       OTEL_LOGS_EXPORT_INTERVAL: '2000',
       OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: 'http://127.0.0.1:4319/v1/metrics',
       OTEL_METRIC_EXPORT_INTERVAL: '10000',
-      OTEL_RESOURCE_ATTRIBUTES: 'miac.task.id=t-1',
+      OTEL_RESOURCE_ATTRIBUTES: 'shellie.task.id=t-1',
       COPILOT_OTEL_FILE_EXPORTER_PATH: path.join(
         '/data/usage',
         'copilot',

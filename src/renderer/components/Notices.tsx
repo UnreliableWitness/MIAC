@@ -29,8 +29,8 @@ function UpdateNotice() {
 
   if (!update || dismissed) return null;
   const name = update.version
-    ? `MIAC ${update.version}`
-    : 'A new version of MIAC';
+    ? `Shellie ${update.version}`
+    : 'A new version of Shellie';
   const restart = async () => {
     setBusy(true);
     const ok = await tryInvoke(async () => {
@@ -44,7 +44,7 @@ function UpdateNotice() {
       <div className="notice-update-body">
         <strong>{name} is ready</strong>
         <span className="muted small">
-          Restart to update now, or it installs the next time MIAC starts.
+          Restart to update now, or it installs the next time Shellie starts.
           Terminals close; Claude Code resumes its sessions after the restart.
         </span>
         <div className="notice-update-actions">

@@ -87,7 +87,7 @@ beforeEach(() =>
         path: '/src/webshop',
         baseBranch: 'main',
         connectionId: null,
-        miacYmlFound: true,
+        configFound: true,
         discovered: false,
         workItemOnStart: {
           moveToInProgress: true,

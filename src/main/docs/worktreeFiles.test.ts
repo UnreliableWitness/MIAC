@@ -72,7 +72,7 @@ describe('resolveInWorktree', () => {
   });
   it.runIf(canSymlink)('rejects a symlink that points outside', async () => {
     const repo = makeRepo();
-    const out = path.join(os.tmpdir(), `miac-out-${Date.now()}.md`);
+    const out = path.join(os.tmpdir(), `shellie-out-${Date.now()}.md`);
     writeFileSync(out, 'secret');
     symlinkSync(out, path.join(repo, 'link.md'));
     await expect(resolveInWorktree(repo, 'link.md')).rejects.toThrow(
@@ -101,14 +101,14 @@ describe('listDocs', () => {
     mkdirSync(path.join(repo, 'node_modules/pkg'), { recursive: true });
     writeFileSync(path.join(repo, 'node_modules/pkg/README.md'), 'x');
     writeFileSync(path.join(repo, 'code.ts'), 'x');
-    mkdirSync(path.join(repo, '.miac'));
-    writeFileSync(path.join(repo, '.miac/task.md'), '# task');
+    mkdirSync(path.join(repo, '.shellie'));
+    writeFileSync(path.join(repo, '.shellie/task.md'), '# task');
     git(repo, 'config', 'core.excludesFile', '/dev/null');
-    writeFileSync(path.join(repo, '.git/info/exclude'), '.miac/\n');
+    writeFileSync(path.join(repo, '.git/info/exclude'), '.shellie/\n');
 
     const files = await listDocs(gc, repo, base);
     expect(files).toEqual([
-      { path: '.miac/task.md', changed: null },
+      { path: '.shellie/task.md', changed: null },
       { path: 'README.md', changed: null },
       { path: 'docs/old.md', changed: 'modified' },
       { path: 'notes/ü plan.md', changed: 'new' },

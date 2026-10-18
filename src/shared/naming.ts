@@ -66,17 +66,17 @@ export function renderTaskMd(
       : []),
     otherReposInstruction(task),
     '',
-    'This file is written by MIAC and excluded from git. Put notes for the task here.',
+    'This file is written by Shellie and excluded from git. Put notes for the task here.',
     '',
   ];
   return lines.join('\n');
 }
 
-/** How Claude joins another repo to the task: a worktree on the task's branch, which MIAC detects. */
+/** How Claude joins another repo to the task: a worktree on the task's branch, which Shellie detects. */
 export function otherReposInstruction(
   task: Pick<Task, 'branch' | 'slug'>,
 ): string {
-  return `If this task needs changes in another repository, do not edit that repository's main checkout. Create a worktree there on this task's branch: git -C <repo> worktree add <repo>.worktrees/${task.slug} -b ${task.branch} <base> (use the repo's default branch as base, from origin when it exists). MIAC picks it up automatically.`;
+  return `If this task needs changes in another repository, do not edit that repository's main checkout. Create a worktree there on this task's branch: git -C <repo> worktree add <repo>.worktrees/${task.slug} -b ${task.branch} <base> (use the repo's default branch as base, from origin when it exists). Shellie picks it up automatically.`;
 }
 
 /** Appended to Claude Code's system prompt: the task, and that Claude waits for the user before working on it. */
@@ -86,5 +86,5 @@ export function claudeContext(
   const head = task.workItem
     ? `${task.workItem.type} ${task.workItem.id}: ${task.workItem.title}`
     : `Task: ${task.name}`;
-  return `This folder is a MIAC task for ${head}. The details are in .miac/task.md. Do not start on the task by yourself: wait for the user's instructions. ${otherReposInstruction(task)}`;
+  return `This folder is a Shellie task for ${head}. The details are in .shellie/task.md. Do not start on the task by yourself: wait for the user's instructions. ${otherReposInstruction(task)}`;
 }

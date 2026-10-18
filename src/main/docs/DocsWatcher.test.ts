@@ -12,7 +12,7 @@ const waitFor = async (cond: () => boolean, ms = 3000) => {
 
 describe('DocsWatcher', () => {
   it('debounces changes into one event with / paths and ignores node_modules', async () => {
-    const dir = mkdtempSync(path.join(os.tmpdir(), 'miac-watch-'));
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'shellie-watch-'));
     mkdirSync(path.join(dir, 'docs'));
     mkdirSync(path.join(dir, 'node_modules'));
     const events: { taskId: string; paths: string[] }[] = [];
@@ -34,7 +34,7 @@ describe('DocsWatcher', () => {
     ).toBe(false);
   });
   it('stopTask stops every target of the task and no other', () => {
-    const dir = mkdtempSync(path.join(os.tmpdir(), 'miac-watch-'));
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'shellie-watch-'));
     const stopped: string[] = [];
     const w = new DocsWatcher(
       () => undefined,
@@ -52,7 +52,7 @@ describe('DocsWatcher', () => {
     w.stopAll();
   });
   it('is reference-counted, and stopTask closes regardless', () => {
-    const dir = mkdtempSync(path.join(os.tmpdir(), 'miac-watch-'));
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'shellie-watch-'));
     const w = new DocsWatcher(() => undefined, 10);
     w.start('t', dir);
     w.start('t', dir);
@@ -63,7 +63,7 @@ describe('DocsWatcher', () => {
   });
 
   it('reports a watcher stopped by an error or by stopTask, not one released by its holders', () => {
-    const dir = mkdtempSync(path.join(os.tmpdir(), 'miac-watch-'));
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'shellie-watch-'));
     const stopped: string[] = [];
     const w = new DocsWatcher(
       () => undefined,
@@ -92,7 +92,7 @@ describe('DocsWatcher', () => {
   });
 
   it('stopTarget closes one key, reports it and leaves other keys of the task', () => {
-    const dir = mkdtempSync(path.join(os.tmpdir(), 'miac-watch-'));
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'shellie-watch-'));
     const stopped: string[] = [];
     const w = new DocsWatcher(
       () => undefined,

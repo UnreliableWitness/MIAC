@@ -13,7 +13,7 @@ import type {
   Connection,
   FinishOptions,
   FinishRowResult,
-  MiacConfig,
+  ShellieConfig,
   PullRequestRef,
   SetupEvent,
   SetupState,
@@ -117,7 +117,7 @@ export type Services = {
   reviewDir?: string;
   terminals: TerminalManager;
   runner: SetupRunner;
-  loadConfig: (repoPath: string) => Promise<MiacConfig>;
+  loadConfig: (repoPath: string) => Promise<ShellieConfig>;
   pickFolder: () => Promise<string | null>;
   launch: (cmd: Command) => Promise<void>;
   /** Editor detection and launch; handlers build one from platform, settings and launch when absent (tests). */
@@ -743,7 +743,7 @@ export function createHandlers(s: Services): Handlers {
     }
   };
 
-  /** The other repos a reopen makes again, each with its own .miac.yml copies and setup commands. */
+  /** The other repos a reopen makes again, each with its own .shellie.yml copies and setup commands. */
   const extraRestores = async (task: Task): Promise<ExtraRestore[]> => {
     const out: ExtraRestore[] = [];
     for (const w of task.extraWorkspaces) {

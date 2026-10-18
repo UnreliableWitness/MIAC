@@ -32,7 +32,7 @@ export type ReviewServiceDeps = {
   git: GitClient;
   store: ReviewStore;
   repoName: (repoId: string) => string;
-  /** The repo's `review.collapse` globs, read from the worktree's `.miac.yml`. */
+  /** The repo's `review.collapse` globs, read from the worktree's `.shellie.yml`. */
   collapseOf: (worktree: string) => Promise<string[]>;
   now?: () => Date;
   newId?: () => string;

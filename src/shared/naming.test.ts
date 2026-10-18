@@ -165,9 +165,9 @@ describe('other repos', () => {
   };
   it('tells Claude how to make a worktree elsewhere', () => {
     const t = { ...task, slug: '42-x', branch: 'feature/42-x' };
-    expect(claudeContext(t).startsWith('This folder is a MIAC task for ')).toBe(
-      true,
-    );
+    expect(
+      claudeContext(t).startsWith('This folder is a Shellie task for '),
+    ).toBe(true);
     expect(claudeContext(t)).toContain(
       'worktree add <repo>.worktrees/42-x -b feature/42-x <base>',
     );
@@ -190,10 +190,10 @@ describe('other repos', () => {
 describe('claudeContext', () => {
   it('names the work item, points at the task file and says to wait for the user', () => {
     expect(claudeContext(task)).toContain(
-      "This folder is a MIAC task for User Story 48231: Show estimated delivery date on product page. The details are in .miac/task.md. Do not start on the task by yourself: wait for the user's instructions.",
+      "This folder is a Shellie task for User Story 48231: Show estimated delivery date on product page. The details are in .shellie/task.md. Do not start on the task by yourself: wait for the user's instructions.",
     );
     expect(claudeContext({ ...task, workItem: null, name: 'Spike' })).toContain(
-      'MIAC task for Task: Spike.',
+      'Shellie task for Task: Spike.',
     );
   });
 });

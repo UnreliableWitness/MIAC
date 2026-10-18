@@ -1,6 +1,6 @@
 import type { DocFile } from '../../../shared/types';
 
-export const TASK_FILE = '.miac/task.md';
+export const TASK_FILE = '.shellie/task.md';
 
 const dirOf = (p: string) =>
   p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '';

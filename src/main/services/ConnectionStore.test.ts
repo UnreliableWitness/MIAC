@@ -14,7 +14,7 @@ afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 const file = () => {
-  const d = mkdtempSync(path.join(os.tmpdir(), 'miac-conn-'));
+  const d = mkdtempSync(path.join(os.tmpdir(), 'shellie-conn-'));
   dirs.push(d);
   return path.join(d, 'connections.json');
 };
@@ -43,7 +43,7 @@ describe('normalizeOrganizationUrl', () => {
     ).toBe('https://dev.azure.com/unreliablewitness');
     expect(
       normalizeOrganizationUrl(
-        'https://dev.azure.com/unreliablewitness/MIAC/_workitems',
+        'https://dev.azure.com/unreliablewitness/Shellie/_workitems',
       ),
     ).toBe('https://dev.azure.com/unreliablewitness');
     expect(normalizeOrganizationUrl('  dev.azure.com/Contoso ')).toBe(
@@ -80,13 +80,13 @@ describe('ConnectionStore', () => {
     await store.load();
     const c = await store.save({
       organizationUrl: 'https://dev.azure.com/unreliablewitness/',
-      project: 'MIAC',
+      project: 'Shellie',
       pat: 'secret-pat',
     });
     expect(c).toMatchObject({
       name: 'unreliablewitness',
       organizationUrl: 'https://dev.azure.com/unreliablewitness',
-      project: 'MIAC',
+      project: 'Shellie',
       user: null,
       status: 'unknown',
       checkedAt: null,

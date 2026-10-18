@@ -6,7 +6,7 @@ const XLINK = 'http://www.w3.org/1999/xlink';
 
 /**
  * Mermaid's strict mode still renders `click A "url"` as an `<a>` with an author-chosen target.
- * Links in a diagram never navigate MIAC: an allowed web link goes to the browser, anything else does nothing.
+ * Links in a diagram never navigate Shellie: an allowed web link goes to the browser, anything else does nothing.
  */
 function followDiagramLink(e: MouseEvent<HTMLDivElement>): void {
   const a = (e.target as Element | null)?.closest?.('a');

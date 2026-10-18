@@ -240,11 +240,11 @@ export function HeaderBar() {
         <button
           type="button"
           className="crumb crumb-home"
-          aria-label="MIAC, go to Home"
+          aria-label="Shellie, go to Home"
           onClick={() => go({ kind: 'home' })}
         >
           <MindMark />
-          <span className="crumb-text">MIAC</span>
+          <span className="crumb-text">Shellie</span>
         </button>
         {crumbs.map((c, i) => (
           <Fragment key={i}>

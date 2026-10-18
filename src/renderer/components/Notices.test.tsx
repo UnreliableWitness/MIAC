@@ -15,7 +15,7 @@ describe('update notice', () => {
     );
     expect(screen.queryByText(/is ready/)).toBeNull();
     act(() => emit('update:ready', { version: '1.0.3' }));
-    expect(screen.getByText('MIAC 1.0.3 is ready')).toBeInTheDocument();
+    expect(screen.getByText('Shellie 1.0.3 is ready')).toBeInTheDocument();
     await userEvent.click(
       screen.getByRole('button', { name: 'Restart and update' }),
     );
@@ -26,7 +26,7 @@ describe('update notice', () => {
     installFakeApi({ 'update:status': () => ({ version: null }) });
     render(<Notices />);
     expect(
-      await screen.findByText('A new version of MIAC is ready'),
+      await screen.findByText('A new version of Shellie is ready'),
     ).toBeInTheDocument();
   });
 
@@ -36,7 +36,7 @@ describe('update notice', () => {
     });
     render(<Notices />);
     await userEvent.click(await screen.findByRole('button', { name: 'Later' }));
-    expect(screen.queryByText('MIAC 1.0.3 is ready')).toBeNull();
+    expect(screen.queryByText('Shellie 1.0.3 is ready')).toBeNull();
     expect(calls.some((c) => c.channel === 'update:install')).toBe(false);
   });
 

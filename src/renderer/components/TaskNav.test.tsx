@@ -13,7 +13,7 @@ const repos: Repo[] = [
     path: '/src/webshop',
     baseBranch: 'main',
     connectionId: null,
-    miacYmlFound: true,
+    configFound: true,
     discovered: false,
     workItemOnStart: {
       moveToInProgress: true,
@@ -27,7 +27,7 @@ const repos: Repo[] = [
     path: '/src/api',
     baseBranch: 'develop',
     connectionId: null,
-    miacYmlFound: false,
+    configFound: false,
     discovered: false,
     workItemOnStart: {
       moveToInProgress: true,
@@ -190,7 +190,7 @@ describe('TaskNav', () => {
           id: 'c1',
           name: 'unreliablewitness',
           organizationUrl: 'https://dev.azure.com/unreliablewitness',
-          project: 'MIAC',
+          project: 'Shellie',
           user: 'D',
           status: 'unauthorized',
           checkedAt: null,
@@ -276,12 +276,12 @@ describe('TaskNav', () => {
       userUniqueName: null,
     });
     useStore.setState({
-      connections: [conn('c1', 'MIAC'), conn('c2', 'DXP')],
+      connections: [conn('c1', 'Shellie'), conn('c2', 'DXP')],
       selectedTaskId: null,
     });
     render(<TaskNav />);
     await userEvent.click(
-      screen.getByRole('button', { name: 'Project MIAC, switch project' }),
+      screen.getByRole('button', { name: 'Project Shellie, switch project' }),
     );
     const menu = screen.getByRole('menu', { name: 'Projects' });
     await userEvent.click(
@@ -307,13 +307,13 @@ describe('TaskNav', () => {
       userUniqueName: null,
     });
     useStore.setState({
-      connections: [conn('c1', 'MIAC'), conn('c2', 'DXP')],
+      connections: [conn('c1', 'Shellie'), conn('c2', 'DXP')],
       connectionId: 'c1',
       selectedTaskId: null,
     });
     render(<TaskNav />);
     const trigger = screen.getByRole('button', {
-      name: 'Project MIAC, switch project',
+      name: 'Project Shellie, switch project',
     });
     expect(trigger).toHaveAttribute('aria-haspopup', 'menu');
     expect(trigger).toHaveAttribute('aria-expanded', 'false');
@@ -366,7 +366,7 @@ describe('TaskNav', () => {
     expect(screen.getByRole('navigation', { name: 'Tasks' })).toHaveClass(
       'is-rail',
     );
-    expect(localStorage.getItem('miac.ui.navCollapsed')).toBe('true');
+    expect(localStorage.getItem('shellie.ui.navCollapsed')).toBe('true');
     const rail = screen.getByRole('button', { name: /48213 Checkout/ });
     expect(
       within(rail).getByRole('img', { name: 'User Story' }),

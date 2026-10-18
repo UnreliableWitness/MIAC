@@ -45,7 +45,7 @@ function setup(over: Partial<AutoUpdateDeps> = {}) {
     platform: 'win32',
     arch: 'x64',
     version: '1.2.3',
-    argv: ['MIAC.exe'],
+    argv: ['Shellie.exe'],
     enabled: undefined,
     updater,
     onReady: vi.fn(),
@@ -62,7 +62,7 @@ function setup(over: Partial<AutoUpdateDeps> = {}) {
 describe('updateFeedUrl', () => {
   it('points at update.electronjs.org for this repo, platform-arch and version', () => {
     expect(updateFeedUrl('win32', 'x64', '1.2.3')).toBe(
-      'https://update.electronjs.org/UnreliableWitness/MIAC/win32-x64/1.2.3',
+      'https://update.electronjs.org/UnreliableWitness/Shellie/win32-x64/1.2.3',
     );
   });
 });
@@ -99,7 +99,7 @@ describe('startAutoUpdate', () => {
   it('sets the feed, checks after a short delay and then hourly', () => {
     const { updater, timeouts, intervals } = setup();
     expect(updater.setFeedURL).toHaveBeenCalledWith({
-      url: 'https://update.electronjs.org/UnreliableWitness/MIAC/win32-x64/1.2.3',
+      url: 'https://update.electronjs.org/UnreliableWitness/Shellie/win32-x64/1.2.3',
     });
     expect(updater.checkForUpdates).not.toHaveBeenCalled();
     const [first] = [...timeouts.values()];
@@ -114,7 +114,7 @@ describe('startAutoUpdate', () => {
 
   it('skips the start-up check on a Squirrel first run but keeps the hourly one', () => {
     const { timeouts, intervals } = setup({
-      argv: ['MIAC.exe', '--squirrel-firstrun'],
+      argv: ['Shellie.exe', '--squirrel-firstrun'],
     });
     expect(timeouts.size).toBe(0);
     expect(intervals.size).toBe(1);
@@ -134,8 +134,8 @@ describe('startAutoUpdate', () => {
   it('on download: reports it ready once, stops checking and installs only when asked', () => {
     const { emit, deps, updater, handle, timeouts, intervals } = setup();
     expect(handle?.install()).toBe(false);
-    emit('update-downloaded', {}, '', 'MIAC v1.3.0 (unsigned)');
-    emit('update-downloaded', {}, '', 'MIAC v1.3.0 (unsigned)');
+    emit('update-downloaded', {}, '', 'Shellie v1.3.0 (unsigned)');
+    emit('update-downloaded', {}, '', 'Shellie v1.3.0 (unsigned)');
     expect(deps.onReady).toHaveBeenCalledTimes(1);
     expect(deps.onReady).toHaveBeenCalledWith('1.3.0');
     expect(timeouts.size + intervals.size).toBe(0);
@@ -153,7 +153,7 @@ describe('startAutoUpdate', () => {
 
 describe('releaseVersion', () => {
   it('finds the version in a release name, or gives null', () => {
-    expect(releaseVersion('MIAC v1.0.3 (unsigned)')).toBe('1.0.3');
+    expect(releaseVersion('Shellie v1.0.3 (unsigned)')).toBe('1.0.3');
     expect(releaseVersion('1.2.0-beta.1')).toBe('1.2.0-beta.1');
     expect(releaseVersion('')).toBeNull();
     expect(releaseVersion(undefined)).toBeNull();

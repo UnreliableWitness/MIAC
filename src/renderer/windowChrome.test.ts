@@ -7,7 +7,7 @@ describe('installWindowChrome', () => {
     const { emit } = installFakeApi();
     const root = document.createElement('div');
     const off = installWindowChrome(
-      { ...window.miac!, titleBar: 'inset' },
+      { ...window.shellie!, titleBar: 'inset' },
       root,
     );
     expect(root.dataset.titlebar).toBe('inset');

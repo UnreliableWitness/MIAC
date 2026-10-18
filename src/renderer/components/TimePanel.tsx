@@ -30,7 +30,7 @@ export function TimePanel({ taskId }: { taskId: string }) {
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
     const a = document.createElement('a');
     a.href = url;
-    a.download = `miac-time-${task.slug}.csv`;
+    a.download = `shellie-time-${task.slug}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };

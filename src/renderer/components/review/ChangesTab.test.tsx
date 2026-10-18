@@ -800,7 +800,7 @@ describe('ChangesTab file tree', () => {
     // List order is the order git gave: z.md, src/b.ts, src/a.ts; from the last it wraps.
     await after('new z.md');
     expect(
-      JSON.parse(localStorage.getItem('miac.review.prefs') ?? '{}').fileView,
+      JSON.parse(localStorage.getItem('shellie.review.prefs') ?? '{}').fileView,
     ).toBe('list');
   });
 

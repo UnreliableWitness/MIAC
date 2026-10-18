@@ -1,6 +1,6 @@
-# MIAC — "Me, I'm Counting"
+# Shellie — Development tasks as isolated workspaces, with AI cost per task
 
-[![CI](https://github.com/UnreliableWitness/MIAC/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/UnreliableWitness/MIAC/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/UnreliableWitness/MIAC?include_prereleases&sort=semver)](https://github.com/UnreliableWitness/MIAC/releases) ![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS-blue) ![Electron](https://img.shields.io/badge/Electron-44.7.2-47848F?logo=electron&logoColor=white) [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![CI](https://github.com/UnreliableWitness/Shellie/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/UnreliableWitness/Shellie/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/UnreliableWitness/Shellie?include_prereleases&sort=semver)](https://github.com/UnreliableWitness/Shellie/releases) ![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS-blue) ![Electron](https://img.shields.io/badge/Electron-44.7.2-47848F?logo=electron&logoColor=white) [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 Named after a Culture ship. A desktop app for running development tasks as isolated workspaces, with AI cost tracking per task.
 
@@ -23,8 +23,8 @@ Named after a Culture ship. A desktop app for running development tasks as isola
 
 ## Conventions
 
-- Per-repo setup file: `.miac.yml` (setup commands, terminals, dev server, etc.).
-- CLI entry point: `miac start <workitem>`.
+- Per-repo setup file: `.shellie.yml` (setup commands, terminals, dev server, etc.).
+- CLI entry point: `shellie start <workitem>`.
 
 ## Status
 
@@ -32,4 +32,4 @@ Working app (Electron, macOS for development, Windows as the release target): ta
 
 ## Windows
 
-The Windows installer (`MIAC-Setup.exe`) is built by CI. Get it from the Actions run (artifact `MIAC-Setup-<sha>`) or, for `v*` tags, from the GitHub Release. Verify a build with [docs/windows-checklist.md](docs/windows-checklist.md). Signing details are in `tools/windows-sign/README.md`.
+The Windows installer (`Shellie-Setup.exe`) is built by CI. Get it from the Actions run (artifact `Shellie-Setup-<sha>`) or, for `v*` tags, from the GitHub Release. Verify a build with [docs/windows-checklist.md](docs/windows-checklist.md). Signing details are in `tools/windows-sign/README.md`.

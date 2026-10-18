@@ -29,7 +29,7 @@ export interface Platform {
   cloneDir?(src: string, dest: string): Command;
   /**
    * Start Claude Code. `context` (the task) is appended to its system prompt, so Claude knows the task but waits
-   * for the user's first message; null when resuming, as the session already has it. `flags` are MIAC's own
+   * for the user's first message; null when resuming, as the session already has it. `flags` are Shellie's own
    * (session id, resume).
    */
   claudeCommand(context: string | null, flags?: string[]): Command;

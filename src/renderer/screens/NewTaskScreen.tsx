@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { renderBranch, taskSlug } from '../../shared/naming';
-import type { MiacConfig, WorkItemRef, WorkItemType } from '../../shared/types';
+import type {
+  ShellieConfig,
+  WorkItemRef,
+  WorkItemType,
+} from '../../shared/types';
 import { api, tryInvoke } from '../api';
 import { PageHeader, Pivots, WorkItemTypeIcon } from '../components/ui';
 import { WorkItemPicker } from '../components/WorkItemPicker';
@@ -43,7 +47,7 @@ export function NewTaskScreen({
   );
   useEscape(back);
   const [config, setConfig] = useState<{
-    config: MiacConfig;
+    config: ShellieConfig;
     worktreeRoot: string;
   } | null>(null);
   const [id, setId] = useState('');
@@ -314,7 +318,7 @@ export function NewTaskScreen({
             </span>
           </div>
           <fieldset className="group">
-            <legend>Setup from .miac.yml</legend>
+            <legend>Setup from .shellie.yml</legend>
             {config && config.config.copy.length > 0 && (
               <label className="checkbox">
                 <input

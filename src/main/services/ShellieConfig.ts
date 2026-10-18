@@ -2,17 +2,17 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
-import type { MiacConfig } from '../../shared/types';
+import type { ShellieConfig } from '../../shared/types';
 
 export const DEFAULT_BRANCH_TEMPLATE = '{type}/{id}-{slug}';
 
-export class MiacConfigError extends Error {
+export class ShellieConfigError extends Error {
   constructor(
     public readonly file: string,
     detail: string,
   ) {
     super(`${file}: ${detail}`);
-    this.name = 'MiacConfigError';
+    this.name = 'ShellieConfigError';
   }
 }
 
@@ -21,7 +21,7 @@ const listOrString = z.union([
   z.array(z.string()),
 ]);
 
-const MiacYmlSchema = z.strictObject({
+const ShellieYmlSchema = z.strictObject({
   base: z.string().default('main'),
   branch: z.string().default(DEFAULT_BRANCH_TEMPLATE),
   copy: listOrString.default([]),
@@ -40,19 +40,24 @@ async function exists(p: string): Promise<boolean> {
   }
 }
 
-export async function loadMiacConfig(repoPath: string): Promise<MiacConfig> {
-  const file = path.join(repoPath, '.miac.yml');
+/** `.shellie.yml`, else the pre-rename `.miac.yml`, else null. */
+export async function configFileFor(repoPath: string): Promise<string | null> {
+  for (const name of ['.shellie.yml', '.miac.yml']) {
+    const file = path.join(repoPath, name);
+    if (await exists(file)) return file;
+  }
+  return null;
+}
+
+export async function loadShellieConfig(
+  repoPath: string,
+): Promise<ShellieConfig> {
+  const file = await configFileFor(repoPath);
   const defaultSetup = (await exists(path.join(repoPath, 'package-lock.json')))
     ? ['npm ci']
     : [];
 
-  let text: string | null = null;
-  try {
-    text = await fs.readFile(file, 'utf8');
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
-  }
-  if (text === null) {
+  if (file === null) {
     return {
       base: 'main',
       branch: DEFAULT_BRANCH_TEMPLATE,
@@ -63,20 +68,24 @@ export async function loadMiacConfig(repoPath: string): Promise<MiacConfig> {
     };
   }
 
+  const text = await fs.readFile(file, 'utf8');
   let doc: unknown;
   try {
     doc = parseYaml(text) ?? {};
   } catch (e) {
-    throw new MiacConfigError(file, `not valid YAML: ${(e as Error).message}`);
+    throw new ShellieConfigError(
+      file,
+      `not valid YAML: ${(e as Error).message}`,
+    );
   }
-  const parsed = MiacYmlSchema.safeParse(doc);
+  const parsed = ShellieYmlSchema.safeParse(doc);
   if (!parsed.success) {
     const detail = parsed.error.issues
       .map(
         (i) => `${i.path.length ? i.path.join('.') : '(root)'}: ${i.message}`,
       )
       .join('; ');
-    throw new MiacConfigError(file, detail);
+    throw new ShellieConfigError(file, detail);
   }
   const c = parsed.data;
   return {

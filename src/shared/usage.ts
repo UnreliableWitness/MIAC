@@ -45,7 +45,7 @@ export const RateSchema = z.object({
 });
 export type Rate = z.infer<typeof RateSchema>;
 
-/** Built-in exchange rate used for every EUR amount, so all teammates on the same MIAC version write identical numbers. Changes only with an app update. */
+/** Built-in exchange rate used for every EUR amount, so all teammates on the same Shellie version write identical numbers. Changes only with an app update. */
 export const OFFICIAL_USD_TO_EUR = 0.92;
 
 export const AppSettingsSchema = z.object({

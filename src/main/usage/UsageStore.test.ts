@@ -19,7 +19,7 @@ afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 const dir = () => {
-  const d = mkdtempSync(path.join(os.tmpdir(), 'miac-usage-'));
+  const d = mkdtempSync(path.join(os.tmpdir(), 'shellie-usage-'));
   dirs.push(d);
   return d;
 };

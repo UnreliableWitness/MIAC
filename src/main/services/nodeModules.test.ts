@@ -75,7 +75,7 @@ describe('lockMatches', () => {
 });
 
 describe('nodeModulesMatch', () => {
-  const dir = mkdtempSync(path.join(os.tmpdir(), 'miac-nm-'));
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'shellie-nm-'));
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
   it('reads the hidden lockfile and the package lock from disk', async () => {

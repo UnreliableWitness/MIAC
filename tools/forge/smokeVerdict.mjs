@@ -1,5 +1,5 @@
 // The pass/fail rule of the packaged smoke check (tools/forge/smoke.mjs), kept apart so it can be tested.
-export const SMOKE_MARKER = 'MIAC_SMOKE_OK';
+export const SMOKE_MARKER = 'SHELLIE_SMOKE_OK';
 
 /**
  * Passes when the app printed the marker and was not killed by our timeout. The exit code must be 0,

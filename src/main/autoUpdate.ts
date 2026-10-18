@@ -10,7 +10,7 @@
  * Everything Electron-specific is injected, so this module is testable without Electron.
  */
 
-export const UPDATE_REPO = 'UnreliableWitness/MIAC';
+export const UPDATE_REPO = 'UnreliableWitness/Shellie';
 export const UPDATE_SERVER = 'https://update.electronjs.org';
 /** First check after start: lets the boot and the first terminals settle. */
 export const FIRST_CHECK_DELAY_MS = 30 * 1000;
@@ -62,7 +62,7 @@ export type AutoUpdate = {
   install(): boolean;
 };
 
-/** "MIAC v1.0.3 (unsigned)" -> "1.0.3"; null when the name holds no version. */
+/** "Shellie v1.0.3 (unsigned)" -> "1.0.3"; null when the name holds no version. */
 export function releaseVersion(name: string | undefined): string | null {
   return name?.match(/\d+\.\d+\.\d+(?:-[\w.]+)?/)?.[0] ?? null;
 }

@@ -68,7 +68,7 @@ const toolLine = (cwd: string, name: string, input: unknown) =>
 async function setup(
   opts: { terminals?: TerminalDef[]; closedTerminals?: TerminalDef[] } = {},
 ) {
-  const store = new TaskStore(path.join(tempDir('miac-det-'), 'state.json'));
+  const store = new TaskStore(path.join(tempDir('shellie-det-'), 'state.json'));
   await store.load();
   const client = new GitClient();
   const repos = new RepoRegistry(store, client);
@@ -97,7 +97,7 @@ async function setup(
   await store.update((s) => {
     s.tasks.push(task);
   });
-  const projectsDir = tempDir('miac-projects-');
+  const projectsDir = tempDir('shellie-projects-');
   const sessionDir = path.join(projectsDir, 'some-folder');
   mkdirSync(sessionDir);
   const sessionFile = path.join(sessionDir, `${SESSION}.jsonl`);
@@ -227,7 +227,7 @@ describe('WorkspaceDetector.scan', () => {
 
   it('ignores a write to a folder that is not a git repo', async () => {
     const env = await setup();
-    const plain = tempDir('miac-plain-');
+    const plain = tempDir('shellie-plain-');
     env.log(
       toolLine(env.homeWt, 'Write', {
         file_path: path.join(plain, 'notes.md'),
@@ -421,7 +421,7 @@ describe('WorkspaceDetector.add and remove', () => {
       'b is the main checkout; pick a worktree',
     );
     await expect(
-      env.detector.add('t1', tempDir('miac-plain-')),
+      env.detector.add('t1', tempDir('shellie-plain-')),
     ).rejects.toThrow(/not in a git repository/);
     await expect(env.detector.add('t1', env.homeWt)).rejects.toThrow(
       /already in this task/,

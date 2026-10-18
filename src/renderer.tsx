@@ -1,3 +1,5 @@
+// First on purpose: ES imports run before this module's body, so the prefs copy must be an import ahead of the store.
+import './renderer/migratePrefsNow';
 import '@fontsource/jetbrains-mono/400.css';
 import '@fontsource/jetbrains-mono/600.css';
 import { createRoot } from 'react-dom/client';
@@ -8,5 +10,5 @@ import './renderer/styles/app.css';
 import './renderer/styles/review.css';
 
 installErrorTracking();
-if (window.miac) installWindowChrome(window.miac);
+if (window.shellie) installWindowChrome(window.shellie);
 createRoot(document.getElementById('root')!).render(<App />);

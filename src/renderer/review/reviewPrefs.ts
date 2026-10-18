@@ -5,7 +5,7 @@ export type ReviewPrefs = {
   /** The Files panel as a folder tree or a flat list. */
   fileView: 'tree' | 'list';
 };
-const KEY = 'miac.review.prefs';
+const KEY = 'shellie.review.prefs';
 const DEFAULT: ReviewPrefs = {
   sideBySide: true,
   ignoreWhitespace: false,

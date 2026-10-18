@@ -185,8 +185,8 @@ describe('GitClient', () => {
       path: wt,
       baseRef: 'main',
     });
-    git(wt, 'config', 'user.email', 'tests@miac.local');
-    git(wt, 'config', 'user.name', 'MIAC tests');
+    git(wt, 'config', 'user.email', 'tests@shellie.local');
+    git(wt, 'config', 'user.name', 'Shellie tests');
     commitFile(wt, 'z.txt', 'z');
     const s = await client.summary(wt, 'main');
     expect(s.branch).toBe('feature/z');
@@ -220,7 +220,7 @@ describe('GitClient', () => {
 
   it('gives a non-empty reason when git cannot be spawned', async () => {
     const err = await client
-      .run('/nonexistent-dir-miac', ['status'])
+      .run('/nonexistent-dir-shellie', ['status'])
       .catch((e: unknown) => e);
     expect(err).toBeInstanceOf(GitError);
     expect((err as GitError).message).toMatch(/ENOENT|spawn|no such file/i);
@@ -478,8 +478,8 @@ describe('GitClient', () => {
     await client.push(repo, 'origin', 'feature/q');
     const other = path.join(path.dirname(repo), 'other');
     git(path.dirname(repo), 'clone', '-q', bare, other);
-    git(other, 'config', 'user.email', 'tests@miac.local');
-    git(other, 'config', 'user.name', 'MIAC tests');
+    git(other, 'config', 'user.email', 'tests@shellie.local');
+    git(other, 'config', 'user.name', 'Shellie tests');
     git(other, 'checkout', '-q', 'feature/q');
     commitFile(other, 'o.txt', 'o');
     git(other, 'push', '-q', 'origin', 'feature/q');

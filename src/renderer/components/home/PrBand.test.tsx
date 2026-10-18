@@ -27,7 +27,7 @@ const pr = (id: number, over: Partial<HomePr> = {}): HomePr => ({
 const conn = (over: Partial<HomeConnection>): HomeConnection => ({
   connectionId: 'c1',
   name: 'uw',
-  project: 'MIAC',
+  project: 'Shellie',
   status: 'ok',
   error: null,
   fetchedAt: '2026-10-17T09:12:00Z',
@@ -141,7 +141,7 @@ describe('PrBand', () => {
       />,
     );
     expect(
-      screen.getAllByText(/^Stale since \d\d:\d\d for uw\/MIAC: down$/),
+      screen.getAllByText(/^Stale since \d\d:\d\d for uw\/Shellie: down$/),
     ).toHaveLength(2);
     expect(screen.queryByText('No reviews waiting.')).toBeNull();
     expect(screen.queryByText('No open pull requests.')).toBeNull();
@@ -156,9 +156,9 @@ describe('PrBand', () => {
         )}
       />,
     );
-    expect(screen.getAllByText("Couldn't load uw/MIAC: refused")).toHaveLength(
-      2,
-    );
+    expect(
+      screen.getAllByText("Couldn't load uw/Shellie: refused"),
+    ).toHaveLength(2);
     expect(screen.queryByText('No reviews waiting.')).toBeNull();
   });
 

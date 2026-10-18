@@ -12,7 +12,7 @@ const webshop: Repo = {
   path: '/src/webshop',
   baseBranch: 'main',
   connectionId: null,
-  miacYmlFound: true,
+  configFound: true,
   discovered: false,
   workItemOnStart: {
     moveToInProgress: true,
@@ -187,7 +187,7 @@ describe('NewTaskScreen', () => {
     const { calls } = installFakeApi({
       'repos:config': () => config,
       'workItems:currentIteration': () => ({
-        path: 'MIAC\\Sprint 1',
+        path: 'Shellie\\Sprint 1',
         name: 'Sprint 1',
       }),
       'workItems:search': () => [],
@@ -201,7 +201,7 @@ describe('NewTaskScreen', () => {
           id: 'c1',
           name: 'uw',
           organizationUrl: 'https://dev.azure.com/unreliablewitness',
-          project: 'MIAC',
+          project: 'Shellie',
           user: 'D',
           status: 'ok',
           checkedAt: null,
@@ -213,7 +213,7 @@ describe('NewTaskScreen', () => {
       id: '12',
       type: 'Bug',
       title: 'Broken checkout',
-      url: 'https://dev.azure.com/unreliablewitness/MIAC/_workitems/edit/12',
+      url: 'https://dev.azure.com/unreliablewitness/Shellie/_workitems/edit/12',
     };
     render(<NewTaskScreen initial={{ workItem, repoId: 'r2' }} />);
     expect(screen.getByLabelText('Repo')).toHaveValue('r2');
@@ -247,7 +247,7 @@ describe('NewTaskScreen', () => {
     const { calls } = installFakeApi({
       'repos:config': () => config,
       'workItems:currentIteration': () => ({
-        path: 'MIAC\\Sprint 1',
+        path: 'Shellie\\Sprint 1',
         name: 'Sprint 1',
       }),
       'workItems:search': () => [
@@ -256,10 +256,10 @@ describe('NewTaskScreen', () => {
           type: 'Issue',
           title: 'Save delivery address',
           state: 'To Do',
-          areaPath: 'MIAC',
-          iterationPath: 'MIAC\\Sprint 1',
+          areaPath: 'Shellie',
+          iterationPath: 'Shellie\\Sprint 1',
           assignedTo: null,
-          url: 'https://dev.azure.com/unreliablewitness/MIAC/_workitems/edit/12',
+          url: 'https://dev.azure.com/unreliablewitness/Shellie/_workitems/edit/12',
         },
       ],
       'tasks:create': () => ({ id: 't9' }) as never,
@@ -271,7 +271,7 @@ describe('NewTaskScreen', () => {
           id: 'c1',
           name: 'uw',
           organizationUrl: 'https://dev.azure.com/unreliablewitness',
-          project: 'MIAC',
+          project: 'Shellie',
           user: 'D',
           status: 'ok',
           checkedAt: null,
@@ -297,7 +297,7 @@ describe('NewTaskScreen', () => {
           id: '12',
           type: 'Issue',
           title: 'Save delivery address',
-          url: 'https://dev.azure.com/unreliablewitness/MIAC/_workitems/edit/12',
+          url: 'https://dev.azure.com/unreliablewitness/Shellie/_workitems/edit/12',
         },
       }),
     );
@@ -307,7 +307,7 @@ describe('NewTaskScreen', () => {
     id: 'c1',
     name: 'uw',
     organizationUrl: 'https://dev.azure.com/unreliablewitness',
-    project: 'MIAC',
+    project: 'Shellie',
     user: 'D',
     status: 'ok' as const,
     checkedAt: null,
@@ -371,7 +371,7 @@ describe('NewTaskScreen', () => {
           type: 'Issue',
           title: 'Save delivery address',
           state: 'To Do',
-          areaPath: 'MIAC',
+          areaPath: 'Shellie',
           iterationPath: 'p',
           assignedTo: null,
           url: 'https://dev.azure.com/o/p/_workitems/edit/12',

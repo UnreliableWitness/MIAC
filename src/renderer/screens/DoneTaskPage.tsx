@@ -142,7 +142,7 @@ function WorkspaceCommits({ w }: { w: WorkspaceView }) {
       <p className="done-nosummary muted">
         {w.baseSha
           ? 'No summary: git could not read the branch when it finished.'
-          : 'Finished before MIAC recorded summaries.'}
+          : 'Finished before Shellie recorded summaries.'}
       </p>
     );
   return (
@@ -152,7 +152,7 @@ function WorkspaceCommits({ w }: { w: WorkspaceView }) {
       </h2>
       {!s.baseKnown ? (
         <p className="muted">
-          Commits unavailable: MIAC could not find where this branch started.
+          Commits unavailable: Shellie could not find where this branch started.
         </p>
       ) : s.commits.length === 0 ? (
         <p className="muted">No commits on this branch.</p>
@@ -175,7 +175,7 @@ function WorkspaceCommits({ w }: { w: WorkspaceView }) {
   );
 }
 
-/** The repo's name, or its worktree folder when the repo was removed from MIAC. */
+/** The repo's name, or its worktree folder when the repo was removed from Shellie. */
 function useRepoName(w: WorkspaceView): string {
   const repos = useStore((s) => s.repos);
   return (

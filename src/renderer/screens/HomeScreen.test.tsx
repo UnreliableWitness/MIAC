@@ -13,7 +13,7 @@ export const connection: Connection = {
   id: 'c1',
   name: 'uw',
   organizationUrl: 'https://dev.azure.com/uw',
-  project: 'MIAC',
+  project: 'Shellie',
   user: 'D',
   status: 'ok',
   checkedAt: null,
@@ -27,7 +27,7 @@ export const snapshot = (over: Partial<HomeSnapshot> = {}): HomeSnapshot => ({
     {
       connectionId: 'c1',
       name: 'uw',
-      project: 'MIAC',
+      project: 'Shellie',
       status: 'ok',
       error: null,
       fetchedAt: new Date().toISOString(),
@@ -61,7 +61,7 @@ describe('Home page', () => {
     render(<Shell />);
     expect(await screen.findByRole('heading', { name: 'Home' })).toBeTruthy();
     expect(
-      screen.getByRole('button', { name: 'uw: MIAC, connected' }),
+      screen.getByRole('button', { name: 'uw: Shellie, connected' }),
     ).toBeTruthy();
     // Fresh snapshot: no rebuild on open.
     expect(calls.some((c) => c.channel === 'home:refresh')).toBe(false);
@@ -112,7 +112,9 @@ describe('Home page', () => {
       ),
     );
     expect(
-      await screen.findByRole('button', { name: 'uw: MIAC, stale: refused' }),
+      await screen.findByRole('button', {
+        name: 'uw: Shellie, stale: refused',
+      }),
     ).toBeTruthy();
   });
 
@@ -120,7 +122,7 @@ describe('Home page', () => {
     installFakeApi({ 'home:get': () => snapshot() });
     render(<Shell />);
     await userEvent.click(
-      await screen.findByRole('button', { name: 'uw: MIAC, connected' }),
+      await screen.findByRole('button', { name: 'uw: Shellie, connected' }),
     );
     expect(useStore.getState().screen.kind).toBe('settings');
   });
@@ -210,7 +212,7 @@ describe('Home page', () => {
     useStore.setState({ screen: { kind: 'settings' } });
     render(<Shell />);
     await userEvent.click(
-      screen.getByRole('button', { name: 'MIAC, go to Home' }),
+      screen.getByRole('button', { name: 'Shellie, go to Home' }),
     );
     expect(useStore.getState().screen.kind).toBe('home');
     await userEvent.click(screen.getByRole('button', { name: 'Sprint' }));

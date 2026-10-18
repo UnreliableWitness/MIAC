@@ -17,7 +17,7 @@ afterEach(() => {
 
 /** An extracted Electron folder with the given files in locales/. */
 function build(files: string[] | null): string {
-  const dir = mkdtempSync(path.join(os.tmpdir(), 'miac-locales-'));
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'shellie-locales-'));
   dirs.push(dir);
   if (files) {
     mkdirSync(path.join(dir, 'locales'));

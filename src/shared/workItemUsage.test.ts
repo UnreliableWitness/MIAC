@@ -78,7 +78,7 @@ describe('workItemUsage', () => {
     ]);
     expect(renderUsageComment(u, ['feature/48213-save-delivery-address'])).toBe(
       [
-        `AI usage for this work item (MIAC): ${EURO}23.85`,
+        `AI usage for this work item (Shellie): ${EURO}23.85`,
         `Claude Code: ${EURO}21.10 over 4 sessions (claude-opus-5-5, claude-sonnet-5-5)`,
         `Copilot CLI: ${EURO}2.75 over 2 sessions (gpt-5.5)`,
         'Branch feature/48213-save-delivery-address',
@@ -95,7 +95,7 @@ describe('workItemUsage', () => {
     });
     expect(renderUsageComment(u, ['b'])).toBe(
       [
-        `AI usage for this work item (MIAC): ${EURO}1.00`,
+        `AI usage for this work item (Shellie): ${EURO}1.00`,
         `Claude Code: ${EURO}1.00 over 1 session (claude-opus-5-5)`,
         'plus 3 requests with unpriced models',
         'Branch b',

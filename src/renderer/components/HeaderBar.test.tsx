@@ -68,7 +68,7 @@ const usage = {
 };
 
 async function openCard() {
-  await userEvent.tab(); // MIAC
+  await userEvent.tab(); // Shellie
   await userEvent.tab(); // project
   await userEvent.tab(); // task crumb
   return screen.findByRole('dialog', { name: 'Task details' });
@@ -93,7 +93,7 @@ beforeEach(() => {
         path: '/r',
         baseBranch: 'main',
         connectionId: 'c1',
-        miacYmlFound: true,
+        configFound: true,
         discovered: false,
         workItemOnStart: {
           moveToInProgress: true,
@@ -118,11 +118,11 @@ beforeEach(() => {
 });
 
 describe('HeaderBar', () => {
-  it('shows MIAC, the project and the task as breadcrumb links', async () => {
+  it('shows Shellie, the project and the task as breadcrumb links', async () => {
     installFakeApi();
     render(<HeaderBar />);
     expect(crumbs()).toEqual([
-      'MIAC',
+      'Shellie',
       'DXP',
       'User Story 48213 Checkout: allow saving a delivery address',
     ]);
@@ -142,11 +142,11 @@ describe('HeaderBar', () => {
       rerender(<HeaderBar />);
       return crumbs();
     };
-    expect(at({ kind: 'sprint' })).toEqual(['MIAC', 'DXP', 'Sprint']);
-    expect(at({ kind: 'settings' })).toEqual(['MIAC', 'Settings']);
-    expect(at({ kind: 'new-task' })).toEqual(['MIAC', 'DXP', 'New task']);
+    expect(at({ kind: 'sprint' })).toEqual(['Shellie', 'DXP', 'Sprint']);
+    expect(at({ kind: 'settings' })).toEqual(['Shellie', 'Settings']);
+    expect(at({ kind: 'new-task' })).toEqual(['Shellie', 'DXP', 'New task']);
     expect(at({ kind: 'setup', taskId: 'a' })).toEqual([
-      'MIAC',
+      'Shellie',
       'DXP',
       'User Story 48213 Checkout: allow saving a delivery address',
       'Setup',
@@ -157,14 +157,14 @@ describe('HeaderBar', () => {
     installFakeApi();
     useStore.setState({ connections: [], screen: { kind: 'sprint' } });
     render(<HeaderBar />);
-    expect(crumbs()).toEqual(['MIAC', 'Sprint']);
+    expect(crumbs()).toEqual(['Shellie', 'Sprint']);
   });
-  it('goes to Home from the MIAC crumb', async () => {
+  it('goes to Home from the Shellie crumb', async () => {
     installFakeApi();
     useStore.setState({ screen: { kind: 'settings' } });
     render(<HeaderBar />);
     await userEvent.click(
-      screen.getByRole('button', { name: 'MIAC, go to Home' }),
+      screen.getByRole('button', { name: 'Shellie, go to Home' }),
     );
     expect(useStore.getState().screen).toEqual({ kind: 'home' });
   });
@@ -229,7 +229,7 @@ describe('HeaderBar', () => {
   });
   it('opens the work item in Azure DevOps from the card', async () => {
     const url =
-      'https://dev.azure.com/unreliablewitness/MIAC/_workitems/edit/48213';
+      'https://dev.azure.com/unreliablewitness/Shellie/_workitems/edit/48213';
     const { calls } = installFakeApi({
       'tasks:gitSummary': () => git,
       'shell:openExternal': () => undefined,

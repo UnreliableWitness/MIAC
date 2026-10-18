@@ -11,7 +11,7 @@ import {
 
 describe('claudeSessionExists', () => {
   it('finds a session file in any project folder', () => {
-    const dir = mkdtempSync(path.join(os.tmpdir(), 'miac-claude-'));
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'shellie-claude-'));
     mkdirSync(path.join(dir, '-Users-d-src-webshop-worktrees-48231'));
     writeFileSync(
       path.join(dir, '-Users-d-src-webshop-worktrees-48231', 'abc.jsonl'),
@@ -23,7 +23,7 @@ describe('claudeSessionExists', () => {
 
   it('is false when Claude Code has no projects folder yet', () => {
     expect(
-      claudeSessionExists('abc', path.join(os.tmpdir(), 'miac-no-such-dir')),
+      claudeSessionExists('abc', path.join(os.tmpdir(), 'shellie-no-such-dir')),
     ).toBe(false);
   });
 
@@ -43,7 +43,7 @@ describe('claudeHasSessionsIn', () => {
   });
 
   it('is true when that folder holds a session', () => {
-    const dir = mkdtempSync(path.join(os.tmpdir(), 'miac-claude-'));
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'shellie-claude-'));
     const cwd = '/src/web.worktrees/1-a';
     expect(claudeHasSessionsIn(cwd, dir)).toBe(false);
     mkdirSync(path.join(dir, claudeProjectFolder(cwd)));

@@ -1,4 +1,4 @@
-// The app icon's ship without its tile (assets/icon/miac-small.svg): a trimaran heading up and right, each hull
+// The app icon's ship without its tile (assets/icon/shellie-small.svg): a trimaran heading up and right, each hull
 // with a lit and a shaded face.
 const FACES: [points: string, fill: string][] = [
   ['230,226 230,322 160,390 160,292', '#005ba1'],

@@ -17,7 +17,7 @@ describe('EditorSection', () => {
           path: '/x',
           baseBranch: 'main',
           connectionId: null,
-          miacYmlFound: true,
+          configFound: true,
           discovered: false,
         } as never,
       ],

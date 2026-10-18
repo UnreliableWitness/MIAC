@@ -7,7 +7,7 @@ import type {
   FinishRowResult,
   GitSummary,
   Iteration,
-  MiacConfig,
+  ShellieConfig,
   PullRequestRef,
   DocFile,
   NewTerminal,
@@ -57,7 +57,7 @@ export type Channels = {
   'repos:pickFolder': { args: []; result: string | null };
   'repos:config': {
     args: [repoId: string];
-    result: { config: MiacConfig; worktreeRoot: string };
+    result: { config: ShellieConfig; worktreeRoot: string };
   };
   'connections:list': { args: []; result: Connection[] };
   'connections:save': { args: [input: ConnectionInput]; result: Connection };
@@ -268,7 +268,7 @@ export type Channels = {
   'rates:list': { args: []; result: { rates: Rate[]; officialAsOf: string } };
   /** A downloaded update waiting for a restart; null when there is none (always in dev and on macOS). */
   'update:status': { args: []; result: PendingUpdate | null };
-  /** Quits MIAC and starts the downloaded update. */
+  /** Quits Shellie and starts the downloaded update. */
   'update:install': { args: []; result: void };
   'app:info': {
     args: [];
@@ -325,7 +325,7 @@ export type Handlers = {
   ) => Promise<Channels[K]['result']>;
 };
 
-export type MiacApi = {
+export type ShellieApi = {
   invoke<K extends keyof Channels>(
     channel: K,
     ...args: Channels[K]['args']
@@ -340,4 +340,4 @@ export type MiacApi = {
   titleBar: TitleBarKind;
 };
 
-export const EVENT_PREFIX = 'miac-event:';
+export const EVENT_PREFIX = 'shellie-event:';

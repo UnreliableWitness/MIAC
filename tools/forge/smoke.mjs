@@ -1,7 +1,7 @@
-// Runs the packaged app in smoke mode (MIAC_SMOKE=1) and checks that it prints MIAC_SMOKE_OK and exits 0
+// Runs the packaged app in smoke mode (SHELLIE_SMOKE=1) and checks that it prints SHELLIE_SMOKE_OK and exits 0
 // (or with an unknown exit code, see smokeVerdict.mjs).
 // Usage: node tools/forge/smoke.mjs [path to the packaged executable]
-// Without a path it finds out/*/MIAC.exe (Windows) or out/*/*.app/Contents/MacOS/MIAC (macOS).
+// Without a path it finds out/*/Shellie.exe (Windows) or out/*/*.app/Contents/MacOS/Shellie (macOS).
 // A hard timeout matters: when the main bundle cannot even load (a missing module), Electron shows a
 // modal error dialog and never exits, so the process is killed and the check fails. A second deadline
 // after the kill ends the check even when a helper process keeps the output pipes open.
@@ -19,17 +19,17 @@ function findExe() {
   const found = [];
   for (const dir of existsSync(out) ? readdirSync(out) : []) {
     const base = path.join(out, dir);
-    const exe = path.join(base, 'MIAC.exe');
+    const exe = path.join(base, 'Shellie.exe');
     if (process.platform === 'win32' && existsSync(exe)) found.push(exe);
     if (process.platform === 'darwin')
       for (const app of readdirSync(base).filter((f) => f.endsWith('.app'))) {
-        const bin = path.join(base, app, 'Contents', 'MacOS', 'MIAC');
+        const bin = path.join(base, app, 'Contents', 'MacOS', 'Shellie');
         if (existsSync(bin)) found.push(bin);
       }
   }
   if (found.length !== 1)
     throw new Error(
-      `Expected one packaged MIAC under out/, found: ${found.join(', ') || 'none'}`,
+      `Expected one packaged Shellie under out/, found: ${found.join(', ') || 'none'}`,
     );
   return found[0];
 }
@@ -37,7 +37,7 @@ function findExe() {
 const exe = process.argv[2] ?? findExe();
 console.log(`smoke: ${exe}`);
 const child = spawn(exe, [], {
-  env: { ...process.env, MIAC_SMOKE: '1' },
+  env: { ...process.env, SHELLIE_SMOKE: '1' },
   stdio: ['ignore', 'pipe', 'pipe'],
   windowsHide: true,
 });

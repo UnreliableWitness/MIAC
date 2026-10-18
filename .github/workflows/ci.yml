@@ -61,8 +61,8 @@ jobs:
         run: '"Windows installer: **unsigned** (this is not main or a v* tag)" >> $env:GITHUB_STEP_SUMMARY'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: MIAC-Setup-${{ github.sha }}
-          path: out/make/squirrel.windows/**/MIAC-Setup.exe
+          name: Shellie-Setup-${{ github.sha }}
+          path: out/make/squirrel.windows/**/Shellie-Setup.exe
           if-no-files-found: error
 
   windows-release:
@@ -181,8 +181,8 @@ jobs:
           if ($failed) { exit 1 }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: MIAC-Setup-${{ github.sha }}
-          path: out/make/squirrel.windows/**/MIAC-Setup.exe
+          name: Shellie-Setup-${{ github.sha }}
+          path: out/make/squirrel.windows/**/Shellie-Setup.exe
           if-no-files-found: error
       - name: Release
         # A normal release, signed or not: update.electronjs.org ignores drafts and prereleases.
@@ -194,7 +194,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ env.RELEASE_TAG }}
         run: |
-          $setup = Get-ChildItem out/make/squirrel.windows -Recurse -Filter MIAC-Setup.exe | Select-Object -First 1
+          $setup = Get-ChildItem out/make/squirrel.windows -Recurse -Filter Shellie-Setup.exe | Select-Object -First 1
           $dir = $setup.DirectoryName
           $releases = Join-Path $dir RELEASES
           if (-not (Test-Path $releases)) { throw "No RELEASES file next to $($setup.FullName)" }
@@ -205,6 +205,6 @@ jobs:
             if ($name -and -not (Test-Path (Join-Path $dir $name))) { throw "RELEASES names $name, which was not built" }
           }
           $assets = @($setup.FullName, $releases) + @($nupkgs | ForEach-Object FullName)
-          $title = if ($env:SIGN -eq 'true') { "MIAC $env:TAG" } else { "MIAC $env:TAG (unsigned)" }
+          $title = if ($env:SIGN -eq 'true') { "Shellie $env:TAG" } else { "Shellie $env:TAG (unsigned)" }
           gh release create $env:TAG @assets --title $title --generate-notes --target $env:GITHUB_SHA
           if ($LASTEXITCODE) { exit $LASTEXITCODE }

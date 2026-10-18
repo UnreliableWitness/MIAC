@@ -141,8 +141,8 @@ export function prDescription(input: PrDescriptionInput): string {
       ? `AI cost (whole task, ${input.costScope.repos} repos): ${input.costLine.slice(COST_LINE_PREFIX.length)}`
       : input.costLine;
   const footer = costLine
-    ? `${costLine} · recorded by MIAC`
-    : 'Recorded by MIAC';
+    ? `${costLine} · recorded by Shellie`
+    : 'Recorded by Shellie';
   const head = input.workItemUrl
     ? `${input.heading}\n\nWork item: ${input.workItemUrl}`
     : input.heading;

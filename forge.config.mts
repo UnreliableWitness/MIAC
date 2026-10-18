@@ -28,8 +28,8 @@ const config: ForgeConfig = {
     // Packaging targets the host platform and arch (see keepInPackage).
     asar: { unpack: '**/node_modules/node-pty/**' },
     ignore: (file: string) => !keepInPackage(file),
-    executableName: 'MIAC',
-    icon: 'assets/icon/miac',
+    executableName: 'Shellie',
+    icon: 'assets/icon/shellie',
     ...(signing ? { windowsSign: signing } : {}),
   },
   rebuildConfig: {},
@@ -50,13 +50,13 @@ const config: ForgeConfig = {
   },
   makers: [
     new MakerSquirrel({
-      name: 'miac',
-      setupExe: 'MIAC-Setup.exe',
-      setupIcon: 'assets/icon/miac.ico',
+      name: 'shellie',
+      setupExe: 'Shellie-Setup.exe',
+      setupIcon: 'assets/icon/shellie.ico',
       // Apps & features icon. Squirrel fetches it at install time, so it must be a URL; this one
-      // resolves once assets/icon/miac.ico is on main.
+      // resolves once assets/icon/shellie.ico is on main.
       iconUrl:
-        'https://raw.githubusercontent.com/UnreliableWitness/MIAC/main/assets/icon/miac.ico',
+        'https://raw.githubusercontent.com/UnreliableWitness/Shellie/main/assets/icon/shellie.ico',
       ...(signing ? { windowsSign: signing } : {}),
     }),
     new MakerZIP({}, ['darwin']),

@@ -115,8 +115,8 @@ describe('focus and rail', () => {
     useStore.getState().toggleFocus();
     useStore.getState().setNavCollapsed(true);
     expect(useStore.getState().focus).toBe(true);
-    expect(localStorage.getItem('miac.ui.focus')).toBe('true');
-    expect(localStorage.getItem('miac.ui.navCollapsed')).toBe('true');
+    expect(localStorage.getItem('shellie.ui.focus')).toBe('true');
+    expect(localStorage.getItem('shellie.ui.navCollapsed')).toBe('true');
   });
 });
 
@@ -175,7 +175,7 @@ describe('activeConnection', () => {
     path: `/${id}`,
     baseBranch: 'main',
     connectionId,
-    miacYmlFound: true,
+    configFound: true,
     discovered: false,
     workItemOnStart: {
       moveToInProgress: true,

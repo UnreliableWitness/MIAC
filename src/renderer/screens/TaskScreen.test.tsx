@@ -118,7 +118,7 @@ beforeEach(() =>
         path: '/src/webshop',
         baseBranch: 'main',
         connectionId: null,
-        miacYmlFound: true,
+        configFound: true,
         discovered: false,
         workItemOnStart: {
           moveToInProgress: true,
@@ -179,7 +179,7 @@ describe('TaskScreen', () => {
     );
   });
 
-  it('opens run commands from .miac.yml as new terminals', async () => {
+  it('opens run commands from .shellie.yml as new terminals', async () => {
     const { calls } = installFakeApi({
       'repos:config': () => config,
       'tasks:gitSummary': () => ({
@@ -314,7 +314,7 @@ describe('TaskScreen', () => {
 
   it('shows a Done page with a header, a local finish time and the usage panel', async () => {
     const url =
-      'https://dev.azure.com/unreliablewitness/MIAC/_workitems/edit/48213';
+      'https://dev.azure.com/unreliablewitness/Shellie/_workitems/edit/48213';
     const { calls } = installFakeApi({
       'shell:openExternal': () => undefined,
     });
@@ -631,7 +631,7 @@ describe('tabs and focus', () => {
     expect(document.querySelector('header.headerbar')).toBeNull();
     // The tab row stands in as the window's title bar (shell.css, #49).
     expect(document.querySelector('.app.in-focus')).not.toBeNull();
-    expect(localStorage.getItem('miac.ui.focus')).toBe('true');
+    expect(localStorage.getItem('shellie.ui.focus')).toBe('true');
     await userEvent.dblClick(
       screen.getByRole('tablist', { name: 'Terminals' }),
     );
@@ -868,7 +868,7 @@ describe('TaskScreen workspaces', () => {
     path: '/src/api',
     baseBranch: 'main',
     connectionId: null,
-    miacYmlFound: false,
+    configFound: false,
     discovered: false,
     workItemOnStart: {
       moveToInProgress: true,

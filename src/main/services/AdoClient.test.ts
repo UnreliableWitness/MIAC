@@ -29,9 +29,9 @@ describe('buildWiql', () => {
     const q = buildWiql({
       scope: 'sprint',
       text: '',
-      iterationPath: 'MIAC\\Sprint 1',
+      iterationPath: 'Shellie\\Sprint 1',
     });
-    expect(q).toContain("[System.IterationPath] = 'MIAC\\Sprint 1'");
+    expect(q).toContain("[System.IterationPath] = 'Shellie\\Sprint 1'");
     expect(q).toContain(
       "[System.State] NOT IN ('Closed', 'Removed', 'Done', 'Resolved')",
     );
@@ -73,10 +73,10 @@ describe('AdoClient.verify', () => {
     server.route('GET', '/unreliablewitness/_apis/connectionData', {
       body: { authenticatedUser: { providerDisplayName: 'Dries Hoebeke' } },
     });
-    server.route('GET', '/unreliablewitness/_apis/projects/MIAC', {
-      body: { id: 'p', name: 'MIAC' },
+    server.route('GET', '/unreliablewitness/_apis/projects/Shellie', {
+      body: { id: 'p', name: 'Shellie' },
     });
-    expect(await client.verify('MIAC')).toEqual({
+    expect(await client.verify('Shellie')).toEqual({
       user: 'Dries Hoebeke',
       uniqueName: null,
     });
@@ -92,10 +92,10 @@ describe('AdoClient.verify', () => {
         },
       },
     });
-    server.route('GET', '/unreliablewitness/_apis/projects/MIAC', {
-      body: { id: 'p', name: 'MIAC' },
+    server.route('GET', '/unreliablewitness/_apis/projects/Shellie', {
+      body: { id: 'p', name: 'Shellie' },
     });
-    expect(await client.verify('MIAC')).toEqual({
+    expect(await client.verify('Shellie')).toEqual({
       user: 'Me',
       uniqueName: 'me@x.com',
     });
@@ -105,7 +105,7 @@ describe('AdoClient.verify', () => {
       status: 401,
       body: { message: 'nope' },
     });
-    const err = await client.verify('MIAC').catch((e) => e);
+    const err = await client.verify('Shellie').catch((e) => e);
     expect(err).toBeInstanceOf(AdoError);
     expect(err.kind).toBe('unauthorized');
     expect(err.message).not.toContain('secret-pat');
@@ -116,7 +116,7 @@ describe('AdoClient.verify', () => {
       headers: { 'content-type': 'text/html' },
       raw: `${BOM}<!DOCTYPE html><html><title>Sign in</title></html>`,
     });
-    const err = await client.verify('MIAC').catch((e) => e);
+    const err = await client.verify('Shellie').catch((e) => e);
     expect(err.kind).toBe('unauthorized');
   });
   it('maps 403 with an html sign-in page to unauthorized', async () => {
@@ -125,7 +125,7 @@ describe('AdoClient.verify', () => {
       headers: { 'content-type': 'text/html' },
       raw: '<!DOCTYPE html><html><title>Sign in</title></html>',
     });
-    const err = await client.verify('MIAC').catch((e) => e);
+    const err = await client.verify('Shellie').catch((e) => e);
     expect(err).toBeInstanceOf(AdoError);
     expect(err.kind).toBe('unauthorized');
     expect(err.message).not.toContain('secret-pat');
@@ -170,10 +170,10 @@ describe('AdoClient.verify', () => {
         ? { status: 429, headers: { 'retry-after': '0' }, body: {} }
         : { body: { authenticatedUser: { providerDisplayName: 'D' } } },
     );
-    server.route('GET', '/unreliablewitness/_apis/projects/MIAC', {
-      body: { name: 'MIAC' },
+    server.route('GET', '/unreliablewitness/_apis/projects/Shellie', {
+      body: { name: 'Shellie' },
     });
-    expect(await client.verify('MIAC')).toEqual({
+    expect(await client.verify('Shellie')).toEqual({
       user: 'D',
       uniqueName: null,
     });
@@ -197,14 +197,14 @@ describe('AdoClient.verify', () => {
       async () => 'x',
       fake,
     );
-    expect(await c.verify('MIAC')).toEqual({ user: 'D', uniqueName: null });
+    expect(await c.verify('Shellie')).toEqual({ user: 'D', uniqueName: null });
   });
   it('maps a 302 redirect to unauthorized', async () => {
     server.route('GET', '/unreliablewitness/_apis/connectionData', {
       status: 302,
       headers: { location: '/signin' },
     });
-    const err = await client.verify('MIAC').catch((e) => e);
+    const err = await client.verify('Shellie').catch((e) => e);
     expect(err.kind).toBe('unauthorized');
   });
   it('maps a 200 text/html page to unauthorized', async () => {
@@ -212,7 +212,7 @@ describe('AdoClient.verify', () => {
       headers: { 'content-type': 'text/html' },
       raw: '<html>Sign in</html>',
     });
-    const err = await client.verify('MIAC').catch((e) => e);
+    const err = await client.verify('Shellie').catch((e) => e);
     expect(err.kind).toBe('unauthorized');
   });
 });
@@ -221,14 +221,14 @@ describe('AdoClient reads', () => {
   it('returns the current iteration or null', async () => {
     server.route(
       'GET',
-      '/unreliablewitness/MIAC/_apis/work/teamsettings/iterations',
+      '/unreliablewitness/Shellie/_apis/work/teamsettings/iterations',
       {
         body: {
           value: [
             {
               id: 'it-1',
               name: 'Sprint 1',
-              path: 'MIAC\\Sprint 1',
+              path: 'Shellie\\Sprint 1',
               attributes: {
                 startDate: '2026-10-15T00:00:00Z',
                 finishDate: '2026-10-28T00:00:00Z',
@@ -239,9 +239,9 @@ describe('AdoClient reads', () => {
         },
       },
     );
-    expect(await client.currentIteration('MIAC')).toEqual({
+    expect(await client.currentIteration('Shellie')).toEqual({
       id: 'it-1',
-      path: 'MIAC\\Sprint 1',
+      path: 'Shellie\\Sprint 1',
       name: 'Sprint 1',
       startDate: '2026-10-15T00:00:00Z',
       finishDate: '2026-10-28T00:00:00Z',
@@ -249,10 +249,10 @@ describe('AdoClient reads', () => {
     expect(server.requests.at(-1)?.path).toContain('$timeframe=current');
     server.route(
       'GET',
-      '/unreliablewitness/MIAC/_apis/work/teamsettings/iterations',
+      '/unreliablewitness/Shellie/_apis/work/teamsettings/iterations',
       { body: { value: [] } },
     );
-    expect(await client.currentIteration('MIAC')).toBeNull();
+    expect(await client.currentIteration('Shellie')).toBeNull();
   });
   it('encodes special characters in a project name', async () => {
     server.route(
@@ -263,7 +263,7 @@ describe('AdoClient reads', () => {
     expect(await client.currentIteration('A#B')).toBeNull();
   });
   it('searches: wiql then batch get, mapping fields and url', async () => {
-    server.route('POST', '/unreliablewitness/MIAC/_apis/wit/wiql', {
+    server.route('POST', '/unreliablewitness/Shellie/_apis/wit/wiql', {
       body: { workItems: [{ id: 12 }, { id: 7 }] },
     });
     server.route('GET', '/unreliablewitness/_apis/wit/workitems', {
@@ -275,13 +275,13 @@ describe('AdoClient reads', () => {
               'System.WorkItemType': 'Issue',
               'System.Title': 'Save address',
               'System.State': 'To Do',
-              'System.AreaPath': 'MIAC',
-              'System.IterationPath': 'MIAC\\Sprint 1',
+              'System.AreaPath': 'Shellie',
+              'System.IterationPath': 'Shellie\\Sprint 1',
               'System.AssignedTo': { displayName: 'Dries Hoebeke' },
             },
             _links: {
               html: {
-                href: 'https://dev.azure.com/unreliablewitness/MIAC/_workitems/edit/12',
+                href: 'https://dev.azure.com/unreliablewitness/Shellie/_workitems/edit/12',
               },
             },
           },
@@ -291,18 +291,18 @@ describe('AdoClient reads', () => {
               'System.WorkItemType': 'Task',
               'System.Title': 'Tidy',
               'System.State': 'Doing',
-              'System.AreaPath': 'MIAC',
-              'System.IterationPath': 'MIAC\\Sprint 1',
+              'System.AreaPath': 'Shellie',
+              'System.IterationPath': 'Shellie\\Sprint 1',
             },
           },
         ],
       },
     });
     const items = await client.searchWorkItems({
-      project: 'MIAC',
+      project: 'Shellie',
       scope: 'sprint',
       text: '',
-      iterationPath: 'MIAC\\Sprint 1',
+      iterationPath: 'Shellie\\Sprint 1',
     });
     expect(items).toEqual([
       {
@@ -310,25 +310,25 @@ describe('AdoClient reads', () => {
         type: 'Issue',
         title: 'Save address',
         state: 'To Do',
-        areaPath: 'MIAC',
-        iterationPath: 'MIAC\\Sprint 1',
+        areaPath: 'Shellie',
+        iterationPath: 'Shellie\\Sprint 1',
         assignedTo: 'Dries Hoebeke',
-        url: 'https://dev.azure.com/unreliablewitness/MIAC/_workitems/edit/12',
+        url: 'https://dev.azure.com/unreliablewitness/Shellie/_workitems/edit/12',
       },
       {
         id: '7',
         type: 'Task',
         title: 'Tidy',
         state: 'Doing',
-        areaPath: 'MIAC',
-        iterationPath: 'MIAC\\Sprint 1',
+        areaPath: 'Shellie',
+        iterationPath: 'Shellie\\Sprint 1',
         assignedTo: null,
-        url: `${server.url}/unreliablewitness/MIAC/_workitems/edit/7`,
+        url: `${server.url}/unreliablewitness/Shellie/_workitems/edit/7`,
       },
     ]);
     const wiql = server.requests.find((r) => r.method === 'POST');
     expect(JSON.parse(wiql!.body).query).toContain(
-      "[System.IterationPath] = 'MIAC\\Sprint 1'",
+      "[System.IterationPath] = 'Shellie\\Sprint 1'",
     );
     const batch = server.requests.find((r) =>
       r.path.includes('/_apis/wit/workitems?'),
@@ -337,14 +337,14 @@ describe('AdoClient reads', () => {
     expect(batch!.path).toContain('System.AssignedTo');
   });
   it('omits unreadable ids from the batch instead of failing', async () => {
-    server.route('POST', '/unreliablewitness/MIAC/_apis/wit/wiql', {
+    server.route('POST', '/unreliablewitness/Shellie/_apis/wit/wiql', {
       body: { workItems: [{ id: 1 }, { id: 2 }] },
     });
     server.route('GET', '/unreliablewitness/_apis/wit/workitems', {
       body: { value: [null, { id: 2, fields: { 'System.Title': 'Ok' } }] },
     });
     const items = await client.searchWorkItems({
-      project: 'MIAC',
+      project: 'Shellie',
       scope: 'mine',
       text: '',
       iterationPath: null,
@@ -356,12 +356,12 @@ describe('AdoClient reads', () => {
     expect(batch!.path).toContain('errorPolicy=omit');
   });
   it('returns [] without a batch call when wiql finds nothing', async () => {
-    server.route('POST', '/unreliablewitness/MIAC/_apis/wit/wiql', {
+    server.route('POST', '/unreliablewitness/Shellie/_apis/wit/wiql', {
       body: { workItems: [] },
     });
     expect(
       await client.searchWorkItems({
-        project: 'MIAC',
+        project: 'Shellie',
         scope: 'mine',
         text: '',
         iterationPath: null,
@@ -372,7 +372,7 @@ describe('AdoClient reads', () => {
     ).toBe(false);
   });
   it('caps the batch at 50 ids', async () => {
-    server.route('POST', '/unreliablewitness/MIAC/_apis/wit/wiql', {
+    server.route('POST', '/unreliablewitness/Shellie/_apis/wit/wiql', {
       body: {
         workItems: Array.from({ length: 80 }, (_, i) => ({ id: i + 1 })),
       },
@@ -381,7 +381,7 @@ describe('AdoClient reads', () => {
       body: { value: [], echoed: req.path },
     }));
     await client.searchWorkItems({
-      project: 'MIAC',
+      project: 'Shellie',
       scope: 'mine',
       text: '',
       iterationPath: null,
@@ -394,16 +394,17 @@ describe('AdoClient reads', () => {
   it('surfaces a malformed body as an http error, not a crash', async () => {
     server.route(
       'GET',
-      '/unreliablewitness/MIAC/_apis/work/teamsettings/iterations',
+      '/unreliablewitness/Shellie/_apis/work/teamsettings/iterations',
       { raw: 'not json' },
     );
-    const err = await client.currentIteration('MIAC').catch((e) => e);
+    const err = await client.currentIteration('Shellie').catch((e) => e);
     expect(err).toBeInstanceOf(AdoError);
     expect(err.kind).toBe('http');
   });
 });
 
-const ITERATIONS = '/unreliablewitness/MIAC/_apis/work/teamsettings/iterations';
+const ITERATIONS =
+  '/unreliablewitness/Shellie/_apis/work/teamsettings/iterations';
 const wi = (id: number, fields: Record<string, unknown> = {}) => ({
   id,
   fields: {
@@ -419,14 +420,19 @@ describe('AdoClient sprint', () => {
     server.route('GET', `${ITERATIONS}?`, {
       body: {
         value: [
-          { id: 'it-1', name: 'Sprint 1', path: 'MIAC\\Sprint 1', attributes },
+          {
+            id: 'it-1',
+            name: 'Sprint 1',
+            path: 'Shellie\\Sprint 1',
+            attributes,
+          },
         ],
       },
     });
 
   it('keeps null sprint dates as null', async () => {
     current({ startDate: null, finishDate: null, timeFrame: 'current' });
-    expect(await client.currentIteration('MIAC')).toMatchObject({
+    expect(await client.currentIteration('Shellie')).toMatchObject({
       startDate: null,
       finishDate: null,
     });
@@ -445,7 +451,7 @@ describe('AdoClient sprint', () => {
         ],
       },
     });
-    expect(await client.iterationWorkItems('MIAC', 'it-1')).toEqual([
+    expect(await client.iterationWorkItems('Shellie', 'it-1')).toEqual([
       { rel: null, source: null, target: { id: 1 } },
       {
         rel: 'System.LinkTypes.Hierarchy-Forward',
@@ -481,7 +487,7 @@ describe('AdoClient sprint', () => {
         ],
       },
     });
-    const sprint = await client.sprint('MIAC');
+    const sprint = await client.sprint('Shellie');
     expect(sprint.iteration?.name).toBe('Sprint 1');
     expect(
       sprint.rows.map((r) => [r.item.id, r.depth, r.item.remainingWork]),
@@ -510,7 +516,7 @@ describe('AdoClient sprint', () => {
         ],
       },
     });
-    const items = await client.workItems('MIAC', [1, 2]);
+    const items = await client.workItems('Shellie', [1, 2]);
     expect(
       items.map((i) => [i.originalEstimate, i.completedWork, i.remainingWork]),
     ).toEqual([
@@ -540,7 +546,7 @@ describe('AdoClient sprint', () => {
           .map((id) => wi(Number(id))),
       },
     }));
-    const sprint = await client.sprint('MIAC');
+    const sprint = await client.sprint('Shellie');
     expect(sprint.rows).toHaveLength(450);
     expect(sprint.rows[449].item.id).toBe('450');
     const sizes = server.requests
@@ -550,7 +556,10 @@ describe('AdoClient sprint', () => {
   });
   it('returns no iteration and no rows without a current sprint', async () => {
     server.route('GET', `${ITERATIONS}?`, { body: { value: [] } });
-    expect(await client.sprint('MIAC')).toEqual({ iteration: null, rows: [] });
+    expect(await client.sprint('Shellie')).toEqual({
+      iteration: null,
+      rows: [],
+    });
     expect(server.requests).toHaveLength(1);
   });
   it('skips the batch call for an empty sprint', async () => {
@@ -558,7 +567,7 @@ describe('AdoClient sprint', () => {
     server.route('GET', `${ITERATIONS}/it-1/workitems`, {
       body: { workItemRelations: [] },
     });
-    expect((await client.sprint('MIAC')).rows).toEqual([]);
+    expect((await client.sprint('Shellie')).rows).toEqual([]);
     expect(
       server.requests.some((r) => r.path.includes('/_apis/wit/workitems?')),
     ).toBe(false);
@@ -567,7 +576,7 @@ describe('AdoClient sprint', () => {
 
 describe('AdoClient work item types', () => {
   it('returns colors, icon URLs and states, asking per type only when the list has none', async () => {
-    server.route('GET', '/unreliablewitness/MIAC/_apis/wit/workitemtypes?', {
+    server.route('GET', '/unreliablewitness/Shellie/_apis/wit/workitemtypes?', {
       body: {
         value: [
           {
@@ -586,14 +595,14 @@ describe('AdoClient work item types', () => {
     });
     server.route(
       'GET',
-      '/unreliablewitness/MIAC/_apis/wit/workitemtypes/User%20Story/states',
+      '/unreliablewitness/Shellie/_apis/wit/workitemtypes/User%20Story/states',
       {
         body: {
           value: [{ name: 'Active', color: '007acc', category: 'InProgress' }],
         },
       },
     );
-    expect(await client.workItemTypes('MIAC')).toEqual([
+    expect(await client.workItemTypes('Shellie')).toEqual([
       {
         name: 'Task',
         color: '#a4880a',
@@ -612,15 +621,15 @@ describe('AdoClient work item types', () => {
     ]);
   });
   it('keeps a type whose states cannot be read, with no states', async () => {
-    server.route('GET', '/unreliablewitness/MIAC/_apis/wit/workitemtypes?', {
+    server.route('GET', '/unreliablewitness/Shellie/_apis/wit/workitemtypes?', {
       body: { value: [{ name: 'Bug', color: 'CC293D' }] },
     });
     server.route(
       'GET',
-      '/unreliablewitness/MIAC/_apis/wit/workitemtypes/Bug/states',
+      '/unreliablewitness/Shellie/_apis/wit/workitemtypes/Bug/states',
       { status: 500, body: {} },
     );
-    expect(await client.workItemTypes('MIAC')).toEqual([
+    expect(await client.workItemTypes('Shellie')).toEqual([
       { name: 'Bug', color: '#cc293d', iconUrl: null, states: [] },
     ]);
   });
@@ -816,7 +825,7 @@ describe('AdoClient.iconDataUrl', () => {
 
 describe('AdoClient writes', () => {
   it('lists enabled work item types with their field reference names', async () => {
-    server.route('GET', '/unreliablewitness/MIAC/_apis/wit/workitemtypes', {
+    server.route('GET', '/unreliablewitness/Shellie/_apis/wit/workitemtypes', {
       body: {
         value: [
           {
@@ -830,7 +839,7 @@ describe('AdoClient writes', () => {
         ],
       },
     });
-    expect(await client.workItemTypeFields('MIAC')).toEqual([
+    expect(await client.workItemTypeFields('Shellie')).toEqual([
       { type: 'Issue', fields: ['System.Title', 'Custom.AICost'] },
     ]);
   });
@@ -855,13 +864,13 @@ describe('AdoClient writes', () => {
   it('adds a markdown comment and returns its id', async () => {
     server.route(
       'POST',
-      '/unreliablewitness/MIAC/_apis/wit/workItems/7/comments',
+      '/unreliablewitness/Shellie/_apis/wit/workItems/7/comments',
       { body: { id: 991, text: 'x' } },
     );
-    expect(await client.addComment('MIAC', 7, 'hello')).toEqual({ id: 991 });
+    expect(await client.addComment('Shellie', 7, 'hello')).toEqual({ id: 991 });
     const req = server.requests.at(-1)!;
     expect(req.path).toBe(
-      '/unreliablewitness/MIAC/_apis/wit/workItems/7/comments?format=markdown&api-version=7.1-preview.4',
+      '/unreliablewitness/Shellie/_apis/wit/workItems/7/comments?format=markdown&api-version=7.1-preview.4',
     );
     expect(JSON.parse(req.body)).toEqual({ text: 'hello' });
   });
@@ -879,10 +888,10 @@ describe('AdoClient writes', () => {
     });
     server.route(
       'POST',
-      '/unreliablewitness/MIAC/_apis/wit/workItems/7/comments',
+      '/unreliablewitness/Shellie/_apis/wit/workItems/7/comments',
       { status: 401, body: {} },
     );
-    await expect(client.addComment('MIAC', 7, 'x')).rejects.toMatchObject({
+    await expect(client.addComment('Shellie', 7, 'x')).rejects.toMatchObject({
       kind: 'unauthorized',
       message:
         'The token cannot write work items (needs Work Items: Read & write)',
@@ -891,7 +900,7 @@ describe('AdoClient writes', () => {
 });
 
 describe('work item state and pull request calls', () => {
-  const P = '/unreliablewitness/MIAC/_apis';
+  const P = '/unreliablewitness/Shellie/_apis';
 
   it('reads type, state and assignee, preferring the unique name', async () => {
     server.route('GET', '/unreliablewitness/_apis/wit/workitems/7', {
@@ -954,7 +963,7 @@ describe('work item state and pull request calls', () => {
         value: [{ name: 'New', category: 'Proposed' }, { name: 'Odd' }],
       },
     });
-    expect(await client.typeStates('MIAC', 'User Story')).toEqual([
+    expect(await client.typeStates('Shellie', 'User Story')).toEqual([
       { name: 'New', category: 'Proposed' },
       { name: 'Odd', category: null },
     ]);
@@ -1003,7 +1012,7 @@ describe('work item state and pull request calls', () => {
     server.route('GET', `${P}/git/repositories/my%20repo`, {
       body: { id: 'guid-1' },
     });
-    expect(await client.repositoryId('MIAC', 'my repo')).toBe('guid-1');
+    expect(await client.repositoryId('Shellie', 'my repo')).toBe('guid-1');
     expect(server.requests.at(-1)!.path).toBe(
       `${P}/git/repositories/my%20repo?api-version=7.1`,
     );
@@ -1015,7 +1024,7 @@ describe('work item state and pull request calls', () => {
       },
     });
     expect(
-      await client.findActivePullRequest('MIAC', 'r1', 'feature/1-x'),
+      await client.findActivePullRequest('Shellie', 'r1', 'feature/1-x'),
     ).toEqual({ pullRequestId: 5, status: 'active', isDraft: true });
     expect(server.requests.at(-1)!.path).toBe(
       `${P}/git/repositories/r1/pullrequests?searchCriteria.sourceRefName=${encodeURIComponent('refs/heads/feature/1-x')}&searchCriteria.status=active&api-version=7.1`,
@@ -1023,13 +1032,13 @@ describe('work item state and pull request calls', () => {
     server.route('GET', `${P}/git/repositories/r1/pullrequests`, {
       body: { value: [] },
     });
-    expect(await client.findActivePullRequest('MIAC', 'r1', 'b')).toBeNull();
+    expect(await client.findActivePullRequest('Shellie', 'r1', 'b')).toBeNull();
   });
   it('creates a draft pull request linked to the work item', async () => {
     server.route('POST', `${P}/git/repositories/r1/pullrequests`, {
       body: { pullRequestId: 9, status: 'active', isDraft: true },
     });
-    const pr = await client.createPullRequest('MIAC', 'r1', {
+    const pr = await client.createPullRequest('Shellie', 'r1', {
       source: 'feature/1-x',
       target: 'main',
       title: 'T',
@@ -1061,14 +1070,14 @@ describe('work item state and pull request calls', () => {
       description: 'D',
       workItemId: null,
     };
-    await client.createPullRequest('MIAC', 'r1', input);
+    await client.createPullRequest('Shellie', 'r1', input);
     expect(JSON.parse(server.requests.at(-1)!.body).workItemRefs).toEqual([]);
     server.route('POST', `${P}/git/repositories/r1/pullrequests`, {
       status: 403,
       body: {},
     });
     await expect(
-      client.createPullRequest('MIAC', 'r1', input),
+      client.createPullRequest('Shellie', 'r1', input),
     ).rejects.toMatchObject({
       kind: 'unauthorized',
       message: CODE_WRITE_DENIED,
@@ -1078,7 +1087,7 @@ describe('work item state and pull request calls', () => {
     server.route('GET', `${P}/git/repositories/r1/pullrequests/9`, {
       body: { pullRequestId: 9, status: 'completed', isDraft: false },
     });
-    expect(await client.pullRequest('MIAC', 'r1', 9)).toEqual({
+    expect(await client.pullRequest('Shellie', 'r1', 9)).toEqual({
       pullRequestId: 9,
       status: 'completed',
       isDraft: false,
@@ -1086,14 +1095,14 @@ describe('work item state and pull request calls', () => {
   });
   it('names the Code scope when a repository or pull request read is denied', async () => {
     const reads: [string, () => Promise<unknown>][] = [
-      [`${P}/git/repositories/r1`, () => client.repositoryId('MIAC', 'r1')],
+      [`${P}/git/repositories/r1`, () => client.repositoryId('Shellie', 'r1')],
       [
         `${P}/git/repositories/r1/pullrequests`,
-        () => client.findActivePullRequest('MIAC', 'r1', 'b'),
+        () => client.findActivePullRequest('Shellie', 'r1', 'b'),
       ],
       [
         `${P}/git/repositories/r1/pullrequests/9`,
-        () => client.pullRequest('MIAC', 'r1', 9),
+        () => client.pullRequest('Shellie', 'r1', 9),
       ],
     ];
     for (const status of [401, 403])
@@ -1112,7 +1121,7 @@ describe('work item state and pull request calls', () => {
     server.route('GET', `${P}/git/repositories/r1/pullrequests/9`, {
       body: { pullRequestId: 9, status: 'notSet' },
     });
-    expect(await client.pullRequest('MIAC', 'r1', 9)).toEqual({
+    expect(await client.pullRequest('Shellie', 'r1', 9)).toEqual({
       pullRequestId: 9,
       status: 'active',
       isDraft: false,
@@ -1122,7 +1131,7 @@ describe('work item state and pull request calls', () => {
         value: [{ pullRequestId: 5, status: 'abandoned', isDraft: 'yes' }],
       },
     });
-    expect(await client.findActivePullRequest('MIAC', 'r1', 'b')).toEqual({
+    expect(await client.findActivePullRequest('Shellie', 'r1', 'b')).toEqual({
       pullRequestId: 5,
       status: 'abandoned',
       isDraft: false,
@@ -1131,7 +1140,7 @@ describe('work item state and pull request calls', () => {
       body: { pullRequestId: 11, status: 42, isDraft: true },
     });
     expect(
-      await client.createPullRequest('MIAC', 'r1', {
+      await client.createPullRequest('Shellie', 'r1', {
         source: 'a',
         target: 'main',
         title: 'T',
@@ -1144,7 +1153,7 @@ describe('work item state and pull request calls', () => {
     server.route('GET', `${P}/git/repositories/r1/pullrequests/9`, {
       body: { status: 'active' },
     });
-    await expect(client.pullRequest('MIAC', 'r1', 9)).rejects.toThrow(
+    await expect(client.pullRequest('Shellie', 'r1', 9)).rejects.toThrow(
       /pull request id/,
     );
   });
@@ -1159,25 +1168,25 @@ describe('Home calls', () => {
     expect(await client.me()).toBe('me-1');
   });
   it('myTeams asks for my teams only', async () => {
-    server.route('GET', `${org}/_apis/projects/MIAC/teams`, {
-      body: { value: [{ id: 't1', name: 'MIAC Team' }] },
+    server.route('GET', `${org}/_apis/projects/Shellie/teams`, {
+      body: { value: [{ id: 't1', name: 'Shellie Team' }] },
     });
-    expect(await client.myTeams('MIAC')).toEqual([
-      { id: 't1', name: 'MIAC Team' },
+    expect(await client.myTeams('Shellie')).toEqual([
+      { id: 't1', name: 'Shellie Team' },
     ]);
     expect(server.requests.at(-1)?.path).toContain('$mine=true');
   });
   it('currentIteration takes a team', async () => {
     server.route(
       'GET',
-      `${org}/MIAC/Web%20Team/_apis/work/teamsettings/iterations`,
+      `${org}/Shellie/Web%20Team/_apis/work/teamsettings/iterations`,
       {
         body: {
           value: [
             {
               id: 'i1',
               name: 'Sprint 3',
-              path: 'MIAC\\Sprint 3',
+              path: 'Shellie\\Sprint 3',
               attributes: {
                 startDate: '2026-10-12T00:00:00Z',
                 finishDate: '2026-10-23T00:00:00Z',
@@ -1187,40 +1196,40 @@ describe('Home calls', () => {
         },
       },
     );
-    expect(await client.currentIteration('MIAC', 'Web Team')).toEqual({
+    expect(await client.currentIteration('Shellie', 'Web Team')).toEqual({
       id: 'i1',
       name: 'Sprint 3',
-      path: 'MIAC\\Sprint 3',
+      path: 'Shellie\\Sprint 3',
       startDate: '2026-10-12T00:00:00Z',
       finishDate: '2026-10-23T00:00:00Z',
     });
   });
   it('assignedInIterations queries my items in the given iterations', async () => {
-    server.route('POST', `${org}/MIAC/_apis/wit/wiql`, {
+    server.route('POST', `${org}/Shellie/_apis/wit/wiql`, {
       body: { workItems: [{ id: 4 }, { id: 9 }] },
     });
     expect(
-      await client.assignedInIterations('MIAC', [
-        'MIAC\\Sprint 1',
-        "MIAC\\It's 2",
+      await client.assignedInIterations('Shellie', [
+        'Shellie\\Sprint 1',
+        "Shellie\\It's 2",
       ]),
     ).toEqual([4, 9]);
     const q = JSON.parse(server.requests.at(-1)!.body).query as string;
     expect(q).toContain('[System.AssignedTo] = @Me');
     expect(q).toContain(
-      "[System.IterationPath] IN ('MIAC\\Sprint 1', 'MIAC\\It''s 2')",
+      "[System.IterationPath] IN ('Shellie\\Sprint 1', 'Shellie\\It''s 2')",
     );
   });
   it('assignedInIterations without paths makes no call', async () => {
-    expect(await client.assignedInIterations('MIAC', [])).toEqual([]);
+    expect(await client.assignedInIterations('Shellie', [])).toEqual([]);
     expect(server.requests).toHaveLength(0);
   });
   it('activePullRequests filters by reviewer or creator', async () => {
-    server.route('GET', `${org}/MIAC/_apis/git/pullrequests`, {
+    server.route('GET', `${org}/Shellie/_apis/git/pullrequests`, {
       body: { value: [{ pullRequestId: 7 }] },
     });
     expect(
-      await client.activePullRequests('MIAC', { reviewerId: 'me-1' }),
+      await client.activePullRequests('Shellie', { reviewerId: 'me-1' }),
     ).toEqual([{ pullRequestId: 7 }]);
     expect(server.requests.at(-1)?.path).toContain(
       'searchCriteria.reviewerId=me-1',
@@ -1228,15 +1237,17 @@ describe('Home calls', () => {
     expect(server.requests.at(-1)?.path).toContain(
       'searchCriteria.status=active',
     );
-    await client.activePullRequests('MIAC', { creatorId: 'me-1' });
+    await client.activePullRequests('Shellie', { creatorId: 'me-1' });
     expect(server.requests.at(-1)?.path).toContain(
       'searchCriteria.creatorId=me-1',
     );
   });
   it('activePullRequests reports a missing Code scope', async () => {
-    server.route('GET', `${org}/MIAC/_apis/git/pullrequests`, { status: 401 });
+    server.route('GET', `${org}/Shellie/_apis/git/pullrequests`, {
+      status: 401,
+    });
     await expect(
-      client.activePullRequests('MIAC', { reviewerId: 'me-1' }),
+      client.activePullRequests('Shellie', { reviewerId: 'me-1' }),
     ).rejects.toThrow(CODE_READ_DENIED);
   });
 });

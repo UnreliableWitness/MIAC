@@ -312,13 +312,13 @@ export class AppInsightsClient implements Telemetry {
       iKey: this.iKey,
       tags: {
         'ai.application.ver': c.appVersion,
-        'ai.cloud.role': 'MIAC',
+        'ai.cloud.role': 'Shellie',
         'ai.device.os': c.os,
         'ai.device.osVersion': c.osVersion,
         'ai.device.type': 'PC',
         'ai.user.id': c.installId,
         'ai.session.id': c.sessionId,
-        'ai.internal.sdkVersion': 'miac-ai:1',
+        'ai.internal.sdkVersion': 'shellie-ai:1',
       },
       data: { baseType, baseData },
     };

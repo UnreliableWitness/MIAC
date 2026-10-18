@@ -19,7 +19,7 @@ import { OFFICIAL_RATES } from '../pricing/officialRates';
 import { SettingsStore } from '../usage/SettingsStore';
 import { UsageStore } from '../usage/UsageStore';
 import { GitClient } from '../services/GitClient';
-import { loadMiacConfig } from '../services/MiacConfig';
+import { loadShellieConfig } from '../services/ShellieConfig';
 import { RepoRegistry } from '../services/RepoRegistry';
 import { SetupRunner } from '../services/SetupRunner';
 import { TaskStore } from '../services/TaskStore';
@@ -73,10 +73,13 @@ async function harness(
   over: Partial<Services> = {},
 ) {
   const store = new TaskStore(
-    path.join(mkdtempSync(path.join(os.tmpdir(), 'miac-ipc-')), 'state.json'),
+    path.join(
+      mkdtempSync(path.join(os.tmpdir(), 'shellie-ipc-')),
+      'state.json',
+    ),
   );
   await store.load();
-  const dir = mkdtempSync(path.join(os.tmpdir(), 'miac-conn-'));
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'shellie-conn-'));
   connDirs.push(dir);
   const connections = new ConnectionStore(
     path.join(dir, 'connections.json'),
@@ -104,7 +107,7 @@ async function harness(
   };
   const terminals = new TerminalManager();
   allTerminals.push(terminals);
-  const usageDir = mkdtempSync(path.join(os.tmpdir(), 'miac-usage-'));
+  const usageDir = mkdtempSync(path.join(os.tmpdir(), 'shellie-usage-'));
   connDirs.push(usageDir);
   const settings = new SettingsStore(path.join(usageDir, 'settings.json'));
   await settings.load();
@@ -152,7 +155,7 @@ async function harness(
       opened.push(url);
     },
     runner: new SetupRunner(git, platform),
-    loadConfig: loadMiacConfig,
+    loadConfig: loadShellieConfig,
     pickFolder: async () => '/picked',
     launch: async () => {},
     usage,
@@ -176,7 +179,7 @@ async function harness(
   const h = createHandlers(services);
   const repo = makeRepo('webshop');
   writeFileSync(path.join(repo, '.env'), 'X=1');
-  writeFileSync(path.join(repo, '.miac.yml'), 'copy: [.env]\n');
+  writeFileSync(path.join(repo, '.shellie.yml'), 'copy: [.env]\n');
   const added = await h['repos:add'](repo);
   const setupDone = () =>
     new Promise<Finished>((resolve) => {
@@ -206,7 +209,7 @@ async function harness(
     if (!existsSync(path.join(repo, 'apm.yml')))
       commitFile(repo, 'apm.yml', 'name: webshop\n');
     writeFileSync(
-      path.join(repo, '.miac.yml'),
+      path.join(repo, '.shellie.yml'),
       'copy: [.env]\napm: [claude]\n',
     );
   };
@@ -466,7 +469,10 @@ describe('handlers: create task', () => {
     ).not.toContain('apm');
     await terminals.killAllForTask(a.id);
     commitFile(repo, 'apm.yml', 'name: webshop\n');
-    writeFileSync(path.join(repo, '.miac.yml'), 'copy: [.env]\napm: false\n');
+    writeFileSync(
+      path.join(repo, '.shellie.yml'),
+      'copy: [.env]\napm: false\n',
+    );
     const second = setupDone();
     const b = await h['tasks:create'](
       input({
@@ -920,8 +926,8 @@ describe('handlers: concurrency guards', () => {
 });
 
 /**
- * MIAC left the task's terminals alone: each is still listed on the task and still known to the TerminalManager,
- * which forgets a terminal when MIAC kills it. Whether the OS process is still alive is not asserted: on a loaded
+ * Shellie left the task's terminals alone: each is still listed on the task and still known to the TerminalManager,
+ * which forgets a terminal when Shellie kills it. Whether the OS process is still alive is not asserted: on a loaded
  * Windows runner an idle interactive PowerShell has been seen to exit by itself during a long test.
  */
 function expectTerminalsKept(
@@ -1020,7 +1026,7 @@ describe('handlers: Claude Code sessions', () => {
     expect(calls).toEqual([
       {
         prompt: expect.stringMatching(
-          /\.miac\/task\.md\. Do not start on the task by yourself/,
+          /\.shellie\/task\.md\. Do not start on the task by yourself/,
         ),
         flags: ['--session-id', def?.sessionId],
       },
@@ -1072,7 +1078,7 @@ describe('handlers: Claude Code sessions', () => {
     const def = hx.store.state.tasks[0].terminals[0];
     await hx.h['terminals:restart'](def.id);
     expect(calls.at(-1)).toEqual({
-      prompt: expect.stringContaining('.miac/task.md'),
+      prompt: expect.stringContaining('.shellie/task.md'),
       flags: ['--session-id', def.sessionId],
     });
   });
@@ -1189,10 +1195,10 @@ describe('handlers: reopen a finished task', () => {
   });
 
   const withExtra = async (hx: Awaited<ReturnType<typeof finished>>) => {
-    const extraPath = mkdtempSync(path.join(os.tmpdir(), 'miac-extra-'));
+    const extraPath = mkdtempSync(path.join(os.tmpdir(), 'shellie-extra-'));
     git(extraPath, 'init', '-q');
-    git(extraPath, 'config', 'user.email', 'tests@miac.local');
-    git(extraPath, 'config', 'user.name', 'MIAC tests');
+    git(extraPath, 'config', 'user.email', 'tests@shellie.local');
+    git(extraPath, 'config', 'user.name', 'Shellie tests');
     git(extraPath, 'config', 'core.autocrlf', 'false');
     await hx.store.update((st) => {
       st.tasks[0].extraWorkspaces.push({
@@ -1504,7 +1510,7 @@ describe('handlers: reopen a finished task', () => {
   });
   /**
    * A task in `webshop` (home, no changes) plus a worktree on its branch in `api` with one commit, finished with
-   * its worktrees removed and branches kept. `api`'s .miac.yml copies .env and writes api.txt.
+   * its worktrees removed and branches kept. `api`'s .shellie.yml copies .env and writes api.txt.
    */
   async function finishedMulti(
     o: {
@@ -1524,8 +1530,8 @@ describe('handlers: reopen a finished task', () => {
       claudeSessionExists: () => true,
       loadConfig: async (p) =>
         p === api
-          ? { ...(await loadMiacConfig(p)), copy: ['.env'], setup: apiSetup }
-          : loadMiacConfig(p),
+          ? { ...(await loadShellieConfig(p)), copy: ['.env'], setup: apiSetup }
+          : loadShellieConfig(p),
     });
     // The copied .env is ignored, as in a real repo, so a home without commits can be dropped.
     commitFile(hx.repo, '.gitignore', '.env\n');
@@ -1719,11 +1725,11 @@ describe('handlers: reopen a finished task', () => {
     hx.services.loadConfig = async (p) =>
       p === hx.api
         ? {
-            ...(await loadMiacConfig(p)),
+            ...(await loadShellieConfig(p)),
             copy: ['.env'],
             setup: [writeLineCmd('retried', 'api.txt')],
           }
-        : loadMiacConfig(p);
+        : loadShellieConfig(p);
     await hx.h['tasks:retrySetup'](hx.t.id);
     expect((await retried).ok).toBe(true);
     expect(runSpy.mock.calls[0][1].fromStep).toBe(5);
@@ -1837,7 +1843,10 @@ describe('handlers: after a relaunch', () => {
 describe('recoverInterruptedTasks', () => {
   it('turns setting-up into setup-failed and finishing into ready', async () => {
     const store = new TaskStore(
-      path.join(mkdtempSync(path.join(os.tmpdir(), 'miac-rec-')), 'state.json'),
+      path.join(
+        mkdtempSync(path.join(os.tmpdir(), 'shellie-rec-')),
+        'state.json',
+      ),
     );
     await store.load();
     const base: Omit<Task, 'id' | 'branch' | 'status'> = {
@@ -1893,16 +1902,16 @@ function routeHealthyOrg(server: AdoServer, org = 'unreliablewitness') {
   server.route('GET', `/${org}/_apis/connectionData`, {
     body: { authenticatedUser: { providerDisplayName: 'Dries Hoebeke' } },
   });
-  server.route('GET', `/${org}/_apis/projects/MIAC`, {
-    body: { name: 'MIAC' },
+  server.route('GET', `/${org}/_apis/projects/Shellie`, {
+    body: { name: 'Shellie' },
   });
-  server.route('GET', `/${org}/MIAC/_apis/work/teamsettings/iterations`, {
+  server.route('GET', `/${org}/Shellie/_apis/work/teamsettings/iterations`, {
     body: {
       value: [
         {
           id: 'it-1',
           name: 'Sprint 1',
-          path: 'MIAC\\Sprint 1',
+          path: 'Shellie\\Sprint 1',
           attributes: { timeFrame: 'current' },
         },
       ],
@@ -1910,14 +1919,14 @@ function routeHealthyOrg(server: AdoServer, org = 'unreliablewitness') {
   });
   server.route(
     'GET',
-    `/${org}/MIAC/_apis/work/teamsettings/iterations/it-1/workitems`,
+    `/${org}/Shellie/_apis/work/teamsettings/iterations/it-1/workitems`,
     {
       body: {
         workItemRelations: [{ rel: null, source: null, target: { id: 5 } }],
       },
     },
   );
-  server.route('POST', `/${org}/MIAC/_apis/wit/wiql`, {
+  server.route('POST', `/${org}/Shellie/_apis/wit/wiql`, {
     body: { workItems: [{ id: 5 }] },
   });
   server.route('GET', `/${org}/_apis/wit/workitems`, {
@@ -1929,8 +1938,8 @@ function routeHealthyOrg(server: AdoServer, org = 'unreliablewitness') {
             'System.WorkItemType': 'Issue',
             'System.Title': 'Five',
             'System.State': 'To Do',
-            'System.AreaPath': 'MIAC',
-            'System.IterationPath': 'MIAC\\Sprint 1',
+            'System.AreaPath': 'Shellie',
+            'System.IterationPath': 'Shellie\\Sprint 1',
           },
         },
       ],
@@ -1942,7 +1951,7 @@ async function linkedTask(hx: Awaited<ReturnType<typeof harness>>) {
   routeHealthyOrg(hx.server);
   const c = await hx.h['connections:save']({
     organizationUrl: `${hx.server.url}/unreliablewitness`,
-    project: 'MIAC',
+    project: 'Shellie',
     pat: 'secret-pat',
   });
   await hx.h['repos:setConnection'](hx.added.id, c.id);
@@ -1962,7 +1971,7 @@ async function linkedTask(hx: Awaited<ReturnType<typeof harness>>) {
     cacheWriteTokens: 0,
     fast: false,
   });
-  hx.server.route('GET', '/unreliablewitness/MIAC/_apis/wit/workitemtypes', {
+  hx.server.route('GET', '/unreliablewitness/Shellie/_apis/wit/workitemtypes', {
     body: {
       value: [
         {
@@ -1982,7 +1991,7 @@ async function linkedTask(hx: Awaited<ReturnType<typeof harness>>) {
   });
   hx.server.route(
     'POST',
-    '/unreliablewitness/MIAC/_apis/wit/workItems/48231/comments',
+    '/unreliablewitness/Shellie/_apis/wit/workItems/48231/comments',
     { body: { id: 501 } },
   );
   return { t, c };
@@ -1994,11 +2003,11 @@ describe('handlers: connections', () => {
     routeHealthyOrg(server);
     const c = await h['connections:save']({
       organizationUrl: `${server.url}/unreliablewitness`,
-      project: 'MIAC',
+      project: 'Shellie',
       pat: 'secret-pat',
     });
     expect(c).toMatchObject({
-      project: 'MIAC',
+      project: 'Shellie',
       status: 'ok',
       user: 'Dries Hoebeke',
     });
@@ -2022,7 +2031,7 @@ describe('handlers: connections', () => {
     });
     const c = await h['connections:save']({
       organizationUrl: `${server.url}/unreliablewitness`,
-      project: 'MIAC',
+      project: 'Shellie',
       pat: 'p',
     });
     expect(c.userUniqueName).toBe('dries@example.com');
@@ -2036,7 +2045,7 @@ describe('handlers: connections', () => {
     await expect(
       h['connections:save']({
         organizationUrl: `${server.url}/unreliablewitness`,
-        project: 'MIAC',
+        project: 'Shellie',
         pat: 'bad',
       }),
     ).rejects.toThrow(/rejected the token/);
@@ -2047,7 +2056,7 @@ describe('handlers: connections', () => {
     routeHealthyOrg(server);
     const c = await h['connections:save']({
       organizationUrl: `${server.url}/unreliablewitness`,
-      project: 'MIAC',
+      project: 'Shellie',
       pat: 'p',
     });
     server.route('GET', '/unreliablewitness/_apis/connectionData', {
@@ -2064,7 +2073,7 @@ describe('handlers: connections', () => {
     routeHealthyOrg(server);
     const c = await h['connections:save']({
       organizationUrl: `${server.url}/unreliablewitness`,
-      project: 'MIAC',
+      project: 'Shellie',
       pat: 'p',
     });
     expect((await h['repos:setConnection'](added.id, c.id)).connectionId).toBe(
@@ -2095,10 +2104,10 @@ describe('handlers: connection robustness', () => {
     routeHealthyOrg(server);
     const c = await h['connections:save']({
       organizationUrl: `${server.url}/unreliablewitness`,
-      project: 'MIAC',
+      project: 'Shellie',
       pat: 'p',
     });
-    server.route('POST', '/unreliablewitness/MIAC/_apis/wit/wiql', () => {
+    server.route('POST', '/unreliablewitness/Shellie/_apis/wit/wiql', () => {
       void connections.remove(c.id);
       return { status: 401, body: {} };
     });
@@ -2118,7 +2127,7 @@ describe('handlers: connection robustness', () => {
     });
     const c = await connections.save({
       organizationUrl: `${server.url}/unreliablewitness`,
-      project: 'MIAC',
+      project: 'Shellie',
       pat: 'p',
     });
     broken = true;
@@ -2136,12 +2145,12 @@ describe('handlers: work items', () => {
     routeHealthyOrg(server);
     const c = await h['connections:save']({
       organizationUrl: `${server.url}/unreliablewitness`,
-      project: 'MIAC',
+      project: 'Shellie',
       pat: 'p',
     });
     expect(await h['workItems:currentIteration'](c.id)).toEqual({
       id: 'it-1',
-      path: 'MIAC\\Sprint 1',
+      path: 'Shellie\\Sprint 1',
       name: 'Sprint 1',
       startDate: null,
       finishDate: null,
@@ -2153,7 +2162,7 @@ describe('handlers: work items', () => {
     expect(items.map((i) => i.id)).toEqual(['5']);
     const wiql = server.requests.find((r) => r.method === 'POST');
     expect(JSON.parse(wiql!.body).query).toContain(
-      "[System.IterationPath] = 'MIAC\\Sprint 1'",
+      "[System.IterationPath] = 'Shellie\\Sprint 1'",
     );
   });
   it('a 401 during search marks the connection unauthorized and broadcasts', async () => {
@@ -2161,11 +2170,11 @@ describe('handlers: work items', () => {
     routeHealthyOrg(server);
     const c = await h['connections:save']({
       organizationUrl: `${server.url}/unreliablewitness`,
-      project: 'MIAC',
+      project: 'Shellie',
       pat: 'p',
     });
     broadcasts.length = 0;
-    server.route('POST', '/unreliablewitness/MIAC/_apis/wit/wiql', {
+    server.route('POST', '/unreliablewitness/Shellie/_apis/wit/wiql', {
       status: 401,
       body: {},
     });
@@ -2184,7 +2193,7 @@ describe('handlers: sprint, types and live work items', () => {
     routeHealthyOrg(hx.server);
     return hx.h['connections:save']({
       organizationUrl: `${hx.server.url}/unreliablewitness`,
-      project: 'MIAC',
+      project: 'Shellie',
       pat: 'p',
     });
   };
@@ -2202,7 +2211,7 @@ describe('handlers: sprint, types and live work items', () => {
     const c = await save(hx);
     hx.server.route(
       'GET',
-      '/unreliablewitness/MIAC/_apis/work/teamsettings/iterations',
+      '/unreliablewitness/Shellie/_apis/work/teamsettings/iterations',
       { status: 401, body: {} },
     );
     await expect(hx.h['workItems:sprint'](c.id)).rejects.toThrow(
@@ -2213,25 +2222,35 @@ describe('handlers: sprint, types and live work items', () => {
   it('loads the types with icons as data URLs once per connection, and retries after a failure', async () => {
     const hx = await harness();
     const c = await save(hx);
-    hx.server.route('GET', '/unreliablewitness/MIAC/_apis/wit/workitemtypes', {
-      status: 500,
-      body: {},
-    });
-    await expect(hx.h['workItems:types'](c.id)).rejects.toThrow();
-    hx.server.route('GET', '/unreliablewitness/MIAC/_apis/wit/workitemtypes', {
-      body: {
-        value: [
-          {
-            name: 'Task',
-            color: 'A4880A',
-            icon: {
-              url: `${hx.server.url}/unreliablewitness/_apis/wit/workItemIcons/icon_check_box`,
-            },
-            states: [{ name: 'Done', color: '339933', category: 'Completed' }],
-          },
-        ],
+    hx.server.route(
+      'GET',
+      '/unreliablewitness/Shellie/_apis/wit/workitemtypes',
+      {
+        status: 500,
+        body: {},
       },
-    });
+    );
+    await expect(hx.h['workItems:types'](c.id)).rejects.toThrow();
+    hx.server.route(
+      'GET',
+      '/unreliablewitness/Shellie/_apis/wit/workitemtypes',
+      {
+        body: {
+          value: [
+            {
+              name: 'Task',
+              color: 'A4880A',
+              icon: {
+                url: `${hx.server.url}/unreliablewitness/_apis/wit/workItemIcons/icon_check_box`,
+              },
+              states: [
+                { name: 'Done', color: '339933', category: 'Completed' },
+              ],
+            },
+          ],
+        },
+      },
+    );
     hx.server.route('GET', '/unreliablewitness/_apis/wit/workItemIcons/', {
       raw: '<svg/>',
       headers: { 'content-type': 'image/svg+xml' },
@@ -2278,7 +2297,7 @@ describe('handlers: work item robustness', () => {
     routeHealthyOrg(server);
     const c = await h['connections:save']({
       organizationUrl: `${server.url}/unreliablewitness`,
-      project: 'MIAC',
+      project: 'Shellie',
       pat: 'p',
     });
     await connections.setStatus(c.id, 'unreachable');
@@ -2297,12 +2316,12 @@ describe('handlers: work item robustness', () => {
     routeHealthyOrg(server);
     const c = await h['connections:save']({
       organizationUrl: `${server.url}/unreliablewitness`,
-      project: 'MIAC',
+      project: 'Shellie',
       pat: 'p',
     });
     server.route(
       'GET',
-      '/unreliablewitness/MIAC/_apis/work/teamsettings/iterations',
+      '/unreliablewitness/Shellie/_apis/work/teamsettings/iterations',
       { body: { value: [] } },
     );
     server.requests.length = 0;
@@ -2329,7 +2348,7 @@ describe('handlers: shell', () => {
   it('opens only Azure DevOps urls', async () => {
     const { h, opened } = await harness();
     await h['shell:openExternal'](
-      'https://dev.azure.com/unreliablewitness/MIAC/_workitems/edit/5',
+      'https://dev.azure.com/unreliablewitness/Shellie/_workitems/edit/5',
     );
     await h['shell:openExternal'](
       'https://contoso.visualstudio.com/P/_workitems/edit/1',
@@ -2365,7 +2384,7 @@ describe('handlers: usage', () => {
     await vi.waitFor(
       async () =>
         expect(await hx.h['terminals:buffer'](def.id)).toContain(
-          `T=miac.task.id=${t.id} E=http://127.0.0.1:4319/v1/logs C=1`,
+          `T=shellie.task.id=${t.id} E=http://127.0.0.1:4319/v1/logs C=1`,
         ),
       { timeout: 10_000 },
     );
@@ -2726,7 +2745,7 @@ describe('handlers: work item on start', () => {
     routeHealthyOrg(hx.server);
     const c = await hx.h['connections:save']({
       organizationUrl: `${hx.server.url}/unreliablewitness`,
-      project: 'MIAC',
+      project: 'Shellie',
       pat: 'p',
     });
     await hx.connections.setStatus(c.id, 'ok', 'Dries Hoebeke', 'me@x.com');
@@ -2935,7 +2954,7 @@ describe('handlers: finish with a pull request', () => {
     );
     const description = hx.create.mock.calls[0][2].description;
     expect(description).toContain('Add the feature');
-    expect(description).toContain('recorded by MIAC');
+    expect(description).toContain('recorded by Shellie');
     expect(description).toContain('AI cost for this task: ');
     expect(hx.opened).toEqual([PR_URL]);
     const [view] = await hx.h['tasks:list']();
@@ -3006,8 +3025,8 @@ describe('handlers: finish with a pull request', () => {
       hx.bare,
       'other',
     );
-    git(other, 'config', 'user.email', 'tests@miac.local');
-    git(other, 'config', 'user.name', 'MIAC tests');
+    git(other, 'config', 'user.email', 'tests@shellie.local');
+    git(other, 'config', 'user.name', 'Shellie tests');
     commitFile(other, 'theirs.txt', 'b\n', 'Theirs');
     git(other, 'push', '-q', 'origin', hx.t.branch);
     git(hx.t.worktreePath, 'commit', '-q', '--amend', '-m', 'Mine again');
@@ -3910,19 +3929,23 @@ describe('handlers: time booking and write-back', () => {
   ) {
     await hx.settings.save({ ...hx.settings.get(), writeTimeToAdo: writeTime });
     const { t, c } = await linkedTask(hx);
-    hx.server.route('GET', '/unreliablewitness/MIAC/_apis/wit/workitemtypes', {
-      body: {
-        value: [
-          {
-            name: 'User Story',
-            fields: [
-              { referenceName: 'Microsoft.VSTS.Scheduling.RemainingWork' },
-              { referenceName: 'Microsoft.VSTS.Scheduling.CompletedWork' },
-            ],
-          },
-        ],
+    hx.server.route(
+      'GET',
+      '/unreliablewitness/Shellie/_apis/wit/workitemtypes',
+      {
+        body: {
+          value: [
+            {
+              name: 'User Story',
+              fields: [
+                { referenceName: 'Microsoft.VSTS.Scheduling.RemainingWork' },
+                { referenceName: 'Microsoft.VSTS.Scheduling.CompletedWork' },
+              ],
+            },
+          ],
+        },
       },
-    });
+    );
     hx.server.route('GET', WI, {
       body: {
         fields: {
@@ -4023,7 +4046,7 @@ describe('handlers: time booking and write-back', () => {
   it('refetches the type fields once when the cached ones lack the work item type', async () => {
     const hx = await harness();
     const { t } = await timeTask(hx, true);
-    const TYPES = '/unreliablewitness/MIAC/_apis/wit/workitemtypes';
+    const TYPES = '/unreliablewitness/Shellie/_apis/wit/workitemtypes';
     let typeCalls = 0;
     hx.server.route('GET', TYPES, () => {
       typeCalls++;
@@ -4098,7 +4121,7 @@ describe('handlers: estimate baseline at create', () => {
     routeHealthyOrg(hx.server);
     const c = await hx.h['connections:save']({
       organizationUrl: `${hx.server.url}/unreliablewitness`,
-      project: 'MIAC',
+      project: 'Shellie',
       pat: 'secret-pat',
     });
     await hx.h['repos:setConnection'](hx.added.id, c.id);
@@ -4147,24 +4170,28 @@ describe('home', () => {
     hx.server.route('GET', '/unreliablewitness/_apis/connectionData', {
       body: { authenticatedUser: { id: 'me-1', providerDisplayName: 'Dries' } },
     });
-    hx.server.route('GET', '/unreliablewitness/_apis/projects/MIAC/teams', {
-      body: { value: [{ id: 't1', name: 'MIAC Team' }] },
+    hx.server.route('GET', '/unreliablewitness/_apis/projects/Shellie/teams', {
+      body: { value: [{ id: 't1', name: 'Shellie Team' }] },
     });
     hx.server.route(
       'GET',
-      '/unreliablewitness/MIAC/MIAC%20Team/_apis/work/teamsettings/iterations',
+      '/unreliablewitness/Shellie/Shellie%20Team/_apis/work/teamsettings/iterations',
       {
         body: {
-          value: [{ id: 'it-1', name: 'Sprint 1', path: 'MIAC\\Sprint 1' }],
+          value: [{ id: 'it-1', name: 'Sprint 1', path: 'Shellie\\Sprint 1' }],
         },
       },
     );
-    hx.server.route('GET', '/unreliablewitness/MIAC/_apis/git/pullrequests', {
-      body: { value: [] },
-    });
+    hx.server.route(
+      'GET',
+      '/unreliablewitness/Shellie/_apis/git/pullrequests',
+      {
+        body: { value: [] },
+      },
+    );
     await hx.h['connections:save']({
       organizationUrl: `${hx.server.url}/unreliablewitness`,
-      project: 'MIAC',
+      project: 'Shellie',
       pat: 'secret-pat',
     });
     expect(await hx.h['home:get']()).toBeNull();

@@ -92,7 +92,7 @@ function tokenize(command: string): string[][] {
   return segments;
 }
 
-/** `p` resolved against `dir`; a relative path with no known dir is null (never guessed from MIAC's own cwd). */
+/** `p` resolved against `dir`; a relative path with no known dir is null (never guessed from Shellie's own cwd). */
 function resolveIn(dir: string | null, p: string): string | null {
   if (path.isAbsolute(p)) return path.resolve(p);
   return dir === null ? null : path.resolve(dir, p);

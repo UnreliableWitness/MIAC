@@ -1,9 +1,9 @@
-import type { MiacApi } from '../shared/ipc';
+import type { ShellieApi } from '../shared/ipc';
 
-export function api(): MiacApi {
-  if (!window.miac)
-    throw new Error('window.miac is not available: preload did not run');
-  return window.miac;
+export function api(): ShellieApi {
+  if (!window.shellie)
+    throw new Error('window.shellie is not available: preload did not run');
+  return window.shellie;
 }
 
 /** An IPC rejection's message without Electron's "Error invoking remote method" prefix. */

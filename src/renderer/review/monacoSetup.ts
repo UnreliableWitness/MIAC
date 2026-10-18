@@ -42,7 +42,7 @@ for (const d of [ts?.typescriptDefaults, ts?.javascriptDefaults])
 ).json?.jsonDefaults?.setDiagnosticsOptions?.({ validate: false });
 
 // The ADO dark palette (src/renderer/styles/tokens.css).
-monaco.editor.defineTheme('miac-dark', {
+monaco.editor.defineTheme('shellie-dark', {
   base: 'vs-dark',
   inherit: true,
   rules: [],

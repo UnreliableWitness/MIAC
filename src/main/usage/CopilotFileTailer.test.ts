@@ -29,7 +29,7 @@ const span = (spanId: string) =>
   });
 
 function setup() {
-  const dir = mkdtempSync(path.join(os.tmpdir(), 'miac-cop-'));
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'shellie-cop-'));
   dirs.push(dir);
   const got: UsageEvent[] = [];
   return {
@@ -41,7 +41,7 @@ function setup() {
 
 describe('CopilotFileTailer agent intervals', () => {
   it('hands span intervals per task to onAgent', async () => {
-    const dir = mkdtempSync(path.join(os.tmpdir(), 'miac-cop-'));
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'shellie-cop-'));
     dirs.push(dir);
     const got: [string, [number, number][]][] = [];
     const tailer = new CopilotFileTailer(

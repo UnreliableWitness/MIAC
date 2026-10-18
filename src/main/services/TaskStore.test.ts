@@ -16,7 +16,7 @@ import { TaskStore } from './TaskStore';
 const tmpDirs: string[] = [];
 
 const tmp = () => {
-  const root = mkdtempSync(path.join(os.tmpdir(), 'miac-store-'));
+  const root = mkdtempSync(path.join(os.tmpdir(), 'shellie-store-'));
   tmpDirs.push(root);
   return path.join(root, 'nested', 'state.json');
 };
@@ -47,7 +47,7 @@ describe('TaskStore', () => {
         path: '/src/webshop',
         baseBranch: 'main',
         connectionId: null,
-        miacYmlFound: true,
+        configFound: true,
         discovered: false,
         workItemOnStart: {
           moveToInProgress: true,
@@ -114,7 +114,7 @@ describe('TaskStore', () => {
             path: '/src/webshop',
             baseBranch: 'main',
             connectionId: null,
-            miacYmlFound: true,
+            configFound: true,
             discovered: false,
           },
         ],
@@ -218,7 +218,7 @@ describe('TaskStore', () => {
             path: `/p${i}`,
             baseBranch: 'main',
             connectionId: null,
-            miacYmlFound: false,
+            configFound: false,
             discovered: false,
             workItemOnStart: {
               moveToInProgress: true,

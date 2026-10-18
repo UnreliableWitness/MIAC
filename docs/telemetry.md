@@ -1,13 +1,13 @@
 # App telemetry
 
-MIAC sends anonymous usage, error and performance data to Azure Application Insights (resource `miac-app`, resource group `miac-telemetry`) so we can see which features are used, what breaks, and what is slow.
+Shellie sends anonymous usage, error and performance data to Azure Application Insights (resource `shellie-app`, resource group `shellie-telemetry`) so we can see which features are used, what breaks, and what is slow.
 
 This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 that prices Claude Code and Copilot usage). App telemetry uses its own small client (`src/main/telemetry/AppInsightsClient.ts`) that posts JSON to the App Insights ingestion endpoint; it does not use OpenTelemetry.
 
 ## Turning it off
 
 - Settings > Appearance > **Send anonymous usage and error data** (on by default). Turning it off takes effect at once: queued items are dropped and nothing more is sent.
-- Environment variable `MIAC_TELEMETRY=0` disables it for a launch.
+- Environment variable `SHELLIE_TELEMETRY=0` disables it for a launch.
 - Builds without the `APPINSIGHTS_CONNECTION_STRING` environment variable at build time (all local builds, `npm start`) send nothing. CI injects it from the repo variable of the same name.
 
 ## Sent with every item
@@ -44,6 +44,7 @@ This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 
 | `setup.retried`, `setup.cancelled` | none |
 | `task.reopened` | where the branch came from (`folder`: worktree kept, `branch`, `origin`, `commit`, `base`) |
 | `task.reopenCancelled` | none |
+| `migration.miac` | first start after the rename from MIAC copied its data folder, or gave up after the third failed attempt; `result` (`ok`, `failed`); `tokens` (`migrated`, `partial`, `refused`, `none`; `none` when the copy gave up); `copied` (number of top-level entries), `ms` |
 | `workspace.joined` | a worktree of another repo joined a task; `source` (`log`: found in a Claude session log, `branch`: found by the task branch, `manual`: added by hand) |
 | `workspace.removed` | a joined worktree was removed from its task; none |
 | `terminal.opened` | kind (`claude`, `copilot`, `opencode`, `shell`, `run`); opened by setup or by hand |
@@ -72,7 +73,7 @@ This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 
 
 - Uncaught exceptions in the main process (monitored only: Electron's own handling is unchanged) and unhandled promise rejections.
 - Renderer `window.onerror` and `unhandledrejection`.
-- A failed boot (the splash or the "MIAC could not start" dialog).
+- A failed boot (the splash or the "Shellie could not start" dialog).
 - Every IPC call that fails (error type, message, stack and the channel name such as `tasks:create`; never the arguments).
 - An unexpected setup failure.
 - Every warning or error notice shown in the app (`notice` event: level and message).

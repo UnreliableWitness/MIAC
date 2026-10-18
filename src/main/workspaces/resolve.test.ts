@@ -52,7 +52,7 @@ describe('resolveCandidate', () => {
 
   it('ignores a path outside any git repo', async () => {
     const dir = realpathSync.native(
-      mkdtempSync(path.join(os.tmpdir(), 'miac-plain-')),
+      mkdtempSync(path.join(os.tmpdir(), 'shellie-plain-')),
     );
     try {
       expect(

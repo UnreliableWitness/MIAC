@@ -7,7 +7,7 @@ declare module '*.png?inline' {
 }
 
 interface Window {
-  miac: import('./shared/ipc').MiacApi;
+  shellie: import('./shared/ipc').ShellieApi;
 }
 
 // Forge's env types declare only MAIN_WINDOW_*; the splash renderer gets its own pair.

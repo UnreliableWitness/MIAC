@@ -10,6 +10,7 @@ import {
   forwardRendererTelemetry,
   installId,
   sensitiveValues,
+  telemetryOptedOut,
   timedFetch,
   trackHandlerFailures,
 } from './helpers';
@@ -143,7 +144,7 @@ describe('forwardRendererTelemetry', () => {
 
 describe('installId', () => {
   it('creates a random id once and reuses it', async () => {
-    const dir = mkdtempSync(path.join(os.tmpdir(), 'miac-tel-'));
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'shellie-tel-'));
     const a = await installId(dir);
     expect(a).toMatch(/^[0-9a-f-]{36}$/);
     expect(await installId(dir)).toBe(a);
@@ -218,5 +219,13 @@ describe('changedKeys and sensitiveValues', () => {
         'ssh-repo',
       ]),
     );
+  });
+});
+
+describe('telemetryOptedOut', () => {
+  it('honours both opt-out variables', () => {
+    expect(telemetryOptedOut({ SHELLIE_TELEMETRY: '0' })).toBe(true);
+    expect(telemetryOptedOut({ MIAC_TELEMETRY: '0' })).toBe(true);
+    expect(telemetryOptedOut({})).toBe(false);
   });
 });

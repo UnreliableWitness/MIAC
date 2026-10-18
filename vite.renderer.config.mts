@@ -7,7 +7,7 @@ const CSP =
 /** Strict CSP for packaged builds only. The dev server needs inline scripts (React refresh) and a websocket (HMR). */
 function cspForBuild(): Plugin {
   return {
-    name: 'miac-csp',
+    name: 'shellie-csp',
     apply: 'build',
     transformIndexHtml: () => [
       {

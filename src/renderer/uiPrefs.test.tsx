@@ -10,12 +10,12 @@ describe('uiPrefs', () => {
   it('round-trips', () => {
     writePref('focus', true);
     writePref('navCollapsed', true);
-    expect(localStorage.getItem('miac.ui.focus')).toBe('true');
+    expect(localStorage.getItem('shellie.ui.focus')).toBe('true');
     expect(readPrefs()).toEqual({ navCollapsed: true, focus: true });
   });
   it('treats bad values as defaults', () => {
-    localStorage.setItem('miac.ui.focus', '{"x":1}');
-    localStorage.setItem('miac.ui.navCollapsed', 'yes');
+    localStorage.setItem('shellie.ui.focus', '{"x":1}');
+    localStorage.setItem('shellie.ui.navCollapsed', 'yes');
     expect(readPrefs()).toEqual({ navCollapsed: false, focus: false });
   });
   it('survives a storage that throws', () => {

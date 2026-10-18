@@ -6,7 +6,7 @@ import { TERMINAL_THEME } from './terminalTheme';
 
 /**
  * The system's own terminal fonts (Windows Terminal's Cascadia Mono, then Consolas; SF Mono or Menlo on macOS), nothing
- * bundled or preferred by MIAC. Each has its own bold, so bold text never falls back to a font with another baseline.
+ * bundled or preferred by Shellie. Each has its own bold, so bold text never falls back to a font with another baseline.
  */
 export const TERMINAL_FONT =
   "'Cascadia Mono', Consolas, 'SF Mono', Menlo, monospace";

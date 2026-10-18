@@ -84,13 +84,13 @@ describe('AppInsightsClient', () => {
         iKey: IKEY,
         tags: {
           'ai.application.ver': '1.2.3',
-          'ai.cloud.role': 'MIAC',
+          'ai.cloud.role': 'Shellie',
           'ai.device.os': 'darwin',
           'ai.device.osVersion': '25.6.0',
           'ai.device.type': 'PC',
           'ai.user.id': 'install-1',
           'ai.session.id': 'session-1',
-          'ai.internal.sdkVersion': 'miac-ai:1',
+          'ai.internal.sdkVersion': 'shellie-ai:1',
         },
         data: {
           baseType: 'EventData',
@@ -218,8 +218,8 @@ describe('AppInsightsClient', () => {
     );
     e.stack = [
       'Error: Branch feature/x already exists in webshop',
-      '    at f (/Users/dries/src/miac/main.cjs:1:2)',
-      '    at g (C:\\Users\\Dries\\AppData\\Local\\miac\\app-1.0.0\\resources\\app.asar\\main.cjs:3:4)',
+      '    at f (/Users/dries/src/shellie/main.cjs:1:2)',
+      '    at g (C:\\Users\\Dries\\AppData\\Local\\shellie\\app-1.0.0\\resources\\app.asar\\main.cjs:3:4)',
       '    at h (/home/someone/x.js:5:6)',
     ].join('\n');
     client.exception(e);
@@ -236,7 +236,7 @@ describe('AppInsightsClient', () => {
       'Branch feature/x already exists in <redacted> (~/src/<redacted>)',
     );
     expect(detail.stack).not.toMatch(/dries|someone/i);
-    expect(detail.stack).toContain('at f (~/src/miac/main.cjs:1:2)');
+    expect(detail.stack).toContain('at f (~/src/shellie/main.cjs:1:2)');
     expect(detail.stack).toContain('at g (~\\AppData\\Local');
     expect(detail.stack).toContain('at h (~/x.js:5:6)');
     expect(
