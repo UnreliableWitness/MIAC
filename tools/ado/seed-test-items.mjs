@@ -13,7 +13,7 @@ if (!orgUrl || !project || !service) {
 }
 const pat = execFileSync(
   'security',
-  ['find-generic-password', '-a', 'miac', '-s', service, '-w'],
+  ['find-generic-password', '-a', 'shellie', '-s', service, '-w'],
   { encoding: 'utf8' },
 ).trim();
 const auth = `Basic ${Buffer.from(`:${pat}`).toString('base64')}`;
