@@ -68,4 +68,12 @@ Download the installer from GitHub: open the Actions run for the commit, then th
     - A commit made in the task's shell refreshes the Changes tab within a second.
     - Finish with the Changes tab open: the worktree is removed with no in-use error.
 
+16. **Upgrade from MIAC.**
+    - Install the last MIAC release, add a connection and a task, then quit MIAC.
+    - Install `Shellie-Setup.exe` and start Shellie.
+    - The task is listed.
+    - The connection works without entering the PAT again.
+    - `%APPDATA%\Shellie\migrated-from-miac.json` exists.
+    - Uninstall MIAC from Apps & features.
+
 If a setup command or a shim fails with "running scripts is disabled on this system": Shellie passes `-ExecutionPolicy Bypass`, but an execution policy set by Group Policy overrides it. Ask IT, or install claude and copilot as native `.exe` builds.

@@ -52,4 +52,18 @@ describe('migrateTaskFolders', () => {
     );
     expect(n).toBe(0);
   });
+  it('excludes before the move, so a failed exclude leaves .miac in place', async () => {
+    const wt = tmp();
+    mkdirSync(path.join(wt, '.miac'));
+    const n = await migrateTaskFolders(
+      [{ worktreePath: wt, repoPath: '/repo' }],
+      async () => {
+        expect(existsSync(path.join(wt, '.shellie'))).toBe(false);
+        throw new Error('no git');
+      },
+    );
+    expect(n).toBe(0);
+    expect(existsSync(path.join(wt, '.miac'))).toBe(true);
+    expect(existsSync(path.join(wt, '.shellie'))).toBe(false);
+  });
 });

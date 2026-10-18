@@ -174,4 +174,81 @@ describe('migrateDataFolder', () => {
     expect(await exists(path.join(to, SENTINEL))).toBe(false);
     expect(await exists(path.join(to, MARKER))).toBe(true);
   });
+  it('gives up after the third failed run and writes a failed marker', async () => {
+    await write(from, 'state.json');
+    await write(from, 'connections.json');
+    await write(from, 'usage/u.json');
+    const bad = async (s: string, d: string) => {
+      if (s.endsWith('connections.json')) throw new Error('boom');
+      await fs.cp(s, d, { recursive: true });
+    };
+    for (let i = 1; i <= 2; i++) {
+      await expect(
+        migrateDataFolder({ from, to, platform: 'darwin', copy: bad }),
+      ).rejects.toThrow('boom');
+      expect(
+        JSON.parse(await fs.readFile(path.join(to, SENTINEL), 'utf8')),
+      ).toEqual({ attempts: i });
+    }
+    const r = await migrateDataFolder({
+      from,
+      to,
+      platform: 'darwin',
+      copy: bad,
+    });
+    expect(r?.failed).toBe(true);
+    expect(await exists(path.join(to, SENTINEL))).toBe(false);
+    const marker = JSON.parse(await fs.readFile(path.join(to, MARKER), 'utf8'));
+    expect(marker.failed).toBe(true);
+    expect(marker.attempts).toBe(3);
+    expect(marker.copied).toContain('usage');
+    expect(typeof marker.at).toBe('string');
+    expect(
+      await migrateDataFolder({ from, to, platform: 'darwin' }),
+    ).toBeNull();
+  });
+
+  it('counts an unreadable sentinel as no attempts', async () => {
+    await write(from, 'state.json');
+    await write(to, SENTINEL, '2026-10-18T00:00:00.000Z');
+    const bad = async () => {
+      throw new Error('boom');
+    };
+    await expect(
+      migrateDataFolder({ from, to, platform: 'darwin', copy: bad }),
+    ).rejects.toThrow('boom');
+    expect(
+      JSON.parse(await fs.readFile(path.join(to, SENTINEL), 'utf8')),
+    ).toEqual({ attempts: 1 });
+  });
+
+  it('skips the Local Storage LOCK file', async () => {
+    await write(from, 'state.json');
+    await write(from, 'Local Storage/leveldb/LOCK');
+    await write(from, 'Local Storage/leveldb/000003.log');
+    const r = await migrateDataFolder({ from, to, platform: 'darwin' });
+    expect(r?.copied).toContain('Local Storage');
+    expect(
+      await exists(path.join(to, 'Local Storage/leveldb/000003.log')),
+    ).toBe(true);
+    expect(await exists(path.join(to, 'Local Storage/leveldb/LOCK'))).toBe(
+      false,
+    );
+  });
+
+  it('a failing Local Storage copy does not fail the run', async () => {
+    await write(from, 'state.json');
+    await write(from, 'Local Storage/leveldb/000003.log');
+    const copy = async (s: string, d: string) => {
+      if (path.basename(s) === 'Local Storage') throw new Error('locked');
+      await fs.cp(s, d, { recursive: true });
+    };
+    const r = await migrateDataFolder({ from, to, platform: 'darwin', copy });
+    expect(r).not.toBeNull();
+    expect(r?.failed).toBeUndefined();
+    expect(await fs.readFile(path.join(to, 'state.json'), 'utf8')).toBe(
+      'state.json',
+    );
+    expect(await exists(path.join(to, MARKER))).toBe(true);
+  });
 });

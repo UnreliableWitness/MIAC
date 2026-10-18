@@ -321,7 +321,16 @@ describe('old key readers time out instead of blocking boot', () => {
       }),
     ).toBe('refused');
     expect(seen).toEqual([
-      { file: 'powershell.exe', timeout: DPAPI_TIMEOUT_MS },
+      {
+        file: path.join(
+          process.env.SystemRoot ?? 'C:\\Windows',
+          'System32',
+          'WindowsPowerShell',
+          'v1.0',
+          'powershell.exe',
+        ),
+        timeout: DPAPI_TIMEOUT_MS,
+      },
     ]);
     expect(DPAPI_TIMEOUT_MS).toBe(30_000);
     expect(read(file).connections[0].status).toBe('unauthorized');

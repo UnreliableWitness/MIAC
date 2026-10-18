@@ -248,7 +248,19 @@ async function boot(): Promise<void> {
     return null;
   });
   const migrationMs = performance.now() - migrationStart;
-  // Right after the copy, once: the copied tokens are under MIAC's key (Local State is not copied); move them to Shellie's.
+  const settings = new SettingsStore(path.join(userData, 'settings.json'));
+  const settingsLoaded = await settings.load();
+  splashWin = settings.get().showSplash ? createSplashWindow(windowIcon) : null;
+  if (splashWin) guardWindow(splashWin.webContents, isSplashPage, openLink);
+  const reporter = new SplashReporter(splashWin);
+  ipcMain.on('splash:skip', (e) => {
+    if (trustedSender(e, isSplashPage)) reporter.skip();
+  });
+  ipcMain.on('splash:quit', (e) => {
+    if (trustedSender(e, isSplashPage)) app.quit();
+  });
+  // Right after the copy, once, before ConnectionStore.load: the copied tokens are under MIAC's key (Local State is not copied); move them to Shellie's.
+  // After the splash exists, as its own step, so the Keychain prompt does not appear with no window.
   let tokenResult: TokenMigration = 'none';
   const readOldKey =
     process.platform === 'darwin'
@@ -259,7 +271,8 @@ async function boot(): Promise<void> {
               path.join(app.getPath('appData'), 'miac', 'Local State'),
             )
         : null;
-  if (migration?.connections && readOldKey) {
+  if (migration?.connections && !migration.failed && readOldKey) {
+    reporter.step('Moving connection tokens');
     // Without encryption the tokens cannot be re-encrypted: keep the connections, marked unauthorized ('refused').
     const canEncrypt = safeStorage.isEncryptionAvailable();
     tokenResult = await migrateTokens({
@@ -273,17 +286,6 @@ async function boot(): Promise<void> {
       return 'refused';
     });
   }
-  const settings = new SettingsStore(path.join(userData, 'settings.json'));
-  const settingsLoaded = await settings.load();
-  splashWin = settings.get().showSplash ? createSplashWindow(windowIcon) : null;
-  if (splashWin) guardWindow(splashWin.webContents, isSplashPage, openLink);
-  const reporter = new SplashReporter(splashWin);
-  ipcMain.on('splash:skip', (e) => {
-    if (trustedSender(e, isSplashPage)) reporter.skip();
-  });
-  ipcMain.on('splash:quit', (e) => {
-    if (trustedSender(e, isSplashPage)) app.quit();
-  });
   // Boot step timings (ms), measured around the real work, not the splash pacing.
   const timings: Record<string, number> = {
     settingsMs: performance.now() - bootStart,
@@ -324,7 +326,7 @@ async function boot(): Promise<void> {
   if (migration)
     telemetry.event(
       'migration.miac',
-      { tokens: tokenResult },
+      { tokens: tokenResult, result: migration.failed ? 'failed' : 'ok' },
       { copied: migration.copied.length, ms: migrationMs },
     );
   lap('telemetryMs');
@@ -349,7 +351,6 @@ async function boot(): Promise<void> {
     void (async () => {
       const pending: { worktreePath: string; repoPath: string }[] = [];
       for (const task of store.state.tasks) {
-        if (task.status === 'done') continue;
         for (const w of taskWorkspaces(task)) {
           const repo = store.state.repos.find((r) => r.id === w.repoId);
           if (w.worktreePath && repo)

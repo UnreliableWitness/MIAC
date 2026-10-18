@@ -18,11 +18,12 @@ export async function migrateTaskFolders(
     const to = path.join(w.worktreePath, '.shellie');
     if (!(await exists(from)) || (await exists(to))) continue;
     try {
-      await fs.rename(from, to);
+      // Exclude first (idempotent): a failed exclude must never leave a moved `.shellie/` that git sees.
       await exclude(w.repoPath);
+      await fs.rename(from, to);
       moved++;
     } catch {
-      // A locked folder on Windows: the next start tries again.
+      // A failed exclude, or a locked folder on Windows: the next start tries again.
     }
   }
   return moved;

@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { createDecipheriv, pbkdf2Sync } from 'node:crypto';
 import { promises as fs } from 'node:fs';
+import path from 'node:path';
 import { ConnectionsFileSchema } from '../../shared/types';
 import { renameWithRetry } from '../fsRetry';
 
@@ -115,8 +116,15 @@ export async function readMiacWindowsKey(
   const blob = parseLocalStateKey(await fs.readFile(oldLocalStatePath, 'utf8'));
   let out: string;
   try {
+    // By full path: a powershell.exe earlier on PATH must not see the key.
     out = await run(
-      'powershell.exe',
+      path.join(
+        process.env.SystemRoot ?? 'C:\\Windows',
+        'System32',
+        'WindowsPowerShell',
+        'v1.0',
+        'powershell.exe',
+      ),
       ['-NoProfile', '-NonInteractive', '-Command', UNPROTECT],
       {
         env: { ...process.env, SHELLIE_DPAPI_BLOB: blob.toString('base64') },
