@@ -1,4 +1,3 @@
-import { migrateDataFolder } from './main/migrate/dataFolder';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
@@ -28,6 +27,7 @@ import {
 import { DocsWatcher } from './main/docs/DocsWatcher';
 import { GitDirWatcher } from './main/review/GitDirWatcher';
 import { registerIpc } from './main/ipc/register';
+import { migrateDataFolder } from './main/migrate/dataFolder';
 import { createPlatform } from './main/platform';
 import { AdoRegistry } from './main/services/AdoRegistry';
 import { ConnectionStore } from './main/services/ConnectionStore';
@@ -234,7 +234,13 @@ async function boot(): Promise<void> {
     from: path.join(app.getPath('appData'), 'miac'),
     to: userData,
     platform: process.platform,
-  }).catch(() => null);
+  }).catch((err) => {
+    console.error(
+      'Data migration from MIAC failed; it runs again on the next start.',
+      err,
+    );
+    return null;
+  });
   // Task 5 emits `migration.miac` after its token step, with these.
   const migrationMs = performance.now() - migrationStart;
   void migration;

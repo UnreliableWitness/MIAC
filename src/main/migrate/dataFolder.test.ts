@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { MARKER, migrateDataFolder } from './dataFolder';
+import { MARKER, SENTINEL, migrateDataFolder } from './dataFolder';
 
 let root: string;
 let from: string;
@@ -146,5 +146,32 @@ describe('migrateDataFolder', () => {
     expect(
       (await fs.readdir(to)).filter((n) => n.endsWith('.migrating')),
     ).toEqual([]);
+  });
+
+  it('a failed run is retried after boot wrote an empty state.json, replacing stale directories', async () => {
+    await write(from, 'state.json', 'real');
+    await write(from, 'connections.json', 'conn');
+    await write(from, 'Local Storage/new.log');
+    const bad = async (s: string, d: string) => {
+      if (s.endsWith('connections.json')) throw new Error('boom');
+      await fs.cp(s, d, { recursive: true });
+    };
+    await expect(
+      migrateDataFolder({ from, to, platform: 'darwin', copy: bad }),
+    ).rejects.toThrow('boom');
+    expect(await exists(path.join(to, SENTINEL))).toBe(true);
+    expect(await exists(path.join(to, MARKER))).toBe(false);
+    await write(to, 'state.json', '{}');
+    await write(to, 'Local Storage/stale.log');
+    const r = await migrateDataFolder({ from, to, platform: 'darwin' });
+    expect(r).not.toBeNull();
+    expect(await fs.readFile(path.join(to, 'state.json'), 'utf8')).toBe('real');
+    expect(await fs.readFile(path.join(to, 'connections.json'), 'utf8')).toBe(
+      'conn',
+    );
+    expect(await exists(path.join(to, 'Local Storage/stale.log'))).toBe(false);
+    expect(await exists(path.join(to, 'Local Storage/new.log'))).toBe(true);
+    expect(await exists(path.join(to, SENTINEL))).toBe(false);
+    expect(await exists(path.join(to, MARKER))).toBe(true);
   });
 });
