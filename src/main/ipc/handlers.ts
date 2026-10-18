@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, promises as fs } from 'node:fs';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import type { Events, Handlers, PendingUpdate } from '../../shared/ipc';
 import { claudeContext, renderTaskMd, taskSlug } from '../../shared/naming';
@@ -36,6 +36,7 @@ import {
   workspaceById,
   type WorkspaceView,
 } from '../../shared/workspaces';
+import { pathExists } from '../fsRetry';
 import { worktreeRoot } from '../paths';
 import { HomeService } from '../home/HomeService';
 import { homeStats } from '../home/homeStats';
@@ -57,11 +58,7 @@ import { baselineKey, createTimeHandlers } from '../time/timeHandlers';
 import { closestMeasure, planTimeWrite } from '../time/timeWriteBack';
 import type { TimeStore } from '../time/TimeStore';
 import type { Command, Platform } from '../platform/Platform';
-import {
-  OFFICIAL_RATES,
-  OFFICIAL_RATES_AS_OF,
-  OFFICIAL_USD_TO_EUR,
-} from '../pricing/officialRates';
+import { OFFICIAL_RATES, OFFICIAL_RATES_AS_OF } from '../pricing/officialRates';
 import { AdoClient, AdoError } from '../services/AdoClient';
 import type { AdoRegistry } from '../services/AdoRegistry';
 import {
@@ -98,6 +95,8 @@ import type { UsageStore } from '../usage/UsageStore';
 import { UsageSync } from '../usage/UsageSync';
 import { renderCostLine } from '../../shared/workItemUsage';
 import type { TimeBooking } from '../../shared/time';
+import { errorMessage } from '../../shared/errors';
+import { OFFICIAL_USD_TO_EUR } from '../../shared/usage';
 
 export type Services = {
   store: TaskStore;
@@ -176,15 +175,6 @@ function withPeriodClosed(task: Task, end: string): Task['openPeriods'] {
   return task.openPeriods.map((p, i, all) =>
     i === all.length - 1 && p.end === null ? { ...p, end } : p,
   );
-}
-
-async function exists(p: string): Promise<boolean> {
-  try {
-    await fs.access(p);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 /** After a crash, tasks cannot still be mid-setup or mid-finish. Returns how many were changed. */
@@ -356,7 +346,7 @@ export function createHandlers(s: Services): Handlers {
           t.status !== 'done' &&
           t.status !== 'setting-up' &&
           // The task's working folder: the home unless Finish dropped it, then the repo that took over.
-          !(await exists(activeHome(t).worktreePath)),
+          !(await pathExists(activeHome(t).worktreePath)),
       })),
     );
 
@@ -497,7 +487,7 @@ export function createHandlers(s: Services): Handlers {
         await patchBooking({ writtenHours: hours, syncError: null });
         return null;
       } catch (e) {
-        const message = e instanceof Error ? e.message : String(e);
+        const message = errorMessage(e);
         await patchBooking({ syncError: message }).catch(() => undefined);
         return message;
       }
@@ -816,7 +806,8 @@ export function createHandlers(s: Services): Handlers {
     const reopening = isReopening(task);
     const defs = reopening ? restoredTerminals(task) : initialTerminals(task);
     const hasApm =
-      config.apm !== false && (await exists(path.join(repo.path, 'apm.yml')));
+      config.apm !== false &&
+      (await pathExists(path.join(repo.path, 'apm.yml')));
     return {
       taskId: task.id,
       repoPath: repo.path,
@@ -986,7 +977,7 @@ export function createHandlers(s: Services): Handlers {
         });
       report(result.ok, result.ok ? null : current.failedStep);
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
+      const message = errorMessage(e);
       report(false, null);
       tel.exception(e, { source: 'setup' });
       s.broadcast('notice', {
@@ -1080,7 +1071,7 @@ export function createHandlers(s: Services): Handlers {
       connection: null,
       availability: {
         available: false,
-        reason: e instanceof Error ? e.message : String(e),
+        reason: errorMessage(e),
         target: null,
       },
       target: null,
@@ -1098,7 +1089,7 @@ export function createHandlers(s: Services): Handlers {
         linksWorkItem: pr.linksWorkItem,
       },
     };
-    if (!(await exists(w.worktreePath)))
+    if (!(await pathExists(w.worktreePath)))
       return {
         ...base,
         baseKnown: true,
@@ -1277,7 +1268,7 @@ export function createHandlers(s: Services): Handlers {
           message: `Task finished, but the AI usage could not be written to the work item: ${result.error}. Use Sync now on the Usage screen to retry.`,
         });
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
+      const message = errorMessage(e);
       s.broadcast('notice', {
         level: 'warn',
         message: `Task finished, but the AI usage could not be written to the work item: ${message}. Use Sync now on the Usage screen to retry.`,
@@ -1344,7 +1335,7 @@ export function createHandlers(s: Services): Handlers {
         const actionOf = new Map(wanted.map((r) => [r.workspaceId, r.action]));
         for (const w of activeWorkspaces(task)) {
           const action = actionOf.get(w.id);
-          if (!action || !(await exists(w.worktreePath))) continue;
+          if (!action || !(await pathExists(w.worktreePath))) continue;
           const repo = s.repos.get(w.repoId);
           // A summary must never block Finish.
           const summary = await s.git
@@ -1407,7 +1398,7 @@ export function createHandlers(s: Services): Handlers {
               }
               result.pushed = true;
             } catch (e) {
-              const message = e instanceof Error ? e.message : String(e);
+              const message = errorMessage(e);
               tel.event('pr.failed', { kind: 'git' });
               fail(message, `Branch not pushed for ${r.repoName}: ${message}`);
             }
@@ -1443,7 +1434,7 @@ export function createHandlers(s: Services): Handlers {
               }
               result.pushed = true;
             } catch (e) {
-              const message = e instanceof Error ? e.message : String(e);
+              const message = errorMessage(e);
               tel.event('pr.failed', {
                 kind: e instanceof AdoError ? e.kind : 'git',
               });
@@ -1477,7 +1468,7 @@ export function createHandlers(s: Services): Handlers {
           const drop = r.action === 'drop';
           if (
             (options.removeWorktree || drop) &&
-            (await exists(r.w.worktreePath))
+            (await pathExists(r.w.worktreePath))
           )
             await s.git.worktreeRemove(r.repoPath, r.w.worktreePath, true);
           if (options.deleteBranch || drop) {
@@ -1583,7 +1574,7 @@ export function createHandlers(s: Services): Handlers {
         throw new Error('Give the work item a title');
       const slug = taskSlug(input.workItem, input.name);
       const worktreePath = path.join(worktreeRoot(repo.path), slug);
-      if (await exists(worktreePath))
+      if (await pathExists(worktreePath))
         throw new Error(`Folder ${worktreePath} already exists`);
       const keys = [`${repo.id}:${branch}`, `${repo.id}:${worktreePath}`];
       if (
@@ -1695,7 +1686,7 @@ export function createHandlers(s: Services): Handlers {
               })),
           ];
           for (const r of remade) {
-            if (await exists(r.worktreePath))
+            if (await pathExists(r.worktreePath))
               await s.git.worktreeRemove(r.repoPath, r.worktreePath, true);
             await s.git.worktreePrune(r.repoPath);
           }
@@ -1708,7 +1699,7 @@ export function createHandlers(s: Services): Handlers {
           tel.event('task.reopenCancelled');
           return;
         }
-        if (await exists(task.worktreePath))
+        if (await pathExists(task.worktreePath))
           await s.git.worktreeRemove(repo.path, task.worktreePath, true);
         await s.git.worktreePrune(repo.path);
         if (await s.git.branchExists(repo.path, task.branch))
@@ -1763,7 +1754,7 @@ export function createHandlers(s: Services): Handlers {
         const restores = new Map<string, { from: string | null }>();
         let via: string | null = null;
         for (const w of active) {
-          if (await exists(w.worktreePath)) {
+          if (await pathExists(w.worktreePath)) {
             // A kept worktree is used as it is; the home's branch must still be there, as before #48.
             if (
               w.id === HOME_ID &&
@@ -1825,7 +1816,7 @@ export function createHandlers(s: Services): Handlers {
         await patchTask(taskId, { status: 'finishing' });
         // Record what the branch did while the worktree still exists; a summary must never block Finish.
         let summary: TaskSummary | null = null;
-        if (await exists(task.worktreePath))
+        if (await pathExists(task.worktreePath))
           summary = await s.git
             .finishSummary(task.worktreePath, {
               baseRef: task.baseRef,
@@ -1897,7 +1888,7 @@ export function createHandlers(s: Services): Handlers {
             tel.event(existing ? 'pr.linked' : 'pr.created');
           } catch (e) {
             await patchTask(taskId, { status: 'ready' });
-            const message = e instanceof Error ? e.message : String(e);
+            const message = errorMessage(e);
             tel.event('pr.failed', {
               kind: e instanceof AdoError ? e.kind : 'git',
             });
@@ -1910,7 +1901,7 @@ export function createHandlers(s: Services): Handlers {
         const killTerminals = options.closeTerminals || options.removeWorktree;
         try {
           if (killTerminals) await closeTaskTerminals(taskId);
-          if (options.removeWorktree && (await exists(task.worktreePath)))
+          if (options.removeWorktree && (await pathExists(task.worktreePath)))
             await s.git.worktreeRemove(repo.path, task.worktreePath, true);
           if (options.deleteBranch) {
             // A deleted folder leaves a stale registration that blocks branch deletion.

@@ -75,6 +75,7 @@ import { TELEMETRY_CHANNEL } from './shared/telemetry';
 import { type AutoUpdate, startAutoUpdate } from './main/autoUpdate';
 import { appUrlMatcher, guardWindow, trustedSender } from './main/windowGuards';
 import { titleBarOptions } from './main/windowChrome';
+import { errorMessage } from './shared/errors';
 
 if (started) app.quit();
 
@@ -644,7 +645,7 @@ async function boot(): Promise<void> {
     });
     stopUpdates = () => updates?.stop();
   } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
+    const message = errorMessage(e);
     console.error(e);
     telemetry.exception(e, { source: 'boot' }, 'critical');
     void telemetry.flush();

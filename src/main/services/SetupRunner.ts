@@ -2,9 +2,12 @@ import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { SetupEvent, SetupStepDef } from '../../shared/types';
+import { pathExists } from '../fsRetry';
+import { isInside } from '../paths';
 import type { Command, Platform } from '../platform/Platform';
 import type { GitClient } from './GitClient';
 import { nodeModulesMatch } from './nodeModules';
+import { errorMessage } from '../../shared/errors';
 
 export type SetupPlan = {
   taskId: string;
@@ -191,18 +194,8 @@ export async function ensureExcluded(
 const excludeLocks = new Map<string, Promise<void>>();
 
 function insideDir(base: string, rel: string): string | null {
-  const root = path.resolve(base);
-  const target = path.resolve(root, rel);
-  return target === root || target.startsWith(root + path.sep) ? target : null;
-}
-
-async function exists(p: string): Promise<boolean> {
-  try {
-    await fs.access(p);
-    return true;
-  } catch {
-    return false;
-  }
+  const target = path.resolve(base, rel);
+  return isInside(base, target) ? target : null;
 }
 
 export class SetupRunner {
@@ -243,7 +236,7 @@ export class SetupRunner {
           ms: Date.now() - started,
         });
       } catch (e) {
-        const detail = e instanceof Error ? e.message : String(e);
+        const detail = errorMessage(e);
         log(detail);
         emit({
           type: 'step',
@@ -312,7 +305,7 @@ export class SetupRunner {
           log(r.detail);
           return r;
         } catch (e) {
-          const detail = e instanceof Error ? e.message : String(e);
+          const detail = errorMessage(e);
           log(detail);
           return { detail, warn: true };
         }
@@ -361,7 +354,7 @@ export class SetupRunner {
     log: (l: string) => void,
   ): Promise<boolean> {
     if (
-      (await exists(w.worktreePath)) &&
+      (await pathExists(w.worktreePath)) &&
       (await this.git.branchExists(w.repoPath, w.branch))
     ) {
       log(`worktree ${w.worktreePath} already exists, reusing it`);
@@ -405,7 +398,7 @@ export class SetupRunner {
         log(`skipped ${rel} (outside the repository)`);
         continue;
       }
-      if (!(await exists(src))) {
+      if (!(await pathExists(src))) {
         log(`skipped ${rel} (not present in ${path.basename(w.repoPath)})`);
         continue;
       }
@@ -428,13 +421,13 @@ export class SetupRunner {
     const src = path.join(plan.repoPath, 'node_modules');
     const dest = path.join(plan.worktreePath, 'node_modules');
     const outdated = `node_modules in ${name} is missing or out of date, npm ci installs`;
-    if (await exists(dest)) {
+    if (await pathExists(dest)) {
       log('node_modules is already in the worktree');
       return { detail: 'Already in the worktree' };
     }
     if (
       !this.platform.cloneDir ||
-      !(await exists(src)) ||
+      !(await pathExists(src)) ||
       !(await nodeModulesMatch(
         src,
         path.join(plan.worktreePath, 'package-lock.json'),
@@ -452,7 +445,7 @@ export class SetupRunner {
       await fs.rename(tmp, dest);
     } catch (e) {
       await fs.rm(tmp, { recursive: true, force: true });
-      const detail = `Clone failed, npm ci installs: ${e instanceof Error ? e.message : String(e)}`;
+      const detail = `Clone failed, npm ci installs: ${errorMessage(e)}`;
       log(detail);
       return { detail, warn: true };
     }
@@ -465,7 +458,7 @@ export class SetupRunner {
     plan: SetupPlan,
     log: (l: string) => void,
   ): Promise<{ detail: string; warn?: boolean }> {
-    if (!(await exists(path.join(plan.worktreePath, 'apm.yml')))) {
+    if (!(await pathExists(path.join(plan.worktreePath, 'apm.yml')))) {
       log('no apm.yml in the worktree');
       return { detail: 'No apm.yml in the worktree' };
     }

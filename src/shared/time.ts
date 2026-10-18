@@ -11,8 +11,15 @@ export const AGENT_TOOLS: AgentTool[] = [
   'opencode',
 ];
 
+export const TOOL_LABEL: Record<AgentTool, string> = {
+  'claude-code': 'Claude Code',
+  'copilot-cli': 'Copilot CLI',
+  opencode: 'OpenCode est.',
+};
+
 const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
-const minutesOf = (t: string): number =>
+/** Minutes since midnight of an `HH:MM` time. */
+export const minutesOf = (t: string): number =>
   Number(t.slice(0, 2)) * 60 + Number(t.slice(3));
 
 /** Local working hours; days: 0 = Sunday … 6 = Saturday. */

@@ -16,7 +16,7 @@ import {
   activeWorkspaces,
   docsTarget,
 } from '../../../shared/workspaces';
-import { api, tryInvoke } from '../../api';
+import { api, ipcErrorMessage, tryInvoke } from '../../api';
 import {
   readDocState,
   readListCollapsed,
@@ -33,12 +33,6 @@ import { SendTo } from './SendTo';
 import { DocsBody, type Doc } from './DocsBody';
 
 type From = 'list' | 'link' | 'terminal';
-
-const errorText = (e: unknown) =>
-  (e instanceof Error ? e.message : String(e)).replace(
-    /^Error invoking remote method '[^']+': (Error: )?/,
-    '',
-  );
 
 /** A change that can alter the file list: a Markdown file, or a path without an extension (a folder). */
 export const affectsList = (paths: string[]): boolean =>
@@ -111,7 +105,7 @@ function DocsPane({
         try {
           setFiles((await api().invoke('docs:list', tid)).files);
         } catch (e) {
-          notify('error', errorText(e));
+          notify('error', ipcErrorMessage(e));
           setFiles((f) => f ?? []);
         }
       } while (l.again);
@@ -151,7 +145,7 @@ function DocsPane({
         setDoc({ path, text: r.text, error: null, deleted: false });
       } catch (e) {
         if (mine !== token.current || path !== currentRef.current) return;
-        const msg = errorText(e);
+        const msg = ipcErrorMessage(e);
         setDoc((d) => {
           if (
             msg === 'Not found' &&

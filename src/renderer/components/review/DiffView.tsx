@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import type { ReviewSide } from '../../../shared/review';
 import { loadMonaco } from '../../review/loadMonaco';
 import { type LineChange, mapOriginalLine } from '../../review/mapOriginalLine';
+import { errorMessage } from '../../../shared/errors';
 
 export type DiffZone = {
   id: string;
@@ -86,7 +87,7 @@ export function DiffView(p: Props) {
     let live = true;
     loadMonaco().then(
       (x) => live && setM(x),
-      (e) => live && setFailed(e instanceof Error ? e.message : String(e)),
+      (e) => live && setFailed(errorMessage(e)),
     );
     return () => {
       live = false;

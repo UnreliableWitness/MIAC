@@ -16,6 +16,7 @@ import {
   treeFiles,
   type TreeDir,
 } from '../../review/fileTree';
+import { plural } from '../../format';
 
 export type FileRef = { workspaceId: string; path: string };
 const STATUS_LABEL = {
@@ -85,7 +86,7 @@ function Row({
       {comments > 0 && (
         <span
           className="small review-count"
-          aria-label={`${comments} ${comments === 1 ? 'comment' : 'comments'}`}
+          aria-label={plural(comments, 'comment')}
         >
           {comments}
         </span>
@@ -156,7 +157,7 @@ function Dir({
         {notes > 0 && (
           <span
             className="small review-count"
-            aria-label={`${notes} ${notes === 1 ? 'comment' : 'comments'} in ${dir.path}`}
+            aria-label={`${plural(notes, 'comment')} in ${dir.path}`}
           >
             {notes}
           </span>
@@ -196,9 +197,6 @@ function Level(props: Parameters<typeof Dir>[0]) {
     </>
   );
 }
-
-const plural = (n: number, one: string, many = `${one}s`) =>
-  `${n} ${n === 1 ? one : many}`;
 
 /** A repo's group header in a multi-repo task: name and viewed count, then what the group holds. */
 function RepoHeader({

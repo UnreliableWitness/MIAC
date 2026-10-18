@@ -14,8 +14,8 @@ import {
   git,
   makeRepo,
 } from '../test-helpers/gitRepo';
+import { isInside } from '../paths';
 import {
-  isInside,
   listDocs,
   MAX_DOC_BYTES,
   readAsset,

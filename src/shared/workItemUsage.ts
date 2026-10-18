@@ -1,14 +1,12 @@
-import type { AiField, TaskUsage, UsageTool } from './usage';
+import { TOOL_LABEL } from './time';
+import type { AiField, TaskUsage } from './usage';
 
 const EURO = String.fromCharCode(0x20ac);
-const LABEL: Record<UsageTool, string> = {
-  'claude-code': 'Claude Code',
-  'copilot-cli': 'Copilot CLI',
-};
 
 export const round2 = (n: number): number =>
   Math.round((n + Number.EPSILON) * 100) / 100;
-const eur = (n: number) => `${EURO}${round2(n).toFixed(2)}`;
+/** An amount in euros with two decimals, such as "€1.50". */
+export const eur = (n: number): string => `${EURO}${round2(n).toFixed(2)}`;
 
 export function aiFieldValues(u: TaskUsage): Record<AiField, number> {
   return {
@@ -38,7 +36,7 @@ export function renderUsageComment(u: TaskUsage, branches: string[]): string {
     ];
     const modelText = models.length > 0 ? ` (${models.join(', ')})` : '';
     lines.push(
-      `${LABEL[tool]}: ${eur(t.costEur)} over ${t.sessions} session${t.sessions === 1 ? '' : 's'}${modelText}`,
+      `${TOOL_LABEL[tool]}: ${eur(t.costEur)} over ${t.sessions} session${t.sessions === 1 ? '' : 's'}${modelText}`,
     );
   }
   const unpriced = billable.reduce((n, s) => n + s.unpricedRequests, 0);

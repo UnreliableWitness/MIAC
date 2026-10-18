@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { formatDuration, parseDuration } from '../../shared/time';
+import { formatDuration, parseDuration, TOOL_LABEL } from '../../shared/time';
 import type { AgentTool, TaskTime } from '../../shared/time';
 import type { TaskView } from '../../shared/types';
 import { dateTime } from '../format';
@@ -15,11 +15,6 @@ function snap(v: number, min: number, max: number): number {
   if (v >= max) return max;
   return Math.min(max, Math.max(min, Math.round(v / STEP) * STEP));
 }
-const TOOL_LABEL: Record<AgentTool, string> = {
-  'claude-code': 'Claude Code',
-  'copilot-cli': 'Copilot CLI',
-  opencode: 'OpenCode est.',
-};
 const AGENT_ORDER: AgentTool[] = ['claude-code', 'copilot-cli', 'opencode'];
 
 /** The Finish step "Time spent": one slider from measured to wall clock time, plus a field to type the booking. */

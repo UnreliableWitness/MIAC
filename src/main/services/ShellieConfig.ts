@@ -3,6 +3,7 @@ import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
 import type { ShellieConfig } from '../../shared/types';
+import { pathExists } from '../fsRetry';
 
 export const DEFAULT_BRANCH_TEMPLATE = '{type}/{id}-{slug}';
 
@@ -31,20 +32,11 @@ const ShellieYmlSchema = z.strictObject({
   review: z.strictObject({ collapse: listOrString.default([]) }).optional(),
 });
 
-async function exists(p: string): Promise<boolean> {
-  try {
-    await fs.access(p);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /** `.shellie.yml`, else the pre-rename `.miac.yml`, else null. */
 export async function configFileFor(repoPath: string): Promise<string | null> {
   for (const name of ['.shellie.yml', '.miac.yml']) {
     const file = path.join(repoPath, name);
-    if (await exists(file)) return file;
+    if (await pathExists(file)) return file;
   }
   return null;
 }
@@ -53,7 +45,9 @@ export async function loadShellieConfig(
   repoPath: string,
 ): Promise<ShellieConfig> {
   const file = await configFileFor(repoPath);
-  const defaultSetup = (await exists(path.join(repoPath, 'package-lock.json')))
+  const defaultSetup = (await pathExists(
+    path.join(repoPath, 'package-lock.json'),
+  ))
     ? ['npm ci']
     : [];
 

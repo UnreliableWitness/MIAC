@@ -10,6 +10,7 @@ import type { Connection, SprintIteration } from '../../shared/types';
 import { AdoError, type AdoClient } from '../services/AdoClient';
 import { JsonFileStore } from '../usage/JsonFileStore';
 import { toHomePr } from './homePr';
+import { errorMessage } from '../../shared/errors';
 
 export type HomeClient = Pick<
   AdoClient,
@@ -53,9 +54,6 @@ export type HomeFailureKind =
 class HomeTimeout extends Error {}
 
 type Call = <T>(run: () => Promise<T>) => Promise<T>;
-
-const message = (e: unknown): string =>
-  e instanceof Error ? e.message : String(e);
 
 const byCreated = (a: HomePr, b: HomePr) =>
   a.createdAt.localeCompare(b.createdAt);
@@ -165,7 +163,7 @@ export class HomeService {
                 ? 'unauthorized'
                 : 'unreachable',
         });
-        return this.failed(c, prev, message(e));
+        return this.failed(c, prev, errorMessage(e));
       })
       .finally(() => clearTimeout(timer));
   }
@@ -228,7 +226,7 @@ export class HomeService {
       sprintsError: part
         ? part.error
         : sprints.status === 'rejected'
-          ? message(sprints.reason)
+          ? errorMessage(sprints.reason)
           : null,
       reviews:
         prs.status === 'fulfilled' ? prs.value.reviews : (prev?.reviews ?? []),
@@ -237,7 +235,7 @@ export class HomeService {
           ? prs.value.teamReviews
           : (prev?.teamReviews ?? []),
       myPrs: prs.status === 'fulfilled' ? prs.value.myPrs : (prev?.myPrs ?? []),
-      prsError: prs.status === 'rejected' ? message(prs.reason) : null,
+      prsError: prs.status === 'rejected' ? errorMessage(prs.reason) : null,
     };
   }
 
@@ -252,7 +250,7 @@ export class HomeService {
       teams.map((t) => call(() => client.currentIteration(c.project, t.name))),
     );
     const failure = found.find((f) => f.status === 'rejected');
-    const error = failure ? message(failure.reason) : null;
+    const error = failure ? errorMessage(failure.reason) : null;
     if (failure && found.every((f) => f.status === 'rejected'))
       return { sprints: null, error };
     const iterations = [

@@ -27,6 +27,7 @@ import {
   readContent,
   readSide,
 } from './reviewGit';
+import { errorMessage } from '../../shared/errors';
 
 export type ReviewServiceDeps = {
   git: GitClient;
@@ -39,11 +40,7 @@ export type ReviewServiceDeps = {
 };
 
 const message = (e: unknown): string =>
-  e instanceof GitError
-    ? e.stderr.trim() || e.message.trim()
-    : e instanceof Error
-      ? e.message
-      : String(e);
+  e instanceof GitError ? e.stderr.trim() || e.message.trim() : errorMessage(e);
 
 export class ReviewService {
   private readonly now: () => Date;

@@ -1,7 +1,6 @@
 import type { Rate } from '../../shared/usage';
 
 export const OFFICIAL_RATES_AS_OF = '2026-10-14';
-export { OFFICIAL_USD_TO_EUR } from '../../shared/usage';
 
 const r = (
   id: string,

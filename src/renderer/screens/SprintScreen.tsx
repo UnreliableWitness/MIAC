@@ -27,6 +27,7 @@ import { useTaskUsage } from '../hooks/useTaskUsage';
 import { startTaskFor } from '../startTask';
 import { activeConnection, useStore } from '../store';
 import { TASK_STATUS } from '../taskStatus';
+import { errorMessage } from '../../shared/errors';
 
 /** Window focus refreshes the sprint at most this often. */
 const FOCUS_REFRESH_MS = 60_000;
@@ -442,7 +443,7 @@ function SprintPage({ connection }: { connection: Connection }) {
       setSprintName(null);
       setLoad({
         status: 'error',
-        message: e instanceof Error ? e.message : String(e),
+        message: errorMessage(e),
       });
     } finally {
       if (mine === seq.current) setBusy(false);

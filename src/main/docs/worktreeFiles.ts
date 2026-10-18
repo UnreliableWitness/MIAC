@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { DocFile } from '../../shared/types';
+import { isInside } from '../paths';
 import type { GitClient } from '../services/GitClient';
 
 export const MAX_DOC_BYTES = 2 * 1024 * 1024;
@@ -17,19 +18,6 @@ const IMAGE_TYPES: Record<string, string> = {
   '.webp': 'image/webp',
   '.svg': 'image/svg+xml',
 };
-
-/** True when `target` is `root` or inside it; Windows paths compare case-insensitively. */
-export function isInside(
-  root: string,
-  target: string,
-  p: typeof path = path,
-): boolean {
-  const norm = (x: string) => (p.sep === '\\' ? x.toLowerCase() : x);
-  const r = norm(p.resolve(root));
-  const t = norm(p.resolve(target));
-  if (t === r) return true;
-  return t.startsWith(r.endsWith(p.sep) ? r : r + p.sep);
-}
 
 export const toRel = (root: string, abs: string): string =>
   path.relative(root, abs).split(path.sep).join('/');

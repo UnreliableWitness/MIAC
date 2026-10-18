@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { Connection, Task, Workspace } from '../../shared/types';
 import { HOME_ID } from '../../shared/workspaces';
-import { samePath } from '../paths';
+import { isInside, samePath } from '../paths';
 import { matchConnection } from '../services/azureRepos';
 import type { GitClient } from '../services/GitClient';
 import type { RepoRegistry } from '../services/RepoRegistry';
@@ -32,11 +32,6 @@ export type WorkspaceDetectorDeps = {
 };
 
 type Source = 'log' | 'branch' | 'manual';
-
-const isInside = (dir: string, p: string): boolean => {
-  const rel = path.relative(dir, p);
-  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
-};
 
 /** Finds other repos' worktrees a task worked in (Claude's session logs, the task branch) and joins them. */
 export class WorkspaceDetector {

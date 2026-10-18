@@ -14,7 +14,7 @@ import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import rehypeSlug from 'rehype-slug';
 import remarkGfm from 'remark-gfm';
 import { api } from '../../api';
-import { resolveRelative, webLink } from '../../docs/linkify';
+import { openWeb, resolveRelative } from '../../docs/linkify';
 import { rehypeLines } from '../../docs/rehypeLines';
 import { MermaidBlock } from './MermaidBlock';
 
@@ -43,15 +43,6 @@ function decodeAnchor(a: string): string {
   } catch {
     return a;
   }
-}
-
-/** Opens a web link in the browser; a malformed or disallowed one does nothing. */
-function openWeb(href: string): void {
-  const url = webLink(href);
-  if (url)
-    void api()
-      .invoke('links:open', url)
-      .catch(() => {});
 }
 
 function textOf(node: ReactNode): string {

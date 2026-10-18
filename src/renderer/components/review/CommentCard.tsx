@@ -3,8 +3,7 @@ import { type KeyboardEvent, useState } from 'react';
 import Markdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { ReviewComment } from '../../../shared/review';
-import { api } from '../../api';
-import { webLink } from '../../docs/linkify';
+import { openWeb, webLink } from '../../docs/linkify';
 
 /**
  * Links in a comment never navigate the app window: web links open in the browser, anything
@@ -19,9 +18,7 @@ const components: Components = {
         href={url}
         onClick={(e) => {
           e.preventDefault();
-          void api()
-            .invoke('links:open', url)
-            .catch(() => {});
+          openWeb(url);
         }}
         onAuxClick={(e) => e.preventDefault()}
       >

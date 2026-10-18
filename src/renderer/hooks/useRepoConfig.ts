@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { ShellieConfig } from '../../shared/types';
 import { api } from '../api';
 import { useStore } from '../store';
+import { errorMessage } from '../../shared/errors';
 
 const cache = new Map<
   string,
@@ -29,7 +30,7 @@ export function useRepoConfig(repoId: string | null) {
       .catch((e: unknown) => {
         if (!live) return;
         setValue(null);
-        notify('error', e instanceof Error ? e.message : String(e));
+        notify('error', errorMessage(e));
       });
     return () => {
       live = false;

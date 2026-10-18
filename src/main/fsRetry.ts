@@ -23,6 +23,13 @@ export async function withRetry<T>(
   }
 }
 
+/** True when `p` exists (any kind of entry). */
+export const pathExists = (p: string): Promise<boolean> =>
+  fs.access(p).then(
+    () => true,
+    () => false,
+  );
+
 /** fs.rename that rides out short locks held by antivirus or indexers (common on Windows). */
 export async function renameWithRetry(
   from: string,

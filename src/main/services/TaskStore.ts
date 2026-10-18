@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { StateSchema, type State } from '../../shared/types';
 import { renameWithRetry } from '../fsRetry';
+import { errorMessage } from '../../shared/errors';
 
 export type LoadResult = { recovered: boolean; backup?: string };
 
@@ -41,7 +42,7 @@ export class TaskStore {
         try {
           await fs.copyFile(this.filePath, backup);
         } catch (e) {
-          const message = e instanceof Error ? e.message : String(e);
+          const message = errorMessage(e);
           throw new Error(
             `state.json is corrupt and could not be backed up to ${backup}: ${message}`,
           );

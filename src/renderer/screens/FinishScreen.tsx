@@ -12,7 +12,7 @@ import {
   taskConnectionId,
 } from '../../shared/workspaces';
 import { api, tryInvoke } from '../api';
-import { eur } from '../format';
+import { eur, plural } from '../format';
 import { useTaskUsage } from '../hooks/useTaskUsage';
 import { useWriteCostToAdo } from '../hooks/useWriteCostToAdo';
 import { TimeSpentSection } from '../components/TimeSpentSection';
@@ -28,6 +28,7 @@ import {
   writePrChoice,
   writePushChoice,
 } from '../uiPrefs';
+import { TOOL_LABEL } from '../../shared/time';
 
 const ELLIPSIS = String.fromCharCode(0x2026);
 const PR_FAILED = 'Pull request not created: ';
@@ -72,7 +73,6 @@ const actionOf = (
   return noChanges(c) ? 'drop' : c.pr.available ? 'pr' : 'push';
 };
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const G = {
   WARN: String.fromCharCode(0x26a0),
   OK: String.fromCharCode(0x2713),
@@ -462,9 +462,9 @@ export function FinishScreen({ taskId }: { taskId: string }) {
               <div className="body">
                 {[
                   review.notViewed > 0 &&
-                    `${review.notViewed} ${review.notViewed === 1 ? 'file' : 'files'} not viewed`,
+                    `${plural(review.notViewed, 'file')} not viewed`,
                   review.unresolved > 0 &&
-                    `${review.unresolved} ${review.unresolved === 1 ? 'comment' : 'comments'} unresolved`,
+                    `${plural(review.unresolved, 'comment')} unresolved`,
                 ]
                   .filter(Boolean)
                   .join(' · ')}
@@ -525,7 +525,9 @@ export function FinishScreen({ taskId }: { taskId: string }) {
               <div className="check check-warn">
                 <span aria-hidden="true">{G.WARN}</span>
                 <div className="body">
-                  <div className="title">{`${checks.uncommitted.length} uncommitted change${checks.uncommitted.length === 1 ? '' : 's'}`}</div>
+                  <div className="title">
+                    {plural(checks.uncommitted.length, 'uncommitted change')}
+                  </div>
                   <div className="mono small files">
                     {checks.uncommitted
                       .map((f) => `${f.status} ${f.path}`)
@@ -554,7 +556,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
               <div className="check check-warn">
                 <span aria-hidden="true">{G.UP}</span>
                 <div className="body">
-                  <div className="title">{`${checks.unpushed} commit${checks.unpushed === 1 ? '' : 's'} not pushed`}</div>
+                  <div className="title">{`${plural(checks.unpushed, 'commit')} not pushed`}</div>
                 </div>
                 <button
                   type="button"
@@ -570,7 +572,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
               <div className="check check-ok">
                 <span aria-hidden="true">{G.UP}</span>
                 <div className="body">
-                  {`${checks.unpushed} commit${checks.unpushed === 1 ? '' : 's'} will be pushed for the pull request`}
+                  {`${plural(checks.unpushed, 'commit')} will be pushed for the pull request`}
                 </div>
               </div>
             ) : (
@@ -584,7 +586,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
               <div className="check check-warn">
                 <span aria-hidden="true">{G.PLAY}</span>
                 <div className="body">
-                  <div className="title">{`${checks.runningTerminals} terminal${checks.runningTerminals === 1 ? '' : 's'} still running`}</div>
+                  <div className="title">{`${plural(checks.runningTerminals, 'terminal')} still running`}</div>
                   <div className="small">
                     They are closed when you finish, unless you untick it below.
                   </div>
@@ -611,7 +613,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
                   <div
                     key={t}
                     className="small muted"
-                  >{`${t === 'claude-code' ? 'Claude Code' : 'Copilot CLI'} ${eur(usage.byTool[t].costEur)} over ${usage.byTool[t].sessions} session${usage.byTool[t].sessions === 1 ? '' : 's'}`}</div>
+                  >{`${TOOL_LABEL[t]} ${eur(usage.byTool[t].costEur)} over ${plural(usage.byTool[t].sessions, 'session')}`}</div>
                 ))}
             </div>
           ) : (
@@ -705,7 +707,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
               disabled={nTerm === 0}
               onChange={(e) => setCloseTerminals(e.target.checked)}
             />
-            {`Close ${nTerm} terminal${nTerm === 1 ? '' : 's'}${nTerm > 0 ? ` (${terminalLabels})` : ''}`}
+            {`Close ${plural(nTerm, 'terminal')}${nTerm > 0 ? ` (${terminalLabels})` : ''}`}
           </label>
           <label className="checkbox">
             <input

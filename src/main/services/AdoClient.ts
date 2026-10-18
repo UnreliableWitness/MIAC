@@ -7,6 +7,7 @@ import type {
   WorkItemSummary,
   WorkItemTypeMeta,
 } from '../../shared/types';
+import { errorMessage } from '../../shared/errors';
 
 export type AdoErrorKind =
   | 'unauthorized'
@@ -159,7 +160,7 @@ export class AdoClient {
       path,
       timedOut
         ? `Azure DevOps did not answer within ${this.timeoutMs / 1000} s`
-        : `Could not reach ${this.organizationUrl}: ${e instanceof Error ? e.message : String(e)}`,
+        : `Could not reach ${this.organizationUrl}: ${errorMessage(e)}`,
     );
   }
 

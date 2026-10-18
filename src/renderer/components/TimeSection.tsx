@@ -2,10 +2,9 @@ import { useEffect, useState } from 'react';
 import type { AppSettings } from '../../shared/usage';
 import { api, tryInvoke } from '../api';
 import { useStore } from '../store';
+import { minutesOf } from '../../shared/time';
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const minutesOf = (t: string) =>
-  Number(t.slice(0, 2)) * 60 + Number(t.slice(3));
 
 type Draft = {
   start: string;

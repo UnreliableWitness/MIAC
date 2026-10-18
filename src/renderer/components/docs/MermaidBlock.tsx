@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type MouseEvent } from 'react';
-import { api } from '../../api';
-import { webLink } from '../../docs/linkify';
+import { openWeb } from '../../docs/linkify';
+import { errorMessage } from '../../../shared/errors';
 
 const XLINK = 'http://www.w3.org/1999/xlink';
 
@@ -18,11 +18,7 @@ function followDiagramLink(e: MouseEvent<HTMLDivElement>): void {
     a.getAttribute('href') ??
     a.getAttributeNS(XLINK, 'href') ??
     a.getAttribute('xlink:href');
-  const url = href ? webLink(href) : null;
-  if (url)
-    void api()
-      .invoke('links:open', url)
-      .catch(() => {});
+  if (href) openWeb(href);
 }
 
 let ready: Promise<typeof import('mermaid').default> | null = null;
@@ -49,10 +45,7 @@ export function MermaidBlock({ code }: { code: string }) {
     load()
       .then((m) => m.render(id, code))
       .then(({ svg }) => live && setSvg(svg))
-      .catch(
-        (e: unknown) =>
-          live && setError(e instanceof Error ? e.message : String(e)),
-      );
+      .catch((e: unknown) => live && setError(errorMessage(e)));
     return () => {
       live = false;
     };

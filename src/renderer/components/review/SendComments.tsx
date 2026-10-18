@@ -9,6 +9,7 @@ import { useStore } from '../../store';
 import { track } from '../../telemetry';
 import { focusTerminal, pasteInto } from '../../terminalRegistry';
 import { PopupMenu } from '../ui';
+import { plural } from '../../format';
 
 /** Agent tabs only: a shell would run each line of the paste. */
 const AGENTS = new Set(['claude', 'copilot', 'opencode']);
@@ -124,7 +125,7 @@ export function SendComments({
         onClick={() => void send(target.id)}
       >
         <Send16Regular aria-hidden="true" />
-        {`Send ${open.length} ${open.length === 1 ? 'comment' : 'comments'} to ${target.label}`}
+        {`Send ${plural(open.length, 'comment')} to ${target.label}`}
       </button>
       {targets.length > 1 && (
         <button

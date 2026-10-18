@@ -1,9 +1,5 @@
 export { formatDuration } from '../shared/time';
-
-const EURO = String.fromCharCode(0x20ac);
-
-export const eur = (n: number): string =>
-  `${EURO}${(Math.round((n + Number.EPSILON) * 100) / 100).toFixed(2)}`;
+export { eur } from '../shared/workItemUsage';
 
 export const compact = (n: number): string =>
   n >= 1_000_000
@@ -67,3 +63,7 @@ export const duration = (fromIso: string, toIso: string): string | null => {
   const d = Math.floor(h / 24);
   return h % 24 ? `${d} d ${h % 24} h` : `${d} d`;
 };
+
+/** "1 file", "2 files"; pass `many` for an irregular plural. */
+export const plural = (n: number, one: string, many = `${one}s`): string =>
+  `${n} ${n === 1 ? one : many}`;

@@ -2,15 +2,15 @@ import { EventEmitter } from 'node:events';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import type {
-  Rate,
-  SessionSummary,
-  TaskUsage,
-  UsageEvent,
-  UsageRecord,
-  UsageTool,
+import {
+  OFFICIAL_USD_TO_EUR,
+  type Rate,
+  type SessionSummary,
+  type TaskUsage,
+  type UsageEvent,
+  type UsageRecord,
+  type UsageTool,
 } from '../../shared/usage';
-import { OFFICIAL_USD_TO_EUR } from '../pricing/officialRates';
 import { priceEvent, round6 } from '../pricing/RateTable';
 import { renameWithRetry } from '../fsRetry';
 
