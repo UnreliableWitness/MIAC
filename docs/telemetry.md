@@ -44,6 +44,7 @@ This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 
 | `setup.retried`, `setup.cancelled` | none |
 | `task.reopened` | where the branch came from (`folder`: worktree kept, `branch`, `origin`, `commit`, `base`) |
 | `task.reopenCancelled` | none |
+| `migration.miac` | first start after the rename from MIAC copied its data folder; `tokens` (`migrated`, `partial`, `refused`, `none`); `copied` (number of top-level entries), `ms` |
 | `workspace.joined` | a worktree of another repo joined a task; `source` (`log`: found in a Claude session log, `branch`: found by the task branch, `manual`: added by hand) |
 | `workspace.removed` | a joined worktree was removed from its task; none |
 | `terminal.opened` | kind (`claude`, `copilot`, `opencode`, `shell`, `run`); opened by setup or by hand |

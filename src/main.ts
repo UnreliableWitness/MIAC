@@ -1,3 +1,4 @@
+import { migrateDataFolder } from './main/migrate/dataFolder';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
@@ -227,6 +228,17 @@ function revealMain(win: BrowserWindow): void {
 async function boot(): Promise<void> {
   const bootStart = performance.now();
   const userData = app.getPath('userData');
+  // First on purpose: before settings load and before any window, copy MIAC's data folder.
+  const migrationStart = performance.now();
+  const migration = await migrateDataFolder({
+    from: path.join(app.getPath('appData'), 'miac'),
+    to: userData,
+    platform: process.platform,
+  }).catch(() => null);
+  // Task 5 emits `migration.miac` after its token step, with these.
+  const migrationMs = performance.now() - migrationStart;
+  void migration;
+  void migrationMs;
   const settings = new SettingsStore(path.join(userData, 'settings.json'));
   const settingsLoaded = await settings.load();
   splashWin = settings.get().showSplash ? createSplashWindow(windowIcon) : null;
