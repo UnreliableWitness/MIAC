@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { Connection, Task, Workspace } from '../../shared/types';
 import { HOME_ID } from '../../shared/workspaces';
-import { samePath } from '../paths';
+import { isInside, samePath } from '../paths';
 import { matchConnection } from '../services/azureRepos';
 import type { GitClient } from '../services/GitClient';
 import type { RepoRegistry } from '../services/RepoRegistry';
@@ -32,11 +32,6 @@ export type WorkspaceDetectorDeps = {
 };
 
 type Source = 'log' | 'branch' | 'manual';
-
-const isInside = (dir: string, p: string): boolean => {
-  const rel = path.relative(dir, p);
-  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
-};
 
 /** Finds other repos' worktrees a task worked in (Claude's session logs, the task branch) and joins them. */
 export class WorkspaceDetector {
@@ -155,8 +150,9 @@ export class WorkspaceDetector {
         .map((t) => t.sessionId as string),
     );
     const paths: string[] = [];
+    const folders = ids.size > 0 ? await this.projectFolders() : [];
     for (const id of ids)
-      for (const file of await this.sessionFiles(id))
+      for (const file of await sessionFiles(folders, id))
         for (const hit of writeHitsFromLines(await this.reader.readNew(file)))
           if (
             !isInside(task.worktreePath, hit.path) &&
@@ -176,25 +172,14 @@ export class WorkspaceDetector {
     return out;
   }
 
-  /** `<projectsDir>/<any folder>/<sessionId>.jsonl`; Claude's folder naming per cwd does not matter. */
-  private async sessionFiles(sessionId: string): Promise<string[]> {
+  /** The folders in projectsDir, as full paths; none when it cannot be read. */
+  private async projectFolders(): Promise<string[]> {
     const dir = this.d.projectsDir();
-    let folders: string[];
     try {
-      folders = await fs.readdir(dir);
+      return (await fs.readdir(dir)).map((f) => path.join(dir, f));
     } catch {
       return [];
     }
-    const files: string[] = [];
-    for (const f of folders) {
-      const file = path.join(dir, f, `${sessionId}.jsonl`);
-      try {
-        if ((await fs.stat(file)).isFile()) files.push(file);
-      } catch {
-        // not in this folder
-      }
-    }
-    return files;
   }
 
   /** Worktrees on the task branch in registered repos and their sibling repos. */
@@ -265,4 +250,21 @@ export class WorkspaceDetector {
     this.d.event('workspace.joined', { source });
     return workspace;
   }
+}
+
+/** `<projectsDir>/<any folder>/<sessionId>.jsonl`; Claude's folder naming per cwd does not matter. */
+async function sessionFiles(
+  folders: string[],
+  sessionId: string,
+): Promise<string[]> {
+  const files = folders.map((f) => path.join(f, `${sessionId}.jsonl`));
+  const isFile = await Promise.all(
+    files.map((file) =>
+      fs.stat(file).then(
+        (st) => st.isFile(),
+        () => false, // not in this folder
+      ),
+    ),
+  );
+  return files.filter((_, i) => isFile[i]);
 }

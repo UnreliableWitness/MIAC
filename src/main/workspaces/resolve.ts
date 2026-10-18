@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { pathExists } from '../fsRetry';
 import type { GitClient } from '../services/GitClient';
 import { samePath } from '../paths';
 
@@ -76,11 +77,8 @@ const realReaddir = async (dir: string): Promise<string[]> =>
     .filter((e) => e.isDirectory())
     .map((e) => e.name);
 
-const realIsRepo = async (dir: string): Promise<boolean> =>
-  fs.access(path.join(dir, '.git')).then(
-    () => true,
-    () => false,
-  );
+const realIsRepo = (dir: string): Promise<boolean> =>
+  pathExists(path.join(dir, '.git'));
 
 /** Direct sibling folders of the given repos that contain `.git`, excluding the repos themselves and `*.worktrees` folders. */
 export async function siblingRepos(

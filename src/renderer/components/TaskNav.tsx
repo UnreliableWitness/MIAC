@@ -18,7 +18,7 @@ import {
 import type { Repo, TaskStatus, TaskView } from '../../shared/types';
 import { activeHome, activeWorkspaces } from '../../shared/workspaces';
 import { statusText } from '../connectionStatus';
-import { eur } from '../format';
+import { eur, plural } from '../format';
 import { useTaskUsage } from '../hooks/useTaskUsage';
 import { activeConnection, useStore, useTaskConnectionId } from '../store';
 import { WorkItemTypeIcon } from './ui';
@@ -92,7 +92,7 @@ function Row({ task }: { task: TaskView }) {
       <span className="navrow-title">{task.workItem?.title ?? task.name}</span>
       {extras > 0 && (
         <span className="navrow-repos small muted">
-          +{extras} {extras === 1 ? 'repo' : 'repos'}
+          +{plural(extras, 'repo')}
         </span>
       )}
       {state && (

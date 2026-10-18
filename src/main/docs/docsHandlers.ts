@@ -11,6 +11,7 @@ import {
   workspaceById,
 } from '../../shared/workspaces';
 import type { GitClient } from '../services/GitClient';
+import { requireWorktree } from '../workspaces/existing';
 import type { DocsWatcher } from './DocsWatcher';
 import {
   listDocs,
@@ -71,12 +72,8 @@ export function createDocsHandlers(d: DocsDeps): Pick<Handlers, DocsChannels> {
       throw new Error(`Cannot read docs of a task that is ${t.status}`);
     return { t, ws: workspaceById(t, workspaceId), workspaceId };
   };
-  const workspace = (target: string) => {
-    const { ws } = resolveTarget(target);
-    if (!existsSync(ws.worktreePath))
-      throw new Error('The worktree is missing');
-    return ws;
-  };
+  const workspace = (target: string) =>
+    requireWorktree(resolveTarget(target).ws);
   const worktree = (target: string): string => workspace(target).worktreePath;
   return {
     'docs:list': async (target) => {

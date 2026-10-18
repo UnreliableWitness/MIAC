@@ -2,20 +2,21 @@ import { EventEmitter } from 'node:events';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import type {
-  Rate,
-  SessionSummary,
-  TaskUsage,
-  UsageEvent,
-  UsageRecord,
-  UsageTool,
+import {
+  OFFICIAL_USD_TO_EUR,
+  type Rate,
+  type SessionSummary,
+  type TaskUsage,
+  type UsageEvent,
+  type UsageRecord,
+  type UsageTool,
 } from '../../shared/usage';
-import { OFFICIAL_USD_TO_EUR } from '../pricing/officialRates';
 import { priceEvent, round6 } from '../pricing/RateTable';
-import { renameWithRetry } from '../fsRetry';
+import { JsonFileStore } from './JsonFileStore';
 
 const TOOLS: UsageTool[] = ['claude-code', 'copilot-cli'];
 const BillableSchema = z.record(z.string(), z.array(z.string()));
+type Billable = z.infer<typeof BillableSchema>;
 
 /** `YYYY-MM` of an ISO timestamp, or of now when the timestamp has no usable month. */
 const monthOf = (iso: string): string => {
@@ -30,12 +31,20 @@ export class UsageStore extends EventEmitter<{ changed: [taskId: string] }> {
   private readonly lastChange = new Map<string, string>();
   private notBillable = new Map<string, Set<string>>();
   private queue: Promise<unknown> = Promise.resolve();
+  /** Task id to the session ids marked not billable; stored compact. */
+  private readonly billable: JsonFileStore<Billable>;
 
   constructor(
     private readonly dir: string,
     private readonly rates: () => Rate[],
   ) {
     super();
+    this.billable = new JsonFileStore(
+      path.join(dir, 'billable.json'),
+      BillableSchema,
+      () => ({}),
+      0,
+    );
   }
 
   async load(): Promise<{
@@ -65,31 +74,11 @@ export class UsageStore extends EventEmitter<{ changed: [taskId: string] }> {
         }
       }
     }
-    const billableFile = path.join(this.dir, 'billable.json');
-    let billableBackup: string | null = null;
-    this.notBillable = new Map();
-    let raw: string | null = null;
-    try {
-      raw = await fs.readFile(billableFile, 'utf8');
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
-    }
-    if (raw !== null) {
-      let parsed: z.infer<typeof BillableSchema> | null = null;
-      try {
-        parsed = BillableSchema.parse(JSON.parse(raw));
-      } catch {
-        parsed = null;
-      }
-      if (parsed) {
-        this.notBillable = new Map(
-          Object.entries(parsed).map(([t, ids]) => [t, new Set(ids)]),
-        );
-      } else {
-        billableBackup = `${billableFile}.corrupt-${Date.now()}`;
-        await renameWithRetry(billableFile, billableBackup);
-      }
-    }
+    const billable = await this.billable.load();
+    this.notBillable = new Map(
+      Object.entries(this.billable.value).map(([t, ids]) => [t, new Set(ids)]),
+    );
+    const billableBackup = billable.backup ?? null;
     return { damagedLines: damaged, billableBackup };
   }
 
@@ -135,13 +124,11 @@ export class UsageStore extends EventEmitter<{ changed: [taskId: string] }> {
       if (billable) set.delete(sessionId);
       else set.add(sessionId);
       next.set(taskId, set);
-      const obj = Object.fromEntries(
-        [...next].filter(([, s]) => s.size > 0).map(([t, s]) => [t, [...s]]),
+      await this.billable.update(() =>
+        Object.fromEntries(
+          [...next].filter(([, s]) => s.size > 0).map(([t, s]) => [t, [...s]]),
+        ),
       );
-      await fs.mkdir(this.dir, { recursive: true });
-      const file = path.join(this.dir, 'billable.json');
-      await fs.writeFile(`${file}.tmp`, JSON.stringify(obj), 'utf8');
-      await renameWithRetry(`${file}.tmp`, file);
       this.notBillable = next;
       this.lastChange.set(taskId, new Date().toISOString());
       this.emit('changed', taskId);

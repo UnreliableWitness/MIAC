@@ -9,6 +9,7 @@ import {
 import type { AdoClient } from '../services/AdoClient';
 import { aiFieldValues, renderUsageComment } from '../../shared/workItemUsage';
 import { pushedBranches } from '../../shared/workspaces';
+import { errorMessage } from '../../shared/errors';
 
 export type UsageSyncDeps = {
   task: (taskId: string) => Task;
@@ -166,7 +167,7 @@ export class UsageSync {
         error: null,
       };
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
+      const message = errorMessage(e);
       try {
         await this.d.patchTask(taskId, { usageSyncError: message });
       } catch {

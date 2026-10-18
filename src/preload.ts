@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import { EVENT_PREFIX, type ShellieApi } from './shared/ipc';
 import { TELEMETRY_CHANNEL } from './shared/telemetry';
 import { titleBarKind } from './shared/titleBar';
+import { errorMessage } from './shared/errors';
 
 const api: ShellieApi = {
   invoke: async (channel, ...args) => {
@@ -9,7 +10,7 @@ const api: ShellieApi = {
       return await ipcRenderer.invoke(channel, ...args);
     } catch (e) {
       // Electron wraps handler errors as "Error invoking remote method 'x': Error: <message>"; hand the renderer the plain message.
-      const message = e instanceof Error ? e.message : String(e);
+      const message = errorMessage(e);
       throw new Error(
         message.replace(
           /^Error invoking remote method '[^']+': (?:Error: )?/,

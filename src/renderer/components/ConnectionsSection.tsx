@@ -3,6 +3,7 @@ import type { Connection } from '../../shared/types';
 import { api, tryInvoke } from '../api';
 import { statusText } from '../connectionStatus';
 import { useStore } from '../store';
+import { errorMessage } from '../../shared/errors';
 
 function ConnectionRow({ connection }: { connection: Connection }) {
   const notify = useStore((s) => s.notify);
@@ -124,7 +125,7 @@ function AddConnectionForm({ onDone }: { onDone: () => void }) {
       setPat('');
       onDone();
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
+      const message = errorMessage(e);
       setError(pat ? message.split(pat).join('***') : message);
     } finally {
       setBusy(false);

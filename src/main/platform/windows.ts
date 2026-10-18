@@ -49,6 +49,9 @@ export const psSetupWrapper = (cmd: string): string =>
 export const psRunWrapper = (cmd: string): string =>
   ['& {', cmd, '}', 'if ($LASTEXITCODE) { exit $LASTEXITCODE }'].join('\n');
 
+/** The start of every PowerShell command line Shellie builds. */
+const BASE_ARGS = ['-NoLogo', '-ExecutionPolicy', 'Bypass'];
+
 /** Windows: PowerShell 7 if installed, else Windows PowerShell 5.1. */
 export function windowsPlatform(
   _env: NodeJS.ProcessEnv,
@@ -57,28 +60,13 @@ export function windowsPlatform(
   const shell = deps.which('pwsh') ?? 'powershell.exe';
   const ps = (command: string): Command => ({
     command: shell,
-    args: [
-      '-NoLogo',
-      '-ExecutionPolicy',
-      'Bypass',
-      '-NoProfile',
-      '-Command',
-      command,
-    ],
+    args: [...BASE_ARGS, '-NoProfile', '-Command', command],
   });
 
   /** Native .exe runs directly (node-pty quotes args for ConPTY); shims go through PowerShell. */
   const nonInteractive = (command: string): Command => ({
     command: shell,
-    args: [
-      '-NoLogo',
-      '-ExecutionPolicy',
-      'Bypass',
-      '-NoProfile',
-      '-NonInteractive',
-      '-Command',
-      command,
-    ],
+    args: [...BASE_ARGS, '-NoProfile', '-NonInteractive', '-Command', command],
   });
 
   /** `flags` are Shellie's own tokens (no user text), so they are quoted for PowerShell; a prompt goes through an env var. */
@@ -107,7 +95,7 @@ export function windowsPlatform(
     shellLabel: 'PowerShell',
     interactiveShell: () => ({
       command: shell,
-      args: ['-NoLogo', '-ExecutionPolicy', 'Bypass'],
+      args: [...BASE_ARGS],
     }),
     shellCommand: (cmd) => nonInteractive(psSetupWrapper(cmd)),
     runCommand: (cmd) => nonInteractive(psRunWrapper(cmd)),

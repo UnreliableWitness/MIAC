@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { renameWithRetry } from '../fsRetry';
+import { pathExists, renameWithRetry } from '../fsRetry';
 
 /** Chromium's own entries in the profile folder; everything else is the app's. */
 const CHROMIUM = [
@@ -66,12 +66,6 @@ export type Copy = (
   filter?: (src: string) => boolean,
 ) => Promise<void>;
 
-const exists = (p: string) =>
-  fs.access(p).then(
-    () => true,
-    () => false,
-  );
-
 async function readAttempts(file: string): Promise<number> {
   try {
     const n = (
@@ -99,13 +93,14 @@ export async function migrateDataFolder(opts: {
         force: true,
         filter,
       }));
-  if (await exists(path.join(opts.to, MARKER))) return null;
+  if (await pathExists(path.join(opts.to, MARKER))) return null;
   const sentinel = path.join(opts.to, SENTINEL);
-  const interrupted = await exists(sentinel);
+  const interrupted = await pathExists(sentinel);
   if (!interrupted)
-    for (const f of DATA) if (await exists(path.join(opts.to, f))) return null;
+    for (const f of DATA)
+      if (await pathExists(path.join(opts.to, f))) return null;
   const hasData = await Promise.all(
-    DATA.map((f) => exists(path.join(opts.from, f))),
+    DATA.map((f) => pathExists(path.join(opts.from, f))),
   );
   if (!hasData.some(Boolean)) return null;
 

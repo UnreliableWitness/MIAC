@@ -6,7 +6,7 @@ import type {
   StartSettings,
   WorkItemTypeMeta,
 } from '../../shared/types';
-import { api, tryInvoke } from '../api';
+import { api, saveSettings, tryInvoke } from '../api';
 import { ConnectionsSection } from '../components/ConnectionsSection';
 import { CostSection } from '../components/CostSection';
 import { EditorSection } from '../components/EditorSection';
@@ -236,11 +236,7 @@ function AppearanceSection() {
     patch: Partial<Pick<AppSettings, 'showSplash' | 'sendTelemetry'>>,
   ) => {
     if (!settings) return;
-    // Read fresh so a save from another section is not overwritten.
-    const saved = await tryInvoke(async () => {
-      const fresh = await api().invoke('settings:get');
-      return api().invoke('settings:save', { ...fresh, ...patch });
-    }, notify);
+    const saved = await tryInvoke(() => saveSettings(patch), notify);
     if (saved) setSettings(saved);
   };
 

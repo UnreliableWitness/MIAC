@@ -8,7 +8,7 @@ import { useTaskUsage } from '../../hooks/useTaskUsage';
 import { upNext } from '../../homeView';
 import { startTaskFor } from '../../startTask';
 import { useStore } from '../../store';
-import { TASK_STATUS } from '../../taskStatus';
+import { taskStatusOf } from '../../taskStatus';
 import { track } from '../../telemetry';
 import { stateMeta, useWorkItemTypes } from '../../workItemTypes';
 import { WorkItemTypeIcon } from '../ui';
@@ -23,9 +23,7 @@ function TaskCard({ task }: { task: TaskView }) {
   const usage = useTaskUsage(task.id);
   const { time } = useTaskTime(task.id);
   const attention = task.status === 'setup-failed' || task.worktreeMissing;
-  const status = task.worktreeMissing
-    ? { label: 'Folder missing', color: 'var(--red)' }
-    : TASK_STATUS[task.status];
+  const status = taskStatusOf(task);
   const connection = connections.find(
     (c) => c.id === taskConnectionId(task, repos),
   );

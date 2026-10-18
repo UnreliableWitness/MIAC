@@ -9,13 +9,14 @@ import {
   FullScreenMinimize16Regular,
 } from '@fluentui/react-icons';
 import { useEffect, useState } from 'react';
+import type { Events } from '../../shared/ipc';
 import type { NewTerminal, TaskView } from '../../shared/types';
 import { api, tryInvoke } from '../api';
 import { eur } from '../format';
 import { useGitSummary } from '../hooks/useGitSummary';
 import { useRepoConfig } from '../hooks/useRepoConfig';
 import { useTaskUsage } from '../hooks/useTaskUsage';
-import { holdDocsWatch } from '../docs/holdDocsWatch';
+import { holdWatch } from '../review/holdWatch';
 import { useChangeCount } from '../review/useReview';
 import { CHANGES_TAB, DOCS_TAB, USAGE_TAB, useStore } from '../store';
 import { DocsTab } from './docs/DocsTab';
@@ -43,6 +44,30 @@ const DOWN = String.fromCharCode(0x2193);
 const DOT = String.fromCharCode(0xb7);
 const DELTA = String.fromCharCode(0x394);
 const DASH = String.fromCharCode(0x2014);
+
+/** Whether the event brought something new for a tab that is not showing; cleared once the tab shows. */
+function useUnseen<K extends 'docs:changed' | 'usage:changed'>(
+  taskId: string,
+  tab: string,
+  active: string,
+  event: K,
+  hit: (payload: Events[K]) => boolean,
+): boolean {
+  const [unseen, setUnseen] = useState(false);
+  useEffect(
+    () =>
+      api().on(event, (p) => {
+        if (hit(p) && useStore.getState().activeTab(taskId) !== tab)
+          setUnseen(true);
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- hit reads only taskId
+    [taskId],
+  );
+  useEffect(() => {
+    if (active === tab) setUnseen(false);
+  }, [active, tab]);
+  return unseen;
+}
 
 const folderName = (p: string) => p.split(/[\\/]/).filter(Boolean).at(-1) ?? p;
 
@@ -93,7 +118,7 @@ function RunChips({
 }
 
 /** The task's AI cost; opens the Usage tab. */
-export function CostButton({ taskId }: { taskId: string }) {
+function CostButton({ taskId }: { taskId: string }) {
   const openUsage = useStore((s) => s.openUsage);
   const usage = useTaskUsage(taskId);
   const cost = usage?.billable.costEur ?? 0;
@@ -134,47 +159,28 @@ export function TerminalTabs({
     visible && ready && active !== CHANGES_TAB,
   );
   const toggleFocus = useStore((s) => s.toggleFocus);
-  const [unseen, setUnseen] = useState(false);
-  const [docsUnseen, setDocsUnseen] = useState(false);
-
-  useEffect(
-    () =>
-      api().on('docs:changed', (p) => {
-        if (
-          // Any of the task's worktrees: `<taskId>` or `<taskId>#<workspace>`.
-          parseDocsTarget(p.taskId).taskId === task.id &&
-          p.paths.some((f) => MARKDOWN.test(f) && !OUTPUT_DIR.test(f)) &&
-          useStore.getState().activeTab(task.id) !== DOCS_TAB
-        )
-          setDocsUnseen(true);
-      }),
-    [task.id],
+  const docsUnseen = useUnseen(
+    task.id,
+    DOCS_TAB,
+    active,
+    'docs:changed',
+    (p) =>
+      // Any of the task's worktrees: `<taskId>` or `<taskId>#<workspace>`.
+      parseDocsTarget(p.taskId).taskId === task.id &&
+      p.paths.some((f) => MARKDOWN.test(f) && !OUTPUT_DIR.test(f)),
   );
-
-  useEffect(() => {
-    if (active === DOCS_TAB) setDocsUnseen(false);
-  }, [active]);
+  const unseen = useUnseen(
+    task.id,
+    USAGE_TAB,
+    active,
+    'usage:changed',
+    (p) => p.taskId === task.id || p.taskId === '*',
+  );
 
   useEffect(() => {
     if (!visible || !ready || task.worktreeMissing) return;
-    return holdDocsWatch(task.id);
+    return holdWatch('docs:watch', task.id);
   }, [task.id, visible, ready, task.worktreeMissing]);
-
-  useEffect(
-    () =>
-      api().on('usage:changed', (p) => {
-        if (
-          (p.taskId === task.id || p.taskId === '*') &&
-          useStore.getState().activeTab(task.id) !== USAGE_TAB
-        )
-          setUnseen(true);
-      }),
-    [task.id],
-  );
-
-  useEffect(() => {
-    if (active === USAGE_TAB) setUnseen(false);
-  }, [active]);
 
   // The task page looks for other repos' worktrees when shown and every 2 minutes while the window is focused.
   useEffect(() => {

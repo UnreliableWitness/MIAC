@@ -75,18 +75,9 @@ export const AppSettingsSchema = z.object({
   autoUpdate: z.boolean().optional(),
 });
 export type AppSettings = z.infer<typeof AppSettingsSchema>;
-export const defaultSettings = (): AppSettings => ({
-  version: 1,
-  receiverPort: 4319,
-  hourlySync: true,
-  writeCostToAdo: false,
-  writeTimeToAdo: false,
-  idleMinutes: 5,
-  workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
-  showSplash: true,
-  sendTelemetry: true,
-  editor: defaultEditorPrefs(),
-});
+/** The required fields; every other setting takes its schema default. */
+export const defaultSettings = (): AppSettings =>
+  AppSettingsSchema.parse({ version: 1, receiverPort: 4319, hourlySync: true });
 
 export type SessionSummary = {
   sessionId: string;

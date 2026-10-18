@@ -1,7 +1,7 @@
 import { CheckmarkCircle12Filled } from '@fluentui/react-icons';
 import { RepoMark } from '../RepoMark';
 
-export type RepoChip = {
+type RepoChip = {
   workspaceId: string;
   name: string;
   color: number | null;

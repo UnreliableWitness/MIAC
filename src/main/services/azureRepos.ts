@@ -2,6 +2,7 @@
 
 import type { Connection } from '../../shared/types';
 import { COST_LINE_PREFIX } from '../../shared/workItemUsage';
+import { splitRemoteRef } from './GitClient';
 
 export type AzureRepoRef = { org: string; project: string; repo: string };
 export type PrAvailability = {
@@ -93,10 +94,7 @@ export function prAvailability(input: {
 
 /** `origin/main` -> `main` when `origin` is a remote; anything else is already a branch name. */
 export function targetBranch(baseRef: string, remotes: string[]): string {
-  const slash = baseRef.indexOf('/');
-  if (slash > 0 && remotes.includes(baseRef.slice(0, slash)))
-    return baseRef.slice(slash + 1);
-  return baseRef;
+  return splitRemoteRef(baseRef, remotes)?.branch ?? baseRef;
 }
 
 export function prTitle(task: {

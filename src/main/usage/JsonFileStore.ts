@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { z } from 'zod';
 import { renameWithRetry } from '../fsRetry';
+import { errorMessage } from '../../shared/errors';
 
 /** One JSON document on disk, zod-validated, written atomically and serially; a corrupt file is backed up. */
 export class JsonFileStore<T> {
@@ -12,6 +13,8 @@ export class JsonFileStore<T> {
     private readonly file: string,
     private readonly schema: z.ZodType<T>,
     private readonly empty: () => T,
+    /** JSON.stringify indent; 0 writes compact JSON. */
+    private readonly indent = 2,
   ) {
     this.current = empty();
   }
@@ -25,8 +28,10 @@ export class JsonFileStore<T> {
     try {
       raw = await fs.readFile(this.file, 'utf8');
     } catch (e) {
-      if ((e as NodeJS.ErrnoException).code === 'ENOENT')
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
+        this.current = this.empty();
         return { recovered: false };
+      }
       throw e;
     }
     try {
@@ -34,7 +39,18 @@ export class JsonFileStore<T> {
       return { recovered: false };
     } catch {
       const backup = `${this.file}.corrupt-${Date.now()}`;
-      await renameWithRetry(this.file, backup);
+      try {
+        await renameWithRetry(this.file, backup);
+      } catch {
+        // Rename can fail on Windows when the file is locked; keep a copy instead.
+        try {
+          await fs.copyFile(this.file, backup);
+        } catch (e) {
+          throw new Error(
+            `${path.basename(this.file)} is corrupt and could not be backed up to ${backup}: ${errorMessage(e)}`,
+          );
+        }
+      }
       this.current = this.empty();
       return { recovered: true, backup };
     }
@@ -51,7 +67,7 @@ export class JsonFileStore<T> {
       const next = this.schema.parse(mutate(draft) ?? draft);
       await fs.mkdir(path.dirname(this.file), { recursive: true });
       const tmp = `${this.file}.tmp`;
-      await fs.writeFile(tmp, JSON.stringify(next, null, 2), 'utf8');
+      await fs.writeFile(tmp, JSON.stringify(next, null, this.indent), 'utf8');
       await renameWithRetry(tmp, this.file);
       this.current = next;
       return next;

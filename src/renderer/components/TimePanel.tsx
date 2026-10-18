@@ -1,14 +1,8 @@
-import { AGENT_TOOLS, formatDuration, type AgentTool } from '../../shared/time';
+import { AGENT_TOOLS, formatDuration, TOOL_LABEL } from '../../shared/time';
 import { api, tryInvoke } from '../api';
 import { useEstimateHours } from '../hooks/useEstimateHours';
 import { useTaskTime } from '../hooks/useTaskTime';
 import { useStore, useTaskConnectionId } from '../store';
-
-const TOOL_LABEL: Record<AgentTool, string> = {
-  'claude-code': 'Claude Code',
-  'copilot-cli': 'Copilot CLI',
-  opencode: 'OpenCode est.',
-};
 
 /** The Time card on the Usage tab: measured time, agent time per tool, the estimate and the booking. */
 export function TimePanel({ taskId }: { taskId: string }) {

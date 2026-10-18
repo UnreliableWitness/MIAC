@@ -2,7 +2,7 @@ import {
   ChevronDown12Regular,
   ChevronRight12Regular,
 } from '@fluentui/react-icons';
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useMemo, useState } from 'react';
 import {
   isGenerated,
   type ReviewFile,
@@ -16,6 +16,8 @@ import {
   treeFiles,
   type TreeDir,
 } from '../../review/fileTree';
+import { viewedIn } from '../../review/repoGroups';
+import { plural } from '../../format';
 
 export type FileRef = { workspaceId: string; path: string };
 const STATUS_LABEL = {
@@ -85,7 +87,7 @@ function Row({
       {comments > 0 && (
         <span
           className="small review-count"
-          aria-label={`${comments} ${comments === 1 ? 'comment' : 'comments'}`}
+          aria-label={plural(comments, 'comment')}
         >
           {comments}
         </span>
@@ -156,7 +158,7 @@ function Dir({
         {notes > 0 && (
           <span
             className="small review-count"
-            aria-label={`${notes} ${notes === 1 ? 'comment' : 'comments'} in ${dir.path}`}
+            aria-label={`${plural(notes, 'comment')} in ${dir.path}`}
           >
             {notes}
           </span>
@@ -196,9 +198,6 @@ function Level(props: Parameters<typeof Dir>[0]) {
     </>
   );
 }
-
-const plural = (n: number, one: string, many = `${one}s`) =>
-  `${n} ${n === 1 ? one : many}`;
 
 /** A repo's group header in a multi-repo task: name and viewed count, then what the group holds. */
 function RepoHeader({
@@ -310,13 +309,32 @@ export function FileTree({
   const [openGenerated, setOpenGenerated] = useState<Record<string, boolean>>(
     {},
   );
+  // Each repo's files split into normal and generated, with their folder trees.
+  const groups = useMemo(
+    () =>
+      new Map(
+        repos.map((r) => {
+          const normal = r.files.filter(
+            (f) => !isGenerated(f.path, r.collapse),
+          );
+          const generated = r.files.filter((f) =>
+            isGenerated(f.path, r.collapse),
+          );
+          return [
+            r.workspaceId,
+            {
+              normal: { list: normal, tree: buildTree(normal) },
+              generated: { list: generated, tree: buildTree(generated) },
+            },
+          ] as const;
+        }),
+      ),
+    [repos],
+  );
   return (
     <div role="tree" aria-label="Changed files" className="review-tree">
       {repos.map((r) => {
-        const normal = r.files.filter((f) => !isGenerated(f.path, r.collapse));
-        const generated = r.files.filter((f) =>
-          isGenerated(f.path, r.collapse),
-        );
+        const { normal, generated } = groups.get(r.workspaceId)!;
         const ref = (f: ReviewFile) => ({
           workspaceId: r.workspaceId,
           path: f.path,
@@ -336,12 +354,12 @@ export function FileTree({
             onViewed={(on) => onViewed(r, f, on)}
           />
         );
-        const files = (list: ReviewFile[]) =>
+        const files = ({ list, tree }: { list: ReviewFile[]; tree: TreeDir }) =>
           view === 'list' ? (
             list.map((f) => row(f))
           ) : (
             <Level
-              dir={buildTree(list)}
+              dir={tree}
               depth={0}
               workspaceId={r.workspaceId}
               collapsed={collapsed}
@@ -370,11 +388,7 @@ export function FileTree({
                 repo={r}
                 color={colorOf(r.workspaceId)}
                 folded={isFolded}
-                viewedCount={
-                  r.files.filter(
-                    (f) => viewed[viewedKey(r.workspaceId, f.path)] === f.hash,
-                  ).length
-                }
+                viewedCount={viewedIn(r, viewed)}
                 comments={r.files.reduce((n, f) => n + commentCount(ref(f)), 0)}
                 dropped={dropsAtFinish(r)}
                 onToggle={() => onToggleRepo(r)}
@@ -386,7 +400,7 @@ export function FileTree({
               </div>
             )}
             {!isFolded && files(normal)}
-            {!isFolded && generated.length > 0 && (
+            {!isFolded && generated.list.length > 0 && (
               <>
                 <button
                   type="button"
@@ -399,7 +413,7 @@ export function FileTree({
                     })
                   }
                 >
-                  {`Generated (${generated.length})`}
+                  {`Generated (${generated.list.length})`}
                 </button>
                 {openGenerated[r.workspaceId] && files(generated)}
               </>

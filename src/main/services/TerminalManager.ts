@@ -75,7 +75,10 @@ export class TerminalManager extends EventEmitter<{
     this.entries.set(options.id, entry);
     proc.onData((data) => {
       if (this.entries.get(options.id) !== entry) return;
-      entry.buffer = (entry.buffer + data).slice(-BUFFER_LIMIT);
+      // Trimmed lazily; buffer() returns only the last BUFFER_LIMIT characters.
+      entry.buffer += data;
+      if (entry.buffer.length > 2 * BUFFER_LIMIT)
+        entry.buffer = entry.buffer.slice(-BUFFER_LIMIT);
       this.emit('data', options.id, data);
     });
     proc.onExit(({ exitCode }) => {
@@ -156,7 +159,7 @@ export class TerminalManager extends EventEmitter<{
   }
 
   buffer(id: string): string {
-    return this.get(id).buffer;
+    return this.get(id).buffer.slice(-BUFFER_LIMIT);
   }
 
   has(id: string): boolean {

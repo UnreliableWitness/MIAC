@@ -28,7 +28,7 @@ export type CategoryOf = (
   state: string,
 ) => string | null | undefined;
 
-/** The task of a work item on a connection, open ones first (the same rule as the Sprint page). */
+/** The task of a work item on a connection: an open one first, else the first match (the Sprint page takes the latest finished one). */
 export function taskForItem(
   id: string,
   connectionId: string,

@@ -71,12 +71,15 @@ export class EditorService {
     };
   }
 
-  private async resolve(repoId: string, worktree: string, editorId?: EditorId) {
-    const opts = await this.options(repoId, worktree);
-    const id = editorId ?? opts.chosen;
+  private async executable(id: EditorId | null) {
     const exe = id ? (await this.installed())[id] : undefined;
     if (!id || !exe) throw new Error('No editor found. Pick one in Settings.');
-    return { id, exe, opts };
+    return { id, exe };
+  }
+
+  private async resolve(repoId: string, worktree: string, editorId?: EditorId) {
+    const opts = await this.options(repoId, worktree);
+    return { ...(await this.executable(editorId ?? opts.chosen)), opts };
   }
 
   async openFolder(
@@ -106,7 +109,10 @@ export class EditorService {
     col?: number,
     editorId?: EditorId,
   ): Promise<void> {
-    const { id, exe } = await this.resolve(repoId, worktree, editorId);
+    // A named editor needs no look at the worktree.
+    const { id, exe } = editorId
+      ? await this.executable(editorId)
+      : await this.resolve(repoId, worktree);
     await this.d.launch(
       id === 'vscode'
         ? this.d.platform.editorGotoCommand(worktree, absFile, line, col)

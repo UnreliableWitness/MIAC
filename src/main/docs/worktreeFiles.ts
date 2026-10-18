@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { DocFile } from '../../shared/types';
+import { isInside } from '../paths';
 import type { GitClient } from '../services/GitClient';
 
 export const MAX_DOC_BYTES = 2 * 1024 * 1024;
@@ -17,19 +18,6 @@ const IMAGE_TYPES: Record<string, string> = {
   '.webp': 'image/webp',
   '.svg': 'image/svg+xml',
 };
-
-/** True when `target` is `root` or inside it; Windows paths compare case-insensitively. */
-export function isInside(
-  root: string,
-  target: string,
-  p: typeof path = path,
-): boolean {
-  const norm = (x: string) => (p.sep === '\\' ? x.toLowerCase() : x);
-  const r = norm(p.resolve(root));
-  const t = norm(p.resolve(target));
-  if (t === r) return true;
-  return t.startsWith(r.endsWith(p.sep) ? r : r + p.sep);
-}
 
 export const toRel = (root: string, abs: string): string =>
   path.relative(root, abs).split(path.sep).join('/');
@@ -68,20 +56,17 @@ export async function listDocs(
   worktree: string,
   baseSha: string | null,
 ): Promise<DocFile[]> {
-  const listed = splitZ(
-    await git.run(worktree, [
-      'ls-files',
-      '-z',
-      '-co',
-      '--exclude-standard',
-      '--',
-      ...SPECS,
-    ]),
-  ).filter((p) => MD.test(p));
-  const changed = new Map<string, 'new' | 'modified'>();
-  if (baseSha) {
-    const diff = splitZ(
-      await git
+  // All run at once but are awaited in the old order, so the same failure surfaces first.
+  const listedRun = git.run(worktree, [
+    'ls-files',
+    '-z',
+    '-co',
+    '--exclude-standard',
+    '--',
+    ...SPECS,
+  ]);
+  const diffRun = baseSha
+    ? git
         .run(worktree, [
           'diff',
           '-z',
@@ -91,26 +76,33 @@ export async function listDocs(
           '--',
           ...SPECS,
         ])
-        .catch(() => ''),
-    );
-    for (let i = 0; i + 1 < diff.length; i += 2) {
-      const status = diff[i][0];
-      if (status === 'A') changed.set(diff[i + 1], 'new');
-      else if (status === 'M' || status === 'T')
-        changed.set(diff[i + 1], 'modified');
-    }
-    const untracked = splitZ(
-      await git.run(worktree, [
+        .catch(() => '')
+    : Promise.resolve('');
+  const untrackedRun = baseSha
+    ? git.run(worktree, [
         'ls-files',
         '-z',
         '-o',
         '--exclude-standard',
         '--',
         ...SPECS,
-      ]),
-    );
-    for (const p of untracked) changed.set(p, 'new');
+      ])
+    : Promise.resolve('');
+  untrackedRun.catch(() => {});
+  const hasTaskRun = fs.stat(path.join(worktree, TASK_FILE)).then(
+    (s) => s.isFile(),
+    () => false,
+  );
+  const listed = splitZ(await listedRun).filter((p) => MD.test(p));
+  const changed = new Map<string, 'new' | 'modified'>();
+  const diff = splitZ(await diffRun);
+  for (let i = 0; i + 1 < diff.length; i += 2) {
+    const status = diff[i][0];
+    if (status === 'A') changed.set(diff[i + 1], 'new');
+    else if (status === 'M' || status === 'T')
+      changed.set(diff[i + 1], 'modified');
   }
+  for (const p of splitZ(await untrackedRun)) changed.set(p, 'new');
   // Cap before stat: a huge worktree must not cost a stat per file. The task file comes first, so it
   // takes one of the slots.
   const candidates = [...new Set(listed)]
@@ -131,10 +123,7 @@ export async function listDocs(
   const files = present
     .filter((p): p is string => p !== null)
     .map((p) => ({ path: p, changed: changed.get(p) ?? null }));
-  const hasTask = await fs.stat(path.join(worktree, TASK_FILE)).then(
-    (s) => s.isFile(),
-    () => false,
-  );
+  const hasTask = await hasTaskRun;
   const all = hasTask ? [{ path: TASK_FILE, changed: null }, ...files] : files;
   return all.slice(0, MAX_DOCS);
 }

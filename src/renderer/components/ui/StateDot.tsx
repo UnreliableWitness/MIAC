@@ -12,7 +12,7 @@ const STATE_COLOR: Record<string, string> = {
   removed: '#ffffff',
 };
 
-export const stateColor = (state: string): string =>
+const stateColor = (state: string): string =>
   STATE_COLOR[state.toLowerCase()] ?? '#b2b2b2';
 
 /** A work item state as ADO draws it: a colored dot before the state name, in the project's color when `connectionId` and `type` are given. */

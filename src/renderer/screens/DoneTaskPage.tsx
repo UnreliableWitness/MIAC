@@ -1,17 +1,13 @@
 import { ArrowUndo16Regular } from '@fluentui/react-icons';
 import { type ReactNode, useEffect, useState } from 'react';
-import type {
-  PullRequestRef,
-  TaskSummary,
-  TaskView,
-  WorkItemSummary,
-} from '../../shared/types';
+import type { PullRequestRef, TaskSummary, TaskView } from '../../shared/types';
 import { taskWorkspaces, type WorkspaceView } from '../../shared/workspaces';
 import { api, tryInvoke } from '../api';
 import { TaskTypeIcon } from '../components/TaskTypeIcon';
 import { PageHeader, StateDot } from '../components/ui';
 import { UsagePanel } from '../components/UsagePanel';
 import { dateTime, duration, eur } from '../format';
+import { useLiveWorkItem } from '../hooks/useLiveWorkItem';
 import { useTaskTime } from '../hooks/useTaskTime';
 import { formatDuration } from '../../shared/time';
 import { useTaskUsage } from '../hooks/useTaskUsage';
@@ -19,29 +15,6 @@ import { useWriteCostToAdo } from '../hooks/useWriteCostToAdo';
 import { useStore, useTaskConnectionId } from '../store';
 
 const MINUS = String.fromCharCode(0x2212);
-
-/** The work item's state as ADO has it now; null while loading, when unlinked, or when the call fails. */
-function useLiveWorkItem(
-  connectionId: string | null,
-  id: string | null,
-): WorkItemSummary | null {
-  const [item, setItem] = useState<WorkItemSummary | null>(null);
-  useEffect(() => {
-    setItem(null);
-    if (!connectionId || !id) return;
-    let live = true;
-    api()
-      .invoke('workItems:get', connectionId, id)
-      .then((w) => {
-        if (live) setItem(w);
-      })
-      .catch(() => undefined);
-    return () => {
-      live = false;
-    };
-  }, [connectionId, id]);
-  return item;
-}
 
 /** The pull request as Azure DevOps has it now; starts from the stored one and refreshes once. */
 function useLivePullRequest(

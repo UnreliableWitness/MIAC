@@ -17,6 +17,7 @@ import { anchorComment, captureAnchor } from '../../shared/reviewAnchor';
 import type { Task } from '../../shared/types';
 import { activeWorkspaces, type WorkspaceView } from '../../shared/workspaces';
 import { GitError, type GitClient } from '../services/GitClient';
+import { requireWorktree } from '../workspaces/existing';
 import type { ReviewStore } from './ReviewStore';
 import {
   assertRelPath,
@@ -27,6 +28,7 @@ import {
   readContent,
   readSide,
 } from './reviewGit';
+import { errorMessage } from '../../shared/errors';
 
 export type ReviewServiceDeps = {
   git: GitClient;
@@ -39,11 +41,7 @@ export type ReviewServiceDeps = {
 };
 
 const message = (e: unknown): string =>
-  e instanceof GitError
-    ? e.stderr.trim() || e.message.trim()
-    : e instanceof Error
-      ? e.message
-      : String(e);
+  e instanceof GitError ? e.stderr.trim() || e.message.trim() : errorMessage(e);
 
 export class ReviewService {
   private readonly now: () => Date;
@@ -63,9 +61,7 @@ export class ReviewService {
   private workspace(task: Task, id: string): WorkspaceView {
     const ws = this.workspaces(task).find((w) => w.id === id);
     if (!ws) throw new Error(`Unknown workspace ${id}`);
-    if (!existsSync(ws.worktreePath))
-      throw new Error('The worktree is missing');
-    return ws;
+    return requireWorktree(ws);
   }
 
   private base(ws: WorkspaceView): Promise<string | null> {
@@ -94,17 +90,18 @@ export class ReviewService {
         try {
           const wt = ws.worktreePath;
           const base = await this.base(ws);
+          const files = rangeFor(this.d.git, wt, scope, base).then((range) =>
+            listFiles(this.d.git, wt, range),
+          );
+          // Awaited below, after the rest; this only keeps an early failure from going unhandled.
+          files.catch(() => {});
           const [commits, uncommitted, collapse] = await Promise.all([
             listCommits(this.d.git, wt, base),
             countUncommitted(this.d.git, wt),
             this.d.collapseOf(wt).catch(() => []),
           ]);
           Object.assign(repo, { base, commits, uncommitted, collapse });
-          repo.files = await listFiles(
-            this.d.git,
-            wt,
-            await rangeFor(this.d.git, wt, scope, base),
-          );
+          repo.files = await files;
           return repo;
         } catch (e) {
           return { ...repo, error: message(e) };
@@ -136,6 +133,15 @@ export class ReviewService {
   async state(task: Task): Promise<ReviewState> {
     const cur = await this.d.store.get(task.id);
     const active = new Map(activeWorkspaces(task).map((w) => [w.id, w]));
+    const bases = new Map<string, Promise<string | null>>();
+    const baseOf = (ws: WorkspaceView) => {
+      let b = bases.get(ws.id);
+      if (!b) {
+        b = this.base(ws);
+        bases.set(ws.id, b);
+      }
+      return b;
+    };
     const texts = new Map<string, Promise<string | null>>();
     const textOf = (ws: WorkspaceView, side: 'before' | 'after', p: string) => {
       const key = `${ws.id}\0${side}\0${p}`;
@@ -143,7 +149,7 @@ export class ReviewService {
       if (!t) {
         t = (async () => {
           if (!existsSync(ws.worktreePath)) return null;
-          const ref = side === 'after' ? null : await this.base(ws);
+          const ref = side === 'after' ? null : await baseOf(ws);
           if (side === 'before' && !ref) return null;
           return readSide(this.d.git, ws.worktreePath, ref, p).catch(
             () => null,
@@ -155,17 +161,24 @@ export class ReviewService {
     };
     type Change = { at: { startLine: number; endLine: number } | null };
     const changes = new Map<string, Change>();
-    for (const c of cur.comments) {
-      if (c.status === 'resolved') continue;
-      const ws = active.get(c.workspaceId);
-      const text = ws ? await textOf(ws, c.side, commentReadPath(c)) : null;
-      const at = text === null ? null : anchorComment(c, text);
+    const open = cur.comments.filter((c) => c.status !== 'resolved');
+    // Settled, then walked in order: the first comment's failure is the one thrown, as when read one by one.
+    const read = await Promise.allSettled(
+      open.map((c) => {
+        const ws = active.get(c.workspaceId);
+        return ws ? textOf(ws, c.side, commentReadPath(c)) : null;
+      }),
+    );
+    open.forEach((c, i) => {
+      const r = read[i];
+      if (r.status === 'rejected') throw r.reason;
+      const at = r.value === null ? null : anchorComment(c, r.value);
       const revived = at && c.status === 'outdated';
       const moved =
         at && (at.startLine !== c.startLine || at.endLine !== c.endLine);
       if (!at ? c.status !== 'outdated' : revived || moved)
         changes.set(c.id, { at });
-    }
+    });
     if (changes.size === 0) return cur;
     return this.d.store.update(task.id, (s) => {
       for (const c of s.comments) {

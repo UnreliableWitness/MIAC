@@ -2,7 +2,8 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { UsageEvent } from '../../shared/usage';
 import type { Interval } from '../../shared/time';
-import { copilotAgentIntervals, parseCopilotLine } from './copilot';
+import { readCopilotLine } from './copilot';
+import { errorMessage } from '../../shared/errors';
 
 /** Follows `<dir>/<taskId>.jsonl` files written by Copilot CLI. Offsets live in memory; the store dedupes re-reads after a restart. */
 export class CopilotFileTailer {
@@ -49,9 +50,7 @@ export class CopilotFileTailer {
       try {
         await this.readFile(name);
       } catch (e) {
-        console.warn(
-          `[usage] could not read ${name}: ${e instanceof Error ? e.message : String(e)}`,
-        );
+        console.warn(`[usage] could not read ${name}: ${errorMessage(e)}`);
       }
     }
   }
@@ -77,9 +76,9 @@ export class CopilotFileTailer {
     const events: UsageEvent[] = [];
     const ivs: Interval[] = [];
     for (const line of chunk.subarray(0, end).toString('utf8').split('\n')) {
-      const r = parseCopilotLine(line, taskId);
+      const r = readCopilotLine(line, taskId);
       events.push(...r.events);
-      ivs.push(...copilotAgentIntervals(line));
+      ivs.push(...r.intervals);
       this.counts.unreadable += r.unreadable;
       if (r.unreadable > 0)
         console.warn(

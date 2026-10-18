@@ -10,8 +10,8 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { type UsageEvent } from '../../shared/usage';
-import { OFFICIAL_RATES, OFFICIAL_USD_TO_EUR } from '../pricing/officialRates';
+import { OFFICIAL_USD_TO_EUR, type UsageEvent } from '../../shared/usage';
+import { OFFICIAL_RATES } from '../pricing/officialRates';
 import { UsageStore } from './UsageStore';
 
 const dirs: string[] = [];

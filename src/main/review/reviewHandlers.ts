@@ -1,5 +1,4 @@
 // src/main/review/reviewHandlers.ts
-import { existsSync } from 'node:fs';
 import { z } from 'zod';
 import type { Handlers } from '../../shared/ipc';
 import {
@@ -8,8 +7,9 @@ import {
   ReviewScopeSchema,
 } from '../../shared/review';
 import type { Task } from '../../shared/types';
-import { parseDocsTarget, workspaceById } from '../../shared/workspaces';
+import { parseDocsTarget } from '../../shared/workspaces';
 import type { DocsWatcher } from '../docs/DocsWatcher';
+import { existingWorkspace } from '../workspaces/existing';
 import type { GitDirWatcher } from './GitDirWatcher';
 import type { ReviewService } from './ReviewService';
 
@@ -79,12 +79,9 @@ export function createReviewHandlers(
         return { live: false };
       }
       const { taskId, workspaceId } = parseDocsTarget(target);
-      const t = task(taskId);
-      if (t.status !== 'ready')
-        throw new Error(`The task is not ready (${t.status})`);
-      const ws = workspaceById(t, workspaceId);
-      if (!existsSync(ws.worktreePath))
-        throw new Error('The worktree is missing');
+      const ws = existingWorkspace(task(taskId), workspaceId, {
+        requireReady: true,
+      });
       const files = d.docsWatcher.start(target, ws.worktreePath);
       const gitDir = await d.gitDirWatcher.start(target, ws.worktreePath);
       return { live: files && gitDir };

@@ -1,3 +1,5 @@
+import { readFlag, writeFlag } from '../uiPrefs';
+
 export type DocView = 'rendered' | 'source';
 export type DocState = { path: string | null; view: DocView; scroll: number };
 const DEFAULT: DocState = { path: null, view: 'rendered', scroll: 0 };
@@ -30,20 +32,10 @@ export function writeDocState(
     /* best effort */
   }
 }
-export const readListCollapsed = (storage = local()): boolean => {
-  try {
-    return storage?.getItem('shellie.docs.listCollapsed') === 'true';
-  } catch {
-    return false;
-  }
-};
-export const writeListCollapsed = (v: boolean, storage = local()): void => {
-  try {
-    storage?.setItem('shellie.docs.listCollapsed', String(v));
-  } catch {
-    /* best effort */
-  }
-};
+export const readListCollapsed = (storage = local()): boolean =>
+  readFlag('shellie.docs.listCollapsed', storage);
+export const writeListCollapsed = (v: boolean, storage = local()): void =>
+  writeFlag('shellie.docs.listCollapsed', v, storage);
 export const readSendTarget = (
   taskId: string,
   storage = local(),

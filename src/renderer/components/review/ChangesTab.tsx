@@ -150,6 +150,8 @@ export function ChangesTab({ task }: { task: TaskView }) {
   const [repoFolds, setRepoFolds] = useViewField(task.id, 'repoFolds');
   const inTask = activeWorkspaces(task);
   const multiRepo = inTask.length > 1;
+  // The loaded changes span more than one repo (comments then name theirs).
+  const multiRepoFiles = (files?.repos.length ?? 0) > 1;
   // A repo that left the task drops the filter.
   const repoFilter =
     multiRepo && inTask.some((w) => w.id === storedFilter)
@@ -307,6 +309,16 @@ export function ChangesTab({ task }: { task: TaskView }) {
 
   const canComment = scope.kind === 'all';
   const comments = state?.comments ?? [];
+  // Unresolved comments per file, by viewedKey.
+  const openCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const c of state?.comments ?? [])
+      if (c.status !== 'resolved') {
+        const k = viewedKey(c.workspaceId, c.path);
+        m.set(k, (m.get(k) ?? 0) + 1);
+      }
+    return m;
+  }, [state?.comments]);
   const onThisFile = (c: { workspaceId: string; path: string }) =>
     current !== null &&
     c.workspaceId === current.repo.workspaceId &&
@@ -479,9 +491,8 @@ export function ChangesTab({ task }: { task: TaskView }) {
       void setViewed(
         current.repo,
         current.file,
-        state?.viewed[
-          viewedKey(current.repo.workspaceId, current.file.path)
-        ] !== current.file.hash,
+        viewedMap[viewedKey(current.repo.workspaceId, current.file.path)] !==
+          current.file.hash,
       );
     else if (key === 'c') {
       const s = handle.current?.selection();
@@ -490,13 +501,10 @@ export function ChangesTab({ task }: { task: TaskView }) {
   };
 
   const total = list.length;
-  const viewedCount = state
-    ? list.filter(
-        (x) =>
-          state.viewed[viewedKey(x.repo.workspaceId, x.file.path)] ===
-          x.file.hash,
-      ).length
-    : 0;
+  const viewedCount = list.filter(
+    (x) =>
+      viewedMap[viewedKey(x.repo.workspaceId, x.file.path)] === x.file.hash,
+  ).length;
 
   const body = () => {
     if (!files)
@@ -603,10 +611,8 @@ export function ChangesTab({ task }: { task: TaskView }) {
         <SendComments
           task={task}
           comments={comments}
-          multiRepo={(files?.repos.length ?? 0) > 1}
-          repoName={(id) =>
-            files?.repos.find((r) => r.workspaceId === id)?.name ?? id
-          }
+          multiRepo={multiRepoFiles}
+          repoName={repoNameOf}
           onSent={setState}
         />
         <OpenInEditor
@@ -697,14 +703,9 @@ export function ChangesTab({ task }: { task: TaskView }) {
                   c.includes(key) ? c.filter((k) => k !== key) : [...c, key],
                 )
               }
-              viewed={state?.viewed ?? {}}
+              viewed={viewedMap}
               commentCount={(ref) =>
-                comments.filter(
-                  (c) =>
-                    c.workspaceId === ref.workspaceId &&
-                    c.path === ref.path &&
-                    c.status !== 'resolved',
-                ).length
+                openCounts.get(viewedKey(ref.workspaceId, ref.path)) ?? 0
               }
               onSelect={pick}
               onViewed={(r, f, on) => void setViewed(r, f, on)}
@@ -712,12 +713,8 @@ export function ChangesTab({ task }: { task: TaskView }) {
           ) : (
             <CommentsList
               comments={comments}
-              multiRepo={(files?.repos.length ?? 0) > 1}
-              repoName={(id) =>
-                files?.repos.find((r) => r.workspaceId === id)?.name ??
-                repos.find((r) => r.id === id)?.name ??
-                id
-              }
+              multiRepo={multiRepoFiles}
+              repoName={repoNameOf}
               onOpen={openComment}
               onResolve={resolve}
               onReopen={reopen}

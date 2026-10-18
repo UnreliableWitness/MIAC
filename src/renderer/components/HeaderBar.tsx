@@ -20,7 +20,7 @@ const DOT = String.fromCharCode(0xb7);
 const SEP = String.fromCharCode(0x203a);
 
 /** "Task 8125 PDP dynamic redirect logic", or the name of a blank task. */
-export const taskLabel = (task: TaskView): string =>
+const taskLabel = (task: TaskView): string =>
   task.workItem
     ? `${task.workItem.type} ${task.workItem.id} ${task.workItem.title}`
     : task.name;

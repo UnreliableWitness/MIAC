@@ -19,3 +19,16 @@ export function samePath(a: string, b: string): boolean {
     ? x.toLowerCase() === y.toLowerCase()
     : x === y;
 }
+
+/** True when `target` is `root` or inside it; Windows paths compare case-insensitively. */
+export function isInside(
+  root: string,
+  target: string,
+  p: typeof path = path,
+): boolean {
+  const norm = (x: string) => (p.sep === '\\' ? x.toLowerCase() : x);
+  const r = norm(p.resolve(root));
+  const t = norm(p.resolve(target));
+  if (t === r) return true;
+  return t.startsWith(r.endsWith(p.sep) ? r : r + p.sep);
+}

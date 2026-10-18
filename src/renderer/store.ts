@@ -7,6 +7,7 @@ import type {
   TaskView,
   WorkItemRef,
 } from '../shared/types';
+import { taskConnectionId } from '../shared/workspaces';
 import { api } from './api';
 import type { RepoFold } from './review/repoGroups';
 import { track, trackScreen } from './telemetry';
@@ -15,6 +16,8 @@ import { readPrefs, writePref } from './uiPrefs';
 export const USAGE_TAB = 'usage';
 export const DOCS_TAB = 'docs';
 export const CHANGES_TAB = 'changes';
+/** Tabs that are not a terminal: always valid. */
+const FIXED_TABS = new Set([USAGE_TAB, DOCS_TAB, CHANGES_TAB]);
 
 /** A comment being written on the Changes tab. */
 export type ReviewDraft = NewReviewComment;
@@ -103,6 +106,19 @@ type Store = {
 
 let noticeSeq = 0;
 
+/** Opens the task's page on one of its tabs; `also` lands in the same update. */
+function showTab(
+  get: () => Store,
+  set: (s: Partial<Store>) => void,
+  taskId: string,
+  tab: string,
+  also: Partial<Store> = {},
+): void {
+  get().select(taskId);
+  get().go({ kind: 'task' });
+  set({ tabByTask: { ...get().tabByTask, [taskId]: tab }, ...also });
+}
+
 /** Pages that are a step, not a place: Back never returns to them. */
 const TRANSIENT = new Set<Screen['kind']>(['new-task', 'finish']);
 
@@ -175,28 +191,17 @@ export const useStore = create<Store>((set, get) => ({
   activeTab: (taskId) => {
     const task = get().tasks.find((t) => t.id === taskId);
     const want = get().tabByTask[taskId];
-    if (want === USAGE_TAB) return USAGE_TAB;
-    if (want === DOCS_TAB) return DOCS_TAB;
-    if (want === CHANGES_TAB) return CHANGES_TAB;
+    if (want !== undefined && FIXED_TABS.has(want)) return want;
     if (task && want && task.terminals.some((t) => t.id === want)) return want;
     return task?.terminals[0]?.id ?? USAGE_TAB;
   },
   openUsage: (taskId) => {
     track('usage.opened', { via: 'strip' });
-    get().select(taskId);
-    get().go({ kind: 'task' });
-    set({ tabByTask: { ...get().tabByTask, [taskId]: USAGE_TAB } });
+    showTab(get, set, taskId, USAGE_TAB);
   },
-  openChanges: (taskId) => {
-    get().select(taskId);
-    get().go({ kind: 'task' });
-    set({ tabByTask: { ...get().tabByTask, [taskId]: CHANGES_TAB } });
-  },
+  openChanges: (taskId) => showTab(get, set, taskId, CHANGES_TAB),
   openDoc: (taskId, path, line, workspaceId) => {
-    get().select(taskId);
-    get().go({ kind: 'task' });
-    set({
-      tabByTask: { ...get().tabByTask, [taskId]: DOCS_TAB },
+    showTab(get, set, taskId, DOCS_TAB, {
       docTarget: {
         ...get().docTarget,
         [taskId]: {
@@ -246,9 +251,10 @@ export const useTaskConnectionId = (
 ) =>
   useStore((s) =>
     task
-      ? (task.connectionId ??
-        s.repos.find((r) => r.id === task.repoId)?.connectionId ??
-        null)
+      ? taskConnectionId(
+          { repoId: task.repoId, connectionId: task.connectionId ?? null },
+          s.repos,
+        )
       : null,
   );
 
@@ -257,14 +263,21 @@ type ConnectionState = Pick<
   'connections' | 'connectionId' | 'repos' | 'tasks' | 'selectedTaskId'
 > & { screen?: Screen };
 
-/** The task a task, setup or finish page is about. */
-const pageTaskId = (s: ConnectionState): string | null => {
-  const screen = s.screen;
-  if (!screen) return null;
-  if (screen.kind === 'task') return s.selectedTaskId;
-  if (screen.kind === 'setup' || screen.kind === 'finish') return screen.taskId;
-  return null;
-};
+/** The task whose page is on screen: the task page, or its setup or finish page; null elsewhere. */
+export function taskOnScreen(s: {
+  screen?: Screen;
+  selectedTaskId: string | null;
+}): string | null {
+  switch (s.screen?.kind) {
+    case 'task':
+      return s.selectedTaskId;
+    case 'setup':
+    case 'finish':
+      return s.screen.taskId;
+    default:
+      return null;
+  }
+}
 
 /**
  * The project the shell shows. On a task's own pages, the task's repo connection; otherwise the one picked in
@@ -280,9 +293,10 @@ export function activeConnection(s: ConnectionState): Connection | null {
   const taskConnection = (taskId: string | null) =>
     s.tasks.find((t) => t.id === taskId)?.connectionId;
   const taskRepo = repoOf(s.selectedTaskId);
+  const onScreen = taskOnScreen(s);
   return (
-    byId(taskConnection(pageTaskId(s))) ??
-    byId(repoOf(pageTaskId(s))?.connectionId) ??
+    byId(taskConnection(onScreen)) ??
+    byId(repoOf(onScreen)?.connectionId) ??
     byId(s.connectionId) ??
     byId(taskRepo?.connectionId) ??
     byId(s.repos.find((r) => r.connectionId)?.connectionId) ??

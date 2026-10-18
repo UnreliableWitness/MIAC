@@ -1,3 +1,5 @@
+import { api } from '../api';
+
 export type FoundLink = { start: number; end: number; text: string } & (
   | { kind: 'url'; url: string }
   | { kind: 'path'; path: string; line?: number; col?: number }
@@ -94,4 +96,13 @@ export function webLink(href: string): string | null {
   } catch {
     return null;
   }
+}
+
+/** Opens a web link in the browser; a malformed or disallowed one does nothing. */
+export function openWeb(href: string): void {
+  const url = webLink(href);
+  if (url)
+    void api()
+      .invoke('links:open', url)
+      .catch(() => {});
 }

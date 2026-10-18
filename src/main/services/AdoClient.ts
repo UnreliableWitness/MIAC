@@ -7,6 +7,7 @@ import type {
   WorkItemSummary,
   WorkItemTypeMeta,
 } from '../../shared/types';
+import { errorMessage } from '../../shared/errors';
 
 export type AdoErrorKind =
   | 'unauthorized'
@@ -112,6 +113,18 @@ export type RawHomePr = {
 };
 
 type Json = Record<string, unknown>;
+type RawWorkItem = { id: number; fields: Json; _links?: Json };
+type RawState = { name?: string; color?: string; category?: string };
+
+/** The estimate fields of a work item in hours, null when unset. */
+const estimatesOf = (f: Json) => ({
+  originalEstimate: hoursOf(f[ORIGINAL_ESTIMATE]),
+  remainingWork: hoursOf(f[REMAINING_WORK]),
+  completedWork: hoursOf(f[COMPLETED_WORK]),
+});
+
+const prPath = (project: string, repositoryId: string) =>
+  `/${encodeURIComponent(project)}/_apis/git/repositories/${encodeURIComponent(repositoryId)}/pullrequests`;
 
 const PR_STATUSES: readonly RawPr['status'][] = [
   'active',
@@ -159,17 +172,14 @@ export class AdoClient {
       path,
       timedOut
         ? `Azure DevOps did not answer within ${this.timeoutMs / 1000} s`
-        : `Could not reach ${this.organizationUrl}: ${e instanceof Error ? e.message : String(e)}`,
+        : `Could not reach ${this.organizationUrl}: ${errorMessage(e)}`,
     );
   }
 
   async verify(
     project: string,
   ): Promise<{ user: string; uniqueName: string | null }> {
-    const data = await this.request<Json>(
-      '/_apis/connectionData?api-version=7.1-preview',
-    );
-    const auth = data.authenticatedUser as Json | undefined;
+    const auth = await this.connectionData();
     const user =
       (auth?.providerDisplayName as string | undefined) ?? 'unknown user';
     const account = (
@@ -215,10 +225,7 @@ export class AdoClient {
 
   /** The id of the user the token belongs to. */
   async me(): Promise<string> {
-    const data = await this.request<Json>(
-      '/_apis/connectionData?api-version=7.1-preview',
-    );
-    const id = (data.authenticatedUser as Json | undefined)?.id;
+    const id = (await this.connectionData())?.id;
     if (typeof id !== 'string' || !id)
       throw new AdoError(
         'http',
@@ -226,6 +233,14 @@ export class AdoClient {
         'Azure DevOps did not say who the token belongs to',
       );
     return id;
+  }
+
+  /** The user the token belongs to, as connectionData describes it. */
+  private async connectionData(): Promise<Json | undefined> {
+    const data = await this.request<Json>(
+      '/_apis/connectionData?api-version=7.1-preview',
+    );
+    return data.authenticatedUser as Json | undefined;
   }
 
   /** The project's teams the token's user is a member of. */
@@ -247,15 +262,17 @@ export class AdoClient {
   ): Promise<number[]> {
     if (paths.length === 0) return [];
     const query = `SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = @project AND [System.AssignedTo] = @Me AND [System.IterationPath] IN (${paths.map(wiqlString).join(', ')}) ORDER BY [System.Id]`;
-    const result = await this.request<{ workItems?: { id: number }[] }>(
+    return (await this.wiqlIds(project, query)).slice(0, BATCH);
+  }
+
+  /** Ids of the work items a WIQL query matches, in the query's order. */
+  private async wiqlIds(project: string, query: string): Promise<number[]> {
+    const result = await this.send<{ workItems?: { id: number }[] }>(
+      'POST',
       `/${encodeURIComponent(project)}/_apis/wit/wiql?${API}`,
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ query }),
-      },
+      { query },
     );
-    return (result.workItems ?? []).slice(0, BATCH).map((w) => w.id);
+    return (result.workItems ?? []).map((w) => w.id);
   }
 
   /** Active pull requests in the project where the identity is a reviewer, or that it created. */
@@ -304,35 +321,39 @@ export class AdoClient {
 
   /** Work items by id with the picker's fields plus the estimate fields, in chunks of 200. Unreadable ids are left out. */
   async workItems(project: string, ids: number[]): Promise<SprintItem[]> {
-    const out: SprintItem[] = [];
+    const items = await this.fetchWorkItems(ids, [
+      ...FIELDS,
+      ...ESTIMATE_FIELDS,
+    ]);
+    return items.map((w) => ({
+      ...this.summary(project, w),
+      ...estimatesOf(w.fields),
+    }));
+  }
+
+  /** Work items by id with the given fields, in chunks of 200 and in the order of `ids`. Unreadable ids are left out. */
+  private async fetchWorkItems(
+    ids: number[],
+    fields: string[],
+  ): Promise<RawWorkItem[]> {
+    const out: RawWorkItem[] = [];
     for (let i = 0; i < ids.length; i += BATCH) {
       const chunk = ids.slice(i, i + BATCH);
-      const batch = await this.request<{
-        value?: ({ id: number; fields: Json; _links?: Json } | null)[];
-      }>(
-        `/_apis/wit/workitems?ids=${chunk.join(',')}&fields=${[...FIELDS, ...ESTIMATE_FIELDS].join(',')}&errorPolicy=omit&${API}`,
+      const batch = await this.request<{ value?: (RawWorkItem | null)[] }>(
+        `/_apis/wit/workitems?ids=${chunk.join(',')}&fields=${fields.join(',')}&errorPolicy=omit&${API}`,
       );
       const byId = new Map(
         (batch.value ?? []).flatMap((w) => (w ? [[w.id, w] as const] : [])),
       );
       for (const id of chunk) {
         const w = byId.get(id);
-        if (!w) continue;
-        out.push({
-          ...this.summary(project, w),
-          remainingWork: hoursOf(w.fields[REMAINING_WORK]),
-          originalEstimate: hoursOf(w.fields[ORIGINAL_ESTIMATE]),
-          completedWork: hoursOf(w.fields[COMPLETED_WORK]),
-        });
+        if (w) out.push(w);
       }
     }
     return out;
   }
 
-  private summary(
-    project: string,
-    w: { id: number; fields: Json; _links?: Json },
-  ): WorkItemSummary {
+  private summary(project: string, w: RawWorkItem): WorkItemSummary {
     const f = w.fields;
     const assigned = f['System.AssignedTo'] as Json | string | undefined;
     const html = ((w._links as Json | undefined)?.html as Json | undefined)
@@ -360,29 +381,12 @@ export class AdoClient {
     text: string;
     iterationPath: string | null;
   }): Promise<WorkItemSummary[]> {
-    const query = buildWiql(opts);
-    const result = await this.request<{ workItems?: { id: number }[] }>(
-      `/${encodeURIComponent(opts.project)}/_apis/wit/wiql?${API}`,
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ query }),
-      },
+    const ids = (await this.wiqlIds(opts.project, buildWiql(opts))).slice(
+      0,
+      MAX_RESULTS,
     );
-    const ids = (result.workItems ?? []).slice(0, MAX_RESULTS).map((w) => w.id);
-    if (ids.length === 0) return [];
-    const batch = await this.request<{
-      value?: ({ id: number; fields: Json; _links?: Json } | null)[];
-    }>(
-      `/_apis/wit/workitems?ids=${ids.join(',')}&fields=${FIELDS.join(',')}&errorPolicy=omit&${API}`,
-    );
-    const byId = new Map(
-      (batch.value ?? []).flatMap((w) => (w ? [[w.id, w] as const] : [])),
-    );
-    return ids.flatMap((id) => {
-      const w = byId.get(id);
-      return w ? [this.summary(opts.project, w)] : [];
-    });
+    const items = await this.fetchWorkItems(ids, FIELDS);
+    return items.map((w) => this.summary(opts.project, w));
   }
 
   async workItemTypeFields(
@@ -407,8 +411,6 @@ export class AdoClient {
   async workItemTypes(
     project: string,
   ): Promise<(Omit<WorkItemTypeMeta, 'icon'> & { iconUrl: string | null })[]> {
-    type RawState = { name?: string; color?: string; category?: string };
-    const p = encodeURIComponent(project);
     const data = await this.request<{
       value?: {
         name: string;
@@ -417,7 +419,7 @@ export class AdoClient {
         icon?: { url?: string };
         states?: RawState[];
       }[];
-    }>(`/${p}/_apis/wit/workitemtypes?${API}`);
+    }>(`/${encodeURIComponent(project)}/_apis/wit/workitemtypes?${API}`);
     const states = (raw: RawState[]): WorkItemStateMeta[] =>
       raw.flatMap((st) =>
         st.name
@@ -439,10 +441,8 @@ export class AdoClient {
           iconUrl: t.icon?.url ?? null,
           states: t.states
             ? states(t.states)
-            : await this.request<{ value?: RawState[] }>(
-                `/${p}/_apis/wit/workitemtypes/${encodeURIComponent(t.name)}/states?${API}`,
-              )
-                .then((r) => states(r.value ?? []))
+            : await this.rawStates(project, t.name)
+                .then(states)
                 .catch(() => []),
         })),
     );
@@ -473,8 +473,7 @@ export class AdoClient {
         const headers: Record<string, string> = {
           accept: 'image/svg+xml, image/png',
         };
-        if (auth)
-          headers.authorization = `Basic ${Buffer.from(`:${await this.token()}`).toString('base64')}`;
+        if (auth) headers.authorization = await this.authHeader();
         const res = await this.fetchImpl(url.href, {
           signal: AbortSignal.any([
             abort.signal,
@@ -526,20 +525,16 @@ export class AdoClient {
     id: number,
     fields: Record<string, number>,
   ): Promise<void> {
-    await this.request<Json>(
+    await this.send<Json>(
+      'PATCH',
       `/_apis/wit/workitems/${id}?${API}`,
-      {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json-patch+json' },
-        body: JSON.stringify(
-          Object.entries(fields).map(([name, value]) => ({
-            op: 'add',
-            path: `/fields/${name}`,
-            value,
-          })),
-        ),
-      },
+      Object.entries(fields).map(([name, value]) => ({
+        op: 'add',
+        path: `/fields/${name}`,
+        value,
+      })),
       { write: true },
+      'application/json-patch+json',
     );
   }
 
@@ -548,13 +543,10 @@ export class AdoClient {
     id: number,
     markdown: string,
   ): Promise<{ id: number }> {
-    const data = await this.request<{ id: number }>(
+    const data = await this.send<{ id: number }>(
+      'POST',
       `/${encodeURIComponent(project)}/_apis/wit/workItems/${id}/comments?format=markdown&api-version=7.1-preview.4`,
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ text: markdown }),
-      },
+      { text: markdown },
       { write: true },
     );
     return { id: data.id };
@@ -571,12 +563,7 @@ export class AdoClient {
       `/_apis/wit/workitems/${id}?fields=${['System.WorkItemType', ...ESTIMATE_FIELDS].join(',')}&${API}`,
     );
     const f = data.fields ?? {};
-    return {
-      type: String(f['System.WorkItemType'] ?? ''),
-      originalEstimate: hoursOf(f[ORIGINAL_ESTIMATE]),
-      remainingWork: hoursOf(f[REMAINING_WORK]),
-      completedWork: hoursOf(f[COMPLETED_WORK]),
-    };
+    return { type: String(f['System.WorkItemType'] ?? ''), ...estimatesOf(f) };
   }
 
   /** Type, state and assignee (unique name, else display name) of a work item. */
@@ -601,14 +588,16 @@ export class AdoClient {
     project: string,
     type: string,
   ): Promise<{ name: string; category: string | null }[]> {
-    const data = await this.request<{
-      value?: { name?: string; category?: string }[];
-    }>(
-      `/${encodeURIComponent(project)}/_apis/wit/workitemtypes/${encodeURIComponent(type)}/states?${API}`,
-    );
-    return (data.value ?? []).flatMap((s) =>
+    return (await this.rawStates(project, type)).flatMap((s) =>
       s.name ? [{ name: s.name, category: s.category ?? null }] : [],
     );
+  }
+
+  private async rawStates(project: string, type: string): Promise<RawState[]> {
+    const data = await this.request<{ value?: RawState[] }>(
+      `/${encodeURIComponent(project)}/_apis/wit/workitemtypes/${encodeURIComponent(type)}/states?${API}`,
+    );
+    return data.value ?? [];
   }
 
   async updateWorkItem(
@@ -630,14 +619,12 @@ export class AdoClient {
         : []),
     ];
     if (ops.length === 0) return;
-    await this.request<Json>(
+    await this.send<Json>(
+      'PATCH',
       `/_apis/wit/workitems/${id}?${API}`,
-      {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json-patch+json' },
-        body: JSON.stringify(ops),
-      },
+      ops,
       { write: true },
+      'application/json-patch+json',
     );
   }
 
@@ -655,7 +642,7 @@ export class AdoClient {
     repositoryId: string,
     branch: string,
   ): Promise<RawPr | null> {
-    const path = `/${encodeURIComponent(project)}/_apis/git/repositories/${encodeURIComponent(repositoryId)}/pullrequests`;
+    const path = prPath(project, repositoryId);
     const data = await this.request<{ value?: unknown[] }>(
       `${path}?searchCriteria.sourceRefName=${encodeURIComponent(`refs/heads/${branch}`)}&searchCriteria.status=active&${API}`,
       {},
@@ -676,22 +663,19 @@ export class AdoClient {
       workItemId: number | null;
     },
   ): Promise<RawPr> {
-    const path = `/${encodeURIComponent(project)}/_apis/git/repositories/${encodeURIComponent(repositoryId)}/pullrequests`;
-    const data = await this.request<unknown>(
+    const path = prPath(project, repositoryId);
+    const data = await this.send<unknown>(
+      'POST',
       `${path}?${API}`,
       {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          sourceRefName: `refs/heads/${input.source}`,
-          targetRefName: `refs/heads/${input.target}`,
-          title: input.title,
-          description: input.description,
-          isDraft: true,
-          workItemRefs: input.workItemId
-            ? [{ id: String(input.workItemId) }]
-            : [],
-        }),
+        sourceRefName: `refs/heads/${input.source}`,
+        targetRefName: `refs/heads/${input.target}`,
+        title: input.title,
+        description: input.description,
+        isDraft: true,
+        workItemRefs: input.workItemId
+          ? [{ id: String(input.workItemId) }]
+          : [],
       },
       { write: true, code: true },
     );
@@ -703,7 +687,7 @@ export class AdoClient {
     repositoryId: string,
     id: number,
   ): Promise<RawPr> {
-    const path = `/${encodeURIComponent(project)}/_apis/git/repositories/${encodeURIComponent(repositoryId)}/pullrequests/${id}`;
+    const path = `${prPath(project, repositoryId)}/${id}`;
     const data = await this.request<unknown>(
       `${path}?${API}`,
       {},
@@ -712,13 +696,36 @@ export class AdoClient {
     return toRawPr(data, path);
   }
 
+  private async authHeader(): Promise<string> {
+    return `Basic ${Buffer.from(`:${await this.token()}`).toString('base64')}`;
+  }
+
+  /** A request with a JSON body. */
+  private send<T>(
+    method: string,
+    path: string,
+    body: unknown,
+    opts: { write?: boolean; code?: boolean } = {},
+    contentType = 'application/json',
+  ): Promise<T> {
+    return this.request<T>(
+      path,
+      {
+        method,
+        headers: { 'content-type': contentType },
+        body: JSON.stringify(body),
+      },
+      opts,
+    );
+  }
+
   private async request<T>(
     path: string,
     init: RequestInit = {},
     opts: { write?: boolean; code?: boolean; retried?: boolean } = {},
   ): Promise<T> {
     const url = `${this.organizationUrl}${path}`;
-    const pat = await this.token();
+    const authorization = await this.authHeader();
     let res: Response;
     try {
       res = await this.fetchImpl(url, {
@@ -728,7 +735,7 @@ export class AdoClient {
         headers: {
           accept: 'application/json',
           ...init.headers,
-          authorization: `Basic ${Buffer.from(`:${pat}`).toString('base64')}`,
+          authorization,
         },
       });
     } catch (e) {

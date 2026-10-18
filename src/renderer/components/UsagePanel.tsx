@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { FieldsStatus, UsageTool } from '../../shared/usage';
+import type { FieldsStatus } from '../../shared/usage';
 import { AI_FIELDS } from '../../shared/usage';
 import { isLive, timeline, tokenMix, type Bin } from '../../shared/usageViews';
 import { aiFieldValues, renderUsageComment } from '../../shared/workItemUsage';
@@ -12,11 +12,8 @@ import { useWriteCostToAdo } from '../hooks/useWriteCostToAdo';
 import { useStore } from '../store';
 import { TimePanel } from './TimePanel';
 import { RingGauge } from './ui';
+import { TOOL_LABEL } from '../../shared/time';
 
-const TOOL: Record<UsageTool, string> = {
-  'claude-code': 'Claude Code',
-  'copilot-cli': 'Copilot CLI',
-};
 const FIELD_LABEL: Record<(typeof AI_FIELDS)[number], string> = {
   'Custom.AICost': 'AI Cost (EUR)',
   'Custom.AICostClaude': 'AI Cost Claude',
@@ -248,7 +245,7 @@ export function UsagePanel({
                           <span className="live mono">LIVE</span>
                         )}
                       </td>
-                      <td>{TOOL[s.tool]}</td>
+                      <td>{TOOL_LABEL[s.tool]}</td>
                       <td className="mono">{s.models.join(', ')}</td>
                       <td className="mono">
                         {compact(

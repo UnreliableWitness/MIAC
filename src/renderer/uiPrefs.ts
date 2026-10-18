@@ -3,37 +3,14 @@ const KEY: Record<keyof UiPrefs, string> = {
   navCollapsed: 'shellie.ui.navCollapsed',
   focus: 'shellie.ui.focus',
 };
-const DEFAULTS: UiPrefs = { navCollapsed: false, focus: false };
 const local = (): Storage | undefined =>
   typeof localStorage === 'undefined' ? undefined : localStorage;
 
-export function readPrefs(storage: Storage | undefined = local()): UiPrefs {
-  const read = (k: keyof UiPrefs): boolean => {
-    try {
-      return storage?.getItem(KEY[k]) === 'true';
-    } catch {
-      return DEFAULTS[k];
-    }
-  };
-  return { navCollapsed: read('navCollapsed'), focus: read('focus') };
-}
-
-export function writePref<K extends keyof UiPrefs>(
-  key: K,
-  value: UiPrefs[K],
-  storage: Storage | undefined = local(),
-): void {
-  try {
-    storage?.setItem(KEY[key], String(value));
-  } catch {
-    /* preferences are best effort */
-  }
-}
-
-const prKey = (repoId: string) => `shellie.ui.pr.${repoId}`;
-const pushKey = (repoId: string) => `shellie.ui.push.${repoId}`;
-
-const readFlag = (key: string, storage: Storage | undefined): boolean => {
+/** A stored true/false; false when absent or unreadable. */
+export const readFlag = (
+  key: string,
+  storage: Storage | undefined,
+): boolean => {
   try {
     return storage?.getItem(key) === 'true';
   } catch {
@@ -41,7 +18,7 @@ const readFlag = (key: string, storage: Storage | undefined): boolean => {
   }
 };
 
-const writeFlag = (
+export const writeFlag = (
   key: string,
   value: boolean,
   storage: Storage | undefined,
@@ -52,6 +29,24 @@ const writeFlag = (
     /* preferences are best effort */
   }
 };
+
+export function readPrefs(storage: Storage | undefined = local()): UiPrefs {
+  return {
+    navCollapsed: readFlag(KEY.navCollapsed, storage),
+    focus: readFlag(KEY.focus, storage),
+  };
+}
+
+export function writePref<K extends keyof UiPrefs>(
+  key: K,
+  value: UiPrefs[K],
+  storage: Storage | undefined = local(),
+): void {
+  writeFlag(KEY[key], value, storage);
+}
+
+const prKey = (repoId: string) => `shellie.ui.pr.${repoId}`;
+const pushKey = (repoId: string) => `shellie.ui.push.${repoId}`;
 
 /** Whether the last Finish of this repo asked for a pull request; false until then. */
 export function readPrChoice(

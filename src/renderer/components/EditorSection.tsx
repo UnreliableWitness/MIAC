@@ -1,7 +1,7 @@
 // src/renderer/components/EditorSection.tsx
 import { useEffect, useState } from 'react';
 import type { EditorChoice, EditorId, EditorPrefs } from '../../shared/editors';
-import { api, tryInvoke } from '../api';
+import { api, saveSettings, tryInvoke } from '../api';
 import { useStore } from '../store';
 
 /** Settings > Editor: the default editor and one per repo ("Automatic" picks from the project). */
@@ -26,13 +26,10 @@ export function EditorSection() {
   }, []);
 
   const save = async (change: (p: EditorPrefs) => EditorPrefs) => {
-    const saved = await tryInvoke(async () => {
-      const fresh = await api().invoke('settings:get');
-      return api().invoke('settings:save', {
-        ...fresh,
-        editor: change(fresh.editor),
-      });
-    }, notify);
+    const saved = await tryInvoke(
+      () => saveSettings((fresh) => ({ editor: change(fresh.editor) })),
+      notify,
+    );
     if (saved) setPrefs(saved.editor);
   };
   const value = (id: EditorId | null) => id ?? '';

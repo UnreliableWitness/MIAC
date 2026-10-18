@@ -1,4 +1,4 @@
-export const REFERENCE_EUR = 50;
+const REFERENCE_EUR = 50;
 const R = 24;
 const C = 2 * Math.PI * R;
 const clamp = (n: number) =>

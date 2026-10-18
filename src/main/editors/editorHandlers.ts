@@ -1,11 +1,10 @@
 // src/main/editors/editorHandlers.ts
-import { existsSync } from 'node:fs';
 import { z } from 'zod';
 import { EditorIdSchema } from '../../shared/editors';
 import type { Handlers } from '../../shared/ipc';
 import type { Task } from '../../shared/types';
-import { workspaceById } from '../../shared/workspaces';
 import { resolveInWorktree } from '../docs/worktreeFiles';
+import { existingWorkspace } from '../workspaces/existing';
 import type { EditorService } from './EditorService';
 
 type EditorChannels =
@@ -24,12 +23,8 @@ export function createEditorHandlers(d: {
   taskById: (id: string) => Task;
   editors: EditorService;
 }): Pick<Handlers, EditorChannels> {
-  const worktree = (taskId: string, workspaceId: string | undefined) => {
-    const ws = workspaceById(d.taskById(taskId), workspaceId);
-    if (!existsSync(ws.worktreePath))
-      throw new Error('The worktree is missing');
-    return ws;
-  };
+  const worktree = (taskId: string, workspaceId: string | undefined) =>
+    existingWorkspace(d.taskById(taskId), workspaceId);
   return {
     'editor:installed': async (refresh) => d.editors.choices(Boolean(refresh)),
     'editor:options': async (taskId, workspaceId) => {

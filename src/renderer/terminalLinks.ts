@@ -4,6 +4,7 @@ import { findLinks } from './docs/linkify';
 import { useStore } from './store';
 import { track } from './telemetry';
 import { docsTarget } from '../shared/workspaces';
+import { errorMessage } from '../shared/errors';
 
 export type BufferLike = {
   getLine(
@@ -80,9 +81,7 @@ export function openLink(taskId: string, target: LinkTarget): void {
           : []),
       )
       .catch((e: unknown) =>
-        useStore
-          .getState()
-          .notify('error', e instanceof Error ? e.message : String(e)),
+        useStore.getState().notify('error', errorMessage(e)),
       );
 }
 
