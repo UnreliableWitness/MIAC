@@ -1,7 +1,5 @@
-import { useEffect, useState } from 'react';
 import type { TaskTime } from '../../shared/time';
-import type { SprintItem } from '../../shared/types';
-import { api } from '../api';
+import { useLiveWorkItem } from './useLiveWorkItem';
 
 const positive = (n: number | null | undefined) => (n && n > 0 ? n : null);
 
@@ -15,21 +13,7 @@ export function useEstimateHours(
   time: TaskTime | null,
   enabled = true,
 ): number | null {
-  const [item, setItem] = useState<SprintItem | null>(null);
-  useEffect(() => {
-    setItem(null);
-    if (!enabled || !connectionId || !workItemId) return;
-    let live = true;
-    api()
-      .invoke('workItems:get', connectionId, workItemId)
-      .then((w) => {
-        if (live) setItem(w);
-      })
-      .catch(() => undefined);
-    return () => {
-      live = false;
-    };
-  }, [enabled, connectionId, workItemId]);
+  const item = useLiveWorkItem(enabled ? connectionId : null, workItemId);
   return (
     positive(item?.originalEstimate) ??
     positive(time?.estimate?.hours) ??

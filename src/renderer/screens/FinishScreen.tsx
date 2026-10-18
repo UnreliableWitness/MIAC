@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type {
   FinishChecks,
+  FinishOptions,
   FinishRowResult,
   WorkspaceAction,
   WorkspaceCheck,
@@ -9,7 +10,6 @@ import {
   activeWorkspaces,
   dropsAtFinish,
   HOME_ID,
-  taskConnectionId,
 } from '../../shared/workspaces';
 import { api, tryInvoke } from '../api';
 import { eur, plural } from '../format';
@@ -21,7 +21,7 @@ import { useTaskTime } from '../hooks/useTaskTime';
 import { PageHeader } from '../components/ui';
 import { useEscape } from '../hooks/useEscape';
 import type { ReviewSummary } from '../../shared/review';
-import { useStore } from '../store';
+import { useStore, useTaskConnectionId } from '../store';
 import {
   readPrChoice,
   readPushChoice,
@@ -82,9 +82,8 @@ const G = {
 
 export function FinishScreen({ taskId }: { taskId: string }) {
   const task = useStore((s) => s.tasks.find((t) => t.id === taskId));
-  const go = useStore((s) => s.go);
   const back = useStore((s) => s.back);
-  const select = useStore((s) => s.select);
+  const openTask = useStore((s) => s.openTask);
   const notify = useStore((s) => s.notify);
   const [checks, setChecks] = useState<FinishChecks | null>(null);
   const [review, setReview] = useState<ReviewSummary | null>(null);
@@ -121,7 +120,6 @@ export function FinishScreen({ taskId }: { taskId: string }) {
   const [results, setResults] = useState<FinishRowResult[] | null>(null);
   const ready = task?.status === 'ready';
   const usage = useTaskUsage(ready ? taskId : null);
-  const repos = useStore((s) => s.repos);
   const writeCost = useWriteCostToAdo();
   const {
     time,
@@ -129,7 +127,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
     reload: reloadTime,
   } = useTaskTime(ready ? taskId : null);
   // The work item's connection is the task's own; the home repo may have none or have been dropped.
-  const connectionId = task ? taskConnectionId(task, repos) : null;
+  const connectionId = useTaskConnectionId(task ?? null);
   const workItemId = task?.workItem?.id ?? null;
   const estimateHours = useEstimateHours(connectionId, workItemId, time, ready);
   // The starting value is fixed when the time first loads: a later refetch updates the marks, never the booking.
@@ -146,9 +144,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
   // Finish waits for the time (or an explicit "without booking"), and for a valid entry.
   const timeBlocks = !time || bookValue === null;
   const canSync =
-    Boolean(task?.workItem) &&
-    Boolean(task && taskConnectionId(task, repos)) &&
-    writeCost === true;
+    Boolean(task?.workItem) && Boolean(connectionId) && writeCost === true;
   // Untouched (null) defaults to on, except when no usage was captured.
   const [syncChoice, setSyncUsage] = useState<boolean | null>(null);
   const syncUsage = syncChoice ?? !(usage && usage.sessions.length === 0);
@@ -231,10 +227,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
         }),
       notify,
     );
-    if (opened && stillHere()) {
-      select(taskId);
-      go({ kind: 'task' });
-    }
+    if (opened && stillHere()) openTask(taskId);
   };
 
   const createPr = Boolean(pr?.available && prChoice);
@@ -251,13 +244,18 @@ export function FinishScreen({ taskId }: { taskId: string }) {
         ? c.uncommitted.length > 0 || (c.unpushed > 0 && !withPr)
         : false;
 
-  const finish = async (withoutPr = false, withoutTime = false) => {
-    const withPr = createPr && !withoutPr;
+  /**
+   * Runs Finish with the page's options. `shown` puts an expected failure on the page and returns true; any other
+   * error is rethrown as a notice.
+   */
+  const runFinish = async (
+    options: Pick<FinishOptions, 'createPullRequest' | 'workspaces'>,
+    withoutTime: boolean,
+    shown: (e: unknown) => boolean | Promise<boolean>,
+  ) => {
     setBusy(true);
     setFinishError(null);
-    // The choice is saved when Finish is clicked, not on every toggle.
-    if (pr?.available && !withoutPr) writePrChoice(task.repoId, prChoice);
-    let prFailed = false;
+    let failed = false;
     const ok = await tryInvoke(async () => {
       try {
         await api().invoke('tasks:finish', taskId, {
@@ -265,28 +263,38 @@ export function FinishScreen({ taskId }: { taskId: string }) {
           removeWorktree,
           deleteBranch,
           syncUsage: canSync && syncUsage,
-          createPullRequest: withPr,
+          ...options,
           ...(!withoutTime && time && bookValue !== null
             ? { bookedSeconds: bookValue }
             : {}),
         });
       } catch (e) {
-        const m = e instanceof Error ? e.message : '';
-        if (!m.includes(PR_FAILED)) throw e;
-        prFailed = true;
-        setFinishError(m.slice(m.indexOf(PR_FAILED)));
+        if (!(await shown(e))) throw e;
+        failed = true;
         return false;
       }
       return true;
     }, notify);
     // A push that went through changes what is unpushed; the fallback below must judge fresh checks.
-    if (prFailed) await loadChecks(stillHere);
+    if (failed) await loadChecks(stillHere);
     setBusy(false);
     // Only when the user is still here: Escape or the nav may have taken them elsewhere meanwhile.
-    if (ok && stillHere()) {
-      select(taskId);
-      go({ kind: 'task' });
-    }
+    if (ok && stillHere()) openTask(taskId);
+  };
+
+  const finish = async (withoutPr = false, withoutTime = false) => {
+    // The choice is saved when Finish is clicked, not on every toggle.
+    if (pr?.available && !withoutPr) writePrChoice(task.repoId, prChoice);
+    await runFinish(
+      { createPullRequest: createPr && !withoutPr },
+      withoutTime,
+      (e) => {
+        const m = e instanceof Error ? e.message : '';
+        if (!m.includes(PR_FAILED)) return false;
+        setFinishError(m.slice(m.indexOf(PR_FAILED)));
+        return true;
+      },
+    );
   };
 
   /**
@@ -329,8 +337,6 @@ export function FinishScreen({ taskId }: { taskId: string }) {
     withoutPr = false,
     withoutTime = false,
   ) => {
-    setBusy(true);
-    setFinishError(null);
     setResults(null);
     // The choices are saved when Finish is clicked; leaving out a failed PR is not a new preference.
     if (!withoutPr)
@@ -351,42 +357,19 @@ export function FinishScreen({ taskId }: { taskId: string }) {
             workspaceId: w.id,
             action: 'keep' as const,
           }));
-    let rowFailed = false;
-    const ok = await tryInvoke(async () => {
-      try {
-        await api().invoke('tasks:finish', taskId, {
-          closeTerminals: closeTerminals && nTerm > 0,
-          removeWorktree,
-          deleteBranch,
-          syncUsage: canSync && syncUsage,
-          workspaces,
-          ...(!withoutTime && time && bookValue !== null
-            ? { bookedSeconds: bookValue }
-            : {}),
-        });
-      } catch (e) {
-        // Main keeps each row's outcome; without a failed row this is another error, shown as a notice.
-        const outcome = await api()
-          .invoke('tasks:finishResults', taskId)
-          .catch(() => null);
-        const failed = outcome?.filter((r) => !r.ok) ?? [];
-        if (!outcome || failed.length === 0) throw e;
-        rowFailed = true;
-        setResults(outcome);
-        setFinishError(
-          `Finish stopped before cleanup: ${plural(failed.length, 'repo')} failed. Nothing was removed.`,
-        );
-        return false;
-      }
+    await runFinish({ workspaces }, withoutTime, async () => {
+      // Main keeps each row's outcome; without a failed row this is another error, shown as a notice.
+      const outcome = await api()
+        .invoke('tasks:finishResults', taskId)
+        .catch(() => null);
+      const failed = outcome?.filter((r) => !r.ok) ?? [];
+      if (!outcome || failed.length === 0) return false;
+      setResults(outcome);
+      setFinishError(
+        `Finish stopped before cleanup: ${plural(failed.length, 'repo')} failed. Nothing was removed.`,
+      );
       return true;
-    }, notify);
-    // A push that went through changes what is unpushed; the fallback below must judge fresh checks.
-    if (rowFailed) await loadChecks(stillHere);
-    setBusy(false);
-    if (ok && stillHere()) {
-      select(taskId);
-      go({ kind: 'task' });
-    }
+    });
   };
 
   /** Like the single-repo Finish without PR, for the failed rows only: untick them, and finish if nothing is lost. */
@@ -457,35 +440,37 @@ export function FinishScreen({ taskId }: { taskId: string }) {
         <div className="finish-section">
           <h2>Safety checks</h2>
           {review && (review.notViewed > 0 || review.unresolved > 0) && (
-            <div className="check check-warn">
-              <span aria-hidden="true">{G.WARN}</span>
-              <div className="body">
-                {[
-                  review.notViewed > 0 &&
-                    `${plural(review.notViewed, 'file')} not viewed`,
-                  review.unresolved > 0 &&
-                    `${plural(review.unresolved, 'comment')} unresolved`,
-                ]
-                  .filter(Boolean)
-                  .join(' · ')}
-              </div>
-              <button
-                type="button"
-                className="btn btn-sm"
-                onClick={() => useStore.getState().openChanges(taskId)}
-              >
-                Review changes
-              </button>
-            </div>
+            <Check
+              tone="warn"
+              glyph={G.WARN}
+              actions={
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => useStore.getState().openChanges(taskId)}
+                >
+                  Review changes
+                </button>
+              }
+            >
+              {[
+                review.notViewed > 0 &&
+                  `${plural(review.notViewed, 'file')} not viewed`,
+                review.unresolved > 0 &&
+                  `${plural(review.unresolved, 'comment')} unresolved`,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </Check>
           )}
           {!checks && !checksFailed && (
             <div className="muted">Checking{ELLIPSIS}</div>
           )}
           {checksFailed && (
-            <div className="check check-warn">
-              <span aria-hidden="true">{G.WARN}</span>
-              <div className="body">{`Could not inspect the worktree: ${checksFailed}. You can still clean up.`}</div>
-            </div>
+            <Check
+              tone="warn"
+              glyph={G.WARN}
+            >{`Could not inspect the worktree: ${checksFailed}. You can still clean up.`}</Check>
           )}
           {checks &&
             multi &&
@@ -522,83 +507,76 @@ export function FinishScreen({ taskId }: { taskId: string }) {
           {checks &&
             !multi &&
             (checks.uncommitted.length > 0 ? (
-              <div className="check check-warn">
-                <span aria-hidden="true">{G.WARN}</span>
-                <div className="body">
-                  <div className="title">
-                    {plural(checks.uncommitted.length, 'uncommitted change')}
-                  </div>
-                  <div className="mono small files">
-                    {checks.uncommitted
-                      .map((f) => `${f.status} ${f.path}`)
-                      .join('\n')}
-                  </div>
+              <Check
+                tone="warn"
+                glyph={G.WARN}
+                actions={
+                  <button
+                    type="button"
+                    className="btn btn-warn btn-sm"
+                    onClick={() =>
+                      openGit('git commit', 'git add -A && git commit')
+                    }
+                  >
+                    Commit{ELLIPSIS}
+                  </button>
+                }
+              >
+                <div className="title">
+                  {plural(checks.uncommitted.length, 'uncommitted change')}
                 </div>
-                <button
-                  type="button"
-                  className="btn btn-warn btn-sm"
-                  onClick={() =>
-                    openGit('git commit', 'git add -A && git commit')
-                  }
-                >
-                  Commit{ELLIPSIS}
-                </button>
-              </div>
+                <div className="mono small files">
+                  {checks.uncommitted
+                    .map((f) => `${f.status} ${f.path}`)
+                    .join('\n')}
+                </div>
+              </Check>
             ) : (
-              <div className="check check-ok">
-                <span aria-hidden="true">{G.OK}</span>
-                <div className="body">No uncommitted changes</div>
-              </div>
+              <Check tone="ok" glyph={G.OK}>
+                No uncommitted changes
+              </Check>
             ))}
           {checks &&
             !multi &&
             (checks.unpushed > 0 && !createPr ? (
-              <div className="check check-warn">
-                <span aria-hidden="true">{G.UP}</span>
-                <div className="body">
-                  <div className="title">{`${plural(checks.unpushed, 'commit')} not pushed`}</div>
-                </div>
-                <button
-                  type="button"
-                  className="btn btn-warn btn-sm"
-                  onClick={() =>
-                    openGit('git push', `git push -u origin ${task.branch}`)
-                  }
-                >
-                  Push
-                </button>
-              </div>
+              <Check
+                tone="warn"
+                glyph={G.UP}
+                actions={
+                  <button
+                    type="button"
+                    className="btn btn-warn btn-sm"
+                    onClick={() =>
+                      openGit('git push', `git push -u origin ${task.branch}`)
+                    }
+                  >
+                    Push
+                  </button>
+                }
+              >
+                <div className="title">{`${plural(checks.unpushed, 'commit')} not pushed`}</div>
+              </Check>
             ) : checks.unpushed > 0 ? (
-              <div className="check check-ok">
-                <span aria-hidden="true">{G.UP}</span>
-                <div className="body">
-                  {`${plural(checks.unpushed, 'commit')} will be pushed for the pull request`}
-                </div>
-              </div>
+              <Check tone="ok" glyph={G.UP}>
+                {`${plural(checks.unpushed, 'commit')} will be pushed for the pull request`}
+              </Check>
             ) : (
-              <div className="check check-ok">
-                <span aria-hidden="true">{G.OK}</span>
-                <div className="body">Nothing to push</div>
-              </div>
+              <Check tone="ok" glyph={G.OK}>
+                Nothing to push
+              </Check>
             ))}
           {checks &&
             (checks.runningTerminals > 0 ? (
-              <div className="check check-warn">
-                <span aria-hidden="true">{G.PLAY}</span>
-                <div className="body">
-                  <div className="title">{`${plural(checks.runningTerminals, 'terminal')} still running`}</div>
-                  <div className="small">
-                    They are closed when you finish, unless you untick it below.
-                  </div>
+              <Check tone="warn" glyph={G.PLAY}>
+                <div className="title">{`${plural(checks.runningTerminals, 'terminal')} still running`}</div>
+                <div className="small">
+                  They are closed when you finish, unless you untick it below.
                 </div>
-              </div>
+              </Check>
             ) : (
-              <div className="check check-ok">
-                <span aria-hidden="true">{G.OK}</span>
-                <div className="body">
-                  No running processes besides this task's terminals
-                </div>
-              </div>
+              <Check tone="ok" glyph={G.OK}>
+                No running processes besides this task's terminals
+              </Check>
             ))}
         </div>
 
@@ -643,32 +621,41 @@ export function FinishScreen({ taskId }: { taskId: string }) {
           <div className="finish-section">
             <h2>Time spent</h2>
             {timeError ? (
-              <div className="check check-warn" role="alert">
-                <span aria-hidden="true">{G.WARN}</span>
-                <div className="body">Time could not be loaded</div>
-                <button
-                  type="button"
-                  className="btn btn-sm"
-                  disabled={busy}
-                  onClick={reloadTime}
-                >
-                  Retry
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-subtle btn-sm"
-                  disabled={
-                    busy || (!multi && !prLoaded) || (!checks && !checksFailed)
-                  }
-                  onClick={() =>
-                    multi
-                      ? void finishRows(rowChoice, false, true)
-                      : void finish(false, true)
-                  }
-                >
-                  Finish without booking time
-                </button>
-              </div>
+              <Check
+                tone="warn"
+                glyph={G.WARN}
+                role="alert"
+                actions={
+                  <>
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      disabled={busy}
+                      onClick={reloadTime}
+                    >
+                      Retry
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-subtle btn-sm"
+                      disabled={
+                        busy ||
+                        (!multi && !prLoaded) ||
+                        (!checks && !checksFailed)
+                      }
+                      onClick={() =>
+                        multi
+                          ? void finishRows(rowChoice, false, true)
+                          : void finish(false, true)
+                      }
+                    >
+                      Finish without booking time
+                    </button>
+                  </>
+                }
+              >
+                Time could not be loaded
+              </Check>
             ) : (
               <div className="muted">Loading time{ELLIPSIS}</div>
             )}
@@ -755,30 +742,37 @@ export function FinishScreen({ taskId }: { taskId: string }) {
         </div>
 
         {finishError && (
-          <div className="check check-warn" role="alert">
-            <span aria-hidden="true">{G.WARN}</span>
-            <div className="body">{finishError}</div>
-            <button
-              type="button"
-              className="btn btn-sm"
-              disabled={busy}
-              onClick={() =>
-                multi ? void finishRows(rowChoice) : void finish()
-              }
-            >
-              Retry
-            </button>
-            <button
-              type="button"
-              className="btn btn-subtle btn-sm"
-              disabled={busy}
-              onClick={() =>
-                multi ? void finishRowsWithoutPr() : void finishWithoutPr()
-              }
-            >
-              Finish without PR
-            </button>
-          </div>
+          <Check
+            tone="warn"
+            glyph={G.WARN}
+            role="alert"
+            actions={
+              <>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  disabled={busy}
+                  onClick={() =>
+                    multi ? void finishRows(rowChoice) : void finish()
+                  }
+                >
+                  Retry
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-subtle btn-sm"
+                  disabled={busy}
+                  onClick={() =>
+                    multi ? void finishRowsWithoutPr() : void finishWithoutPr()
+                  }
+                >
+                  Finish without PR
+                </button>
+              </>
+            }
+          >
+            {finishError}
+          </Check>
         )}
 
         <div className="finish-foot">
@@ -804,6 +798,29 @@ export function FinishScreen({ taskId }: { taskId: string }) {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** One line of the safety checks: a glyph, what was found, and the buttons that fix it. */
+function Check({
+  tone,
+  glyph,
+  role,
+  actions,
+  children,
+}: {
+  tone: 'ok' | 'warn';
+  glyph: string;
+  role?: 'alert';
+  actions?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div className={`check check-${tone}`} role={role}>
+      <span aria-hidden="true">{glyph}</span>
+      <div className="body">{children}</div>
+      {actions}
     </div>
   );
 }
@@ -866,70 +883,72 @@ function WorkspaceRow({
         )}
       </div>
       {done && (
-        <div className="check check-ok">
-          <span aria-hidden="true">{G.OK}</span>
-          <div className="body">{done}</div>
-        </div>
+        <Check tone="ok" glyph={G.OK}>
+          {done}
+        </Check>
       )}
       {result && !result.ok && (
-        <div className="check check-warn">
-          <span aria-hidden="true">{G.WARN}</span>
-          <div className="body">{result.error}</div>
-        </div>
+        <Check tone="warn" glyph={G.WARN}>
+          {result.error}
+        </Check>
       )}
       {c.missing ? (
         <div className="muted small">Folder missing, skipped</div>
       ) : (
         <>
           {c.uncommitted.length > 0 && (
-            <div className="check check-warn">
-              <span aria-hidden="true">{G.WARN}</span>
-              <div className="body">
-                <div className="title">
-                  {plural(c.uncommitted.length, 'uncommitted change')}
-                </div>
-                <div className="mono small files">
-                  {c.uncommitted.map((f) => `${f.status} ${f.path}`).join('\n')}
-                </div>
+            <Check
+              tone="warn"
+              glyph={G.WARN}
+              actions={
+                <button
+                  type="button"
+                  className="btn btn-warn btn-sm"
+                  onClick={() =>
+                    openGit(
+                      'git commit',
+                      'git add -A && git commit',
+                      c.workspaceId,
+                    )
+                  }
+                >
+                  Commit{ELLIPSIS}
+                </button>
+              }
+            >
+              <div className="title">
+                {plural(c.uncommitted.length, 'uncommitted change')}
               </div>
-              <button
-                type="button"
-                className="btn btn-warn btn-sm"
-                onClick={() =>
-                  openGit(
-                    'git commit',
-                    'git add -A && git commit',
-                    c.workspaceId,
-                  )
-                }
-              >
-                Commit{ELLIPSIS}
-              </button>
-            </div>
+              <div className="mono small files">
+                {c.uncommitted.map((f) => `${f.status} ${f.path}`).join('\n')}
+              </div>
+            </Check>
           )}
           {otherBranch && (
             <div className="muted small">{`Not this task's branch (${c.branch}): kept as is`}</div>
           )}
           {c.unpushed > 0 && action === 'keep' && !otherBranch && (
-            <div className="check check-warn">
-              <span aria-hidden="true">{G.UP}</span>
-              <div className="body">
-                <div className="title">{`${plural(c.unpushed, 'commit')} not pushed`}</div>
-              </div>
-              <button
-                type="button"
-                className="btn btn-warn btn-sm"
-                onClick={() =>
-                  openGit(
-                    'git push',
-                    `git push -u origin ${c.branch}`,
-                    c.workspaceId,
-                  )
-                }
-              >
-                Push
-              </button>
-            </div>
+            <Check
+              tone="warn"
+              glyph={G.UP}
+              actions={
+                <button
+                  type="button"
+                  className="btn btn-warn btn-sm"
+                  onClick={() =>
+                    openGit(
+                      'git push',
+                      `git push -u origin ${c.branch}`,
+                      c.workspaceId,
+                    )
+                  }
+                >
+                  Push
+                </button>
+              }
+            >
+              <div className="title">{`${plural(c.unpushed, 'commit')} not pushed`}</div>
+            </Check>
           )}
           {!(otherBranch && noChanges(c)) && (
             <label className="checkbox">

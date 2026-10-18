@@ -55,8 +55,8 @@ export function NewTaskScreen({
   const [title, setTitle] = useState('');
   const [name, setName] = useState('');
   const [baseRef, setBaseRef] = useState('');
-  const [branch, setBranch] = useState('');
-  const [branchEdited, setBranchEdited] = useState(false);
+  // A hand-typed branch; null follows the repo's template.
+  const [editedBranch, setEditedBranch] = useState<string | null>(null);
   const [copy, setCopy] = useState(true);
   const [commands, setCommands] = useState<Record<string, boolean>>({});
   const [startClaude, setStartClaude] = useState(true);
@@ -95,7 +95,7 @@ export function NewTaskScreen({
     setBaseRef('');
     setCopy(true);
     setCommands({});
-    setBranchEdited(false);
+    setEditedBranch(null);
     void tryInvoke(() => api().invoke('repos:config', repoId), notify).then(
       (result) => {
         if (!live || !result) return;
@@ -114,7 +114,7 @@ export function NewTaskScreen({
   const changeMode = (next: Mode) => {
     modeChosen.current = true;
     setMode(next);
-    setBranchEdited(false);
+    setEditedBranch(null);
   };
 
   const workItem: WorkItemRef | null = useMemo(
@@ -132,14 +132,11 @@ export function NewTaskScreen({
       : (workItem?.title ?? (mode === 'typed' ? title : ''));
   const template = config?.config.branch ?? '{type}/{id}-{slug}';
 
-  useEffect(() => {
-    if (branchEdited) return;
-    setBranch(
-      label.trim() || workItem?.id
-        ? renderBranch(template, { workItem, name })
-        : '',
-    );
-  }, [workItem, name, label, template, branchEdited]);
+  const branch =
+    editedBranch ??
+    (label.trim() || workItem?.id
+      ? renderBranch(template, { workItem, name })
+      : '');
 
   const slug =
     label.trim() || workItem?.id
@@ -304,12 +301,9 @@ export function NewTaskScreen({
               id="nt-branch"
               className="field mono"
               value={branch}
-              onChange={(e) => {
-                setBranchEdited(true);
-                setBranch(e.target.value);
-              }}
+              onChange={(e) => setEditedBranch(e.target.value)}
               onBlur={(e) => {
-                if (!e.target.value) setBranchEdited(false);
+                if (!e.target.value) setEditedBranch(null);
               }}
             />
             <span className="label">Folder</span>

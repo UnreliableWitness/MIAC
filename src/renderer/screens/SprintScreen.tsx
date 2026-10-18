@@ -9,6 +9,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   Connection,
+  Repo,
   SprintIteration,
   SprintRow,
   TaskView,
@@ -26,8 +27,9 @@ import { eur, sprintDates } from '../format';
 import { useTaskUsage } from '../hooks/useTaskUsage';
 import { startTaskFor } from '../startTask';
 import { activeConnection, useStore } from '../store';
-import { TASK_STATUS } from '../taskStatus';
+import { taskStatusOf } from '../taskStatus';
 import { errorMessage } from '../../shared/errors';
+import { taskConnectionId } from '../../shared/workspaces';
 
 /** Window focus refreshes the sprint at most this often. */
 const FOCUS_REFRESH_MS = 60_000;
@@ -35,6 +37,8 @@ const FOCUS_REFRESH_MS = 60_000;
 const TIME_REFRESH_MS = 5_000;
 
 const NO_TIME: Record<string, LocalItemTime> = {};
+/** While filtering, every match shows, even under a collapsed parent. */
+const NONE_COLLAPSED = new Set<string>();
 
 function TimeCell({
   cell,
@@ -136,15 +140,11 @@ function taskFor(
   id: string,
   connectionId: string,
   tasks: TaskView[],
-  repoConnection: Map<string, string | null>,
+  repos: Repo[],
 ): TaskView | null {
-  const matches = tasks.filter((t) => {
-    if (t.workItem?.id !== id) return false;
-    // The work item's own connection; tasks from before it was stored use their repo's.
-    return (
-      (t.connectionId ?? repoConnection.get(t.repoId) ?? null) === connectionId
-    );
-  });
+  const matches = tasks.filter(
+    (t) => t.workItem?.id === id && taskConnectionId(t, repos) === connectionId,
+  );
   return (
     matches.find((t) => t.status !== 'done') ??
     matches.sort((a, b) =>
@@ -157,9 +157,7 @@ function taskFor(
 function TaskCell({ task, label }: { task: TaskView; label: string }) {
   const openTask = useStore((s) => s.openTask);
   const usage = useTaskUsage(task.id);
-  const s = task.worktreeMissing
-    ? { label: 'Folder missing', color: 'var(--red)' }
-    : TASK_STATUS[task.status];
+  const s = taskStatusOf(task);
   return (
     <button
       type="button"
@@ -322,10 +320,6 @@ function SprintGrid({
 }) {
   const tasks = useStore((s) => s.tasks);
   const repos = useStore((s) => s.repos);
-  const repoConnection = useMemo(
-    () => new Map(repos.map((r) => [r.id, r.connectionId])),
-    [repos],
-  );
   const repoId =
     repos.find((r) => r.connectionId === connectionId && !r.discovered)?.id ??
     null;
@@ -350,7 +344,7 @@ function SprintGrid({
             key={r.item.id}
             row={r}
             connectionId={connectionId}
-            task={taskFor(r.item.id, connectionId, tasks, repoConnection)}
+            task={taskFor(r.item.id, connectionId, tasks, repos)}
             repoId={repoId}
             collapsed={collapsed.has(r.item.id)}
             onToggle={() => onToggle(r.item.id)}
@@ -360,6 +354,18 @@ function SprintGrid({
         ))}
       </div>
     </div>
+  );
+}
+
+/** A backlog grid, or a note when the filter hides every row. */
+function Backlog({
+  query,
+  ...grid
+}: Parameters<typeof SprintGrid>[0] & { query: string }) {
+  return grid.rows.length === 0 ? (
+    <div className="empty">{`No work items match "${query.trim()}".`}</div>
+  ) : (
+    <SprintGrid {...grid} />
   );
 }
 
@@ -465,7 +471,6 @@ function SprintPage({ connection }: { connection: Connection }) {
 
   const rows = load.status === 'ok' ? load.rows : [];
   const searching = query.trim() !== '';
-  const shown = filterRows(rows, query);
   const parents = rows.filter((r) => r.hasChildren).map((r) => r.item.id);
   const allCollapsed =
     parents.length > 0 && parents.every((id) => collapsed.has(id));
@@ -551,17 +556,15 @@ function SprintPage({ connection }: { connection: Connection }) {
           <>
             {rows.length === 0 ? (
               <div className="empty">No work items in this sprint.</div>
-            ) : shown.length === 0 ? (
-              <div className="empty">{`No work items match "${query.trim()}".`}</div>
             ) : (
-              <SprintGrid
+              <Backlog
+                query={query}
                 label={`${load.iteration.name} backlog`}
-                rows={shown}
+                rows={filterRows(rows, query)}
                 allRows={rows}
                 local={local}
                 connectionId={connection.id}
-                // While filtering, every match shows, even under a collapsed parent.
-                collapsed={searching ? new Set() : collapsed}
+                collapsed={searching ? NONE_COLLAPSED : collapsed}
                 onToggle={toggle}
               />
             )}
@@ -577,10 +580,9 @@ function SprintPage({ connection }: { connection: Connection }) {
               <div className="empty">
                 No open work items are assigned to you.
               </div>
-            ) : filterRows(load.mine, query).length === 0 ? (
-              <div className="empty">{`No work items match "${query.trim()}".`}</div>
             ) : (
-              <SprintGrid
+              <Backlog
+                query={query}
                 label="Assigned to me"
                 rows={filterRows(load.mine, query)}
                 allRows={load.mine}
