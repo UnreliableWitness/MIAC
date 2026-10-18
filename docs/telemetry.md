@@ -1,6 +1,6 @@
 # App telemetry
 
-Shellie sends anonymous usage, error and performance data to Azure Application Insights (resource `miac-app`, resource group `miac-telemetry`) so we can see which features are used, what breaks, and what is slow.
+Shellie sends anonymous usage, error and performance data to Azure Application Insights (resource `shellie-app`, resource group `shellie-telemetry`) so we can see which features are used, what breaks, and what is slow.
 
 This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 that prices Claude Code and Copilot usage). App telemetry uses its own small client (`src/main/telemetry/AppInsightsClient.ts`) that posts JSON to the App Insights ingestion endpoint; it does not use OpenTelemetry.
 
