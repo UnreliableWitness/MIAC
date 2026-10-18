@@ -252,26 +252,27 @@ async function boot(): Promise<void> {
   let tokenResult: TokenMigration = 'none';
   const readOldKey =
     process.platform === 'darwin'
-      ? readMiacKeychainPassword
+      ? () => readMiacKeychainPassword()
       : process.platform === 'win32'
         ? () =>
             readMiacWindowsKey(
               path.join(app.getPath('appData'), 'miac', 'Local State'),
             )
         : null;
-  if (
-    migration?.connections &&
-    readOldKey &&
-    safeStorage.isEncryptionAvailable()
-  )
+  if (migration?.connections && readOldKey) {
+    // Without encryption the tokens cannot be re-encrypted: keep the connections, marked unauthorized ('refused').
+    const canEncrypt = safeStorage.isEncryptionAvailable();
     tokenResult = await migrateTokens({
       file: path.join(userData, 'connections.json'),
-      readOldKey,
+      readOldKey: canEncrypt
+        ? readOldKey
+        : () => Promise.reject(new Error('safeStorage unavailable')),
       encrypt: (plain) => safeStorage.encryptString(plain),
     }).catch((): TokenMigration => {
       console.error('Moving MIAC connection tokens failed; enter them again.');
       return 'refused';
     });
+  }
   const settings = new SettingsStore(path.join(userData, 'settings.json'));
   const settingsLoaded = await settings.load();
   splashWin = settings.get().showSplash ? createSplashWindow(windowIcon) : null;

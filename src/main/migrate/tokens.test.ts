@@ -14,11 +14,16 @@ import {
   type ConnectionsFile,
 } from '../../shared/types';
 import {
+  DPAPI_TIMEOUT_MS,
+  KEYCHAIN_TIMEOUT_MS,
+  type RunFile,
   decryptChromiumMac,
   decryptChromiumWin,
   migrateTokens,
   parseLocalStateKey,
+  readMiacKeychainPassword,
   readMiacWindowsKey,
+  runFile,
 } from './tokens';
 
 // Chromium's macOS os_crypt: "v10" + AES-128-CBC, key PBKDF2-SHA1(password, "saltysalt", 1003, 16), IV 16 spaces.
@@ -257,4 +262,76 @@ describe('readMiacWindowsKey', () => {
     },
     30_000,
   );
+});
+
+describe('old key readers time out instead of blocking boot', () => {
+  const timedOut =
+    (seen: { file: string; timeout: number }[]): RunFile =>
+    async (file, _args, opts) => {
+      seen.push({ file, timeout: opts.timeout });
+      throw Object.assign(new Error('spawn timed out'), {
+        killed: true,
+        signal: 'SIGTERM',
+      });
+    };
+
+  it('runFile rejects when the command outlives its timeout', async () => {
+    await expect(
+      runFile(process.execPath, ['-e', 'setTimeout(() => {}, 10000)'], {
+        timeout: 200,
+      }),
+    ).rejects.toThrow();
+  });
+
+  it('a Keychain prompt that times out means refused, connections unauthorized', async () => {
+    const seen: { file: string; timeout: number }[] = [];
+    const file = writeConnections([conn('a', chromiumEncrypt('pat-a', 'pw'))]);
+    expect(
+      await migrateTokens({
+        file,
+        readOldKey: () => readMiacKeychainPassword(timedOut(seen)),
+        encrypt: newKey,
+      }),
+    ).toBe('refused');
+    expect(seen).toEqual([{ file: 'security', timeout: KEYCHAIN_TIMEOUT_MS }]);
+    expect(KEYCHAIN_TIMEOUT_MS).toBe(120_000);
+    expect(read(file).connections[0].status).toBe('unauthorized');
+  });
+
+  it('a PowerShell that times out means refused, connections unauthorized', async () => {
+    const seen: { file: string; timeout: number }[] = [];
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'shellie-ls-'));
+    const localState = path.join(dir, 'Local State');
+    writeFileSync(
+      localState,
+      JSON.stringify({
+        os_crypt: {
+          encrypted_key: Buffer.from('DPAPImade-up-blob').toString('base64'),
+        },
+      }),
+    );
+    const file = writeConnections([
+      conn('a', chromiumEncryptWin('pat-a', randomBytes(32))),
+    ]);
+    expect(
+      await migrateTokens({
+        file,
+        readOldKey: () => readMiacWindowsKey(localState, timedOut(seen)),
+        encrypt: newKey,
+      }),
+    ).toBe('refused');
+    expect(seen).toEqual([
+      { file: 'powershell.exe', timeout: DPAPI_TIMEOUT_MS },
+    ]);
+    expect(DPAPI_TIMEOUT_MS).toBe(30_000);
+    expect(read(file).connections[0].status).toBe('unauthorized');
+  });
+
+  it('reads the Keychain password from the command output', async () => {
+    const run: RunFile = async () => 'made-up-pw\n';
+    expect(await readMiacKeychainPassword(run)).toEqual({
+      kind: 'mac',
+      password: 'made-up-pw',
+    });
+  });
 });

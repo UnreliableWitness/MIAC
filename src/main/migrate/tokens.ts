@@ -47,10 +47,34 @@ export function decryptOld(cipher: Buffer, key: OldKey): string {
     : decryptChromiumWin(cipher, key.key);
 }
 
-/** MIAC's key, from the Keychain item Electron made for it. macOS asks the user once. */
-export const readMiacKeychainPassword = (): Promise<OldKey> =>
+/** Runs a command and resolves its stdout; injectable so tests never touch the real Keychain or PowerShell. */
+export type RunFile = (
+  file: string,
+  args: string[],
+  opts: { env?: NodeJS.ProcessEnv; timeout: number },
+) => Promise<string>;
+
+export const runFile: RunFile = (file, args, opts) =>
   new Promise((resolve, reject) =>
     execFile(
+      file,
+      args,
+      { env: opts.env, timeout: opts.timeout, windowsHide: true },
+      (err, stdout) => (err ? reject(err) : resolve(stdout)),
+    ),
+  );
+
+/** Time to answer the Keychain prompt; boot waits on it, so it must not hang forever. */
+export const KEYCHAIN_TIMEOUT_MS = 120_000;
+export const DPAPI_TIMEOUT_MS = 30_000;
+
+/** MIAC's key, from the Keychain item Electron made for it. macOS asks the user once. */
+export async function readMiacKeychainPassword(
+  run: RunFile = runFile,
+): Promise<OldKey> {
+  let out: string;
+  try {
+    out = await run(
       'security',
       [
         'find-generic-password',
@@ -60,13 +84,13 @@ export const readMiacKeychainPassword = (): Promise<OldKey> =>
         '-a',
         'miac Key',
       ],
-      { windowsHide: true },
-      (err, out) =>
-        err
-          ? reject(new Error('MIAC Keychain item could not be read'))
-          : resolve({ kind: 'mac', password: out.trim() }),
-    ),
-  );
+      { timeout: KEYCHAIN_TIMEOUT_MS },
+    );
+  } catch {
+    throw new Error('MIAC Keychain item could not be read');
+  }
+  return { kind: 'mac', password: out.trim() };
+}
 
 /** The DPAPI blob in a Chromium `Local State`: `os_crypt.encrypted_key`, base64, after its "DPAPI" prefix. */
 export function parseLocalStateKey(json: string): Buffer {
@@ -86,22 +110,22 @@ const UNPROTECT =
 /** MIAC's key on Windows: the DPAPI-protected AES key in MIAC's `Local State`, unprotected for the current user by Windows PowerShell 5.1. */
 export async function readMiacWindowsKey(
   oldLocalStatePath: string,
+  run: RunFile = runFile,
 ): Promise<OldKey> {
   const blob = parseLocalStateKey(await fs.readFile(oldLocalStatePath, 'utf8'));
-  const out = await new Promise<string>((resolve, reject) =>
-    execFile(
+  let out: string;
+  try {
+    out = await run(
       'powershell.exe',
       ['-NoProfile', '-NonInteractive', '-Command', UNPROTECT],
       {
         env: { ...process.env, SHELLIE_DPAPI_BLOB: blob.toString('base64') },
-        windowsHide: true,
+        timeout: DPAPI_TIMEOUT_MS,
       },
-      (err, stdout) =>
-        err
-          ? reject(new Error('DPAPI could not unprotect MIAC key'))
-          : resolve(stdout),
-    ),
-  );
+    );
+  } catch {
+    throw new Error('DPAPI could not unprotect MIAC key');
+  }
   const key = Buffer.from(out.trim(), 'base64');
   if (key.length !== 32) throw new Error('MIAC key is not 32 bytes');
   return { kind: 'win', key };
