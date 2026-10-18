@@ -3,11 +3,15 @@ import { useCallback, useRef, useState } from 'react';
 import type { ReviewComment, ReviewState } from '../../../shared/review';
 import type { TaskView } from '../../../shared/types';
 import { api, tryInvoke } from '../../api';
-import { readSendTarget, writeSendTarget } from '../../docs/docsPrefs';
+import { readSendTarget } from '../../docs/docsPrefs';
+import {
+  pasteToTerminal,
+  pickSendTarget,
+  showTerminal,
+} from '../../docs/sendToTerminal';
 import { buildReviewPrompt } from '../../review/reviewPrompt';
 import { useStore } from '../../store';
 import { track } from '../../telemetry';
-import { focusTerminal, pasteInto } from '../../terminalRegistry';
 import { PopupMenu } from '../ui';
 import { plural } from '../../format';
 
@@ -38,10 +42,7 @@ export function SendComments({
   const close = useCallback(() => setMenu(false), []);
   const targets = task.terminals.filter((t) => AGENTS.has(t.kind));
   const open = comments.filter((c) => c.status === 'open');
-  const target =
-    targets.find((t) => t.id === chosen) ??
-    targets.find((t) => t.kind === 'claude') ??
-    targets[0];
+  const target = pickSendTarget(targets, chosen, (t) => t.kind === 'claude');
 
   const send = async (id: string) => {
     if (busy.current) return;
@@ -58,13 +59,6 @@ export function SendComments({
     setMenu(false);
     const t = targets.find((x) => x.id === id);
     if (!t || open.length === 0) return;
-    const running = await api()
-      .invoke('terminals:isRunning', id)
-      .catch(() => false);
-    if (!running) {
-      notify('warn', `${t.label} is not running`);
-      return;
-    }
     const inRepo = (c: ReviewComment, p: string) =>
       multiRepo ? `${repoName(c.workspaceId)}/${p}` : p;
     const items = open.map((c) => ({
@@ -76,16 +70,15 @@ export function SendComments({
       snippet: c.snippet,
       text: c.text,
     }));
-    if (
-      !pasteInto(id, (bracketed) =>
-        buildReviewPrompt(items, { singleLine: !bracketed }),
-      )
-    ) {
-      notify('warn', `${t.label} is not open`);
-      return;
-    }
-    writeSendTarget(task.id, id);
-    setChosen(id);
+    const pasted = await pasteToTerminal({
+      taskId: task.id,
+      id,
+      who: t.label,
+      text: (bracketed) => buildReviewPrompt(items, { singleLine: !bracketed }),
+      notify,
+      onChosen: setChosen,
+    });
+    if (!pasted) return;
     const s = await tryInvoke(
       () =>
         api().invoke(
@@ -99,8 +92,7 @@ export function SendComments({
       onSent(s);
       track('review.commentsSent', { count: open.length });
     }
-    useStore.getState().setTab(task.id, id);
-    requestAnimationFrame(() => focusTerminal(id));
+    showTerminal(task.id, id);
   };
 
   if (!target)

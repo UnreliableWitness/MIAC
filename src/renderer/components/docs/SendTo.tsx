@@ -3,10 +3,14 @@ import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { TaskView } from '../../../shared/types';
 import { api } from '../../api';
-import { readSendTarget, writeSendTarget } from '../../docs/docsPrefs';
+import { readSendTarget } from '../../docs/docsPrefs';
 import { buildQuote } from '../../docs/quote';
+import {
+  pasteToTerminal,
+  pickSendTarget,
+  showTerminal,
+} from '../../docs/sendToTerminal';
 import { useStore } from '../../store';
-import { focusTerminal, pasteInto } from '../../terminalRegistry';
 import { track } from '../../telemetry';
 
 /**
@@ -137,37 +141,28 @@ export function SendTo({
   if (!container || !shown || task.terminals.length === 0) return null;
 
   const terminals = task.terminals;
-  const defaultTarget =
-    terminals.find((t) => t.id === chosen) ??
-    terminals.find((t) => t.kind === 'claude' || t.kind === 'copilot') ??
-    terminals[0];
+  const defaultTarget = pickSendTarget(
+    terminals,
+    chosen,
+    (t) => t.kind === 'claude' || t.kind === 'copilot',
+  )!;
 
   const send = async (id: string) => {
     const target = terminals.find((t) => t.id === id);
     if (!target) return;
     const sel = window.getSelection();
     const text = sel ? selectionText(sel) : '';
-    let running = false;
-    try {
-      running = Boolean(await api().invoke('terminals:isRunning', id));
-    } catch {
-      running = false;
-    }
-    if (!running) {
-      notify('warn', 'That terminal is not running');
-      return;
-    }
-    const ok = pasteInto(id, (b) =>
-      buildQuote(path, shown.start, shown.end, text, { singleLine: !b }),
-    );
-    if (!ok) {
-      notify('warn', 'That terminal is not open');
-      return;
-    }
-    writeSendTarget(task.id, id);
-    setChosen(id);
-    useStore.getState().setTab(task.id, id);
-    requestAnimationFrame(() => focusTerminal(id));
+    const ok = await pasteToTerminal({
+      taskId: task.id,
+      id,
+      who: 'That terminal',
+      text: (b) =>
+        buildQuote(path, shown.start, shown.end, text, { singleLine: !b }),
+      notify,
+      onChosen: setChosen,
+    });
+    if (!ok) return;
+    showTerminal(task.id, id);
     track('docs.sentTo', { kind: target.kind });
     window.getSelection()?.removeAllRanges();
     hide();

@@ -29,6 +29,8 @@ export function OpenInEditor({
   const go = useStore((s) => s.go);
   const [opts, setOpts] = useState<EditorOptions | null>(null);
   const [menu, setMenu] = useState(false);
+  // Counts menu openings: options load again on open, not on close.
+  const [opens, setOpens] = useState(0);
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
   const close = useCallback(() => setMenu(false), []);
 
@@ -44,7 +46,7 @@ export function OpenInEditor({
     return () => {
       live = false;
     };
-  }, [taskId, workspaceId, visible, menu]);
+  }, [taskId, workspaceId, visible, opens]);
 
   const open = (o: { editorId?: EditorId; solution?: string } = {}) => {
     setMenu(false);
@@ -90,7 +92,10 @@ export function OpenInEditor({
           aria-haspopup="menu"
           aria-expanded={menu}
           disabled={disabled}
-          onClick={() => setMenu(!menu)}
+          onClick={() => {
+            if (!menu) setOpens((n) => n + 1);
+            setMenu(!menu);
+          }}
         >
           <ChevronDown16Regular aria-hidden="true" />
         </button>

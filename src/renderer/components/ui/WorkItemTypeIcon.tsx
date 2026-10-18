@@ -11,7 +11,7 @@ const TYPE_COLOR: Record<string, string> = {
   issue: '#B4009E',
 };
 
-export const typeColor = (type: string): string =>
+const typeColor = (type: string): string =>
   TYPE_COLOR[type.toLowerCase()] ?? '#888';
 
 /**

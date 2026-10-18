@@ -83,8 +83,5 @@ export function otherReposInstruction(
 export function claudeContext(
   task: Pick<Task, 'workItem' | 'name' | 'branch' | 'slug'>,
 ): string {
-  const head = task.workItem
-    ? `${task.workItem.type} ${task.workItem.id}: ${task.workItem.title}`
-    : `Task: ${task.name}`;
-  return `This folder is a Shellie task for ${head}. The details are in .shellie/task.md. Do not start on the task by yourself: wait for the user's instructions. ${otherReposInstruction(task)}`;
+  return `This folder is a Shellie task for ${taskTitle(task)}. The details are in .shellie/task.md. Do not start on the task by yourself: wait for the user's instructions. ${otherReposInstruction(task)}`;
 }

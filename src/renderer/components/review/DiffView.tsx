@@ -1,6 +1,6 @@
 // src/renderer/components/review/DiffView.tsx
 import type * as Monaco from 'monaco-editor';
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { ReviewSide } from '../../../shared/review';
 import { loadMonaco } from '../../review/loadMonaco';
@@ -275,10 +275,8 @@ export function DiffView(p: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [diff, p.reveal?.seq, p.uriKey]);
 
-  const zoneSig = useMemo(
-    () =>
-      JSON.stringify((p.zones ?? []).map((z) => [z.id, z.side, z.afterLine])),
-    [p.zones],
+  const zoneSig = JSON.stringify(
+    (p.zones ?? []).map((z) => [z.id, z.side, z.afterLine]),
   );
   // Inline, before-side zones sit in the modified editor at mapped lines, so they move with the diff.
   const inlineMap = p.sideBySide ? '' : JSON.stringify(lineChanges);

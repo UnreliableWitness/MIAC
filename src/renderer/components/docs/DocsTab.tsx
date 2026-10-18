@@ -24,7 +24,7 @@ import {
   writeListCollapsed,
   type DocView,
 } from '../../docs/docsPrefs';
-import { holdDocsWatch } from '../../docs/holdDocsWatch';
+import { holdWatch } from '../../review/holdWatch';
 import { useStore } from '../../store';
 import { track } from '../../telemetry';
 import { modKey, Pivots } from '../ui';
@@ -204,7 +204,7 @@ function DocsPane({
   }, [tid, loadFiles, read]);
 
   // Learn whether the watcher is live; a watcher main stops makes the tab poll.
-  useEffect(() => holdDocsWatch(tid, setLive), [tid]);
+  useEffect(() => holdWatch('docs:watch', tid, setLive), [tid]);
 
   // A target from a terminal link wins over the remembered file.
   useEffect(() => {

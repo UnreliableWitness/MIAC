@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { AppSettings } from '../../shared/usage';
-import { api, tryInvoke } from '../api';
+import { api, saveSettings, tryInvoke } from '../api';
 import { useStore } from '../store';
 import { minutesOf } from '../../shared/time';
 
@@ -53,21 +52,19 @@ export function TimeSection() {
       return;
     }
     setError(null);
-    // Read fresh so a save from another section is not overwritten.
-    const saved = await tryInvoke(async () => {
-      const fresh = await api().invoke('settings:get');
-      const settings: AppSettings = {
-        ...fresh,
-        idleMinutes: idle,
-        writeTimeToAdo: draft.writeTimeToAdo,
-        workHours: {
-          start: draft.start,
-          end: draft.end,
-          days: [...draft.days].sort(),
-        },
-      };
-      return api().invoke('settings:save', settings);
-    }, notify);
+    const saved = await tryInvoke(
+      () =>
+        saveSettings({
+          idleMinutes: idle,
+          writeTimeToAdo: draft.writeTimeToAdo,
+          workHours: {
+            start: draft.start,
+            end: draft.end,
+            days: [...draft.days].sort(),
+          },
+        }),
+      notify,
+    );
     if (saved) notify('info', 'Settings saved');
   };
 

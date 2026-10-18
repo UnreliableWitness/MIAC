@@ -1,22 +1,6 @@
 import { useEffect } from 'react';
 import { api } from '../api';
-import { useStore, type Screen } from '../store';
-
-/** The task whose page is on screen: the task page, or its setup or finish page; null elsewhere. */
-export function taskOnScreen(s: {
-  screen: Screen;
-  selectedTaskId: string | null;
-}): string | null {
-  switch (s.screen.kind) {
-    case 'task':
-      return s.selectedTaskId;
-    case 'setup':
-    case 'finish':
-      return s.screen.taskId;
-    default:
-      return null;
-  }
-}
+import { taskOnScreen, useStore } from '../store';
 
 /**
  * Tells main which task is on screen so it can count the user's time on it: once on mount, then on each change of

@@ -9,7 +9,7 @@ const ICON = {
   failed: String.fromCharCode(0x2715),
 } as const;
 
-export function formatMs(ms: number | undefined): string {
+function formatMs(ms: number | undefined): string {
   if (ms === undefined) return '';
   return ms >= 10_000
     ? `${Math.round(ms / 1000)}s`
