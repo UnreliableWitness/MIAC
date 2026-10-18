@@ -248,25 +248,34 @@ export async function listFiles(
     ...r,
     ...(stats.get(r.path) ?? { added: 0, removed: 0, binary: false }),
   }));
-  for (const p of others.split('\0')) {
-    // A nested repo shows as a folder with a trailing slash; it has no diff.
-    if (!p || p.endsWith('/')) continue;
-    const s = await untrackedStats(worktree, p).catch(() => null);
+  // A nested repo shows as a folder with a trailing slash; it has no diff.
+  const untracked = others.split('\0').filter((p) => p && !p.endsWith('/'));
+  const untrackedStatsList = await Promise.all(
+    untracked.map((p) => untrackedStats(worktree, p).catch(() => null)),
+  );
+  untracked.forEach((p, i) => {
+    const s = untrackedStatsList[i];
     if (s) files.push({ status: 'A', path: p, removed: 0, ...s });
-  }
+  });
   // In the working tree a moved submodule is a folder: no blob to hash and no text to show.
   const gitlinks = new Map<string, string>();
   if (range.to === null) {
-    for (const f of files) {
-      if (f.status === 'D') continue;
-      const st = await fs.lstat(path.join(worktree, f.path)).catch(() => null);
-      if (!st?.isDirectory()) continue;
-      const sha = await git
-        .run(path.join(worktree, f.path), ['rev-parse', 'HEAD'])
-        .then((o) => o.trim())
-        .catch(() => '');
-      gitlinks.set(f.path, sha);
-    }
+    const shas = await Promise.all(
+      files.map(async (f) => {
+        if (f.status === 'D') return null;
+        const dir = path.join(worktree, f.path);
+        const st = await fs.lstat(dir).catch(() => null);
+        if (!st?.isDirectory()) return null;
+        return git
+          .run(dir, ['rev-parse', 'HEAD'])
+          .then((o) => o.trim())
+          .catch(() => '');
+      }),
+    );
+    files.forEach((f, i) => {
+      const sha = shas[i];
+      if (sha !== null) gitlinks.set(f.path, sha);
+    });
   }
   const live = files
     .filter((f) => f.status !== 'D' && !gitlinks.has(f.path))
@@ -365,14 +374,14 @@ export async function readContent(
   assertRelPath(file.path);
   if (file.oldPath) assertRelPath(file.oldPath);
   const beforePath = file.oldPath ?? file.path;
-  const beforeSize =
+  const [beforeSize, afterSize] = await Promise.all([
     file.status === 'A'
       ? 0
-      : ((await sizeAt(git, worktree, range.from, beforePath)) ?? 0);
-  const afterSize =
+      : sizeAt(git, worktree, range.from, beforePath).then((n) => n ?? 0),
     file.status === 'D'
       ? 0
-      : ((await sizeAt(git, worktree, range.to, file.path)) ?? 0);
+      : sizeAt(git, worktree, range.to, file.path).then((n) => n ?? 0),
+  ]);
   const tooLarge =
     !file.binary && Math.max(beforeSize, afterSize) > MAX_CONTENT;
   if (file.binary || tooLarge)
@@ -384,14 +393,14 @@ export async function readContent(
       beforeSize,
       afterSize,
     };
-  const before =
+  const [before, after] = await Promise.all([
     file.status === 'A'
       ? ''
-      : ((await readSide(git, worktree, range.from, beforePath)) ?? '');
-  const after =
+      : readSide(git, worktree, range.from, beforePath).then((t) => t ?? ''),
     file.status === 'D'
       ? ''
-      : ((await readSide(git, worktree, range.to, file.path)) ?? '');
+      : readSide(git, worktree, range.to, file.path).then((t) => t ?? ''),
+  ]);
   return {
     before,
     after,

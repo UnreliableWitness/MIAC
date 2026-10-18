@@ -1,11 +1,7 @@
 import type { Interval } from '../../shared/time';
 import type { UsageEvent } from '../../shared/usage';
-import { attrMap, int, nanosToIso, safeIso } from './otlp';
+import { type Obj, arr, attrMap, int, isObj, safeIso } from './otlp';
 
-type Obj = Record<string, unknown>;
-const isObj = (v: unknown): v is Obj =>
-  typeof v === 'object' && v !== null && !Array.isArray(v);
-const arr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 type Attrs = Record<string, unknown>;
 
 const plainAttrs = (v: unknown): Attrs =>
@@ -14,14 +10,8 @@ const s = (v: unknown): string => (typeof v === 'string' ? v : '');
 const n = (v: unknown): number =>
   int(typeof v === 'number' || typeof v === 'string' ? v : undefined);
 
-function startIso(span: Obj): string {
-  if (Array.isArray(span.startTime) && span.startTime.length === 2) {
-    const [sec, nanos] = span.startTime.map(Number);
-    if (Number.isFinite(sec))
-      return safeIso(sec * 1000 + Math.floor((nanos || 0) / 1e6));
-  }
-  return nanosToIso(span.startTimeUnixNano);
-}
+const startIso = (span: Obj): string =>
+  safeIso(spanMs(span.startTime, span.startTimeUnixNano) ?? Number.NaN);
 
 function toEvent(span: Obj, taskId: string): UsageEvent | 'unreadable' | null {
   const name = s(span.name);
@@ -78,19 +68,21 @@ function spanMs(pair: unknown, nanos: unknown): number | null {
   return v > 0 ? Math.floor(v / 1e6) : null;
 }
 
-/** Time spans of agent work (`invoke_agent*`, `chat*`, `execute_tool*`) in one exporter line; spans without a start and an end are skipped. */
-export function copilotAgentIntervals(line: string): Interval[] {
+/** The spans of one exporter line; null when the line is not JSON. */
+function lineSpans(line: string): Obj[] | null {
   if (!line.trim()) return [];
   let doc: unknown;
   try {
     doc = JSON.parse(line);
   } catch {
-    return [];
+    return null;
   }
-  if (!isObj(doc)) return [];
+  return isObj(doc) ? spansOf(doc).filter(isObj) : [];
+}
+
+function intervalsOf(spans: Obj[]): Interval[] {
   const out: Interval[] = [];
-  for (const span of spansOf(doc)) {
-    if (!isObj(span)) continue;
+  for (const span of spans) {
     const name = s(span.name);
     if (!/^(invoke_agent|chat|execute_tool)/.test(name)) continue;
     const start = spanMs(span.startTime, span.startTimeUnixNano);
@@ -100,26 +92,41 @@ export function copilotAgentIntervals(line: string): Interval[] {
   return out;
 }
 
-/** One line of the Copilot CLI file exporter. The task comes from the file name, not the line. */
-export function parseCopilotLine(
-  line: string,
+function eventsOf(
+  spans: Obj[] | null,
   taskId: string,
 ): { events: UsageEvent[]; unreadable: number } {
   const out = { events: [] as UsageEvent[], unreadable: 0 };
-  if (!line.trim()) return out;
-  let doc: unknown;
-  try {
-    doc = JSON.parse(line);
-  } catch {
+  if (spans === null) {
     out.unreadable++;
     return out;
   }
-  if (!isObj(doc)) return out;
-  for (const span of spansOf(doc)) {
-    if (!isObj(span)) continue;
+  for (const span of spans) {
     const e = toEvent(span, taskId);
     if (e === 'unreadable') out.unreadable++;
     else if (e) out.events.push(e);
   }
   return out;
+}
+
+/** Time spans of agent work (`invoke_agent*`, `chat*`, `execute_tool*`) in one exporter line; spans without a start and an end are skipped. */
+export function copilotAgentIntervals(line: string): Interval[] {
+  return intervalsOf(lineSpans(line) ?? []);
+}
+
+/** One line of the Copilot CLI file exporter. The task comes from the file name, not the line. */
+export function parseCopilotLine(
+  line: string,
+  taskId: string,
+): { events: UsageEvent[]; unreadable: number } {
+  return eventsOf(lineSpans(line), taskId);
+}
+
+/** `parseCopilotLine` and `copilotAgentIntervals` together, parsing the line once. */
+export function readCopilotLine(
+  line: string,
+  taskId: string,
+): { events: UsageEvent[]; unreadable: number; intervals: Interval[] } {
+  const spans = lineSpans(line);
+  return { ...eventsOf(spans, taskId), intervals: intervalsOf(spans ?? []) };
 }

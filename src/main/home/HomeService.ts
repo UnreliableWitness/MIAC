@@ -197,8 +197,13 @@ export class HomeService {
     const client = this.d.client(c.id);
     const call: Call = (run) =>
       this.d.withConnection ? this.d.withConnection(c.id, run) : run();
-    const me = await call(() => client.me());
-    const teamsResult = await call(() => client.myTeams(c.project)).then(
+    // Teams load alongside me but pass through `call` only once me succeeded, so a failing me
+    // still fails the connection alone and the status updates keep their order.
+    const meCall = call(() => client.me());
+    const myTeams = client.myTeams(c.project);
+    myTeams.catch(() => {});
+    const me = await meCall;
+    const teamsResult = await call(() => myTeams).then(
       (value) => ({ ok: true as const, value }),
       (reason: unknown) => ({ ok: false as const, reason }),
     );

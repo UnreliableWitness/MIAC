@@ -1,10 +1,10 @@
 import type { UsageEvent } from '../../shared/usage';
 
 type Scalar = string | number | boolean | null;
-type Obj = Record<string, unknown>;
-const isObj = (v: unknown): v is Obj =>
+export type Obj = Record<string, unknown>;
+export const isObj = (v: unknown): v is Obj =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
-const arr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+export const arr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 
 /** One OTLP JSON AnyValue. int64 arrives as a string or a number. */
 export function anyValue(v: unknown): Scalar {
