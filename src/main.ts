@@ -28,6 +28,12 @@ import { DocsWatcher } from './main/docs/DocsWatcher';
 import { GitDirWatcher } from './main/review/GitDirWatcher';
 import { registerIpc } from './main/ipc/register';
 import { migrateDataFolder } from './main/migrate/dataFolder';
+import {
+  migrateTokens,
+  readMiacKeychainPassword,
+  readMiacWindowsKey,
+  type TokenMigration,
+} from './main/migrate/tokens';
 import { createPlatform } from './main/platform';
 import { AdoRegistry } from './main/services/AdoRegistry';
 import { ConnectionStore } from './main/services/ConnectionStore';
@@ -241,10 +247,31 @@ async function boot(): Promise<void> {
     );
     return null;
   });
-  // Task 5 emits `migration.miac` after its token step, with these.
   const migrationMs = performance.now() - migrationStart;
-  void migration;
-  void migrationMs;
+  // Right after the copy, once: the copied tokens are under MIAC's key (Local State is not copied); move them to Shellie's.
+  let tokenResult: TokenMigration = 'none';
+  const readOldKey =
+    process.platform === 'darwin'
+      ? readMiacKeychainPassword
+      : process.platform === 'win32'
+        ? () =>
+            readMiacWindowsKey(
+              path.join(app.getPath('appData'), 'miac', 'Local State'),
+            )
+        : null;
+  if (
+    migration?.connections &&
+    readOldKey &&
+    safeStorage.isEncryptionAvailable()
+  )
+    tokenResult = await migrateTokens({
+      file: path.join(userData, 'connections.json'),
+      readOldKey,
+      encrypt: (plain) => safeStorage.encryptString(plain),
+    }).catch((): TokenMigration => {
+      console.error('Moving MIAC connection tokens failed; enter them again.');
+      return 'refused';
+    });
   const settings = new SettingsStore(path.join(userData, 'settings.json'));
   const settingsLoaded = await settings.load();
   splashWin = settings.get().showSplash ? createSplashWindow(windowIcon) : null;
@@ -293,6 +320,12 @@ async function boot(): Promise<void> {
     if (trustedSender(e, isMainPage))
       forwardRendererTelemetry(payload, telemetry);
   });
+  if (migration)
+    telemetry.event(
+      'migration.miac',
+      { tokens: tokenResult },
+      { copied: migration.copied.length, ms: migrationMs },
+    );
   lap('telemetryMs');
   try {
     reporter.step('Loading tasks');
