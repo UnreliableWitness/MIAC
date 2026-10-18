@@ -427,7 +427,6 @@ export class SetupRunner {
     }
     if (
       !this.platform.cloneDir ||
-      !(await pathExists(src)) ||
       !(await nodeModulesMatch(
         src,
         path.join(plan.worktreePath, 'package-lock.json'),

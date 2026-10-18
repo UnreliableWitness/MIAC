@@ -82,26 +82,16 @@ export class RepoRegistry {
   }
 
   /** Clearing the mark makes a discovered repo a normal one. */
-  async setDiscovered(repoId: string, discovered: boolean): Promise<Repo> {
-    this.get(repoId);
-    await this.store.update((s) => {
-      const r = s.repos.find((x) => x.id === repoId);
-      if (r) r.discovered = discovered;
+  setDiscovered(repoId: string, discovered: boolean): Promise<Repo> {
+    return this.patch(repoId, (r) => {
+      r.discovered = discovered;
     });
-    return this.get(repoId);
   }
 
-  /** Re-reads name, base branch and .shellie.yml presence, e.g. after the user edits the file. */
-  async setConnection(
-    repoId: string,
-    connectionId: string | null,
-  ): Promise<Repo> {
-    this.get(repoId);
-    await this.store.update((s) => {
-      const r = s.repos.find((x) => x.id === repoId);
-      if (r) r.connectionId = connectionId;
+  setConnection(repoId: string, connectionId: string | null): Promise<Repo> {
+    return this.patch(repoId, (r) => {
+      r.connectionId = connectionId;
     });
-    return this.get(repoId);
   }
 
   async setWorkItemOnStart(
@@ -110,13 +100,12 @@ export class RepoRegistry {
   ): Promise<Repo> {
     this.get(repoId);
     const parsed = StartSettingsSchema.parse(settings);
-    await this.store.update((s) => {
-      const r = s.repos.find((x) => x.id === repoId);
-      if (r) r.workItemOnStart = parsed;
+    return this.patch(repoId, (r) => {
+      r.workItemOnStart = parsed;
     });
-    return this.get(repoId);
   }
 
+  /** Re-reads name, base branch and .shellie.yml presence, e.g. after the user edits the file. */
   async refresh(id: string): Promise<Repo> {
     const current = this.get(id);
     const repo = await this.describe(current);
@@ -153,11 +142,17 @@ export class RepoRegistry {
       connectionId: base.connectionId,
       configFound: config.found,
       discovered: base.discovered ?? false,
-      workItemOnStart: base.workItemOnStart ?? {
-        moveToInProgress: true,
-        assignToMe: true,
-        stateOverrides: {},
-      },
+      workItemOnStart: base.workItemOnStart ?? StartSettingsSchema.parse({}),
     };
+  }
+
+  /** Changes one registered repo; throws for an unknown id. */
+  private async patch(repoId: string, fn: (r: Repo) => void): Promise<Repo> {
+    this.get(repoId);
+    await this.store.update((s) => {
+      const r = s.repos.find((x) => x.id === repoId);
+      if (r) fn(r);
+    });
+    return this.get(repoId);
   }
 }

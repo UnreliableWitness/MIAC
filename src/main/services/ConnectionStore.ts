@@ -1,6 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { promises as fs } from 'node:fs';
-import path from 'node:path';
 import {
   ConnectionsFileSchema,
   type Connection,
@@ -8,7 +6,7 @@ import {
   type ConnectionStatus,
   type ConnectionsFile,
 } from '../../shared/types';
-import { renameWithRetry } from '../fsRetry';
+import { JsonFileStore } from '../usage/JsonFileStore';
 
 /** Encrypts tokens at rest. main.ts adapts Electron safeStorage; tests pass a fake. */
 export interface TokenCrypto {
@@ -79,18 +77,23 @@ type Stored = ConnectionsFile['connections'][number];
 
 const empty = (): ConnectionsFile => ({ version: 1, connections: [] });
 
-/** Connections to Azure DevOps organizations, tokens encrypted at rest. Same atomic-write pattern as TaskStore. */
+/** Connections to Azure DevOps organizations, tokens encrypted at rest. Same atomic-write store as TaskStore. */
 export class ConnectionStore {
-  private current: ConnectionsFile = empty();
-  private queue: Promise<unknown> = Promise.resolve();
+  private readonly store: JsonFileStore<ConnectionsFile>;
   /** Ids whose stored organization URL no longer passes validation; never used for requests. */
   private readonly invalidUrls = new Set<string>();
 
   constructor(
-    private readonly filePath: string,
+    filePath: string,
     private readonly crypto: TokenCrypto,
     private readonly opts: { allowLoopbackHttp?: boolean } = {},
-  ) {}
+  ) {
+    this.store = new JsonFileStore(filePath, ConnectionsFileSchema, empty);
+  }
+
+  private get current(): ConnectionsFile {
+    return this.store.value;
+  }
 
   normalizeUrl(input: string): string {
     return normalizeOrganizationUrl(input, this.opts);
@@ -110,24 +113,8 @@ export class ConnectionStore {
   }
 
   async load(): Promise<{ recovered: boolean; backup?: string }> {
-    let raw: string;
-    try {
-      raw = await fs.readFile(this.filePath, 'utf8');
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
-        this.current = empty();
-        return { recovered: false };
-      }
-      throw e;
-    }
-    try {
-      this.current = ConnectionsFileSchema.parse(JSON.parse(raw));
-    } catch {
-      const backup = `${this.filePath}.corrupt-${Date.now()}`;
-      await renameWithRetry(this.filePath, backup);
-      this.current = empty();
-      return { recovered: true, backup };
-    }
+    const result = await this.store.load();
+    if (result.recovered) return result;
     this.invalidUrls.clear();
     for (const c of this.current.connections) {
       try {
@@ -228,20 +215,10 @@ export class ConnectionStore {
     return c;
   }
 
-  private update(mutate: (f: ConnectionsFile) => void): Promise<void> {
-    const run = async () => {
-      const next = structuredClone(this.current);
-      mutate(next);
-      const valid = ConnectionsFileSchema.parse(next);
-      await fs.mkdir(path.dirname(this.filePath), { recursive: true });
-      const tmp = `${this.filePath}.tmp`;
-      await fs.writeFile(tmp, JSON.stringify(valid, null, 2), 'utf8');
-      await renameWithRetry(tmp, this.filePath);
-      this.current = valid;
-    };
-    const result = this.queue.then(run, run);
-    this.queue = result.catch(() => undefined);
-    return result;
+  private async update(mutate: (f: ConnectionsFile) => void): Promise<void> {
+    await this.store.update((f) => {
+      mutate(f);
+    });
   }
 }
 

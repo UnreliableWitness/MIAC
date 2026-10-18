@@ -43,6 +43,16 @@ const REMOVE_WAITS = [50, 100, 200, 400, 800, 1600, 1850];
 /** A Done page lists at most this many commits; `commitCount` has the full number. */
 const MAX_SUMMARY_COMMITS = 50;
 
+/** `origin/main` -> origin and main when `origin` is one of `remotes`; null for anything else. */
+export function splitRemoteRef(
+  ref: string,
+  remotes: string[],
+): { remote: string; branch: string } | null {
+  const slash = ref.indexOf('/');
+  if (slash <= 0 || !remotes.includes(ref.slice(0, slash))) return null;
+  return { remote: ref.slice(0, slash), branch: ref.slice(slash + 1) };
+}
+
 /** Thin wrapper over the git CLI. Every method takes the directory to run in. */
 export class GitClient {
   readonly pushTimeoutMs: number;
@@ -147,12 +157,10 @@ export class GitClient {
 
   /** `origin/main` fetches `main` from `origin`. A ref without a known remote prefix is left alone. Returns whether it fetched. */
   async fetch(cwd: string, baseRef: string): Promise<boolean> {
-    const slash = baseRef.indexOf('/');
-    if (slash <= 0) return false;
-    const remote = baseRef.slice(0, slash);
-    const branch = baseRef.slice(slash + 1);
-    if (!(await this.remotes(cwd)).includes(remote)) return false;
-    await this.run(cwd, ['fetch', '--quiet', remote, branch]);
+    if (baseRef.indexOf('/') <= 0) return false;
+    const split = splitRemoteRef(baseRef, await this.remotes(cwd));
+    if (!split) return false;
+    await this.run(cwd, ['fetch', '--quiet', split.remote, split.branch]);
     return true;
   }
 
@@ -395,14 +403,7 @@ export class GitClient {
         /* fall through to the merge base */
       }
     }
-    try {
-      return (
-        (await this.run(worktree, ['merge-base', o.baseRef, 'HEAD'])).trim() ||
-        null
-      );
-    } catch {
-      return null;
-    }
+    return this.mergeBase(worktree, o.baseRef, 'HEAD');
   }
 
   /** The worktree's own git dir (`.git/worktrees/<name>` for a linked worktree), absolute. */
@@ -421,24 +422,27 @@ export class GitClient {
     o: { baseRef: string; baseSha: string | null; branch: string },
   ): Promise<TaskSummary> {
     const { baseRef, branch } = o;
-    const base = await this.resolveBase(worktree, o);
+    const [range, { upstream, pushed }] = await Promise.all([
+      this.resolveBase(worktree, o).then((base) => base && `${base}..HEAD`),
+      this.pushState(worktree, baseRef, branch),
+    ]);
     let commits: TaskSummary['commits'] = [];
     let commitCount = 0;
     let filesChanged = 0;
     let insertions = 0;
     let deletions = 0;
-    if (base) {
-      const range = `${base}..HEAD`;
-      commitCount =
-        Number(
-          (await this.run(worktree, ['rev-list', '--count', range])).trim(),
-        ) || 0;
-      const log = await this.run(worktree, [
-        'log',
-        `--max-count=${MAX_SUMMARY_COMMITS}`,
-        '--format=%h%x09%s',
-        range,
+    if (range) {
+      const [count, log, stat] = await Promise.all([
+        this.run(worktree, ['rev-list', '--count', range]),
+        this.run(worktree, [
+          'log',
+          `--max-count=${MAX_SUMMARY_COMMITS}`,
+          '--format=%h%x09%s',
+          range,
+        ]),
+        this.run(worktree, ['diff', '--shortstat', range]),
       ]);
+      commitCount = Number(count.trim()) || 0;
       commits = log
         .split('\n')
         .filter(Boolean)
@@ -449,17 +453,11 @@ export class GitClient {
             ? { sha: l, subject: '' }
             : { sha: l.slice(0, tab), subject: l.slice(tab + 1) };
         });
-      const stat = await this.run(worktree, ['diff', '--shortstat', range]);
       const num = (re: RegExp) => Number(re.exec(stat)?.[1] ?? 0);
       filesChanged = num(/(\d+) files? changed/);
       insertions = num(/(\d+) insertions?\(\+\)/);
       deletions = num(/(\d+) deletions?\(-\)/);
     }
-    const { upstream, pushed } = await this.pushState(
-      worktree,
-      baseRef,
-      branch,
-    );
     return {
       commits,
       commitCount,
@@ -468,7 +466,7 @@ export class GitClient {
       deletions,
       pushed,
       upstream,
-      baseKnown: base !== null,
+      baseKnown: range !== null,
     };
   }
 
@@ -487,24 +485,14 @@ export class GitClient {
     } catch {
       return { upstream: null, pushed: false };
     }
-    const slash = baseRef.indexOf('/');
-    const baseRemote = slash > 0 ? baseRef.slice(0, slash) : '';
-    const remote = remotes.includes(baseRemote)
-      ? baseRemote
-      : remotes.includes('origin')
-        ? 'origin'
-        : null;
-    if (!remote) return { upstream: null, pushed: false };
-    try {
-      await this.run(worktree, [
-        'rev-parse',
-        '--verify',
-        '--quiet',
-        `refs/remotes/${remote}/${branch}`,
-      ]);
-    } catch {
+    const remote =
+      splitRemoteRef(baseRef, remotes)?.remote ??
+      (remotes.includes('origin') ? 'origin' : null);
+    if (
+      !remote ||
+      !(await this.commitExists(worktree, `refs/remotes/${remote}/${branch}`))
+    )
       return { upstream: null, pushed: false };
-    }
     const upstream = `${remote}/${branch}`;
     try {
       await this.run(worktree, [

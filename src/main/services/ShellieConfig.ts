@@ -51,16 +51,8 @@ export async function loadShellieConfig(
     ? ['npm ci']
     : [];
 
-  if (file === null) {
-    return {
-      base: 'main',
-      branch: DEFAULT_BRANCH_TEMPLATE,
-      copy: [],
-      setup: defaultSetup,
-      run: {},
-      found: false,
-    };
-  }
+  if (file === null)
+    return toConfig(ShellieYmlSchema.parse({}), defaultSetup, false);
 
   const text = await fs.readFile(file, 'utf8');
   let doc: unknown;
@@ -81,7 +73,14 @@ export async function loadShellieConfig(
       .join('; ');
     throw new ShellieConfigError(file, detail);
   }
-  const c = parsed.data;
+  return toConfig(parsed.data, defaultSetup, true);
+}
+
+function toConfig(
+  c: z.infer<typeof ShellieYmlSchema>,
+  defaultSetup: string[],
+  found: boolean,
+): ShellieConfig {
   return {
     base: c.base,
     branch: c.branch,
@@ -90,6 +89,6 @@ export async function loadShellieConfig(
     run: c.run,
     ...(c.apm !== undefined ? { apm: c.apm } : {}),
     ...(c.review ? { reviewCollapse: c.review.collapse } : {}),
-    found: true,
+    found,
   };
 }
