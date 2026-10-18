@@ -18,3 +18,6 @@ ls -l assets/art/<name>.jpg   # must be under 400 KB; if not, re-run with format
 
 Log each pick in `assets/ART.md`: the date, model, prompt, which candidate won and why, and the post-processing.
 Rejected candidates stay local.
+
+The app icon is vector, not a picked bitmap: `node tools/art/draw-conch.mjs` writes `assets/icon/*.svg`, then
+`npm run icons` renders the PNGs, `.ico` and `.icns`. Copy changed small-drawing faces into `MindMark.tsx` by hand.
