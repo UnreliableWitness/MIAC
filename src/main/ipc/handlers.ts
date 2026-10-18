@@ -221,6 +221,7 @@ export function createHandlers(s: Services): Handlers {
   const hasSessionsIn = s.claudeHasSessionsIn ?? claudeHasSessionsIn;
   const connectionsChanged = () =>
     s.broadcast('connections:changed', s.connections.list());
+  const reposChanged = () => s.broadcast('repos:changed', s.repos.list());
 
   /** Work item types per connection, with icons, for the session. A failed load is not kept, so the next call retries. */
   const typesCache = new Map<string, Promise<WorkItemTypeMeta[]>>();
@@ -353,13 +354,17 @@ export function createHandlers(s: Services): Handlers {
   const tasksChanged = async () =>
     s.broadcast('tasks:changed', await listTasks());
 
-  const patchTask = async (id: string, patch: Partial<Task>) => {
+  /** Changes one stored task (if it is still there) in a single store write, then tells the windows. */
+  const mutateTask = async (id: string, change: (t: Task) => void) => {
     await s.store.update((st) => {
       const t = st.tasks.find((x) => x.id === id);
-      if (t) Object.assign(t, patch);
+      if (t) change(t);
     });
     await tasksChanged();
   };
+
+  const patchTask = (id: string, patch: Partial<Task>) =>
+    mutateTask(id, (t) => Object.assign(t, patch));
 
   /**
    * Where a workspace's pull request would go (the home's by default): its repo's connection and `origin`
@@ -576,13 +581,10 @@ export function createHandlers(s: Services): Handlers {
   const updateTerminals = async (
     id: string,
     change: (list: TerminalDef[]) => TerminalDef[],
-  ) => {
-    await s.store.update((st) => {
-      const t = st.tasks.find((x) => x.id === id);
-      if (t) t.terminals = change(t.terminals);
+  ) =>
+    mutateTask(id, (t) => {
+      t.terminals = change(t.terminals);
     });
-    await tasksChanged();
-  };
 
   /** The workspace a terminal runs in; a removed or dropped one falls back to the active home. */
   const terminalWorkspace = (task: Task, def: TerminalDef) => {
@@ -755,15 +757,11 @@ export function createHandlers(s: Services): Handlers {
   };
 
   /** Clears every workspace's reopen mark, in the same store write as `patch`. */
-  const endReopen = async (taskId: string, patch: Partial<Task>) => {
-    await s.store.update((st) => {
-      const t = st.tasks.find((x) => x.id === taskId);
-      if (!t) return;
+  const endReopen = (taskId: string, patch: Partial<Task>) =>
+    mutateTask(taskId, (t) => {
       Object.assign(t, patch, { reopen: null });
       for (const w of t.extraWorkspaces) w.reopen = null;
     });
-    await tasksChanged();
-  };
 
   /**
    * Where a reopened workspace's branch comes from: the local branch (null), else `origin/<branch>`, else the last
@@ -1060,6 +1058,18 @@ export function createHandlers(s: Services): Handlers {
       event: (n, p) => tel.event(n, p),
     });
 
+  /** What a workspace's branch did since its base; a summary must never block Finish, so a failure is null. */
+  const summaryOf = (
+    w: Pick<WorkspaceView, 'worktreePath' | 'baseRef' | 'baseSha' | 'branch'>,
+  ) =>
+    s.git
+      .finishSummary(w.worktreePath, {
+        baseRef: w.baseRef,
+        baseSha: w.baseSha,
+        branch: w.branch,
+      })
+      .catch(() => null);
+
   /** What the Finish page shows for one workspace; a folder removed by hand is `missing`, never an error. */
   const workspaceCheck = async (
     task: Task,
@@ -1067,16 +1077,19 @@ export function createHandlers(s: Services): Handlers {
   ): Promise<WorkspaceCheck> => {
     const repoName =
       s.repos.list().find((r) => r.id === w.repoId)?.name ?? w.repoId;
-    const pr = await prContext(task, w).catch((e: unknown) => ({
-      connection: null,
-      availability: {
-        available: false,
-        reason: errorMessage(e),
+    const [pr, exists] = await Promise.all([
+      prContext(task, w).catch((e: unknown) => ({
+        connection: null,
+        availability: {
+          available: false,
+          reason: errorMessage(e),
+          target: null,
+        },
         target: null,
-      },
-      target: null,
-      linksWorkItem: false,
-    }));
+        linksWorkItem: false,
+      })),
+      pathExists(w.worktreePath),
+    ]);
     const base = {
       workspaceId: w.id,
       repoId: w.repoId,
@@ -1089,7 +1102,7 @@ export function createHandlers(s: Services): Handlers {
         linksWorkItem: pr.linksWorkItem,
       },
     };
-    if (!(await pathExists(w.worktreePath)))
+    if (!exists)
       return {
         ...base,
         baseKnown: true,
@@ -1098,14 +1111,10 @@ export function createHandlers(s: Services): Handlers {
         unpushed: 0,
         commits: 0,
       };
-    const summary = await s.git.summary(w.worktreePath, w.baseRef);
-    const since = await s.git
-      .finishSummary(w.worktreePath, {
-        baseRef: w.baseRef,
-        baseSha: w.baseSha,
-        branch: w.branch,
-      })
-      .catch(() => null);
+    const [summary, since] = await Promise.all([
+      s.git.summary(w.worktreePath, w.baseRef),
+      summaryOf(w),
+    ]);
     const baseKnown = since?.baseKnown ?? false;
     return {
       ...base,
@@ -1134,6 +1143,16 @@ export function createHandlers(s: Services): Handlers {
   const onOrigin = (summary: TaskSummary | null, branch: string) =>
     Boolean(summary?.pushed && summary.upstream === `origin/${branch}`);
 
+  /** Pushes a workspace's branch unless `origin` already has it; returns the summary as it is after the push. */
+  const pushIfNeeded = async (
+    w: WorkspaceView,
+    summary: TaskSummary | null,
+  ) => {
+    if (onOrigin(summary, w.branch)) return summary;
+    await s.git.push(w.worktreePath, 'origin', w.branch);
+    return markPushed(summary, w.branch);
+  };
+
   /** Pushes a workspace's branch (unless already there) and finds its active PR, else creates a draft one. */
   const openPullRequest = async (
     task: Task,
@@ -1152,10 +1171,7 @@ export function createHandlers(s: Services): Handlers {
       );
     const connection = c.connection;
     const { project, repo: repoName } = c.availability.target;
-    if (!onOrigin(summary, w.branch)) {
-      await s.git.push(w.worktreePath, 'origin', w.branch);
-      summary = markPushed(summary, w.branch);
-    }
+    summary = await pushIfNeeded(w, summary);
     const client = s.ado.client(connection.id);
     const repositoryId = await client.repositoryId(project, repoName);
     const existing = await client.findActivePullRequest(
@@ -1223,17 +1239,11 @@ export function createHandlers(s: Services): Handlers {
     if (w) Object.assign(w, patch);
   };
 
-  const patchWorkspace = async (
+  const patchWorkspace = (
     taskId: string,
     id: string,
     patch: Parameters<typeof setWorkspace>[2],
-  ) => {
-    await s.store.update((st) => {
-      const t = st.tasks.find((x) => x.id === taskId);
-      if (t) setWorkspace(t, id, patch);
-    });
-    await tasksChanged();
-  };
+  ) => mutateTask(taskId, (t) => setWorkspace(t, id, patch));
 
   /** Closes the task's terminals (and its Docs watcher), keeping the tabs so Reopen can bring them back. */
   const closeTaskTerminals = async (taskId: string) => {
@@ -1246,6 +1256,27 @@ export function createHandlers(s: Services): Handlers {
     });
   };
 
+  /** The `task.finished` event of a Finish, single repo or per workspace. */
+  const reportFinished = (
+    task: Task,
+    options: FinishOptions,
+    counts: { workspaces: number; prs: number; dropped: number },
+  ) =>
+    tel.event(
+      'task.finished',
+      {
+        removeWorktree: options.removeWorktree,
+        deleteBranch: options.deleteBranch,
+        closeTerminals: options.closeTerminals,
+        syncUsage: options.syncUsage && writeCost(),
+        workItem: task.workItem !== null && task.workItem !== undefined,
+      },
+      {
+        ageHours: (Date.now() - Date.parse(task.createdAt)) / 3_600_000,
+        ...counts,
+      },
+    );
+
   /** The one usage write per task once it is done, as it was before #48. */
   const syncUsageOnFinish = async (
     taskId: string,
@@ -1253,6 +1284,8 @@ export function createHandlers(s: Services): Handlers {
     killedTerminals: boolean,
   ) => {
     if (!(options.syncUsage && writeCost())) return;
+    // Set once the write failed (a failed result may carry no text).
+    let error: string | null | undefined;
     try {
       if (killedTerminals && s.finishFlushMs > 0)
         await new Promise((r) => setTimeout(r, s.finishFlushMs));
@@ -1262,18 +1295,15 @@ export function createHandlers(s: Services): Handlers {
         refreshFields: true,
       });
       tel.event('usage.synced', { ok: result.ok, onFinish: true });
-      if (!result.ok)
-        s.broadcast('notice', {
-          level: 'warn',
-          message: `Task finished, but the AI usage could not be written to the work item: ${result.error}. Use Sync now on the Usage screen to retry.`,
-        });
+      if (!result.ok) error = result.error;
     } catch (e) {
-      const message = errorMessage(e);
+      error = errorMessage(e);
+    }
+    if (error !== undefined)
       s.broadcast('notice', {
         level: 'warn',
-        message: `Task finished, but the AI usage could not be written to the work item: ${message}. Use Sync now on the Usage screen to retry.`,
+        message: `Task finished, but the AI usage could not be written to the work item: ${error}. Use Sync now on the Usage screen to retry.`,
       });
-    }
   };
 
   /**
@@ -1337,14 +1367,7 @@ export function createHandlers(s: Services): Handlers {
           const action = actionOf.get(w.id);
           if (!action || !(await pathExists(w.worktreePath))) continue;
           const repo = s.repos.get(w.repoId);
-          // A summary must never block Finish.
-          const summary = await s.git
-            .finishSummary(w.worktreePath, {
-              baseRef: w.baseRef,
-              baseSha: w.baseSha,
-              branch: w.branch,
-            })
-            .catch(() => null);
+          const summary = await summaryOf(w);
           rows.push({
             w,
             action,
@@ -1392,10 +1415,7 @@ export function createHandlers(s: Services): Handlers {
             }
           } else if (r.action === 'push') {
             try {
-              if (!onOrigin(r.summary, r.w.branch)) {
-                await s.git.push(r.w.worktreePath, 'origin', r.w.branch);
-                r.summary = markPushed(r.summary, r.w.branch);
-              }
+              r.summary = await pushIfNeeded(r.w, r.summary);
               result.pushed = true;
             } catch (e) {
               const message = errorMessage(e);
@@ -1407,10 +1427,7 @@ export function createHandlers(s: Services): Handlers {
               const stored = r.w.pullRequest;
               if (stored && madeBefore.get(r.w.id) === stored.id) {
                 // The attempt just before this retry made or linked it: keep it, even if completed or abandoned since.
-                if (!onOrigin(r.summary, r.w.branch)) {
-                  await s.git.push(r.w.worktreePath, 'origin', r.w.branch);
-                  r.summary = markPushed(r.summary, r.w.branch);
-                }
+                r.summary = await pushIfNeeded(r.w, r.summary);
                 result.pullRequest = {
                   id: stored.id,
                   url: stored.url,
@@ -1484,22 +1501,11 @@ export function createHandlers(s: Services): Handlers {
           finishedAt,
           openPeriods: withPeriodClosed(taskById(taskId), finishedAt),
         });
-        tel.event(
-          'task.finished',
-          {
-            removeWorktree: options.removeWorktree,
-            deleteBranch: options.deleteBranch,
-            closeTerminals: options.closeTerminals,
-            syncUsage: options.syncUsage && writeCost(),
-            workItem: task.workItem !== null && task.workItem !== undefined,
-          },
-          {
-            ageHours: (Date.now() - Date.parse(task.createdAt)) / 3_600_000,
-            workspaces: rows.length,
-            prs: rows.filter((r) => r.action === 'pr').length,
-            dropped: rows.filter((r) => r.action === 'drop').length,
-          },
-        );
+        reportFinished(task, options, {
+          workspaces: rows.length,
+          prs: rows.filter((r) => r.action === 'pr').length,
+          dropped: rows.filter((r) => r.action === 'drop').length,
+        });
         // A later Finish (after Reopen) is a new one, not a retry of this.
         finishResults.delete(taskId);
         await afterFinish(taskId, options, killTerminals);
@@ -1537,18 +1543,18 @@ export function createHandlers(s: Services): Handlers {
     'repos:list': async () => s.repos.list(),
     'repos:add': async (folder) => {
       const repo = await s.repos.add(folder);
-      s.broadcast('repos:changed', s.repos.list());
+      reposChanged();
       tel.event('repo.added', { repos: s.repos.list().length });
       return repo;
     },
     'repos:remove': async (id) => {
       await s.repos.remove(id);
-      s.broadcast('repos:changed', s.repos.list());
+      reposChanged();
       tel.event('repo.removed');
     },
     'repos:refresh': async (id) => {
       const repo = await s.repos.refresh(id);
-      s.broadcast('repos:changed', s.repos.list());
+      reposChanged();
       return repo;
     },
     'repos:pickFolder': () => s.pickFolder(),
@@ -1722,16 +1728,14 @@ export function createHandlers(s: Services): Handlers {
       // A scan error must never keep the user from finishing.
       await workspaces.scan(taskId).catch(() => undefined);
       const task = taskById(taskId);
-      const checks: WorkspaceCheck[] = [];
-      for (const w of activeWorkspaces(task))
-        checks.push(await workspaceCheck(task, w));
-      // The home's own fields, as before #48; with other repos in the task a missing home must not fail the page.
-      const home =
+      const homeSummary = s.git.summary(task.worktreePath, task.baseRef);
+      const [checks, home] = await Promise.all([
+        Promise.all(activeWorkspaces(task).map((w) => workspaceCheck(task, w))),
+        // The home's own fields, as before #48; with other repos in the task a missing home must not fail the page.
         task.extraWorkspaces.length === 0
-          ? await s.git.summary(task.worktreePath, task.baseRef)
-          : await s.git
-              .summary(task.worktreePath, task.baseRef)
-              .catch(() => ({ files: [], ahead: 0 }));
+          ? homeSummary
+          : homeSummary.catch(() => ({ files: [], ahead: 0 })),
+      ]);
       return {
         uncommitted: home.files,
         unpushed: home.ahead,
@@ -1786,9 +1790,7 @@ export function createHandlers(s: Services): Handlers {
           tel.event('task.reopened', { from: 'folder' });
           return { setup: false };
         }
-        await s.store.update((st) => {
-          const t = st.tasks.find((x) => x.id === taskId);
-          if (!t) return;
+        await mutateTask(taskId, (t) => {
           t.status = 'setting-up';
           t.terminals = [];
           t.openPeriods = withOpenPeriod(task);
@@ -1796,7 +1798,6 @@ export function createHandlers(s: Services): Handlers {
           for (const w of t.extraWorkspaces)
             w.reopen = restores.get(w.id) ?? null;
         });
-        await tasksChanged();
         setup = true;
         startSetupInBackground(taskId);
         tel.event('task.reopened', { from: via ?? 'branch' });
@@ -1817,13 +1818,7 @@ export function createHandlers(s: Services): Handlers {
         // Record what the branch did while the worktree still exists; a summary must never block Finish.
         let summary: TaskSummary | null = null;
         if (await pathExists(task.worktreePath))
-          summary = await s.git
-            .finishSummary(task.worktreePath, {
-              baseRef: task.baseRef,
-              baseSha: task.baseSha,
-              branch: task.branch,
-            })
-            .catch(() => null);
+          summary = await summaryOf(task);
         // Push and open the PR before any cleanup: a failure leaves the task ready with its worktree.
         if (options.createPullRequest) {
           let pullRequest: PullRequestRef;
@@ -1920,22 +1915,11 @@ export function createHandlers(s: Services): Handlers {
           summary,
           openPeriods: withPeriodClosed(taskById(taskId), finishedAt),
         });
-        tel.event(
-          'task.finished',
-          {
-            removeWorktree: options.removeWorktree,
-            deleteBranch: options.deleteBranch,
-            closeTerminals: options.closeTerminals,
-            syncUsage: options.syncUsage && writeCost(),
-            workItem: task.workItem !== null && task.workItem !== undefined,
-          },
-          {
-            ageHours: (Date.now() - Date.parse(task.createdAt)) / 3_600_000,
-            workspaces: 1,
-            prs: options.createPullRequest ? 1 : 0,
-            dropped: 0,
-          },
-        );
+        reportFinished(task, options, {
+          workspaces: 1,
+          prs: options.createPullRequest ? 1 : 0,
+          dropped: 0,
+        });
         await afterFinish(taskId, options, killTerminals);
       } finally {
         release(taskId);
@@ -2042,25 +2026,25 @@ export function createHandlers(s: Services): Handlers {
       s.ado.invalidate(id);
       dropTypes(id);
       connectionsChanged();
-      s.broadcast('repos:changed', s.repos.list());
+      reposChanged();
       tel.event('connection.removed');
     },
     'connections:verify': async (id) => verifyConnection(id),
     'repos:setConnection': async (repoId, connectionId) => {
       if (connectionId !== null) s.connections.get(connectionId);
       const repo = await s.repos.setConnection(repoId, connectionId);
-      s.broadcast('repos:changed', s.repos.list());
+      reposChanged();
       tel.event('repo.connectionLinked', { linked: connectionId !== null });
       return repo;
     },
     'repos:setWorkItemOnStart': async (repoId, settings) => {
       const repo = await s.repos.setWorkItemOnStart(repoId, settings);
-      s.broadcast('repos:changed', s.repos.list());
+      reposChanged();
       return repo;
     },
     'repos:setDiscovered': async (repoId, discovered) => {
       const repo = await s.repos.setDiscovered(repoId, discovered);
-      s.broadcast('repos:changed', s.repos.list());
+      reposChanged();
       return repo;
     },
     'tasks:scanWorkspaces': async (taskId) => {
@@ -2068,7 +2052,7 @@ export function createHandlers(s: Services): Handlers {
       if (taskById(taskId).status !== 'ready') return [];
       const before = JSON.stringify(taskById(taskId).mainCheckoutEdits);
       const { added } = await workspaces.scan(taskId);
-      if (added.length > 0) s.broadcast('repos:changed', s.repos.list());
+      if (added.length > 0) reposChanged();
       if (
         added.length > 0 ||
         JSON.stringify(taskById(taskId).mainCheckoutEdits) !== before
@@ -2078,7 +2062,7 @@ export function createHandlers(s: Services): Handlers {
     },
     'tasks:addWorkspace': async (taskId, folder) => {
       const added = await workspaces.add(taskId, folder);
-      s.broadcast('repos:changed', s.repos.list());
+      reposChanged();
       await tasksChanged();
       return added;
     },

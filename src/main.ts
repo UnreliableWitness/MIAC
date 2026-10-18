@@ -40,8 +40,6 @@ import { ConnectionStore } from './main/services/ConnectionStore';
 import { GitClient } from './main/services/GitClient';
 import { loadShellieConfig } from './main/services/ShellieConfig';
 import { RepoRegistry } from './main/services/RepoRegistry';
-import { claudeProjectsDir } from './main/services/claudeSessions';
-import { WorkspaceDetector } from './main/workspaces/WorkspaceDetector';
 import { taskWorkspaces } from './shared/workspaces';
 import { migrateTaskFolders } from './main/migrate/taskFolders';
 import { SetupRunner, ensureExcluded } from './main/services/SetupRunner';
@@ -127,7 +125,6 @@ let stopTime: () => void = () => {};
 const timeWrites = new Set<Promise<void>>();
 /** Window focus, for active time (set once the tracker exists). */
 let onWindowFocus: (focused: boolean) => void = () => {};
-let stopUpdates: () => void = () => {};
 let updates: AutoUpdate | null = null;
 /** Set when an update has downloaded; the renderer offers Restart and update. */
 let pendingUpdate: PendingUpdate | null = null;
@@ -334,10 +331,6 @@ async function boot(): Promise<void> {
   try {
     reporter.step('Loading tasks');
     const store = new TaskStore(path.join(userData, 'state.json'));
-    const loaded = await store.load();
-    const recovered = await recoverInterruptedTasks(store);
-    const git = new GitClient();
-    const platform = createPlatform();
     const connections = new ConnectionStore(
       path.join(userData, 'connections.json'),
       {
@@ -346,7 +339,13 @@ async function boot(): Promise<void> {
         decrypt: (cipher) => safeStorage.decryptString(cipher),
       },
     );
-    const connectionsLoaded = await connections.load();
+    const [loaded, connectionsLoaded] = await Promise.all([
+      store.load(),
+      connections.load(),
+    ]);
+    const recovered = await recoverInterruptedTasks(store);
+    const git = new GitClient();
+    const platform = createPlatform();
     const repos = new RepoRegistry(store, git);
     // Worktrees made before the rename keep their task file in .miac/; move it in the background.
     void (async () => {
@@ -384,7 +383,12 @@ async function boot(): Promise<void> {
     const usageDir = path.join(userData, 'usage');
     await fs.mkdir(path.join(usageDir, 'copilot'), { recursive: true });
     const usage = new UsageStore(usageDir, () => OFFICIAL_RATES);
-    const usageLoaded = await usage.load();
+    const time = new TimeStore(path.join(usageDir, 'time.json'));
+    // usageMs covers both stores, loaded together.
+    const [usageLoaded, timeLoaded] = await Promise.all([
+      usage.load(),
+      time.load(),
+    ]);
     lap('usageMs');
     const ingest = (events: UsageEvent[]) => {
       for (const e of events)
@@ -394,8 +398,6 @@ async function boot(): Promise<void> {
             console.error('[usage] could not store a record', err),
           );
     };
-    const time = new TimeStore(path.join(usageDir, 'time.json'));
-    const timeLoaded = await time.load();
     const keep = (write: Promise<void>) => {
       const p = write.catch((err: unknown) =>
         console.error('[time] could not store an interval', err),
@@ -435,17 +437,7 @@ async function boot(): Promise<void> {
         for (const iv of ivs) keep(time.addAgent(taskId, 'copilot-cli', iv));
       },
     );
-    const workspaces = new WorkspaceDetector({
-      store,
-      git,
-      repos,
-      connections: () => connections.list(),
-      projectsDir: () => claudeProjectsDir(),
-      notice: (message) => broadcast('notice', { level: 'info', message }),
-      event: (name, props) => telemetry.event(name, props),
-    });
     const handlers = createHandlers({
-      workspaces,
       update: {
         pending: () => pendingUpdate,
         install: () => updates?.install() ?? false,
@@ -473,7 +465,7 @@ async function boot(): Promise<void> {
       rememberSensitive: (values) => {
         for (const v of values) learned.add(v);
       },
-      openExternal: (url) => shell.openExternal(url),
+      openExternal: openLink,
       revealFile: (p) => shell.showItemInFolder(p),
       docsWatcher,
       gitDirWatcher,
@@ -491,7 +483,7 @@ async function boot(): Promise<void> {
         });
         return r.canceled || r.filePaths.length === 0 ? null : r.filePaths[0];
       },
-      launch: async (cmd) =>
+      launch: (cmd) =>
         new Promise<void>((resolve, reject) => {
           const child = spawn(cmd.command, cmd.args, {
             detached: true,
@@ -554,47 +546,26 @@ async function boot(): Promise<void> {
     mainWindow = createWindow();
     const win = mainWindow;
     win.webContents.once('did-finish-load', () => {
-      if (loaded.recovered)
-        broadcast('notice', {
-          level: 'warn',
-          message: `state.json was unreadable and was moved to ${path.basename(loaded.backup ?? '')}. Starting empty.`,
-        });
-      if (connectionsLoaded.recovered)
-        broadcast('notice', {
-          level: 'warn',
-          message: `connections.json was unreadable and was moved to ${path.basename(connectionsLoaded.backup ?? '')}; add your connections again.`,
-        });
-      if (!receiverStarted.listening)
-        broadcast('notice', {
-          level: 'warn',
-          message: `AI usage capture is off: ${receiverStarted.error}. Pick another port in Settings > AI cost and invoicing.`,
-        });
-      if (usageLoaded.damagedLines > 0)
-        broadcast('notice', {
-          level: 'warn',
-          message: `${usageLoaded.damagedLines} damaged line(s) in the usage files were skipped.`,
-        });
-      if (usageLoaded.billableBackup)
-        broadcast('notice', {
-          level: 'warn',
-          message: `billable.json was unreadable and was moved to ${path.basename(usageLoaded.billableBackup)}; all sessions are billable again. Review them on the Usage screen.`,
-        });
-      if (timeLoaded.recovered)
-        broadcast('notice', {
-          level: 'warn',
-          message: `time.json was unreadable and was moved to ${path.basename(timeLoaded.backup ?? '')}; measured time starts empty.`,
-        });
-      for (const [name, r] of [['settings.json', settingsLoaded]] as const)
-        if (r.recovered)
-          broadcast('notice', {
-            level: 'warn',
-            message: `${name} was unreadable and was moved to ${path.basename(r.backup ?? '')}; defaults are used.`,
-          });
-      if (recovered > 0)
-        broadcast('notice', {
-          level: 'warn',
-          message: `${recovered} task(s) were interrupted by a previous exit and need attention.`,
-        });
+      const warnings = [
+        loaded.recovered &&
+          `state.json was unreadable and was moved to ${path.basename(loaded.backup ?? '')}. Starting empty.`,
+        connectionsLoaded.recovered &&
+          `connections.json was unreadable and was moved to ${path.basename(connectionsLoaded.backup ?? '')}; add your connections again.`,
+        !receiverStarted.listening &&
+          `AI usage capture is off: ${receiverStarted.error}. Pick another port in Settings > AI cost and invoicing.`,
+        usageLoaded.damagedLines > 0 &&
+          `${usageLoaded.damagedLines} damaged line(s) in the usage files were skipped.`,
+        usageLoaded.billableBackup &&
+          `billable.json was unreadable and was moved to ${path.basename(usageLoaded.billableBackup)}; all sessions are billable again. Review them on the Usage screen.`,
+        timeLoaded.recovered &&
+          `time.json was unreadable and was moved to ${path.basename(timeLoaded.backup ?? '')}; measured time starts empty.`,
+        settingsLoaded.recovered &&
+          `settings.json was unreadable and was moved to ${path.basename(settingsLoaded.backup ?? '')}; defaults are used.`,
+        recovered > 0 &&
+          `${recovered} task(s) were interrupted by a previous exit and need attention.`,
+      ];
+      for (const message of warnings)
+        if (message) broadcast('notice', { level: 'warn', message });
     });
     await Promise.all([
       new Promise<void>((r) =>
@@ -643,7 +614,6 @@ async function boot(): Promise<void> {
       },
       log: (message, error) => console.error(message, error ?? ''),
     });
-    stopUpdates = () => updates?.stop();
   } catch (e) {
     const message = errorMessage(e);
     console.error(e);
@@ -730,7 +700,7 @@ app.on('before-quit', () => {
   gitDirWatcher.stopAll();
   for (const id of terminals.ids()) terminals.kill(id);
   stopUsage();
-  stopUpdates();
+  updates?.stop();
 });
 
 let quitHeld = false;
