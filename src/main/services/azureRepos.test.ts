@@ -123,17 +123,17 @@ describe('prDescription', () => {
   };
   it('lists commits and the cost line', () => {
     expect(prDescription(base)).toBe(
-      'Bug 42: Fix it\n\n## Commits\n- abc1234 First\n- def5678 Second\n\nAI cost for this task: €1.00 (Claude €1.00, Copilot €0.00) · recorded by MIAC',
+      'Bug 42: Fix it\n\n## Commits\n- abc1234 First\n- def5678 Second\n\nAI cost for this task: €1.00 (Claude €1.00, Copilot €0.00) · recorded by Shellie',
     );
   });
   it('leaves the cost out when cost writing is off', () => {
     const text = prDescription({ ...base, costLine: null });
     expect(text).not.toContain('AI cost');
-    expect(text.endsWith('\n\nRecorded by MIAC')).toBe(true);
+    expect(text.endsWith('\n\nRecorded by Shellie')).toBe(true);
   });
   it('marks the cost line as the whole task across repos', () => {
     expect(prDescription({ ...base, costScope: { repos: 2 } })).toContain(
-      '\n\nAI cost (whole task, 2 repos): €1.00 (Claude €1.00, Copilot €0.00) · recorded by MIAC',
+      '\n\nAI cost (whole task, 2 repos): €1.00 (Claude €1.00, Copilot €0.00) · recorded by Shellie',
     );
   });
   it('names the work item URL when the PR cannot link it', () => {
@@ -159,11 +159,11 @@ describe('prDescription', () => {
     const text = prDescription({ ...base, commits, commitCount: 300 });
     expect(text.length).toBeLessThanOrEqual(4000);
     expect(text).toMatch(/…and \d+ more commits/);
-    expect(text.endsWith('· recorded by MIAC')).toBe(true);
+    expect(text.endsWith('· recorded by Shellie')).toBe(true);
   });
   it('omits the commits section when there are none', () => {
     expect(prDescription({ ...base, commits: [], commitCount: 0 })).toBe(
-      'Bug 42: Fix it\n\nAI cost for this task: €1.00 (Claude €1.00, Copilot €0.00) · recorded by MIAC',
+      'Bug 42: Fix it\n\nAI cost for this task: €1.00 (Claude €1.00, Copilot €0.00) · recorded by Shellie',
     );
   });
 });

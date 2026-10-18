@@ -135,7 +135,7 @@ export function createSplashWindow(icon?: NativeImage): BrowserWindow {
     show: false,
     alwaysOnTop: false,
     backgroundColor: '#1b1a19',
-    title: 'MIAC',
+    title: 'Shellie',
     ...(icon ? { icon } : {}),
     skipTaskbar: false,
     webPreferences: {

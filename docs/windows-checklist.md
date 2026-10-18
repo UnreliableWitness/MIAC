@@ -1,8 +1,8 @@
 # Manual Windows checklist
 
-Download the installer from GitHub: open the Actions run for the commit, then the `MIAC-Setup-<sha>` artifact. For a `v*` tag, use the Release instead.
+Download the installer from GitHub: open the Actions run for the commit, then the `Shellie-Setup-<sha>` artifact. For a `v*` tag, use the Release instead.
 
-1. Download `MIAC-Setup.exe` from the CI run or release and run it. Note whether SmartScreen warns (expected while unsigned) and whether the publisher shows (signed).
+1. Download `Shellie-Setup.exe` from the CI run or release and run it. Note whether SmartScreen warns (expected while unsigned) and whether the publisher shows (signed).
 2. **Settings:**
    - add a git repo;
    - add an Azure DevOps connection;
@@ -19,26 +19,26 @@ Download the installer from GitHub: open the Actions run for the commit, then th
 7. **Finish** with all boxes ticked. Check that:
    - the worktree folder and branch are removed;
    - the work item has the fields and the comment.
-8. **Restart the app.** State, connections and usage are kept. Starting MIAC a second time while it runs focuses the open window instead of opening another.
+8. **Restart the app.** State, connections and usage are kept. Starting Shellie a second time while it runs focuses the open window instead of opening another.
 9. **Splash and icon.** Start the app. Check that:
    - the splash appears centred, plays, shows the boot steps and hands off to the main window;
    - a click or a key press skips it;
    - with Settings > Appearance > "Show splash on start" off, the next start has no splash;
    - the taskbar icon is legible at 100% and 150% display scaling;
    - the 16 px title-bar icon is sharp, not blank or blurry;
-   - the installer (`MIAC-Setup.exe`) and the Start menu entry show the Mind dial icon;
-   - Settings > Apps > Installed apps (Apps & features) shows the Mind dial icon for MIAC, not the Electron icon. The installer fetches it from `main` on GitHub, so this needs a build after the merge;
+   - the installer (`Shellie-Setup.exe`) and the Start menu entry show the Mind dial icon;
+   - Settings > Apps > Installed apps (Apps & features) shows the Mind dial icon for Shellie, not the Electron icon. The installer fetches it from `main` on GitHub, so this needs a build after the merge;
    - the main window has no menu bar above the task strip.
 10. **Shortcuts.** While a PowerShell terminal has focus, `Ctrl+0` opens the Usage tab, `Ctrl+1..9` switch terminals and `Ctrl+Shift+F` toggles Focus. `Ctrl+C` still interrupts the running command.
     - On a Belgian or French (AZERTY) keyboard, `Ctrl+1` (the `&` key, no Shift) switches to the first terminal and `Ctrl+0` (the `à` key) opens the Usage tab.
-11. **Auto-update.** Needs two tag releases, vN and vN+1 (for example `v0.2.0` and `v0.2.1`), each a normal release with `MIAC-Setup.exe`, `RELEASES` and `miac-<version>-full.nupkg` attached.
+11. **Auto-update.** Needs two tag releases, vN and vN+1 (for example `v0.2.0` and `v0.2.1`), each a normal release with `Shellie-Setup.exe`, `RELEASES` and `shellie-<version>-full.nupkg` attached.
     - Install vN from its release and start it. Settings shows version N.
-    - Publish vN+1. Within about an hour (or restart MIAC and wait 30 s), a notice says the new version is downloaded and a dialog offers Restart now or Later.
-    - Pick Later, quit MIAC and start it again from the Start menu: Settings shows version N+1.
-    - Repeat with vN+2 and pick Restart now: MIAC closes, restarts and shows version N+2. Open terminals are closed by the restart.
+    - Publish vN+1. Within about an hour (or restart Shellie and wait 30 s), a notice says the new version is downloaded and a dialog offers Restart now or Later.
+    - Pick Later, quit Shellie and start it again from the Start menu: Settings shows version N+1.
+    - Repeat with vN+2 and pick Restart now: Shellie closes, restarts and shows version N+2. Open terminals are closed by the restart.
     - The first start after an install (Squirrel's `--squirrel-firstrun`) does not check; the hourly check still does.
-    - With `"autoUpdate": false` in `%APPDATA%\miac\settings.json`, no update is downloaded.
-    - `https://update.electronjs.org/UnreliableWitness/MIAC/win32-x64/<N>/RELEASES` returns a line naming the vN+1 `.nupkg`.
+    - With `"autoUpdate": false` in `%APPDATA%\Shellie\settings.json`, no update is downloaded.
+    - `https://update.electronjs.org/UnreliableWitness/Shellie/win32-x64/<N>/RELEASES` returns a line naming the vN+1 `.nupkg`.
 
 12. **Terminal rendering.** In a task's PowerShell tab and its Claude Code tab, check that:
     - Claude Code's start-up logo (the block-character mascot) and its rounded input box are drawn cleanly, with no gaps, overlaps or stretched characters.
@@ -49,12 +49,12 @@ Download the installer from GitHub: open the Actions run for the commit, then th
     - Start a task on a work item in To Do. The setup step "Update work item" ends with a check, and in Azure DevOps the item shows Doing (or the type's In Progress state) and is assigned to you.
     - Commit a change in the task. On the Finish page, tick "Create a draft pull request into <base>" and finish. A draft pull request opens in the browser, from the task branch into the base, with the work item linked and the commit listed in its description.
     - On the Done page, the Pull request fact shows `PR <id> · Draft` and the branch shows as pushed.
-    - Remove the cached Azure DevOps credential (Credential Manager, Windows Credentials, `git:https://dev.azure.com`) and finish another task with the box ticked. The Git Credential Manager sign-in appears (check behind MIAC too); after signing in the PR is created. If you ignore it, Finish stops after 120 s with "git push timed out after 120 s (a credential prompt may be waiting)" and the task stays ready.
+    - Remove the cached Azure DevOps credential (Credential Manager, Windows Credentials, `git:https://dev.azure.com`) and finish another task with the box ticked. The Git Credential Manager sign-in appears (check behind Shellie too); after signing in the PR is created. If you ignore it, Finish stops after 120 s with "git push timed out after 120 s (a credential prompt may be waiting)" and the task stays ready.
 
 
 14. **Docs tab, terminal links and Send to.**
     - Open a task and press `Ctrl+Shift+D`: the Docs tab opens.
-    - `.miac\task.md` renders.
+    - `.shellie\task.md` renders.
     - Ask Claude to write `docs\x.md`: the tab shows "Updated" and reloads.
     - Click a printed `src\a.ts:3` link in a terminal: VS Code opens at line 3.
     - Select text in the Docs tab and use Send to Claude, then Send to PowerShell. PowerShell 7 gets a multi-line paste; Windows PowerShell 5.1 without PSReadLine gets one line (`path:N-M "text"`). Enter is never sent.
@@ -68,4 +68,4 @@ Download the installer from GitHub: open the Actions run for the commit, then th
     - A commit made in the task's shell refreshes the Changes tab within a second.
     - Finish with the Changes tab open: the worktree is removed with no in-use error.
 
-If a setup command or a shim fails with "running scripts is disabled on this system": MIAC passes `-ExecutionPolicy Bypass`, but an execution policy set by Group Policy overrides it. Ask IT, or install claude and copilot as native `.exe` builds.
+If a setup command or a shim fails with "running scripts is disabled on this system": Shellie passes `-ExecutionPolicy Bypass`, but an execution policy set by Group Policy overrides it. Ask IT, or install claude and copilot as native `.exe` builds.

@@ -7,7 +7,7 @@ const local = (): Storage | undefined =>
 export function readDocState(taskId: string, storage = local()): DocState {
   try {
     const v = JSON.parse(
-      storage?.getItem(`miac.docs.${taskId}`) ?? 'null',
+      storage?.getItem(`shellie.docs.${taskId}`) ?? 'null',
     ) as Partial<DocState> | null;
     if (!v || typeof v !== 'object') return { ...DEFAULT };
     return {
@@ -25,21 +25,21 @@ export function writeDocState(
   storage = local(),
 ): void {
   try {
-    storage?.setItem(`miac.docs.${taskId}`, JSON.stringify(state));
+    storage?.setItem(`shellie.docs.${taskId}`, JSON.stringify(state));
   } catch {
     /* best effort */
   }
 }
 export const readListCollapsed = (storage = local()): boolean => {
   try {
-    return storage?.getItem('miac.docs.listCollapsed') === 'true';
+    return storage?.getItem('shellie.docs.listCollapsed') === 'true';
   } catch {
     return false;
   }
 };
 export const writeListCollapsed = (v: boolean, storage = local()): void => {
   try {
-    storage?.setItem('miac.docs.listCollapsed', String(v));
+    storage?.setItem('shellie.docs.listCollapsed', String(v));
   } catch {
     /* best effort */
   }
@@ -49,7 +49,7 @@ export const readSendTarget = (
   storage = local(),
 ): string | null => {
   try {
-    return storage?.getItem(`miac.docs.sendTo.${taskId}`) ?? null;
+    return storage?.getItem(`shellie.docs.sendTo.${taskId}`) ?? null;
   } catch {
     return null;
   }
@@ -60,7 +60,7 @@ export const writeSendTarget = (
   storage = local(),
 ): void => {
   try {
-    storage?.setItem(`miac.docs.sendTo.${taskId}`, id);
+    storage?.setItem(`shellie.docs.sendTo.${taskId}`, id);
   } catch {
     /* best effort */
   }

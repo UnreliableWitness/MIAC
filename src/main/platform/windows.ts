@@ -26,17 +26,17 @@ export const psQuote = (s: string): string =>
  */
 export const psSetupWrapper = (cmd: string): string =>
   [
-    '$miacFailed = $false',
+    '$shellieFailed = $false',
     '& {',
     cmd,
     '} 2>&1 | ForEach-Object {',
     '  if ($_ -is [System.Management.Automation.ErrorRecord]) {',
-    `    if ("$($_.FullyQualifiedErrorId)" -notlike 'NativeCommandError*') { $miacFailed = $true }`,
+    `    if ("$($_.FullyQualifiedErrorId)" -notlike 'NativeCommandError*') { $shellieFailed = $true }`,
     '    [Console]::Error.WriteLine("$_")',
     '  } else { $_ }',
     '}',
     'if ($LASTEXITCODE) { exit $LASTEXITCODE }',
-    'if ($miacFailed) { exit 1 }',
+    'if ($shellieFailed) { exit 1 }',
   ].join('\n');
 
 /**
@@ -81,7 +81,7 @@ export function windowsPlatform(
     ],
   });
 
-  /** `flags` are MIAC's own tokens (no user text), so they are quoted for PowerShell; a prompt goes through an env var. */
+  /** `flags` are Shellie's own tokens (no user text), so they are quoted for PowerShell; a prompt goes through an env var. */
   const tool = (
     name: string,
     flags: string[],
@@ -97,8 +97,8 @@ export function windowsPlatform(
     const line = [`& ${name}`, ...flags.map(psQuote)];
     if (promptEnv !== null)
       return {
-        ...ps([...line, '$env:MIAC_CLAUDE_PROMPT'].join(' ')),
-        env: { MIAC_CLAUDE_PROMPT: shimSafePrompt(promptEnv) },
+        ...ps([...line, '$env:SHELLIE_CLAUDE_PROMPT'].join(' ')),
+        env: { SHELLIE_CLAUDE_PROMPT: shimSafePrompt(promptEnv) },
       };
     return ps(line.join(' '));
   };

@@ -41,7 +41,7 @@ export function taskForItem(
   return matches.find((t) => t.status !== 'done') ?? matches[0] ?? null;
 }
 
-/** My not-started items in current sprints without a MIAC task, soonest sprint end first. */
+/** My not-started items in current sprints without a Shellie task, soonest sprint end first. */
 export function upNext(
   snapshot: HomeSnapshot | null,
   tasks: TaskView[],

@@ -37,7 +37,9 @@ function setup() {
     taskById: () => task,
     review: new ReviewService({
       git: gitClient,
-      store: new ReviewStore(mkdtempSync(path.join(os.tmpdir(), 'miac-rh-'))),
+      store: new ReviewStore(
+        mkdtempSync(path.join(os.tmpdir(), 'shellie-rh-')),
+      ),
       repoName: () => 'web',
       collapseOf: async () => [],
     }),

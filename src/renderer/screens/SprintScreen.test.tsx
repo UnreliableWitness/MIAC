@@ -20,7 +20,7 @@ const connection: Connection = {
   id: 'c1',
   name: 'uw',
   organizationUrl: 'https://dev.azure.com/unreliablewitness',
-  project: 'MIAC',
+  project: 'Shellie',
   user: 'D',
   status: 'ok',
   checkedAt: null,
@@ -32,7 +32,7 @@ const repo: Repo = {
   path: '/src/webshop',
   baseBranch: 'main',
   connectionId: 'c1',
-  miacYmlFound: true,
+  configFound: true,
   discovered: false,
   workItemOnStart: {
     moveToInProgress: true,
@@ -50,10 +50,10 @@ const item = (
   type,
   title,
   state: 'To Do',
-  areaPath: 'MIAC',
-  iterationPath: 'MIAC\\Sprint 1',
+  areaPath: 'Shellie',
+  iterationPath: 'Shellie\\Sprint 1',
   assignedTo: 'Dries Hoebeke',
-  url: `https://dev.azure.com/unreliablewitness/MIAC/_workitems/edit/${id}`,
+  url: `https://dev.azure.com/unreliablewitness/Shellie/_workitems/edit/${id}`,
   remainingWork: null,
   originalEstimate: null,
   completedWork: null,
@@ -69,7 +69,7 @@ const sprint: Sprint = {
   iteration: {
     id: 'it-1',
     name: 'Sprint 1',
-    path: 'MIAC\\Sprint 1',
+    path: 'Shellie\\Sprint 1',
     startDate: '2026-10-15T00:00:00Z',
     finishDate: '2026-10-28T00:00:00Z',
   },
@@ -216,7 +216,7 @@ describe('Sprint page', () => {
     expect(titles(table)).toEqual(['1', '5', '2', '4']);
   });
 
-  it('shows the MIAC task status and opens the task from it, not Azure DevOps', async () => {
+  it('shows the Shellie task status and opens the task from it, not Azure DevOps', async () => {
     const { calls } = fake({ 'shell:openExternal': () => undefined });
     useStore.setState({ tasks: [task({})] });
     render(<Shell />);
@@ -259,7 +259,7 @@ describe('Sprint page', () => {
         .map((c) => c.args[0]);
     await userEvent.click(within(table).getByText('Upgrade payment SDK'));
     expect(opened()).toEqual([
-      'https://dev.azure.com/unreliablewitness/MIAC/_workitems/edit/4',
+      'https://dev.azure.com/unreliablewitness/Shellie/_workitems/edit/4',
     ]);
     await userEvent.click(
       within(table).getByRole('button', {
@@ -267,8 +267,8 @@ describe('Sprint page', () => {
       }),
     );
     expect(opened()).toEqual([
-      'https://dev.azure.com/unreliablewitness/MIAC/_workitems/edit/4',
-      'https://dev.azure.com/unreliablewitness/MIAC/_workitems/edit/5',
+      'https://dev.azure.com/unreliablewitness/Shellie/_workitems/edit/4',
+      'https://dev.azure.com/unreliablewitness/Shellie/_workitems/edit/5',
     ]);
   });
 
@@ -290,7 +290,7 @@ describe('Sprint page', () => {
       }),
     );
     expect(
-      await screen.findByText('Finished before MIAC recorded summaries.'),
+      await screen.findByText('Finished before Shellie recorded summaries.'),
     ).toBeInTheDocument();
   });
 
@@ -354,7 +354,7 @@ describe('Sprint page', () => {
         id: '5',
         type: 'Task',
         title: 'Store the address',
-        url: 'https://dev.azure.com/unreliablewitness/MIAC/_workitems/edit/5',
+        url: 'https://dev.azure.com/unreliablewitness/Shellie/_workitems/edit/5',
       },
       branch: 'feature/5-store-the-address',
       copy: true,

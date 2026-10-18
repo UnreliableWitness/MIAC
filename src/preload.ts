@@ -1,9 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { EVENT_PREFIX, type MiacApi } from './shared/ipc';
+import { EVENT_PREFIX, type ShellieApi } from './shared/ipc';
 import { TELEMETRY_CHANNEL } from './shared/telemetry';
 import { titleBarKind } from './shared/titleBar';
 
-const api: MiacApi = {
+const api: ShellieApi = {
   invoke: async (channel, ...args) => {
     try {
       return await ipcRenderer.invoke(channel, ...args);
@@ -29,4 +29,4 @@ const api: MiacApi = {
   titleBar: titleBarKind(process.platform),
 };
 
-contextBridge.exposeInMainWorld('miac', api);
+contextBridge.exposeInMainWorld('shellie', api);

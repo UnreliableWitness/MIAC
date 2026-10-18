@@ -69,7 +69,7 @@ function setup(initial: Task = task(), changed: string[] = ['t1']) {
     task: (id) => tasks.get(id)!,
     tasks: () => [...tasks.values()],
     target: (t) =>
-      t.repoId === 'r1' ? { connectionId: 'c1', project: 'MIAC' } : null,
+      t.repoId === 'r1' ? { connectionId: 'c1', project: 'Shellie' } : null,
     client: () => client,
     run: (id, fn) => {
       ran.push(id);
@@ -81,7 +81,7 @@ function setup(initial: Task = task(), changed: string[] = ['t1']) {
       tasks.set(id, { ...tasks.get(id)!, ...patch });
     },
   });
-  server.route('GET', '/org/MIAC/_apis/wit/workitemtypes', {
+  server.route('GET', '/org/Shellie/_apis/wit/workitemtypes', {
     body: {
       value: [
         {
@@ -97,7 +97,7 @@ function setup(initial: Task = task(), changed: string[] = ['t1']) {
     },
   });
   server.route('PATCH', '/org/_apis/wit/workitems/1', { body: { id: 1 } });
-  server.route('POST', '/org/MIAC/_apis/wit/workItems/1/comments', {
+  server.route('POST', '/org/Shellie/_apis/wit/workItems/1/comments', {
     body: { id: 77 },
   });
   return { sync, tasks, ran };
@@ -223,7 +223,7 @@ describe('UsageSync', () => {
   });
   it('reports field presence per work item type', async () => {
     const { sync } = setup();
-    expect(await sync.fieldsStatus('c1', 'MIAC')).toEqual({
+    expect(await sync.fieldsStatus('c1', 'Shellie')).toEqual({
       connectionId: 'c1',
       types: [
         {

@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { emptyReviewState } from '../../shared/review';
 import { ReviewStore } from './ReviewStore';
 
-const dir = () => mkdtempSync(path.join(os.tmpdir(), 'miac-review-'));
+const dir = () => mkdtempSync(path.join(os.tmpdir(), 'shellie-review-'));
 
 describe('ReviewStore', () => {
   it('starts empty and keeps updates across instances', async () => {

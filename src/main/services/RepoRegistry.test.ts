@@ -29,7 +29,7 @@ afterAll(() => {
 });
 
 async function registry() {
-  const store = new TaskStore(path.join(tempDir('miac-reg-'), 'state.json'));
+  const store = new TaskStore(path.join(tempDir('shellie-reg-'), 'state.json'));
   await store.load();
   return new RepoRegistry(store, new GitClient());
 }
@@ -59,7 +59,7 @@ describe('RepoRegistry', () => {
     expect(await reg.addDiscovered(repo, 'c1')).toEqual(added);
   });
 
-  it('adds a repo with its name, default base and .miac.yml flag', async () => {
+  it('adds a repo with its name, default base and .shellie.yml flag', async () => {
     const reg = await registry();
     const repo = makeRepo('webshop');
     const added = await reg.add(repo);
@@ -68,7 +68,7 @@ describe('RepoRegistry', () => {
       path: repo,
       baseBranch: 'main',
       connectionId: null,
-      miacYmlFound: false,
+      configFound: false,
       discovered: false,
       workItemOnStart: {
         moveToInProgress: true,
@@ -81,7 +81,7 @@ describe('RepoRegistry', () => {
   });
 
   it('loads a repo without workItemOnStart', async () => {
-    const dir = tempDir('miac-reg-old-');
+    const dir = tempDir('shellie-reg-old-');
     const file = path.join(dir, 'state.json');
     writeFileSync(
       file,
@@ -94,7 +94,7 @@ describe('RepoRegistry', () => {
             path: '/src/old',
             baseBranch: 'main',
             connectionId: null,
-            miacYmlFound: false,
+            configFound: false,
             discovered: false,
           },
         ],
@@ -112,7 +112,7 @@ describe('RepoRegistry', () => {
   });
 
   it('setWorkItemOnStart persists', async () => {
-    const dir = tempDir('miac-reg-set-');
+    const dir = tempDir('shellie-reg-set-');
     const file = path.join(dir, 'state.json');
     const store = new TaskStore(file);
     await store.load();
@@ -133,13 +133,13 @@ describe('RepoRegistry', () => {
     expect(refreshed.workItemOnStart).toEqual(settings);
   });
 
-  it('takes the base branch from .miac.yml', async () => {
+  it('takes the base branch from .shellie.yml', async () => {
     const reg = await registry();
     const repo = makeRepo('api');
-    writeFileSync(path.join(repo, '.miac.yml'), 'base: develop\n');
+    writeFileSync(path.join(repo, '.shellie.yml'), 'base: develop\n');
     expect(await reg.add(repo)).toMatchObject({
       baseBranch: 'develop',
-      miacYmlFound: true,
+      configFound: true,
       discovered: false,
       workItemOnStart: {
         moveToInProgress: true,
@@ -165,7 +165,7 @@ describe('RepoRegistry', () => {
 
   it('rejects a folder that is not a git repository', async () => {
     const reg = await registry();
-    await expect(reg.add(tempDir('miac-notgit-'))).rejects.toThrow(
+    await expect(reg.add(tempDir('shellie-notgit-'))).rejects.toThrow(
       /not a git repository/,
     );
   });
@@ -173,7 +173,7 @@ describe('RepoRegistry', () => {
   it('rejects a folder that does not exist', async () => {
     const reg = await registry();
     await expect(
-      reg.add(path.join(tempDir('miac-missing-'), 'nope')),
+      reg.add(path.join(tempDir('shellie-missing-'), 'nope')),
     ).rejects.toThrow(/does not exist/);
   });
 

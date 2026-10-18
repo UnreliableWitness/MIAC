@@ -1,6 +1,6 @@
 import type { TaskTime } from '../../shared/time';
 import type { TaskUsage } from '../../shared/usage';
-import type { Channels, Events, MiacApi } from '../../shared/ipc';
+import type { Channels, Events, ShellieApi } from '../../shared/ipc';
 import type { RendererTelemetry } from '../../shared/telemetry';
 
 type AnyFn = (...args: never[]) => unknown;
@@ -108,7 +108,7 @@ const defaults: FakeHandlers = {
     path: '/src/repo',
     baseBranch: 'main',
     connectionId: null,
-    miacYmlFound: false,
+    configFound: false,
     discovered: false,
     workItemOnStart: settings,
   }),
@@ -124,13 +124,13 @@ const defaults: FakeHandlers = {
   }),
 };
 
-/** Installs `window.miac` backed by plain functions. Returns the call log and an `emit` to push events. */
+/** Installs `window.shellie` backed by plain functions. Returns the call log and an `emit` to push events. */
 export function installFakeApi(overrides: FakeHandlers = {}) {
   const calls: { channel: keyof Channels; args: unknown[] }[] = [];
   const tracked: RendererTelemetry[] = [];
   const listeners = new Map<string, Set<(payload: unknown) => void>>();
   const handlers = { ...defaults, ...overrides };
-  const fake: MiacApi = {
+  const fake: ShellieApi = {
     invoke: async (channel, ...args) => {
       calls.push({ channel, args });
       const fn = handlers[channel] as AnyFn | undefined;
@@ -148,7 +148,7 @@ export function installFakeApi(overrides: FakeHandlers = {}) {
     },
     titleBar: 'native',
   };
-  window.miac = fake;
+  window.shellie = fake;
   const emit = <K extends keyof Events>(event: K, payload: Events[K]) =>
     listeners.get(event)?.forEach((l) => l(payload));
   return { calls, emit, tracked };

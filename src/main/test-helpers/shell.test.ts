@@ -41,13 +41,13 @@ describe('shell test helpers', () => {
   });
 
   it('a missing command exits non-zero', () => {
-    expect(run('miac-no-such-command-xyz').status).not.toBe(0);
+    expect(run('shellie-no-such-command-xyz').status).not.toBe(0);
   });
 
   it('envRef reads the environment', () => {
     const v = run(
-      `${isWindows ? 'Write-Output' : 'echo'} "V=${envRef('MIAC_X')}"`,
-      { MIAC_X: 'hello' },
+      `${isWindows ? 'Write-Output' : 'echo'} "V=${envRef('SHELLIE_X')}"`,
+      { SHELLIE_X: 'hello' },
     );
     expect(v.stdout.trim()).toBe('V=hello');
   });
@@ -57,7 +57,7 @@ describe('shell test helpers', () => {
   });
 
   it('writeLineCmd writes and appends', () => {
-    const dir = mkdtempSync(path.join(os.tmpdir(), 'miac-shell-'));
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'shellie-shell-'));
     try {
       expect(run(writeLineCmd('one', 'f.txt'), {}, dir).status).toBe(0);
       expect(run(writeLineCmd('two', 'f.txt', true), {}, dir).status).toBe(0);
@@ -112,7 +112,7 @@ describe.runIf(isWindows).each([
   });
 
   it('a missing command fails', () => {
-    expect(runIn('miac-no-such-command-xyz').status).not.toBe(0);
+    expect(runIn('shellie-no-such-command-xyz').status).not.toBe(0);
   });
 
   it('a throw fails with exit 1', () => {
@@ -136,7 +136,8 @@ describe.runIf(isWindows).each([
 
   it('a silenced cmdlet error does not fail', () => {
     expect(
-      runIn('Get-Item C:\\miac-no-such -ErrorAction SilentlyContinue').status,
+      runIn('Get-Item C:\\shellie-no-such -ErrorAction SilentlyContinue')
+        .status,
     ).toBe(0);
   });
 

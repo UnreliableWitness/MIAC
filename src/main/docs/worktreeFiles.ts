@@ -6,7 +6,7 @@ import type { GitClient } from '../services/GitClient';
 export const MAX_DOC_BYTES = 2 * 1024 * 1024;
 export const MAX_ASSET_BYTES = 10 * 1024 * 1024;
 export const MAX_DOCS = 2000;
-export const TASK_FILE = '.miac/task.md';
+export const TASK_FILE = '.shellie/task.md';
 const SPECS = [':(icase)*.md', ':(icase)*.markdown'];
 const MD = /\.(md|markdown)$/i;
 const IMAGE_TYPES: Record<string, string> = {
@@ -42,7 +42,7 @@ export async function resolveInWorktree(
   if (!rel || rel.includes('\0')) throw new Error('Outside the worktree');
   const lexical = path.resolve(worktree);
   const root = await fs.realpath(worktree);
-  // An absolute path printed in a terminal uses the worktree path as MIAC knows it, which may differ from its realpath (macOS /var).
+  // An absolute path printed in a terminal uses the worktree path as Shellie knows it, which may differ from its realpath (macOS /var).
   const joined = path.isAbsolute(rel)
     ? isInside(lexical, rel)
       ? path.join(root, path.relative(lexical, rel))

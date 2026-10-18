@@ -24,7 +24,7 @@ const stats = (over: Partial<HomeStats> = {}): HomeStats => ({
 
 beforeEach(() =>
   useStore.setState({
-    connections: [{ id: 'c1', name: 'uw', project: 'MIAC' } as never],
+    connections: [{ id: 'c1', name: 'uw', project: 'Shellie' } as never],
   }),
 );
 
@@ -38,7 +38,7 @@ describe('StatsBand', () => {
     expect(screen.getByText('18h')).toBeTruthy();
     expect(
       screen.getByTitle(
-        /Claude Code €30.00.*Copilot CLI €11.20.*uw\/MIAC €41.20/s,
+        /Claude Code €30.00.*Copilot CLI €11.20.*uw\/Shellie €41.20/s,
       ),
     ).toBeTruthy();
   });

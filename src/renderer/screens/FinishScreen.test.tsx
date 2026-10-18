@@ -308,7 +308,7 @@ describe('FinishScreen AI usage', () => {
           path: '/r',
           baseBranch: 'main',
           connectionId: 'c1',
-          miacYmlFound: true,
+          configFound: true,
           discovered: false,
           workItemOnStart: {
             moveToInProgress: true,
@@ -355,7 +355,7 @@ describe('FinishScreen AI usage', () => {
           path: '/r',
           baseBranch: 'main',
           connectionId: null,
-          miacYmlFound: true,
+          configFound: true,
           discovered: false,
           workItemOnStart: {
             moveToInProgress: true,
@@ -384,7 +384,7 @@ describe('FinishScreen AI usage', () => {
           path: '/r',
           baseBranch: 'main',
           connectionId: 'c1',
-          miacYmlFound: true,
+          configFound: true,
           discovered: false,
           workItemOnStart: {
             moveToInProgress: true,
@@ -422,7 +422,7 @@ describe('FinishScreen AI usage', () => {
           path: '/r',
           baseBranch: 'main',
           connectionId: null,
-          miacYmlFound: true,
+          configFound: true,
           discovered: false,
           workItemOnStart: {
             moveToInProgress: true,
@@ -457,7 +457,7 @@ describe('FinishScreen AI usage', () => {
           path: '/r',
           baseBranch: 'main',
           connectionId: 'c1',
-          miacYmlFound: true,
+          configFound: true,
           discovered: false,
           workItemOnStart: {
             moveToInProgress: true,
@@ -845,7 +845,7 @@ describe('FinishScreen pull request failure with unpushed commits', () => {
             path: '/src/repo',
             baseBranch: 'main',
             connectionId: 'c1',
-            miacYmlFound: true,
+            configFound: true,
             discovered: false,
             workItemOnStart: {
               moveToInProgress: true,

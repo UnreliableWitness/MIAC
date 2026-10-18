@@ -108,7 +108,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
     reason: string | null;
     target: string | null;
   } | null>(null);
-  // MIAC asks every time: unchecked until the user has chosen once for this repo.
+  // Shellie asks every time: unchecked until the user has chosen once for this repo.
   const [prChoice, setPrChoice] = useState(() =>
     readPrChoice(task?.repoId ?? ''),
   );

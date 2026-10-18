@@ -98,7 +98,7 @@ export function planSteps(plan: SetupPlan): SetupStepDef[] {
     steps.push({
       kind: 'task-file',
       label: 'Write task file',
-      detail: '.miac/task.md',
+      detail: '.shellie/task.md',
     });
     if (plan.apmTargets && plan.apmTargets.length > 0)
       steps.push({
@@ -322,16 +322,16 @@ export class SetupRunner {
       case 'node-modules':
         return this.cloneNodeModules(plan, log);
       case 'task-file':
-        await fs.mkdir(path.join(plan.worktreePath, '.miac'), {
+        await fs.mkdir(path.join(plan.worktreePath, '.shellie'), {
           recursive: true,
         });
         await fs.writeFile(
-          path.join(plan.worktreePath, '.miac', 'task.md'),
+          path.join(plan.worktreePath, '.shellie', 'task.md'),
           plan.taskMd,
           'utf8',
         );
-        await ensureExcluded(this.git, plan.repoPath, '.miac/');
-        log('wrote .miac/task.md');
+        await ensureExcluded(this.git, plan.repoPath, '.shellie/');
+        log('wrote .shellie/task.md');
         return;
       case 'apm':
         return this.installAgentPackages(plan, log);
@@ -443,7 +443,7 @@ export class SetupRunner {
       log(outdated);
       return { detail: outdated };
     }
-    const tmp = `${dest}.miac-clone`;
+    const tmp = `${dest}.shellie-clone`;
     await fs.rm(tmp, { recursive: true, force: true });
     const cmd = this.platform.cloneDir(src, tmp);
     log(`cloning ${src}`);

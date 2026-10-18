@@ -374,7 +374,7 @@ export class GitClient {
 
   /**
    * Where the task's branch left its base: the recorded `baseSha` when it is still a commit, else the merge
-   * base with `baseRef` (tasks from before MIAC recorded it), else null.
+   * base with `baseRef` (tasks from before Shellie recorded it), else null.
    */
   async resolveBase(
     worktree: string,
@@ -414,7 +414,7 @@ export class GitClient {
   /**
    * What the task's branch did since it left its base: its commits (the newest 50, oldest first), the diff
    * stat, and whether it is pushed. The range starts at the recorded `baseSha`, else at the merge base with
-   * `baseRef` (tasks from before MIAC recorded it). With neither, commits and changes are left unknown.
+   * `baseRef` (tasks from before Shellie recorded it). With neither, commits and changes are left unknown.
    */
   async finishSummary(
     worktree: string,

@@ -2,12 +2,12 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { loadMiacConfig, MiacConfigError } from './MiacConfig';
+import { loadShellieConfig, ShellieConfigError } from './ShellieConfig';
 
 const tmpDirs: string[] = [];
 
 const repo = () => {
-  const dir = mkdtempSync(path.join(os.tmpdir(), 'miac-cfg-'));
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'shellie-cfg-'));
   tmpDirs.push(dir);
   return dir;
 };
@@ -18,9 +18,9 @@ afterEach(() => {
   }
 });
 
-describe('loadMiacConfig', () => {
+describe('loadShellieConfig', () => {
   it('returns defaults without a file and no lockfile', async () => {
-    const c = await loadMiacConfig(repo());
+    const c = await loadShellieConfig(repo());
     expect(c).toEqual({
       base: 'main',
       branch: '{type}/{id}-{slug}',
@@ -34,13 +34,13 @@ describe('loadMiacConfig', () => {
   it('defaults setup to npm ci when package-lock.json exists', async () => {
     const r = repo();
     writeFileSync(path.join(r, 'package-lock.json'), '{}');
-    expect((await loadMiacConfig(r)).setup).toEqual(['npm ci']);
+    expect((await loadShellieConfig(r)).setup).toEqual(['npm ci']);
   });
 
   it('reads the full file from the mockup', async () => {
     const r = repo();
     writeFileSync(
-      path.join(r, '.miac.yml'),
+      path.join(r, '.shellie.yml'),
       [
         'base: develop',
         'branch: "{type}/{id}-{slug}"',
@@ -55,7 +55,7 @@ describe('loadMiacConfig', () => {
         '',
       ].join('\n'),
     );
-    expect(await loadMiacConfig(r)).toEqual({
+    expect(await loadShellieConfig(r)).toEqual({
       base: 'develop',
       branch: '{type}/{id}-{slug}',
       copy: ['.env', '.env.local'],
@@ -67,8 +67,8 @@ describe('loadMiacConfig', () => {
 
   it('accepts a single string for setup and copy', async () => {
     const r = repo();
-    writeFileSync(path.join(r, '.miac.yml'), 'setup: npm ci\ncopy: .env\n');
-    const c = await loadMiacConfig(r);
+    writeFileSync(path.join(r, '.shellie.yml'), 'setup: npm ci\ncopy: .env\n');
+    const c = await loadShellieConfig(r);
     expect(c.setup).toEqual(['npm ci']);
     expect(c.copy).toEqual(['.env']);
   });
@@ -76,75 +76,75 @@ describe('loadMiacConfig', () => {
   it('keeps the lockfile default for setup when the file omits it', async () => {
     const r = repo();
     writeFileSync(path.join(r, 'package-lock.json'), '{}');
-    writeFileSync(path.join(r, '.miac.yml'), 'base: main\n');
-    expect((await loadMiacConfig(r)).setup).toEqual(['npm ci']);
+    writeFileSync(path.join(r, '.shellie.yml'), 'base: main\n');
+    expect((await loadShellieConfig(r)).setup).toEqual(['npm ci']);
   });
 
   it('reads apm targets, or false to turn the apm step off', async () => {
     const r = repo();
-    writeFileSync(path.join(r, '.miac.yml'), 'apm: [claude, cursor]\n');
-    expect((await loadMiacConfig(r)).apm).toEqual(['claude', 'cursor']);
-    writeFileSync(path.join(r, '.miac.yml'), 'apm: claude\n');
-    expect((await loadMiacConfig(r)).apm).toEqual(['claude']);
-    writeFileSync(path.join(r, '.miac.yml'), 'apm: false\n');
-    expect((await loadMiacConfig(r)).apm).toBe(false);
-    writeFileSync(path.join(r, '.miac.yml'), 'base: main\n');
-    expect((await loadMiacConfig(r)).apm).toBeUndefined();
-    writeFileSync(path.join(r, '.miac.yml'), 'apm: true\n');
-    await expect(loadMiacConfig(r)).rejects.toThrow(/apm/);
+    writeFileSync(path.join(r, '.shellie.yml'), 'apm: [claude, cursor]\n');
+    expect((await loadShellieConfig(r)).apm).toEqual(['claude', 'cursor']);
+    writeFileSync(path.join(r, '.shellie.yml'), 'apm: claude\n');
+    expect((await loadShellieConfig(r)).apm).toEqual(['claude']);
+    writeFileSync(path.join(r, '.shellie.yml'), 'apm: false\n');
+    expect((await loadShellieConfig(r)).apm).toBe(false);
+    writeFileSync(path.join(r, '.shellie.yml'), 'base: main\n');
+    expect((await loadShellieConfig(r)).apm).toBeUndefined();
+    writeFileSync(path.join(r, '.shellie.yml'), 'apm: true\n');
+    await expect(loadShellieConfig(r)).rejects.toThrow(/apm/);
   });
 
   it('names the bad field when run is a list', async () => {
     const r = repo();
-    writeFileSync(path.join(r, '.miac.yml'), 'run:\n  - npm run dev\n');
-    const load = loadMiacConfig(r);
-    await expect(load).rejects.toThrow(MiacConfigError);
+    writeFileSync(path.join(r, '.shellie.yml'), 'run:\n  - npm run dev\n');
+    const load = loadShellieConfig(r);
+    await expect(load).rejects.toThrow(ShellieConfigError);
     await expect(load).rejects.toThrow(/run/);
   });
 
   it('names the bad field when setup is a number', async () => {
     const r = repo();
-    writeFileSync(path.join(r, '.miac.yml'), 'setup: 5\n');
-    const load = loadMiacConfig(r);
-    await expect(load).rejects.toThrow(MiacConfigError);
+    writeFileSync(path.join(r, '.shellie.yml'), 'setup: 5\n');
+    const load = loadShellieConfig(r);
+    await expect(load).rejects.toThrow(ShellieConfigError);
     await expect(load).rejects.toThrow(/setup/);
   });
 
   it('names the bad field when a run value is not a string', async () => {
     const r = repo();
-    writeFileSync(path.join(r, '.miac.yml'), 'run:\n  dev: 1\n');
-    const load = loadMiacConfig(r);
-    await expect(load).rejects.toThrow(MiacConfigError);
+    writeFileSync(path.join(r, '.shellie.yml'), 'run:\n  dev: 1\n');
+    const load = loadShellieConfig(r);
+    await expect(load).rejects.toThrow(ShellieConfigError);
     await expect(load).rejects.toThrow(/run\.dev/);
   });
 
   it('reports invalid YAML with the file path', async () => {
     const r = repo();
-    writeFileSync(path.join(r, '.miac.yml'), 'setup: [npm ci\n');
-    const load = loadMiacConfig(r);
-    await expect(load).rejects.toThrow(MiacConfigError);
+    writeFileSync(path.join(r, '.shellie.yml'), 'setup: [npm ci\n');
+    const load = loadShellieConfig(r);
+    await expect(load).rejects.toThrow(ShellieConfigError);
     await expect(load).rejects.toThrow(/not valid YAML/);
-    await expect(load).rejects.toThrow(/\.miac\.yml/);
+    await expect(load).rejects.toThrow(/\.shellie\.yml/);
   });
 
   it('rejects a non-object document naming the root', async () => {
     const r = repo();
-    writeFileSync(path.join(r, '.miac.yml'), '- npm ci\n');
-    const load = loadMiacConfig(r);
-    await expect(load).rejects.toThrow(MiacConfigError);
+    writeFileSync(path.join(r, '.shellie.yml'), '- npm ci\n');
+    const load = loadShellieConfig(r);
+    await expect(load).rejects.toThrow(ShellieConfigError);
     await expect(load).rejects.toThrow(/\(root\)/);
   });
 
   it('rejects unknown keys so typos are caught', async () => {
     const r = repo();
-    writeFileSync(path.join(r, '.miac.yml'), 'setupp:\n  - npm ci\n');
-    await expect(loadMiacConfig(r)).rejects.toThrow(/setupp/);
+    writeFileSync(path.join(r, '.shellie.yml'), 'setupp:\n  - npm ci\n');
+    await expect(loadShellieConfig(r)).rejects.toThrow(/setupp/);
   });
 
   it('treats an empty file as defaults but found', async () => {
     const r = repo();
-    writeFileSync(path.join(r, '.miac.yml'), '');
-    const c = await loadMiacConfig(r);
+    writeFileSync(path.join(r, '.shellie.yml'), '');
+    const c = await loadShellieConfig(r);
     expect(c.found).toBe(true);
     expect(c.base).toBe('main');
   });
@@ -152,10 +152,10 @@ describe('loadMiacConfig', () => {
   it('reads review.collapse globs', async () => {
     const r = repo();
     writeFileSync(
-      path.join(r, '.miac.yml'),
+      path.join(r, '.shellie.yml'),
       'review:\n  collapse: [src/gen/**, "*.snap"]\n',
     );
-    expect((await loadMiacConfig(r)).reviewCollapse).toEqual([
+    expect((await loadShellieConfig(r)).reviewCollapse).toEqual([
       'src/gen/**',
       '*.snap',
     ]);

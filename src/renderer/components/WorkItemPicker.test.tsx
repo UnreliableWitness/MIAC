@@ -11,10 +11,10 @@ const item = (id: string, title: string, type = 'Issue'): WorkItemSummary => ({
   type,
   title,
   state: 'To Do',
-  areaPath: 'MIAC',
-  iterationPath: 'MIAC\\Sprint 1',
+  areaPath: 'Shellie',
+  iterationPath: 'Shellie\\Sprint 1',
   assignedTo: null,
-  url: `https://dev.azure.com/unreliablewitness/MIAC/_workitems/edit/${id}`,
+  url: `https://dev.azure.com/unreliablewitness/Shellie/_workitems/edit/${id}`,
 });
 
 beforeEach(() => useStore.setState({ notices: [] }));
@@ -24,7 +24,7 @@ describe('WorkItemPicker', () => {
   it('searches the current sprint on open and lists results', async () => {
     const { calls } = installFakeApi({
       'workItems:currentIteration': () => ({
-        path: 'MIAC\\Sprint 1',
+        path: 'Shellie\\Sprint 1',
         name: 'Sprint 1',
       }),
       'workItems:search': () => [
@@ -153,7 +153,7 @@ describe('WorkItemPicker', () => {
       id: '12',
       type: 'Issue',
       title: 'Save address',
-      url: 'https://dev.azure.com/unreliablewitness/MIAC/_workitems/edit/12',
+      url: 'https://dev.azure.com/unreliablewitness/Shellie/_workitems/edit/12',
     });
   });
 

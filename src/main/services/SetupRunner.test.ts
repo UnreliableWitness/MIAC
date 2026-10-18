@@ -163,7 +163,7 @@ describe('SetupRunner: work item step', () => {
       detail,
     });
     expect(stepEvents(events, 3).at(-1)).toMatchObject({ status: 'done' });
-    expect(existsSync(path.join(p.worktreePath, '.miac', 'task.md'))).toBe(
+    expect(existsSync(path.join(p.worktreePath, '.shellie', 'task.md'))).toBe(
       true,
     );
     expect(events.at(-1)).toEqual({
@@ -223,11 +223,11 @@ describe('SetupRunner', () => {
       'SECRET=1',
     );
     expect(
-      readFileSync(path.join(p.worktreePath, '.miac', 'task.md'), 'utf8'),
+      readFileSync(path.join(p.worktreePath, '.shellie', 'task.md'), 'utf8'),
     ).toBe('# Task\n');
     expect(
       readFileSync(path.join(repo, '.git', 'info', 'exclude'), 'utf8'),
-    ).toContain('.miac/');
+    ).toContain('.shellie/');
     expect(await git.summary(p.worktreePath, 'origin/main')).toMatchObject({
       files: [{ status: '?', path: '.env' }],
     });
@@ -269,7 +269,7 @@ describe('SetupRunner', () => {
           e.line === `worktree ${p.worktreePath} already exists, reusing it`,
       ),
     ).toBe(true);
-    expect(existsSync(path.join(p.worktreePath, '.miac', 'task.md'))).toBe(
+    expect(existsSync(path.join(p.worktreePath, '.shellie', 'task.md'))).toBe(
       true,
     );
   });
@@ -399,7 +399,7 @@ describe('SetupRunner: node_modules clone', () => {
       ),
     ).toContain('module.exports');
     expect(
-      existsSync(`${path.join(p.worktreePath, 'node_modules')}.miac-clone`),
+      existsSync(`${path.join(p.worktreePath, 'node_modules')}.shellie-clone`),
     ).toBe(false);
     expect(started).toEqual(['npm run build']);
     expect(stepOf(events, 2)).toMatchObject({
@@ -594,15 +594,15 @@ describe('ensureExcluded', () => {
   it('adds the pattern exactly once under concurrent calls', async () => {
     const repo = makeRepo();
     await Promise.all(
-      Array.from({ length: 5 }, () => ensureExcluded(git, repo, '.miac/')),
+      Array.from({ length: 5 }, () => ensureExcluded(git, repo, '.shellie/')),
     );
     const text = readFileSync(
       path.join(repo, '.git', 'info', 'exclude'),
       'utf8',
     );
-    expect(text.split('\n').filter((l) => l.trim() === '.miac/')).toHaveLength(
-      1,
-    );
+    expect(
+      text.split('\n').filter((l) => l.trim() === '.shellie/'),
+    ).toHaveLength(1);
     expect(text.endsWith('\n')).toBe(true);
   });
 });
@@ -642,7 +642,7 @@ describe('SetupRunner: reopen with more repos', () => {
       steps.map((s) => [s.kind, s.label, s.detail, s.workspaceId]),
     ).toEqual([
       ['worktree', 'Restore worktree', 'feature/x', undefined],
-      ['task-file', 'Write task file', '.miac/task.md', undefined],
+      ['task-file', 'Write task file', '.shellie/task.md', undefined],
       [
         'worktree',
         'Restore api worktree',
@@ -740,7 +740,7 @@ describe('SetupRunner: reopen with more repos', () => {
     });
     expect(result).toEqual({ ok: true });
     expect(started).toBe(true);
-    expect(existsSync(path.join(p.worktreePath, '.miac', 'task.md'))).toBe(
+    expect(existsSync(path.join(p.worktreePath, '.shellie', 'task.md'))).toBe(
       true,
     );
     expect(readFileSync(path.join(wt, 'work.txt'), 'utf8')).toBe('w\n');

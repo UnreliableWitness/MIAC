@@ -28,4 +28,4 @@ export const RendererTelemetrySchema = z.discriminatedUnion('type', [
 ]);
 export type RendererTelemetry = z.infer<typeof RendererTelemetrySchema>;
 
-export const TELEMETRY_CHANNEL = 'miac-telemetry';
+export const TELEMETRY_CHANNEL = 'shellie-telemetry';

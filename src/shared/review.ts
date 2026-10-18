@@ -53,7 +53,7 @@ export type ReviewRepo = {
   files: ReviewFile[];
   /** Paths staged, unstaged or untracked against HEAD, whatever the scope. */
   uncommitted: number;
-  /** The repo's `review.collapse` globs from `.miac.yml`, added to DEFAULT_COLLAPSE. */
+  /** The repo's `review.collapse` globs from `.shellie.yml`, added to DEFAULT_COLLAPSE. */
   collapse: string[];
   error?: string;
 };

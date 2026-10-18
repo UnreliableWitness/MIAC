@@ -6,7 +6,7 @@ const CSP =
 /** Strict CSP for packaged builds only, as in vite.renderer.config.mts. */
 function cspForBuild(): Plugin {
   return {
-    name: 'miac-splash-csp',
+    name: 'shellie-splash-csp',
     apply: 'build',
     transformIndexHtml: () => [
       {

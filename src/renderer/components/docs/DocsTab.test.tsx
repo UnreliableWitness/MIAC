@@ -22,7 +22,7 @@ const task = {
   homeDropped: false,
 } as unknown as TaskView;
 const files = [
-  { path: '.miac/task.md', changed: null },
+  { path: '.shellie/task.md', changed: null },
   { path: 'README.md', changed: null },
   { path: 'docs/plan.md', changed: 'new' as const },
 ];
@@ -31,7 +31,7 @@ beforeEach(() => {
   localStorage.clear();
   resetDocTargetsForTests();
   texts = {
-    '.miac/task.md': '# Task file',
+    '.shellie/task.md': '# Task file',
     'README.md': '# Readme',
     'docs/plan.md': '# Plan\n\nline 3\n',
   };
@@ -82,22 +82,22 @@ describe('DocsTab', () => {
     await userEvent.click(screen.getByRole('tab', { name: 'Source' }));
     expect(document.querySelectorAll('.src-line')).toHaveLength(3);
     expect(
-      JSON.parse(localStorage.getItem('miac.docs.t1') ?? '{}'),
+      JSON.parse(localStorage.getItem('shellie.docs.t1') ?? '{}'),
     ).toMatchObject({ path: 'docs/plan.md', view: 'source' });
   });
   it('reloads on docs:changed and shows the deleted bar when the file goes', async () => {
     const api = mount();
     await screen.findByRole('heading', { name: 'Task file' });
-    texts['.miac/task.md'] = '# Task file v2';
+    texts['.shellie/task.md'] = '# Task file v2';
     act(() =>
-      api.emit('docs:changed', { taskId: 't1', paths: ['.miac/task.md'] }),
+      api.emit('docs:changed', { taskId: 't1', paths: ['.shellie/task.md'] }),
     );
     expect(
       await screen.findByRole('heading', { name: 'Task file v2' }),
     ).toBeTruthy();
-    delete texts['.miac/task.md'];
+    delete texts['.shellie/task.md'];
     act(() =>
-      api.emit('docs:changed', { taskId: 't1', paths: ['.miac/task.md'] }),
+      api.emit('docs:changed', { taskId: 't1', paths: ['.shellie/task.md'] }),
     );
     expect(await screen.findByText('This file was deleted.')).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'Task file v2' })).toBeTruthy();
@@ -158,10 +158,13 @@ describe('DocsTab', () => {
       let mtime = 1;
       mount({
         'docs:watch': () => ({ live: false }),
-        'docs:read': () => ({ text: texts['.miac/task.md'], mtimeMs: mtime }),
+        'docs:read': () => ({
+          text: texts['.shellie/task.md'],
+          mtimeMs: mtime,
+        }),
       });
       await screen.findByRole('heading', { name: 'Task file' });
-      texts['.miac/task.md'] = '# Polled';
+      texts['.shellie/task.md'] = '# Polled';
       mtime = 2;
       await act(async () => {
         await vi.advanceTimersByTimeAsync(2100);
@@ -193,7 +196,7 @@ describe('DocsTab', () => {
       mount({
         'docs:watch': () => ({ live: false }),
         'docs:read': async (_t: string, p: string) => {
-          if (p === '.miac/task.md' && mode !== 'normal') {
+          if (p === '.shellie/task.md' && mode !== 'normal') {
             if (mode === 'held') await new Promise<void>((r) => (release = r));
             return { text: '# OLD STALE', mtimeMs: 9 };
           }
@@ -350,11 +353,14 @@ describe('DocsTab', () => {
     try {
       let mtime = 1;
       const api = mount({
-        'docs:read': () => ({ text: texts['.miac/task.md'], mtimeMs: mtime }),
+        'docs:read': () => ({
+          text: texts['.shellie/task.md'],
+          mtimeMs: mtime,
+        }),
       });
       await screen.findByRole('heading', { name: 'Task file' });
       act(() => api.emit('docs:watchStopped', { taskId: 't1' }));
-      texts['.miac/task.md'] = '# Polled after stop';
+      texts['.shellie/task.md'] = '# Polled after stop';
       mtime = 2;
       await act(async () => {
         await vi.advanceTimersByTimeAsync(2100);
@@ -447,7 +453,7 @@ describe('DocsTab with several repos', () => {
       ).value,
     ).toBe('w2');
     expect(
-      JSON.parse(localStorage.getItem('miac.docs.t1#w2') ?? '{}'),
+      JSON.parse(localStorage.getItem('shellie.docs.t1#w2') ?? '{}'),
     ).toMatchObject({
       path: 'x.md',
       view: 'source',

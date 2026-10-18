@@ -1,7 +1,7 @@
 export type UiPrefs = { navCollapsed: boolean; focus: boolean };
 const KEY: Record<keyof UiPrefs, string> = {
-  navCollapsed: 'miac.ui.navCollapsed',
-  focus: 'miac.ui.focus',
+  navCollapsed: 'shellie.ui.navCollapsed',
+  focus: 'shellie.ui.focus',
 };
 const DEFAULTS: UiPrefs = { navCollapsed: false, focus: false };
 const local = (): Storage | undefined =>
@@ -30,8 +30,8 @@ export function writePref<K extends keyof UiPrefs>(
   }
 }
 
-const prKey = (repoId: string) => `miac.ui.pr.${repoId}`;
-const pushKey = (repoId: string) => `miac.ui.push.${repoId}`;
+const prKey = (repoId: string) => `shellie.ui.pr.${repoId}`;
+const pushKey = (repoId: string) => `shellie.ui.push.${repoId}`;
 
 const readFlag = (key: string, storage: Storage | undefined): boolean => {
   try {

@@ -128,7 +128,7 @@ export function UsagePanel({
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
     const a = document.createElement('a');
     a.href = url;
-    a.download = `miac-usage-${task.slug}.csv`;
+    a.download = `shellie-usage-${task.slug}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -213,7 +213,7 @@ export function UsagePanel({
           <Timeline bins={timeline(usage?.recent ?? [], t)} live={anyLive} />
         </div>
         {usage && usage.unpricedRequests > 0 && (
-          <div className="check check-warn">{`${usage.unpricedRequests} ${usage.unpricedRequests === 1 ? 'request uses a model' : 'requests use models'} that ${usage.unpricedRequests === 1 ? 'is' : 'are'} not in MIAC's official price list yet, so ${usage.unpricedRequests === 1 ? 'it is' : 'they are'} not in the totals. A MIAC update will add ${usage.unpricedRequests === 1 ? 'it' : 'them'}.`}</div>
+          <div className="check check-warn">{`${usage.unpricedRequests} ${usage.unpricedRequests === 1 ? 'request uses a model' : 'requests use models'} that ${usage.unpricedRequests === 1 ? 'is' : 'are'} not in Shellie's official price list yet, so ${usage.unpricedRequests === 1 ? 'it is' : 'they are'} not in the totals. A Shellie update will add ${usage.unpricedRequests === 1 ? 'it' : 'them'}.`}</div>
         )}
         <div className="card up-box up-sessions">
           <h3>{`Sessions ${DOT} ${usage?.sessions.length ?? 0}`}</h3>
@@ -288,7 +288,8 @@ export function UsagePanel({
             <>
               <p className="muted small">
                 Writing AI cost to Azure DevOps is off (Settings, AI cost and
-                invoicing). The cost stays in MIAC: this tab and the CSV export.
+                invoicing). The cost stays in Shellie: this tab and the CSV
+                export.
               </p>
               <div className="actions">
                 <button type="button" className="btn" onClick={exportCsv}>

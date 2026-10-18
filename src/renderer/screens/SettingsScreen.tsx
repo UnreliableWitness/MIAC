@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { AppSettings } from '../../shared/usage';
 import type {
-  MiacConfig,
+  ShellieConfig,
   Repo,
   StartSettings,
   WorkItemTypeMeta,
@@ -16,11 +16,11 @@ import { useStore } from '../store';
 
 function renderConfig(
   name: string,
-  c: MiacConfig,
+  c: ShellieConfig,
   worktreeRoot: string,
 ): string {
   const lines = [
-    `${name}/.miac.yml${c.found ? '' : ' (defaults, file not found)'}`,
+    `${name}/.shellie.yml${c.found ? '' : ' (defaults, file not found)'}`,
     `base: ${c.base}`,
     `branch: "${c.branch}"`,
     `copy: [${c.copy.join(', ')}]`,
@@ -173,10 +173,10 @@ function RepoRow({ repo }: { repo: Repo }) {
             </button>
           </>
         )}
-        {repo.miacYmlFound ? (
-          <span className="tag tag-green">.miac.yml found</span>
+        {repo.configFound ? (
+          <span className="tag tag-green">.shellie.yml found</span>
         ) : (
-          <span className="tag tag-warn">No .miac.yml, using defaults</span>
+          <span className="tag tag-warn">No .shellie.yml, using defaults</span>
         )}
         <select
           className="field"
@@ -301,7 +301,7 @@ function AboutSection() {
       <div className="card about">
         <MindMark size={40} />
         <div>
-          <div className="about-name">MIAC</div>
+          <div className="about-name">Shellie</div>
           <div className="muted">Me, I&apos;m Counting</div>
           <div className="small muted">
             General Systems Vehicle (accounting division)

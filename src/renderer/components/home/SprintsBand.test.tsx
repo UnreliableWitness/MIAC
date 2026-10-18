@@ -12,8 +12,8 @@ const item = (id: string, state: string) => ({
   type: 'Issue',
   title: id,
   state,
-  areaPath: 'MIAC',
-  iterationPath: 'MIAC\\Sprint 1',
+  areaPath: 'Shellie',
+  iterationPath: 'Shellie\\Sprint 1',
   assignedTo: 'Me',
   url: 'u',
   remainingWork: null,
@@ -23,7 +23,7 @@ const item = (id: string, state: string) => ({
 const conn = (over: Partial<HomeConnection>): HomeConnection => ({
   connectionId: 'c1',
   name: 'uw',
-  project: 'MIAC',
+  project: 'Shellie',
   status: 'ok',
   error: null,
   fetchedAt: '',
@@ -64,7 +64,7 @@ describe('SprintsBand', () => {
               {
                 iterationId: 'i',
                 name: 'Sprint 1',
-                path: 'MIAC\\Sprint 1',
+                path: 'Shellie\\Sprint 1',
                 startDate: null,
                 finishDate: finish,
                 items: [
@@ -79,7 +79,7 @@ describe('SprintsBand', () => {
       />,
     );
     const card = await screen.findByRole('button', {
-      name: /uw\/MIAC, Sprint 1/,
+      name: /uw\/Shellie, Sprint 1/,
     });
     expect(card.textContent).toContain('1 to do · 1 in progress · 1 done');
     expect(card.textContent).toMatch(/4 days left/);
@@ -128,7 +128,9 @@ describe('SprintsBand', () => {
   it('names a failed sprint load', () => {
     installFakeApi();
     render(<SprintsBand snapshot={snap(conn({ sprintsError: 'boom' }))} />);
-    expect(screen.getByText("Couldn't load sprints for uw/MIAC")).toBeTruthy();
+    expect(
+      screen.getByText("Couldn't load sprints for uw/Shellie"),
+    ).toBeTruthy();
   });
 
   it('names a stale connection and hides the empty line', () => {
@@ -145,7 +147,7 @@ describe('SprintsBand', () => {
       />,
     );
     expect(
-      screen.getByText(/^Stale since \d\d:\d\d for uw\/MIAC: down$/),
+      screen.getByText(/^Stale since \d\d:\d\d for uw\/Shellie: down$/),
     ).toBeTruthy();
     expect(
       screen.queryByText('Nothing assigned to you in a current sprint.'),
@@ -161,7 +163,7 @@ describe('SprintsBand', () => {
         )}
       />,
     );
-    expect(screen.getByText("Couldn't load uw/MIAC: refused")).toBeTruthy();
+    expect(screen.getByText("Couldn't load uw/Shellie: refused")).toBeTruthy();
     expect(
       screen.queryByText('Nothing assigned to you in a current sprint.'),
     ).toBeNull();

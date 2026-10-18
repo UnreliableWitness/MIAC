@@ -33,7 +33,7 @@ const snapshot: HomeSnapshot = {
     {
       connectionId: 'c1',
       name: 'uw',
-      project: 'MIAC',
+      project: 'Shellie',
       status: 'ok',
       error: null,
       fetchedAt: '',
@@ -41,7 +41,7 @@ const snapshot: HomeSnapshot = {
         {
           iterationId: 'i',
           name: 'S1',
-          path: 'MIAC\\S1',
+          path: 'Shellie\\S1',
           startDate: null,
           finishDate: null,
           items: [
@@ -50,8 +50,8 @@ const snapshot: HomeSnapshot = {
               type: 'Issue',
               title: 'Reset mail',
               state: 'To Do',
-              areaPath: 'MIAC',
-              iterationPath: 'MIAC\\S1',
+              areaPath: 'Shellie',
+              iterationPath: 'Shellie\\S1',
               assignedTo: 'Me',
               url: 'u',
               remainingWork: null,
@@ -74,7 +74,7 @@ beforeEach(() =>
   useStore.setState({
     repos: [repo],
     tasks: [],
-    connections: [{ id: 'c1', name: 'uw', project: 'MIAC' } as never],
+    connections: [{ id: 'c1', name: 'uw', project: 'Shellie' } as never],
     screen: { kind: 'home' },
   }),
 );

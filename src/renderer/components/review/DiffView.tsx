@@ -99,7 +99,7 @@ export function DiffView(p: Props) {
       .getPropertyValue('--font-code')
       .trim();
     const d = m.editor.createDiffEditor(host.current, {
-      theme: 'miac-dark',
+      theme: 'shellie-dark',
       readOnly: true,
       originalEditable: false,
       domReadOnly: true,
@@ -163,7 +163,7 @@ export function DiffView(p: Props) {
       for (const [key, code] of keys)
         subs.push(
           ed.addAction({
-            id: `miac.review.${key}`,
+            id: `shellie.review.${key}`,
             label: `Review: ${key}`,
             keybindings: [code],
             keybindingContext: 'editorTextFocus',
@@ -218,7 +218,7 @@ export function DiffView(p: Props) {
   useEffect(() => {
     if (!m || !diff) return;
     const uri = (side: ReviewSide) =>
-      m.Uri.from({ scheme: 'miac-review', path: `/${side}/${p.uriKey}` });
+      m.Uri.from({ scheme: 'shellie-review', path: `/${side}/${p.uriKey}` });
     const cur = diff.getModel();
     if (cur && cur.modified.uri.toString() === uri('after').toString()) {
       // The same file changed on disk: keep the reader's place.

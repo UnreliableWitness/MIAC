@@ -1,4 +1,4 @@
-# MIAC art prompts
+# Shellie art prompts
 
 The first quoted paragraph is the general style block; a quoted paragraph inside a section replaces it for that
 section. Each image is the line starting with its file name in bold. A subject ending in "Portrait." is asked for at

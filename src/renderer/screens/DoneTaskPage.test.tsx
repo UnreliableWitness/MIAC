@@ -16,7 +16,7 @@ const task: TaskView = {
     id: '1',
     type: 'Issue',
     title: 'Checkout: allow saving a delivery address',
-    url: 'https://dev.azure.com/unreliablewitness/MIAC/_workitems/edit/1',
+    url: 'https://dev.azure.com/unreliablewitness/Shellie/_workitems/edit/1',
   },
   slug: 'a',
   branch: 'feature/1-checkout-allow-saving-a-delivery-address',
@@ -81,7 +81,7 @@ beforeEach(() =>
         path: '/src/webshop',
         baseBranch: 'main',
         connectionId: 'c1',
-        miacYmlFound: true,
+        configFound: true,
         discovered: false,
         workItemOnStart: {
           moveToInProgress: true,
@@ -108,8 +108,8 @@ describe('DoneTaskPage', () => {
         type: 'Issue',
         title: 'Checkout: allow saving a delivery address',
         state: 'Doing',
-        areaPath: 'MIAC',
-        iterationPath: 'MIAC\\Sprint 1',
+        areaPath: 'Shellie',
+        iterationPath: 'Shellie\\Sprint 1',
         assignedTo: null,
         url: task.workItem!.url!,
         originalEstimate: null,
@@ -151,7 +151,7 @@ describe('DoneTaskPage', () => {
     ]);
     expect(document.body.textContent).not.toMatch(/\d{4}-\d{2}-\d{2}T/);
     expect(
-      screen.queryByText('Finished before MIAC recorded summaries.'),
+      screen.queryByText('Finished before Shellie recorded summaries.'),
     ).toBeNull();
   });
 
@@ -163,7 +163,7 @@ describe('DoneTaskPage', () => {
       />,
     );
     expect(
-      screen.getByText('Finished before MIAC recorded summaries.'),
+      screen.getByText('Finished before Shellie recorded summaries.'),
     ).toBeInTheDocument();
     expect(screen.queryByText('Changes', { selector: 'dt' })).toBeNull();
     expect(screen.queryByRole('region', { name: 'Commits' })).toBeNull();
@@ -271,7 +271,7 @@ describe('DoneTaskPage', () => {
     );
     const commits = screen.getByRole('region', { name: 'Commits' });
     expect(commits).toHaveTextContent(
-      'Commits unavailable: MIAC could not find where this branch started.',
+      'Commits unavailable: Shellie could not find where this branch started.',
     );
     expect(commits).not.toHaveTextContent('No commits on this branch.');
     expect(screen.queryByText('Changes', { selector: 'dt' })).toBeNull();
@@ -282,7 +282,7 @@ describe('DoneTaskPage', () => {
     installFakeApi();
     render(<DoneTaskPage task={{ ...task, baseSha: 'abc123' }} />);
     expect(
-      screen.queryByText('Finished before MIAC recorded summaries.'),
+      screen.queryByText('Finished before Shellie recorded summaries.'),
     ).toBeNull();
     expect(
       screen.getByText(

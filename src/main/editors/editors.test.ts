@@ -64,7 +64,7 @@ describe('detectEditors', () => {
 
 describe('scanProject', () => {
   it('finds solutions at the root and one folder down, root first; .csproj marks .NET', async () => {
-    const wt = mkdtempSync(path.join(os.tmpdir(), 'miac-ed-'));
+    const wt = mkdtempSync(path.join(os.tmpdir(), 'shellie-ed-'));
     writeFileSync(path.join(wt, 'App.sln'), '');
     mkdirSync(path.join(wt, 'tools'));
     writeFileSync(path.join(wt, 'tools', 'Tools.slnx'), '');
@@ -79,11 +79,11 @@ describe('scanProject', () => {
   });
 
   it('a .csproj alone is .NET without solutions; a plain repo is neither', async () => {
-    const a = mkdtempSync(path.join(os.tmpdir(), 'miac-ed-'));
+    const a = mkdtempSync(path.join(os.tmpdir(), 'shellie-ed-'));
     mkdirSync(path.join(a, 'src'));
     writeFileSync(path.join(a, 'src', 'Api.csproj'), '');
     expect(await scanProject(a)).toEqual({ solutions: [], dotnet: true });
-    const b = mkdtempSync(path.join(os.tmpdir(), 'miac-ed-'));
+    const b = mkdtempSync(path.join(os.tmpdir(), 'shellie-ed-'));
     writeFileSync(path.join(b, 'package.json'), '{}');
     expect(await scanProject(b)).toEqual({ solutions: [], dotnet: false });
   });

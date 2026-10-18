@@ -2,7 +2,7 @@ import { renderBranch } from '../shared/naming';
 import type { Task, WorkItemRef } from '../shared/types';
 import { api, tryInvoke } from './api';
 
-/** Creates a task for a work item with the repo's .miac.yml defaults, the same as New task with nothing changed. */
+/** Creates a task for a work item with the repo's .shellie.yml defaults, the same as New task with nothing changed. */
 export async function startTaskFor(
   repoId: string,
   workItem: WorkItemRef,

@@ -143,7 +143,7 @@ describe('forwardRendererTelemetry', () => {
 
 describe('installId', () => {
   it('creates a random id once and reuses it', async () => {
-    const dir = mkdtempSync(path.join(os.tmpdir(), 'miac-tel-'));
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'shellie-tel-'));
     const a = await installId(dir);
     expect(a).toMatch(/^[0-9a-f-]{36}$/);
     expect(await installId(dir)).toBe(a);

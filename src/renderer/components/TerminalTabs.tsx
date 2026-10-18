@@ -47,7 +47,7 @@ const DASH = String.fromCharCode(0x2014);
 const folderName = (p: string) => p.split(/[\\/]/).filter(Boolean).at(-1) ?? p;
 
 /**
- * One repo's `.miac.yml` run entries. A single-repo task shows them as before (run in the task's folder); with
+ * One repo's `.shellie.yml` run entries. A single-repo task shows them as before (run in the task's folder); with
  * several repos each group is named after its repo and runs in that repo's worktree.
  */
 function RunChips({

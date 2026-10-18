@@ -72,7 +72,7 @@ describe('ConnectionsFileSchema', () => {
       id: 'c1',
       name: 'unreliablewitness',
       organizationUrl: 'https://dev.azure.com/unreliablewitness',
-      project: 'MIAC',
+      project: 'Shellie',
       user: null,
       status: 'unknown',
       checkedAt: null,

@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react';
-import type { MiacConfig } from '../../shared/types';
+import type { ShellieConfig } from '../../shared/types';
 import { api } from '../api';
 import { useStore } from '../store';
 
-const cache = new Map<string, { config: MiacConfig; worktreeRoot: string }>();
+const cache = new Map<
+  string,
+  { config: ShellieConfig; worktreeRoot: string }
+>();
 
-/** The effective .miac.yml of a repo, cached per session. Returns null until loaded. */
+/** The effective .shellie.yml of a repo, cached per session. Returns null until loaded. */
 export function useRepoConfig(repoId: string | null) {
   const notify = useStore((s) => s.notify);
   const [value, setValue] = useState(

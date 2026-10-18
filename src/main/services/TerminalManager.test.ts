@@ -50,11 +50,11 @@ describe('TerminalManager', () => {
       id: 't1',
       taskId: 'task',
       cwd: os.tmpdir(),
-      ...sh(echoCmd('hello-miac')),
+      ...sh(echoCmd('hello-shellie')),
     });
     expect(await exited).toBe(0);
-    expect(chunks.join('')).toContain('hello-miac');
-    expect(m.buffer('t1')).toContain('hello-miac');
+    expect(chunks.join('')).toContain('hello-shellie');
+    expect(m.buffer('t1')).toContain('hello-shellie');
     expect(m.isRunning('t1')).toBe(false);
   });
 

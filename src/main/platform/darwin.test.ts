@@ -55,7 +55,7 @@ describe('darwinPlatform', () => {
   it.runIf(process.platform === 'darwin')(
     'clones a real folder, and fails when the target exists',
     () => {
-      const root = mkdtempSync(path.join(os.tmpdir(), 'miac-clone-'));
+      const root = mkdtempSync(path.join(os.tmpdir(), 'shellie-clone-'));
       try {
         mkdirSync(path.join(root, 'src', 'a'), { recursive: true });
         writeFileSync(path.join(root, 'src', 'a', 'f.txt'), 'x');

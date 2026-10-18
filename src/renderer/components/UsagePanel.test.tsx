@@ -108,7 +108,7 @@ beforeEach(() => {
         path: '/r',
         baseBranch: 'main',
         connectionId: 'c1',
-        miacYmlFound: true,
+        configFound: true,
         discovered: false,
         workItemOnStart: {
           moveToInProgress: true,
@@ -122,7 +122,7 @@ beforeEach(() => {
         id: 'c1',
         name: 'unreliablewitness',
         organizationUrl: 'https://dev.azure.com/unreliablewitness',
-        project: 'MIAC',
+        project: 'Shellie',
         user: 'Dries',
         status: 'ok',
         checkedAt: null,
@@ -162,13 +162,13 @@ describe('UsagePanel', () => {
     expect(within(rows[2]).getByText('unpriced')).toBeTruthy();
     expect(
       screen.getByText(
-        /1 request uses a model that is not in MIAC's official price list yet/,
+        /1 request uses a model that is not in Shellie's official price list yet/,
       ),
     ).toBeTruthy();
     expect(screen.getByText('3,609,010')).toBeTruthy();
     expect(await screen.findAllByText('not on Issue')).toHaveLength(2);
     expect(
-      screen.getByText(/AI usage for this work item \(MIAC\)/),
+      screen.getByText(/AI usage for this work item \(Shellie\)/),
     ).toBeTruthy();
   });
   it('toggles billable, syncs and exports', async () => {
@@ -223,7 +223,7 @@ describe('UsagePanel', () => {
           path: '/r',
           baseBranch: 'main',
           connectionId: null,
-          miacYmlFound: true,
+          configFound: true,
           discovered: false,
           workItemOnStart: {
             moveToInProgress: true,

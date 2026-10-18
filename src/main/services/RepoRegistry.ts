@@ -8,14 +8,14 @@ import {
 } from '../../shared/types';
 import type { GitClient } from './GitClient';
 import { samePath } from '../paths';
-import { loadMiacConfig } from './MiacConfig';
+import { loadShellieConfig } from './ShellieConfig';
 import type { TaskStore } from './TaskStore';
 
 export class RepoRegistry {
   constructor(
     private readonly store: TaskStore,
     private readonly git: GitClient,
-    private readonly loadConfig: typeof loadMiacConfig = loadMiacConfig,
+    private readonly loadConfig: typeof loadShellieConfig = loadShellieConfig,
   ) {}
 
   list(): Repo[] {
@@ -58,7 +58,7 @@ export class RepoRegistry {
     return repo;
   }
 
-  /** Registers a repo MIAC found in a task (`discovered`); a repo already registered is returned unchanged. */
+  /** Registers a repo Shellie found in a task (`discovered`); a repo already registered is returned unchanged. */
   async addDiscovered(
     folder: string,
     connectionId: string | null,
@@ -91,7 +91,7 @@ export class RepoRegistry {
     return this.get(repoId);
   }
 
-  /** Re-reads name, base branch and .miac.yml presence, e.g. after the user edits the file. */
+  /** Re-reads name, base branch and .shellie.yml presence, e.g. after the user edits the file. */
   async setConnection(
     repoId: string,
     connectionId: string | null,
@@ -151,7 +151,7 @@ export class RepoRegistry {
       path: base.path,
       baseBranch: config.base,
       connectionId: base.connectionId,
-      miacYmlFound: config.found,
+      configFound: config.found,
       discovered: base.discovered ?? false,
       workItemOnStart: base.workItemOnStart ?? {
         moveToInProgress: true,

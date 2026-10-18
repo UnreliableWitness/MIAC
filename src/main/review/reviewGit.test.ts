@@ -203,7 +203,7 @@ describe('listCommits', () => {
       'add committed',
     ]);
     expect(commits[0].sha).toMatch(/^[0-9a-f]{40}$/);
-    expect(commits[0].author).toBe('MIAC tests');
+    expect(commits[0].author).toBe('Shellie tests');
     expect(await listCommits(client, repo, null)).toEqual([]);
   });
 });
@@ -293,8 +293,8 @@ describe('listFiles edge cases', () => {
     git(repo, 'commit', '-q', '-m', 'add submodule');
     const base = git(repo, 'rev-parse', 'HEAD').trim();
     const sub = path.join(repo, 'sub');
-    git(sub, 'config', 'user.email', 't@miac.local');
-    git(sub, 'config', 'user.name', 'MIAC tests');
+    git(sub, 'config', 'user.email', 't@shellie.local');
+    git(sub, 'config', 'user.name', 'Shellie tests');
     commitFile(sub, 'x.txt', 'x\n');
     const files = await listFiles(client, repo, { from: base, to: null });
     expect(files).toHaveLength(1);

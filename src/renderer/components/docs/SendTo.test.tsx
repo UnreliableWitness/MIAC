@@ -107,7 +107,7 @@ describe('SendTo', () => {
     ).toBe('true');
     await userEvent.click(screen.getByRole('menuitem', { name: /zsh/ }));
     expect(pastes.sh).toHaveBeenCalled();
-    expect(localStorage.getItem('miac.docs.sendTo.t1')).toBe('sh');
+    expect(localStorage.getItem('shellie.docs.sendTo.t1')).toBe('sh');
   });
   it('hides on Escape', async () => {
     const { container } = mount();
@@ -143,7 +143,7 @@ describe('SendTo', () => {
         .notices.some((n) => n.message === 'That terminal is not running'),
     ).toBe(true);
     expect(useStore.getState().activeTab('t1')).not.toBe('cl');
-    expect(localStorage.getItem('miac.docs.sendTo.t1')).toBeNull();
+    expect(localStorage.getItem('shellie.docs.sendTo.t1')).toBeNull();
   });
   it('gives exact lines from the Source view', async () => {
     installFakeApi({ 'terminals:isRunning': () => true });

@@ -8,5 +8,5 @@ import './renderer/styles/app.css';
 import './renderer/styles/review.css';
 
 installErrorTracking();
-if (window.miac) installWindowChrome(window.miac);
+if (window.shellie) installWindowChrome(window.shellie);
 createRoot(document.getElementById('root')!).render(<App />);

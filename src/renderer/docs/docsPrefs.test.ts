@@ -23,7 +23,7 @@ describe('docsPrefs', () => {
     expect(readDocState('other').path).toBeNull();
   });
   it('ignores garbage', () => {
-    localStorage.setItem('miac.docs.t', '{nope');
+    localStorage.setItem('shellie.docs.t', '{nope');
     expect(readDocState('t').view).toBe('rendered');
   });
   it('remembers the send target', () => {

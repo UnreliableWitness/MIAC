@@ -58,7 +58,7 @@ const repo = {
   path: '/src/webshop',
   baseBranch: 'main',
   connectionId: null,
-  miacYmlFound: true,
+  configFound: true,
   discovered: false,
   workItemOnStart: {
     moveToInProgress: true,
@@ -95,7 +95,7 @@ describe('App', () => {
   it('loads repos and tasks on start and shows notices pushed from main', async () => {
     const { calls, emit } = installFakeApi();
     render(<App />);
-    expect(screen.getByText('MIAC')).toBeInTheDocument();
+    expect(screen.getByText('Shellie')).toBeInTheDocument();
     await waitFor(() =>
       expect(calls.map((c) => c.channel).sort()).toEqual([
         'connections:list',

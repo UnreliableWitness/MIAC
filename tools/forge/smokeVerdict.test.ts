@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { smokeVerdict } from './smokeVerdict.mjs';
 
-const OK = 'smoke: pty ok\nMIAC_SMOKE_OK\n';
+const OK = 'smoke: pty ok\nSHELLIE_SMOKE_OK\n';
 
 describe('smokeVerdict', () => {
   it('passes on the marker and exit 0', () => {

@@ -17,7 +17,7 @@ const fixture = (name: string) =>
 const kv = (key: string, value: Record<string, unknown>) => ({ key, value });
 const body = (
   attrs: { key: string; value: Record<string, unknown> }[],
-  resource = [kv('miac.task.id', { stringValue: 'task-9' })],
+  resource = [kv('shellie.task.id', { stringValue: 'task-9' })],
 ) => ({
   resourceLogs: [
     {
@@ -87,7 +87,7 @@ describe('parseClaudeLogs', () => {
   });
   it('lets a record attribute carry the task id when the resource does not', () => {
     const { events } = parseClaudeLogs(
-      body([...full, kv('miac.task.id', { stringValue: 'task-r' })], []),
+      body([...full, kv('shellie.task.id', { stringValue: 'task-r' })], []),
     );
     expect(events[0].taskId).toBe('task-r');
   });
@@ -197,7 +197,7 @@ describe('parseClaudeActiveTime', () => {
       resourceMetrics: [
         {
           resource: {
-            attributes: [kv('miac.task.id', { stringValue: 'task-9' })],
+            attributes: [kv('shellie.task.id', { stringValue: 'task-9' })],
           },
           scopeMetrics: [
             {

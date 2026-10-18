@@ -128,7 +128,7 @@ export function visibleRows(
 }
 
 /**
- * The MIAC task for a work item: an open one first, else the latest finished one. Ids are per organization, so
+ * The Shellie task for a work item: an open one first, else the latest finished one. Ids are per organization, so
  * only tasks whose work item connection (else their repo's) is this sprint's match; unlinked ones never do.
  */
 function taskFor(
@@ -265,7 +265,7 @@ function Row({
       <span role="cell">
         <TimeCell cell={timeCell} local={localTime} />
       </span>
-      <span role="cell" className="sprint-miac">
+      <span role="cell" className="sprint-shellie">
         {task ? (
           <TaskCell task={task} label={label} />
         ) : (
@@ -341,7 +341,7 @@ function SprintGrid({
           Remaining work
         </span>
         <span role="columnheader">Spent / est.</span>
-        <span role="columnheader">MIAC</span>
+        <span role="columnheader">Shellie</span>
       </div>
       <div role="rowgroup" className="grid-body">
         {visibleRows(rows, collapsed).map((r) => (

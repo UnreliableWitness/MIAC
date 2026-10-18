@@ -31,7 +31,7 @@ import { createPlatform } from './main/platform';
 import { AdoRegistry } from './main/services/AdoRegistry';
 import { ConnectionStore } from './main/services/ConnectionStore';
 import { GitClient } from './main/services/GitClient';
-import { loadMiacConfig } from './main/services/MiacConfig';
+import { loadShellieConfig } from './main/services/ShellieConfig';
 import { RepoRegistry } from './main/services/RepoRegistry';
 import { claudeProjectsDir } from './main/services/claudeSessions';
 import { WorkspaceDetector } from './main/workspaces/WorkspaceDetector';
@@ -161,7 +161,7 @@ function createWindow(): BrowserWindow {
     show: false,
     backgroundColor: '#201f1e',
     // The title stays for the taskbar, Alt+Tab and the Window menu; the header shows the app instead of a title bar.
-    title: 'MIAC',
+    title: 'Shellie',
     ...titleBarOptions(process.platform),
     ...(windowIcon ? { icon: windowIcon } : {}),
     webPreferences: {
@@ -246,7 +246,10 @@ async function boot(): Promise<void> {
     mark = now;
   };
   let sensitive: () => string[] = () => [];
-  if (__APPINSIGHTS_CONNECTION_STRING__ && process.env.MIAC_TELEMETRY !== '0') {
+  if (
+    __APPINSIGHTS_CONNECTION_STRING__ &&
+    process.env.SHELLIE_TELEMETRY !== '0'
+  ) {
     try {
       telemetry = new AppInsightsClient({
         connectionString: __APPINSIGHTS_CONNECTION_STRING__,
@@ -412,7 +415,7 @@ async function boot(): Promise<void> {
       terminals,
       repos,
       runner: new SetupRunner(git, platform),
-      loadConfig: loadMiacConfig,
+      loadConfig: loadShellieConfig,
       pickFolder: async () => {
         const r = await dialog.showOpenDialog({
           properties: ['openDirectory'],
@@ -582,13 +585,13 @@ async function boot(): Promise<void> {
       // Closing the failed splash (Cmd+W) must not leave a windowless, half-booted app on macOS.
       splashWin?.once('closed', () => app.quit());
     } else {
-      dialog.showErrorBox('MIAC could not start', message);
+      dialog.showErrorBox('Shellie could not start', message);
       app.quit();
     }
   }
 }
 
-if (process.env.MIAC_SMOKE === '1') {
+if (process.env.SHELLIE_SMOKE === '1') {
   // Packaged-app smoke check for CI: one pty, then exit. No window, no stores, no single-instance lock.
   app
     .whenReady()
@@ -600,7 +603,7 @@ if (process.env.MIAC_SMOKE === '1') {
       }),
     )
     .then((ok) => {
-      if (ok) console.log('MIAC_SMOKE_OK');
+      if (ok) console.log('SHELLIE_SMOKE_OK');
       app.exit(ok ? 0 : 1);
     })
     .catch((e) => {
@@ -608,7 +611,7 @@ if (process.env.MIAC_SMOKE === '1') {
       app.exit(1);
     });
 } else if (!started && !app.requestSingleInstanceLock()) {
-  // A second MIAC (a double launch, or a stray relaunch of MIAC.exe) hands over to the first one.
+  // A second Shellie (a double launch, or a stray relaunch of Shellie.exe) hands over to the first one.
   app.quit();
 } else if (!started) {
   app.on('second-instance', () => {

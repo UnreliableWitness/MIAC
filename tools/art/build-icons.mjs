@@ -20,8 +20,11 @@ const root = path.resolve(
 );
 const dir = path.join(root, 'assets/icon');
 const read = (name) => readFileSync(path.join(dir, name), 'utf8');
-const windows = { big: read('miac.svg'), small: read('miac-small.svg') };
-const mac = { big: read('miac-mac.svg'), small: read('miac-mac-small.svg') };
+const windows = { big: read('shellie.svg'), small: read('shellie-small.svg') };
+const mac = {
+  big: read('shellie-mac.svg'),
+  small: read('shellie-mac-small.svg'),
+};
 const SIZES = [16, 24, 32, 48, 64, 128, 256, 512, 1024];
 
 // Each SVG draws its platform's whole icon: Windows on a near-full-bleed tile, macOS on Apple's grid (a tile of
@@ -40,7 +43,7 @@ const pngs = new Map(SIZES.map((s) => [s, render(windows, s)]));
 for (const [s, png] of pngs)
   writeFileSync(path.join(dir, 'png', `${s}.png`), png);
 writeFileSync(
-  path.join(dir, 'miac.ico'),
+  path.join(dir, 'shellie.ico'),
   buildIco(
     [16, 24, 32, 48, 64, 128, 256].map((size) => ({
       size,
@@ -48,16 +51,16 @@ writeFileSync(
     })),
   ),
 );
-console.log('wrote png/*.png and miac.ico');
+console.log('wrote png/*.png and shellie.ico');
 
 if (process.platform !== 'darwin') {
   console.error(
-    'build-icons: miac.icns needs macOS iconutil, so it was NOT updated (png/*.png and miac.ico were). Run `npm run icons` on a Mac before committing, so the three stay in step.',
+    'build-icons: shellie.icns needs macOS iconutil, so it was NOT updated (png/*.png and shellie.ico were). Run `npm run icons` on a Mac before committing, so the three stay in step.',
   );
   process.exit(1);
 }
-const tmp = mkdtempSync(path.join(os.tmpdir(), 'miac-icns-'));
-const set = path.join(tmp, 'miac.iconset');
+const tmp = mkdtempSync(path.join(os.tmpdir(), 'shellie-icns-'));
+const set = path.join(tmp, 'shellie.iconset');
 mkdirSync(set);
 for (const [name, size] of [
   ['16x16', 16],
@@ -77,7 +80,7 @@ execFileSync('iconutil', [
   'icns',
   set,
   '-o',
-  path.join(dir, 'miac.icns'),
+  path.join(dir, 'shellie.icns'),
 ]);
 rmSync(tmp, { recursive: true, force: true });
-console.log('wrote miac.icns');
+console.log('wrote shellie.icns');

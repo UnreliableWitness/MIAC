@@ -112,7 +112,7 @@ export const TaskSchema = z.object({
   usageSyncedAt: z.string().nullable().default(null),
   usageSyncError: z.string().nullable().default(null),
   usageCommentId: z.number().int().nullable().default(null),
-  /** Null for tasks finished before MIAC recorded summaries, and while a task is open. */
+  /** Null for tasks finished before Shellie recorded summaries, and while a task is open. */
   summary: TaskSummarySchema.nullable().default(null),
   pullRequest: PullRequestRefSchema.nullable().default(null),
   /** The terminal tabs when the task was finished, so Reopen can bring them (and Claude's sessions) back. */
@@ -149,8 +149,8 @@ export const RepoSchema = z.object({
   path: z.string().min(1),
   baseBranch: z.string().min(1),
   connectionId: z.string().nullable(),
-  miacYmlFound: z.boolean(),
-  /** Added by MIAC when a task's Claude session worked in it, not by the user; Start never picks it. */
+  configFound: z.boolean(),
+  /** Added by Shellie when a task's Claude session worked in it, not by the user; Start never picks it. */
   discovered: z.boolean().default(false),
   workItemOnStart: StartSettingsSchema.default({
     moveToInProgress: true,
@@ -167,7 +167,7 @@ export const StateSchema = z.object({
 });
 export type State = z.infer<typeof StateSchema>;
 
-export type MiacConfig = {
+export type ShellieConfig = {
   base: string;
   branch: string;
   copy: string[];

@@ -10,7 +10,7 @@ const ok: Connection = {
   id: 'c1',
   name: 'unreliablewitness',
   organizationUrl: 'https://dev.azure.com/unreliablewitness',
-  project: 'MIAC',
+  project: 'Shellie',
   user: 'Dries Hoebeke',
   status: 'ok',
   checkedAt: '2026-10-14T10:00:00.000Z',
@@ -47,7 +47,7 @@ describe('ConnectionsSection', () => {
     expect(screen.getByText('Connected as Dries Hoebeke')).toBeInTheDocument();
     expect(
       screen.getByText(
-        `https://dev.azure.com/unreliablewitness ${String.fromCharCode(0xb7)} MIAC`,
+        `https://dev.azure.com/unreliablewitness ${String.fromCharCode(0xb7)} Shellie`,
       ),
     ).toBeInTheDocument();
     expect(
@@ -79,7 +79,7 @@ describe('ConnectionsSection', () => {
       screen.getByLabelText('Organization URL'),
       'https://dev.azure.com/unreliablewitness/',
     );
-    await userEvent.type(screen.getByLabelText('Project'), 'MIAC');
+    await userEvent.type(screen.getByLabelText('Project'), 'Shellie');
     await userEvent.type(
       screen.getByLabelText('Personal access token'),
       'secret-pat',
@@ -95,7 +95,7 @@ describe('ConnectionsSection', () => {
         calls.find((c) => c.channel === 'connections:save')?.args[0],
       ).toEqual({
         organizationUrl: 'https://dev.azure.com/unreliablewitness/',
-        project: 'MIAC',
+        project: 'Shellie',
         pat: 'secret-pat',
       }),
     );
@@ -142,7 +142,7 @@ describe('ConnectionsSection', () => {
           path: '/w',
           baseBranch: 'main',
           connectionId: 'c1',
-          miacYmlFound: true,
+          configFound: true,
           discovered: false,
           workItemOnStart: {
             moveToInProgress: true,

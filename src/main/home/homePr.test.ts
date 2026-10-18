@@ -3,7 +3,7 @@ import { toHomePr } from './homePr';
 
 const ctx = {
   organizationUrl: 'https://dev.azure.com/uw',
-  project: 'MIAC',
+  project: 'Shellie',
   me: 'me-1',
 };
 
@@ -40,7 +40,7 @@ describe('toHomePr', () => {
       conflicts: true,
       myVote: 0,
       votes: { approved: 2, waiting: 1, rejected: 1 },
-      url: 'https://dev.azure.com/uw/MIAC/_git/web/pullrequest/12',
+      url: 'https://dev.azure.com/uw/Shellie/_git/web/pullrequest/12',
     });
   });
   it('has no vote of mine when I am not a named reviewer', () => {

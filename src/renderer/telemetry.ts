@@ -3,7 +3,7 @@ import type { RendererTelemetry, TelemetryProps } from '../shared/telemetry';
 /** Never throws: telemetry must not break the UI (or tests without a preload). */
 function send(message: RendererTelemetry): void {
   try {
-    window.miac?.track?.(message);
+    window.shellie?.track?.(message);
   } catch {
     // ignore
   }

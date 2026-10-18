@@ -8,7 +8,7 @@ captured with `tools/telemetry/record-otlp.mjs`.
 - Env used: `CLAUDE_CODE_ENABLE_TELEMETRY=1 OTEL_LOGS_EXPORTER=otlp OTEL_METRICS_EXPORTER=otlp
   OTEL_EXPORTER_OTLP_PROTOCOL=http/json OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4399
   OTEL_LOGS_EXPORT_INTERVAL=1000 OTEL_METRIC_EXPORT_INTERVAL=1000
-  OTEL_RESOURCE_ATTRIBUTES=miac.task.id=00000000-0000-4000-8000-000000000001`
+  OTEL_RESOURCE_ATTRIBUTES=shellie.task.id=00000000-0000-4000-8000-000000000001`
 
 ## Files
 
@@ -23,9 +23,9 @@ captured with `tools/telemetry/record-otlp.mjs`.
   `event.name` attribute holds the unprefixed name (`api_request`).
 - Integers: `{"intValue": <JSON number>}` (not a string) for logs, e.g. `input_tokens`.
   Doubles use `doubleValue` (`cost_usd`). Metric data points use `asDouble` even for token counts (e.g. `"asDouble": 10584`).
-- `miac.task.id`: present both as a resource attribute and as a log record / metric data point
+- `shellie.task.id`: present both as a resource attribute and as a log record / metric data point
   attribute.
-- Attribute keys on `claude_code.api_request`: miac.task.id, user.id, session.id, organization.id,
+- Attribute keys on `claude_code.api_request`: shellie.task.id, user.id, session.id, organization.id,
   user.email, user.account_uuid, user.account_id, terminal.type, event.name, event.timestamp,
   event.sequence, prompt.id, model, input_tokens, output_tokens, cache_read_tokens,
   cache_creation_tokens, cost_usd, cost_usd_micros, duration_ms, ttft_ms, request_id,

@@ -68,7 +68,7 @@ function service(
   connections: Connection[],
   clients: Record<string, HomeClient>,
   file = path.join(
-    mkdtempSync(path.join(os.tmpdir(), 'miac-home-')),
+    mkdtempSync(path.join(os.tmpdir(), 'shellie-home-')),
     'home.json',
   ),
   extra: Partial<HomeDeps> = {},
