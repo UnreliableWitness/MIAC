@@ -483,4 +483,46 @@ describe('SettingsScreen', () => {
       proto.scrollIntoView = original;
     }
   });
+
+  it('keeps the section in view while the layout settles, until the user scrolls', async () => {
+    installFakeApi();
+    const scroll = vi.fn();
+    const proto = Element.prototype as { scrollIntoView?: unknown };
+    const original = proto.scrollIntoView;
+    proto.scrollIntoView = scroll;
+    const originalRO = globalThis.ResizeObserver;
+    const callbacks: Array<() => void> = [];
+    globalThis.ResizeObserver = class {
+      private cb: () => void;
+      constructor(cb: () => void) {
+        this.cb = cb;
+        callbacks.push(cb);
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {
+        callbacks.splice(callbacks.indexOf(this.cb), 1);
+      }
+    } as unknown as typeof ResizeObserver;
+    try {
+      useStore.setState({
+        screen: { kind: 'settings', section: 'claude-budget' },
+      });
+      const { container } = render(<SettingsScreen />);
+      await waitFor(() => expect(scroll).toHaveBeenCalled());
+      expect(callbacks.length).toBeGreaterThan(0);
+      const before = scroll.mock.calls.length;
+      [...callbacks].forEach((cb) => cb());
+      expect(scroll.mock.calls.length).toBe(before + 1);
+      expect(scroll.mock.contexts.at(-1)).toBe(
+        container.querySelector('#claude-budget'),
+      );
+      window.dispatchEvent(new Event('wheel'));
+      [...callbacks].forEach((cb) => cb());
+      expect(scroll.mock.calls.length).toBe(before + 1);
+    } finally {
+      proto.scrollIntoView = original;
+      globalThis.ResizeObserver = originalRO;
+    }
+  });
 });

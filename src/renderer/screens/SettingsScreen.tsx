@@ -333,7 +333,28 @@ export function SettingsScreen() {
     s.screen.kind === 'settings' ? s.screen.section : undefined,
   );
   useEffect(() => {
-    if (section) document.getElementById(section)?.scrollIntoView?.();
+    if (!section) return;
+    const jump = () =>
+      document.getElementById(section)?.scrollIntoView?.({ block: 'start' });
+    jump();
+    // Sections above the target load asynchronously and grow, so keep the
+    // target in view while the layout settles, until the user takes over.
+    const main = document.querySelector('.settings-main');
+    let observer: ResizeObserver | undefined;
+    if (main && typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(jump);
+      observer.observe(main);
+      for (const child of Array.from(main.children)) observer.observe(child);
+    }
+    const stop = () => {
+      observer?.disconnect();
+      window.clearTimeout(timer);
+      for (const ev of userEvents) window.removeEventListener(ev, stop, true);
+    };
+    const userEvents = ['wheel', 'pointerdown', 'keydown', 'touchstart'];
+    for (const ev of userEvents) window.addEventListener(ev, stop, true);
+    const timer = window.setTimeout(stop, 2000);
+    return stop;
   }, [section]);
 
   const addFolder = async () => {
