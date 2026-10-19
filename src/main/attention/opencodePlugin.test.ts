@@ -1,0 +1,148 @@
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  OPENCODE_PLUGIN_SOURCE,
+  opencodeConfigContent,
+} from './opencodePlugin';
+
+type Hooks = { event?: (i: { event: unknown }) => Promise<void> };
+type PluginFn = (input: unknown) => Promise<Hooks>;
+
+const ENV = {
+  SHELLIE_ATTENTION_URL: 'http://127.0.0.1:1/v1/attention',
+  SHELLIE_ATTENTION_TOKEN: 'tok',
+  SHELLIE_TERMINAL_ID: 'term-1',
+};
+
+let plugin: PluginFn;
+const posts: unknown[] = [];
+
+beforeEach(async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'shellie-oc-'));
+  const file = path.join(dir, `p${Date.now()}${Math.random()}.mjs`);
+  writeFileSync(file, OPENCODE_PLUGIN_SOURCE);
+  const mod = (await import(pathToFileURL(file).href)) as Record<
+    string,
+    unknown
+  >;
+  expect(Object.keys(mod)).toEqual(['ShellieAttention']);
+  plugin = mod.ShellieAttention as PluginFn;
+  posts.length = 0;
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      async (
+        url: string,
+        init: { headers: Record<string, string>; body: string },
+      ) => {
+        posts.push({
+          url,
+          token: init.headers['x-shellie-token'],
+          ...JSON.parse(init.body),
+        });
+        return new Response('{}');
+      },
+    ),
+  );
+  for (const [k, v] of Object.entries(ENV)) vi.stubEnv(k, v);
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
+
+const fire = async (hooks: Hooks, type: string, properties: unknown) =>
+  hooks.event?.({ event: { type, properties } });
+
+describe('ShellieAttention plugin', () => {
+  it('maps permission, question, status and error events', async () => {
+    const h = await plugin({});
+    await fire(h, 'permission.asked', {
+      sessionID: 's',
+      permission: 'bash',
+      patterns: ['rm -rf dist'],
+    });
+    await fire(h, 'permission.replied', { sessionID: 's', reply: 'once' });
+    await fire(h, 'question.asked', { sessionID: 's', questions: [] });
+    await fire(h, 'session.status', {
+      sessionID: 's',
+      status: { type: 'busy' },
+    });
+    await fire(h, 'session.status', {
+      sessionID: 's',
+      status: { type: 'idle' },
+    });
+    await fire(h, 'session.idle', { sessionID: 's' });
+    await fire(h, 'session.error', { sessionID: 's', error: { name: 'Boom' } });
+    expect(posts).toEqual([
+      expect.objectContaining({
+        token: 'tok',
+        terminalId: 'term-1',
+        state: 'blocked',
+        kind: 'permission',
+        message: 'bash: rm -rf dist',
+      }),
+      expect.objectContaining({ state: 'working' }),
+      expect.objectContaining({ state: 'blocked', kind: 'question' }),
+      expect.objectContaining({ state: 'working' }),
+      expect.objectContaining({ state: 'done' }),
+      expect.objectContaining({
+        state: 'done',
+        kind: 'error',
+        message: 'Boom',
+      }),
+    ]);
+  });
+
+  it('ignores child sessions', async () => {
+    const h = await plugin({});
+    await fire(h, 'session.created', {
+      sessionID: 'c',
+      info: { id: 'c', parentID: 's' },
+    });
+    await fire(h, 'session.status', {
+      sessionID: 'c',
+      status: { type: 'idle' },
+    });
+    await fire(h, 'permission.asked', { sessionID: 'c', permission: 'edit' });
+    expect(posts).toEqual([]);
+  });
+
+  it('does nothing outside Shellie and survives fetch failures', async () => {
+    vi.stubEnv('SHELLIE_ATTENTION_URL', '');
+    expect(await plugin({})).toEqual({});
+    vi.stubEnv('SHELLIE_ATTENTION_URL', ENV.SHELLIE_ATTENTION_URL);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('down');
+      }),
+    );
+    const h = await plugin({});
+    await expect(
+      fire(h, 'session.idle', { sessionID: 's' }),
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe('opencodeConfigContent', () => {
+  it('creates or appends the plugin entry', () => {
+    expect(opencodeConfigContent(undefined, '/p.js')).toBe(
+      '{"plugin":["/p.js"]}',
+    );
+    expect(
+      JSON.parse(
+        opencodeConfigContent('{"model":"x","plugin":["a"]}', '/p.js')!,
+      ),
+    ).toEqual({ model: 'x', plugin: ['a', '/p.js'] });
+  });
+
+  it('leaves invalid content alone', () => {
+    expect(opencodeConfigContent('not json', '/p.js')).toBeUndefined();
+    expect(opencodeConfigContent('[1]', '/p.js')).toBeUndefined();
+  });
+});
