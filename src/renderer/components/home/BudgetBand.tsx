@@ -1,10 +1,10 @@
-import { useState } from "react";
-import type { BudgetView } from "../../../shared/budgetView";
-import { compact, eur } from "../../format";
-import { useBudget } from "../../hooks/useBudget";
-import { useStore } from "../../store";
-import { track } from "../../telemetry";
-import { Band } from "./Band";
+import { useState } from 'react';
+import type { BudgetView } from '../../../shared/budgetView';
+import { compact, eur } from '../../format';
+import { useBudget } from '../../hooks/useBudget';
+import { useStore } from '../../store';
+import { track } from '../../telemetry';
+import { Band } from './Band';
 
 const INFO =
   "Estimated at Anthropic API list prices in EUR. Your company's invoice may differ. Claude models through Copilot aren't counted.";
@@ -12,38 +12,38 @@ const INFO =
 /** Works on raw ids and on labels ("Claude Opus 5.5"). */
 export function modelColor(model: string): string {
   const m = model.toLowerCase();
-  for (const f of ["opus", "sonnet", "haiku", "fable"] as const)
+  for (const f of ['opus', 'sonnet', 'haiku', 'fable'] as const)
     if (m.includes(f)) return `var(--chart-${f})`;
-  return "var(--line-strong)";
+  return 'var(--line-strong)';
 }
 const PROVIDERS: Record<string, string> = {
-  "github-copilot": "GitHub Copilot",
-  openai: "OpenAI",
+  'github-copilot': 'GitHub Copilot',
+  openai: 'OpenAI',
 };
 const providerName = (id: string) => PROVIDERS[id] ?? id;
 const monthName = (day: string) =>
-  new Date(`${day}T12:00:00`).toLocaleDateString("en-US", { month: "short" });
+  new Date(`${day}T12:00:00`).toLocaleDateString('en-US', { month: 'short' });
 const shortDate = (day: string) =>
-  new Date(`${day}T12:00:00`).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
+  new Date(`${day}T12:00:00`).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
   });
 
 function Status({ v }: { v: BudgetView }) {
-  if (v.status === "over" && v.budgetEur !== null)
+  if (v.status === 'over' && v.budgetEur !== null)
     return (
       <span className="budget-status is-over">
         Over budget by {eur(v.spentEur - v.budgetEur)}
       </span>
     );
-  if (v.status === "paceOver" && v.forecastEur !== null && v.budgetEur !== null)
+  if (v.status === 'paceOver' && v.forecastEur !== null && v.budgetEur !== null)
     return (
       <span className="budget-status is-over">
-        On pace for {eur(v.forecastEur)}, {eur(v.forecastEur - v.budgetEur)}{" "}
+        On pace for {eur(v.forecastEur)}, {eur(v.forecastEur - v.budgetEur)}{' '}
         over
       </span>
     );
-  if (v.forecastEur !== null && v.status === "none")
+  if (v.forecastEur !== null && v.status === 'none')
     return (
       <span className="budget-status">
         About {eur(v.forecastEur)} by {shortDate(v.endDay)}
@@ -65,7 +65,7 @@ function BurnDown({ v }: { v: BudgetView }) {
     Math.max(v.budgetEur ?? 0, v.forecastEur ?? 0, v.spentEur, 1) * 1.05;
   const x = (i: number) => (W * i) / Math.max(1, n - 1);
   const y = (eurValue: number) => 90 - (85 * eurValue) / top;
-  const line = v.cumulative.map((p, i) => `${x(i)},${y(p.eur)}`).join(" ");
+  const line = v.cumulative.map((p, i) => `${x(i)},${y(p.eur)}`).join(' ');
   const last = v.cumulative.length - 1;
   return (
     <svg
@@ -153,9 +153,9 @@ function DailyBars({ v }: { v: BudgetView }) {
           <g
             key={d.day}
             data-part="day"
-            className={d.today ? "is-today" : undefined}
+            className={d.today ? 'is-today' : undefined}
           >
-            <title>{`${shortDate(d.day)}: ${eur(d.costEur)}${d.byModel.map((m) => `\n${m.model} ${eur(m.costEur)} · ${compact(m.tokens)} tokens`).join("")}`}</title>
+            <title>{`${shortDate(d.day)}: ${eur(d.costEur)}${d.byModel.map((m) => `\n${m.model} ${eur(m.costEur)} · ${compact(m.tokens)} tokens`).join('')}`}</title>
             {d.byModel.map((m) => {
               const h = (58 * m.costEur) / max;
               yTop -= h;
@@ -207,7 +207,7 @@ export function BudgetBand() {
   const v = useBudget(offset);
   const go = useStore((s) => s.go);
   const step = (d: number) => {
-    track("home.clicked", { band: "budget-month" });
+    track('home.clicked', { band: 'budget-month' });
     setOffset((o) => Math.min(0, o + d));
   };
   return (
@@ -249,17 +249,17 @@ export function BudgetBand() {
                 {v.budgetEur === null ? (
                   <>
                     <b>
-                      {eur(v.spentEur)}{" "}
+                      {eur(v.spentEur)}{' '}
                       {offset < 0
                         ? `in ${monthName(v.startDay)}`
-                        : "this month"}
+                        : 'this month'}
                     </b>
                     <button
                       type="button"
                       className="link"
                       onClick={() => {
-                        track("home.clicked", { band: "budget-settings" });
-                        go({ kind: "settings", section: "claude-budget" });
+                        track('home.clicked', { band: 'budget-settings' });
+                        go({ kind: 'settings', section: 'claude-budget' });
                       }}
                     >
                       Set a monthly budget
@@ -267,7 +267,7 @@ export function BudgetBand() {
                   </>
                 ) : (
                   <>
-                    <b>{eur(v.spentEur)}</b>{" "}
+                    <b>{eur(v.spentEur)}</b>{' '}
                     <span className="muted">of {eur(v.budgetEur)}</span>
                   </>
                 )}
@@ -281,7 +281,7 @@ export function BudgetBand() {
               <ul className="budget-models">
                 {v.models.map((m) => (
                   <li key={m.model}>
-                    <i style={{ background: modelColor(m.model) }} /> {m.model}{" "}
+                    <i style={{ background: modelColor(m.model) }} /> {m.model}{' '}
                     {eur(m.costEur)}
                   </li>
                 ))}

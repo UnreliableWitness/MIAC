@@ -2,28 +2,28 @@ import type {
   AlertKind,
   BudgetRecord,
   BudgetSettings,
-} from "../../shared/budget";
-import { budgetMonth, dayKey } from "../../shared/budget";
-import { type BudgetView, budgetView } from "../../shared/budgetView";
-import type { Task } from "../../shared/types";
-import { taskWorkspaces } from "../../shared/workspaces";
-import { isInside } from "../paths";
-import { OFFICIAL_RATES } from "../pricing/officialRates";
-import { modelLabeler } from "../pricing/RateTable";
-import type { BudgetStore } from "./BudgetStore";
-import type { ClaudeTranscriptReader } from "./claudeTranscripts";
-import type { OpenCodeReader } from "./openCode";
+} from '../../shared/budget';
+import { budgetMonth, dayKey } from '../../shared/budget';
+import { type BudgetView, budgetView } from '../../shared/budgetView';
+import type { Task } from '../../shared/types';
+import { taskWorkspaces } from '../../shared/workspaces';
+import { isInside } from '../paths';
+import { OFFICIAL_RATES } from '../pricing/officialRates';
+import { modelLabeler } from '../pricing/RateTable';
+import type { BudgetStore } from './BudgetStore';
+import type { ClaudeTranscriptReader } from './claudeTranscripts';
+import type { OpenCodeReader } from './openCode';
 
 const ALERT_TEXT: Record<AlertKind, string> = {
-  at80: "Claude budget: 80% used",
-  forecastOver: "Claude budget: on pace to go over",
-  at100: "Claude budget: used up",
+  at80: 'Claude budget: 80% used',
+  forecastOver: 'Claude budget: on pace to go over',
+  at100: 'Claude budget: used up',
 };
 
 export type BudgetServiceDeps = {
   store: BudgetStore;
-  claude: { read: ClaudeTranscriptReader["read"] };
-  openCode: { read: OpenCodeReader["read"] };
+  claude: { read: ClaudeTranscriptReader['read'] };
+  openCode: { read: OpenCodeReader['read'] };
   settings: () => BudgetSettings;
   /** Called once per pass; returns the in-Shellie test for that pass's records. */
   inShellie: () => (r: BudgetRecord) => boolean;
@@ -49,7 +49,7 @@ export class BudgetService {
   pass(): Promise<void> {
     this.running ??= this.run()
       .catch((err) => {
-        console.warn("[budget] pass failed", err);
+        console.warn('[budget] pass failed', err);
       })
       .finally(() => {
         this.running = null;
@@ -65,7 +65,7 @@ export class BudgetService {
     try {
       oc = this.d.openCode.read(f.openCodeCursor);
     } catch (err) {
-      console.warn("[budget] OpenCode database not readable this pass", err);
+      console.warn('[budget] OpenCode database not readable this pass', err);
       oc = { records: [], cursor: f.openCodeCursor, found: f.sources.openCode };
     }
     const changed = await this.d.store.apply({
@@ -83,7 +83,7 @@ export class BudgetService {
       await this.d.store.markAlert(monthKey, kind);
       this.d.notify({
         title: ALERT_TEXT[kind],
-        body: `${eur(v.spentEur)} of ${eur(v.budgetEur ?? 0)} spent${v.forecastEur !== null ? `, on pace for ${eur(v.forecastEur)}` : ""}.`,
+        body: `${eur(v.spentEur)} of ${eur(v.budgetEur ?? 0)} spent${v.forecastEur !== null ? `, on pace for ${eur(v.forecastEur)}` : ''}.`,
       });
       this.d.telemetry?.(kind);
     }
@@ -141,7 +141,7 @@ export function inShellieFor(
       ),
     );
     return (r) => {
-      if (r.tool === "claude-code") {
+      if (r.tool === 'claude-code') {
         if (tabs.has(r.sessionId)) return true;
         extra ??= extraSessions?.() ?? new Set();
         return extra.has(r.sessionId);

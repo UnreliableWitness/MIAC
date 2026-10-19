@@ -1,14 +1,14 @@
-import type { Rate, RateSnapshot, UsageEvent } from "../../shared/usage";
+import type { Rate, RateSnapshot, UsageEvent } from '../../shared/usage';
 
 export const round6 = (n: number): number => Math.round(n * 1e6) / 1e6;
 
 export function normalizeModel(model: string): string {
   let m = model.trim().toLowerCase();
-  m = m.replace(/\[[^\]]*\]$/, "");
-  m = m.replace(/^(anthropic|openai|google|xai|microsoft|moonshot)[./]/, "");
-  m = m.replace(/(\d)\.(\d)/g, "$1-$2").replace(/(\d)\.(\d)/g, "$1-$2");
-  m = m.replace(/-\d{8}$/, "");
-  m = m.replace(/[\s_]+/g, "-");
+  m = m.replace(/\[[^\]]*\]$/, '');
+  m = m.replace(/^(anthropic|openai|google|xai|microsoft|moonshot)[./]/, '');
+  m = m.replace(/(\d)\.(\d)/g, '$1-$2').replace(/(\d)\.(\d)/g, '$1-$2');
+  m = m.replace(/-\d{8}$/, '');
+  m = m.replace(/[\s_]+/g, '-');
   return m;
 }
 
@@ -23,7 +23,7 @@ export function modelLabeler(rates: Rate[]): (model: string) => string {
   for (const r of ordered)
     for (const m of r.match) {
       const id = normalizeModel(m);
-      if (!byId.has(id)) byId.set(id, r.label.replace(/ \(fast\)$/, ""));
+      if (!byId.has(id)) byId.set(id, r.label.replace(/ \(fast\)$/, ''));
     }
   return (model) => {
     const id = normalizeModel(model);

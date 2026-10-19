@@ -1,13 +1,13 @@
-import { mkdtempSync } from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vitest";
+import { mkdtempSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import { describe, expect, it } from 'vitest';
 import {
   OpenCodeReader,
   openCodeDbPath,
   parseOpenCodeMessage,
-} from "./openCode";
+} from './openCode';
 
 const msg = (
   o: Partial<{
@@ -19,8 +19,8 @@ const msg = (
   }> = {},
 ) =>
   JSON.stringify({
-    role: o.role ?? "assistant",
-    path: { cwd: "/w/repo", root: "/w/repo" },
+    role: o.role ?? 'assistant',
+    path: { cwd: '/w/repo', root: '/w/repo' },
     cost: 0,
     tokens: {
       total: 0,
@@ -29,24 +29,24 @@ const msg = (
       reasoning: 0,
       cache: { write: 12018, read: 7 },
     },
-    modelID: o.model ?? "claude-sonnet-5-5",
-    providerID: o.provider ?? "anthropic",
+    modelID: o.model ?? 'claude-sonnet-5-5',
+    providerID: o.provider ?? 'anthropic',
     time: {
       created: 1792384827209,
       completed: o.completed === undefined ? 1792384829895 : o.completed,
     },
   });
 
-describe("parseOpenCodeMessage", () => {
-  it("maps tokens and provider", () => {
-    expect(parseOpenCodeMessage("m1", "ses1", msg())).toEqual({
-      id: "oc:m1",
-      tool: "opencode",
-      sessionId: "ses1",
-      model: "claude-sonnet-5-5",
-      provider: "anthropic",
+describe('parseOpenCodeMessage', () => {
+  it('maps tokens and provider', () => {
+    expect(parseOpenCodeMessage('m1', 'ses1', msg())).toEqual({
+      id: 'oc:m1',
+      tool: 'opencode',
+      sessionId: 'ses1',
+      model: 'claude-sonnet-5-5',
+      provider: 'anthropic',
       at: new Date(1792384827209).toISOString(),
-      cwd: "/w/repo",
+      cwd: '/w/repo',
       fast: false,
       inputTokens: 3,
       outputTokens: 4,
@@ -55,29 +55,29 @@ describe("parseOpenCodeMessage", () => {
       cacheWrite1hTokens: 0,
     });
   });
-  it("skips user messages, unfinished messages and bad JSON", () => {
-    expect(parseOpenCodeMessage("m", "s", msg({ role: "user" }))).toBeNull();
-    expect(parseOpenCodeMessage("m", "s", msg({ completed: null }))).toBeNull();
-    expect(parseOpenCodeMessage("m", "s", "{")).toBeNull();
+  it('skips user messages, unfinished messages and bad JSON', () => {
+    expect(parseOpenCodeMessage('m', 's', msg({ role: 'user' }))).toBeNull();
+    expect(parseOpenCodeMessage('m', 's', msg({ completed: null }))).toBeNull();
+    expect(parseOpenCodeMessage('m', 's', '{')).toBeNull();
   });
 });
 
-describe("openCodeDbPath", () => {
-  it("uses XDG_DATA_HOME", () =>
-    expect(openCodeDbPath({ XDG_DATA_HOME: "/x" }, "/h")).toBe(
-      path.join("/x", "opencode", "opencode.db"),
+describe('openCodeDbPath', () => {
+  it('uses XDG_DATA_HOME', () =>
+    expect(openCodeDbPath({ XDG_DATA_HOME: '/x' }, '/h')).toBe(
+      path.join('/x', 'opencode', 'opencode.db'),
     ));
-  it("defaults to ~/.local/share", () =>
-    expect(openCodeDbPath({}, "/h")).toBe(
-      path.join("/h", ".local", "share", "opencode", "opencode.db"),
+  it('defaults to ~/.local/share', () =>
+    expect(openCodeDbPath({}, '/h')).toBe(
+      path.join('/h', '.local', 'share', 'opencode', 'opencode.db'),
     ));
 });
 
-describe("OpenCodeReader", () => {
+describe('OpenCodeReader', () => {
   const makeDb = () => {
     const file = path.join(
-      mkdtempSync(path.join(os.tmpdir(), "oc-")),
-      "opencode.db",
+      mkdtempSync(path.join(os.tmpdir(), 'oc-')),
+      'opencode.db',
     );
     const db = new DatabaseSync(file);
     db.exec(
@@ -85,49 +85,49 @@ describe("OpenCodeReader", () => {
     );
     const put = (id: string, updated: number, data: string) =>
       db
-        .prepare("INSERT OR REPLACE INTO message VALUES (?, ?, ?, ?, ?)")
-        .run(id, "ses1", 1, updated, data);
+        .prepare('INSERT OR REPLACE INTO message VALUES (?, ?, ?, ?, ?)')
+        .run(id, 'ses1', 1, updated, data);
     return { file, put, close: () => db.close() };
   };
 
-  it("reads new messages after the cursor, all providers", () => {
+  it('reads new messages after the cursor, all providers', () => {
     const { file, put, close } = makeDb();
-    put("m1", 100, msg());
+    put('m1', 100, msg());
     put(
-      "m2",
+      'm2',
       200,
-      msg({ provider: "github-copilot", model: "claude-sonnet-4.6" }),
+      msg({ provider: 'github-copilot', model: 'claude-sonnet-4.6' }),
     );
     const reader = new OpenCodeReader(file);
     const first = reader.read(0);
     expect(first.records.map((r) => [r.id, r.provider])).toEqual([
-      ["oc:m1", "anthropic"],
-      ["oc:m2", "github-copilot"],
+      ['oc:m1', 'anthropic'],
+      ['oc:m2', 'github-copilot'],
     ]);
     expect(first.cursor).toBe(200);
-    put("m1", 300, msg({ output: 400 }));
+    put('m1', 300, msg({ output: 400 }));
     const second = reader.read(first.cursor);
     // Rows at the cursor come back again (time_updated >= cursor); the store ignores the repeat.
     expect(second.records.map((r) => [r.id, r.outputTokens])).toEqual([
-      ["oc:m2", 4],
-      ["oc:m1", 400],
+      ['oc:m2', 4],
+      ['oc:m1', 400],
     ]);
     expect(second.cursor).toBe(300);
     close();
   });
 
-  it("starts a first read (cursor 0) at `since`", () => {
+  it('starts a first read (cursor 0) at `since`', () => {
     const { file, put, close } = makeDb();
-    put("old", 100, msg());
-    put("new", 500, msg());
+    put('old', 100, msg());
+    put('new', 500, msg());
     const r = new OpenCodeReader(file, { since: 500 }).read(0);
-    expect(r.records.map((x) => x.id)).toEqual(["oc:new"]);
+    expect(r.records.map((x) => x.id)).toEqual(['oc:new']);
     expect(r.cursor).toBe(500);
     close();
   });
 
-  it("reports a missing database as not found", () =>
-    expect(new OpenCodeReader("/no/such.db").read(5)).toEqual({
+  it('reports a missing database as not found', () =>
+    expect(new OpenCodeReader('/no/such.db').read(5)).toEqual({
       records: [],
       cursor: 5,
       found: false,

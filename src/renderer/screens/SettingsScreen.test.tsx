@@ -1,20 +1,20 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AppSettings } from "../../shared/usage";
-import type { Repo } from "../../shared/types";
-import { useStore } from "../store";
-import { installFakeApi } from "../test-helpers/fakeApi";
-import { SettingsScreen } from "./SettingsScreen";
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AppSettings } from '../../shared/usage';
+import type { Repo } from '../../shared/types';
+import { useStore } from '../store';
+import { installFakeApi } from '../test-helpers/fakeApi';
+import { SettingsScreen } from './SettingsScreen';
 
 const DOT = String.fromCharCode(183);
 const ADD_FOLDER = `Add folder${String.fromCharCode(8230)}`;
 
 const webshop: Repo = {
-  id: "r1",
-  name: "webshop",
-  path: "/src/webshop",
-  baseBranch: "main",
+  id: 'r1',
+  name: 'webshop',
+  path: '/src/webshop',
+  baseBranch: 'main',
   connectionId: null,
   configFound: true,
   discovered: false,
@@ -31,22 +31,22 @@ beforeEach(() => {
     tasks: [],
     connections: [],
     notices: [],
-    screen: { kind: "settings" },
+    screen: { kind: 'settings' },
   });
 });
 
-describe("SettingsScreen", () => {
-  it("lists repos with their base branch and .shellie.yml status", () => {
+describe('SettingsScreen', () => {
+  it('lists repos with their base branch and .shellie.yml status', () => {
     installFakeApi();
     useStore.setState({
       repos: [
         webshop,
         {
           ...webshop,
-          id: "r2",
-          name: "api",
-          path: "/src/api",
-          baseBranch: "develop",
+          id: 'r2',
+          name: 'api',
+          path: '/src/api',
+          baseBranch: 'develop',
           configFound: false,
           discovered: false,
           workItemOnStart: {
@@ -58,115 +58,115 @@ describe("SettingsScreen", () => {
       ],
     });
     render(<SettingsScreen />);
-    expect(screen.getByText("webshop")).toBeInTheDocument();
+    expect(screen.getByText('webshop')).toBeInTheDocument();
     expect(
       screen.getByText(`/src/webshop ${DOT} base main`),
     ).toBeInTheDocument();
-    expect(screen.getByText(".shellie.yml found")).toBeInTheDocument();
+    expect(screen.getByText('.shellie.yml found')).toBeInTheDocument();
     expect(
-      screen.getByText("No .shellie.yml, using defaults"),
+      screen.getByText('No .shellie.yml, using defaults'),
     ).toBeInTheDocument();
   });
 
-  it("marks a discovered repo and lets the user make it normal", async () => {
+  it('marks a discovered repo and lets the user make it normal', async () => {
     const { calls } = installFakeApi({
-      "repos:setDiscovered": () => ({ ...webshop, discovered: false }),
+      'repos:setDiscovered': () => ({ ...webshop, discovered: false }),
     });
     useStore.setState({ repos: [{ ...webshop, discovered: true }] });
     render(<SettingsScreen />);
-    expect(screen.getByText("Found in a task")).toBeInTheDocument();
+    expect(screen.getByText('Found in a task')).toBeInTheDocument();
     await userEvent.click(
-      screen.getByRole("button", { name: "Make it a normal repo" }),
+      screen.getByRole('button', { name: 'Make it a normal repo' }),
     );
     await waitFor(() =>
       expect(
-        calls.find((c) => c.channel === "repos:setDiscovered")?.args,
-      ).toEqual(["r1", false]),
+        calls.find((c) => c.channel === 'repos:setDiscovered')?.args,
+      ).toEqual(['r1', false]),
     );
   });
 
-  it("adds a folder through the native picker", async () => {
+  it('adds a folder through the native picker', async () => {
     const picked: Repo = {
       ...webshop,
-      id: "r9",
-      name: "picked",
-      path: "/src/picked",
+      id: 'r9',
+      name: 'picked',
+      path: '/src/picked',
     };
     const { calls } = installFakeApi({
-      "repos:pickFolder": () => "/src/picked",
-      "repos:add": () => picked,
-      "repos:list": () => [picked],
+      'repos:pickFolder': () => '/src/picked',
+      'repos:add': () => picked,
+      'repos:list': () => [picked],
     });
     render(<SettingsScreen />);
-    await userEvent.click(screen.getByRole("button", { name: ADD_FOLDER }));
+    await userEvent.click(screen.getByRole('button', { name: ADD_FOLDER }));
     await waitFor(() =>
       expect(
         calls
           .map((c) => c.channel)
-          .filter((c) => c.startsWith("repos:"))
+          .filter((c) => c.startsWith('repos:'))
           .slice(0, 2),
-      ).toEqual(["repos:pickFolder", "repos:add"]),
+      ).toEqual(['repos:pickFolder', 'repos:add']),
     );
-    expect(calls.find((c) => c.channel === "repos:add")?.args).toEqual([
-      "/src/picked",
+    expect(calls.find((c) => c.channel === 'repos:add')?.args).toEqual([
+      '/src/picked',
     ]);
-    expect(useStore.getState().repos.map((r) => r.name)).toEqual(["picked"]);
+    expect(useStore.getState().repos.map((r) => r.name)).toEqual(['picked']);
   });
 
-  it("shows an error notice when adding fails", async () => {
+  it('shows an error notice when adding fails', async () => {
     installFakeApi({
-      "repos:pickFolder": () => "/nope",
-      "repos:add": () => {
-        throw new Error("/nope is not a git repository");
+      'repos:pickFolder': () => '/nope',
+      'repos:add': () => {
+        throw new Error('/nope is not a git repository');
       },
     });
     render(<SettingsScreen />);
-    await userEvent.click(screen.getByRole("button", { name: ADD_FOLDER }));
+    await userEvent.click(screen.getByRole('button', { name: ADD_FOLDER }));
     await waitFor(() =>
       expect(useStore.getState().notices[0]?.message).toBe(
-        "/nope is not a git repository",
+        '/nope is not a git repository',
       ),
     );
   });
 
-  it("shows the effective config for a repo", async () => {
+  it('shows the effective config for a repo', async () => {
     installFakeApi({
-      "repos:config": () => ({
-        worktreeRoot: "/src/webshop.worktrees",
+      'repos:config': () => ({
+        worktreeRoot: '/src/webshop.worktrees',
         config: {
-          base: "main",
-          branch: "{type}/{id}-{slug}",
-          copy: [".env"],
-          setup: ["npm ci"],
-          run: { dev: "npm run dev" },
+          base: 'main',
+          branch: '{type}/{id}-{slug}',
+          copy: ['.env'],
+          setup: ['npm ci'],
+          run: { dev: 'npm run dev' },
           found: true,
         },
       }),
     });
     useStore.setState({ repos: [webshop] });
     render(<SettingsScreen />);
-    await userEvent.click(screen.getByRole("button", { name: "Show setup" }));
+    await userEvent.click(screen.getByRole('button', { name: 'Show setup' }));
     await waitFor(() =>
       expect(screen.getByText(/dev: npm run dev/)).toBeInTheDocument(),
     );
     expect(screen.getByText(/copy: \[\.env\]/)).toBeInTheDocument();
   });
 
-  it("links a repo to a connection", async () => {
+  it('links a repo to a connection', async () => {
     const { calls } = installFakeApi({
-      "repos:setConnection": () => ({ ...webshop, connectionId: "c1" }),
-      "repos:list": () => [{ ...webshop, connectionId: "c1" }],
+      'repos:setConnection': () => ({ ...webshop, connectionId: 'c1' }),
+      'repos:list': () => [{ ...webshop, connectionId: 'c1' }],
     });
     useStore.setState({
       repos: [webshop],
       connections: [
         {
-          id: "c1",
-          name: "unreliablewitness",
-          organizationUrl: "https://dev.azure.com/unreliablewitness",
-          project: "Shellie",
+          id: 'c1',
+          name: 'unreliablewitness',
+          organizationUrl: 'https://dev.azure.com/unreliablewitness',
+          project: 'Shellie',
           user: null,
-          status: "ok",
+          status: 'ok',
           checkedAt: null,
           userUniqueName: null,
         },
@@ -174,141 +174,141 @@ describe("SettingsScreen", () => {
     });
     render(<SettingsScreen />);
     await userEvent.selectOptions(
-      screen.getByLabelText("Connection for webshop"),
-      "c1",
+      screen.getByLabelText('Connection for webshop'),
+      'c1',
     );
     await waitFor(() =>
       expect(
-        calls.find((c) => c.channel === "repos:setConnection")?.args,
-      ).toEqual(["r1", "c1"]),
+        calls.find((c) => c.channel === 'repos:setConnection')?.args,
+      ).toEqual(['r1', 'c1']),
     );
   });
 
-  describe("start options", () => {
+  describe('start options', () => {
     const conn = {
-      id: "c1",
-      name: "unreliablewitness",
-      organizationUrl: "https://dev.azure.com/unreliablewitness",
-      project: "Shellie",
+      id: 'c1',
+      name: 'unreliablewitness',
+      organizationUrl: 'https://dev.azure.com/unreliablewitness',
+      project: 'Shellie',
       user: null,
-      status: "ok" as const,
+      status: 'ok' as const,
       checkedAt: null,
       userUniqueName: null,
     };
-    const linked: Repo = { ...webshop, connectionId: "c1" };
+    const linked: Repo = { ...webshop, connectionId: 'c1' };
     const types = [
       {
-        name: "Task",
+        name: 'Task',
         color: null,
         icon: null,
         states: [
-          { name: "To Do", color: null, category: "Proposed" },
-          { name: "Doing", color: null, category: "InProgress" },
-          { name: "Done", color: null, category: "Completed" },
+          { name: 'To Do', color: null, category: 'Proposed' },
+          { name: 'Doing', color: null, category: 'InProgress' },
+          { name: 'Done', color: null, category: 'Completed' },
         ],
       },
     ];
     const handlers = () => ({
-      "repos:setWorkItemOnStart": (_id: string, s: unknown) => ({
+      'repos:setWorkItemOnStart': (_id: string, s: unknown) => ({
         ...linked,
         workItemOnStart: s,
       }),
-      "workItems:types": () => types,
+      'workItems:types': () => types,
     });
 
-    it("shows both options checked for a repo with a connection", () => {
+    it('shows both options checked for a repo with a connection', () => {
       installFakeApi(handlers() as never);
       useStore.setState({ repos: [linked], connections: [conn] });
       render(<SettingsScreen />);
       expect(
-        screen.getByRole("checkbox", {
-          name: "Move the work item to In Progress on start",
+        screen.getByRole('checkbox', {
+          name: 'Move the work item to In Progress on start',
         }),
       ).toBeChecked();
       expect(
-        screen.getByRole("checkbox", { name: "Assign it to me if unassigned" }),
+        screen.getByRole('checkbox', { name: 'Assign it to me if unassigned' }),
       ).toBeChecked();
     });
 
-    it("shows neither option without a connection", () => {
+    it('shows neither option without a connection', () => {
       installFakeApi(handlers() as never);
       useStore.setState({ repos: [webshop], connections: [conn] });
       render(<SettingsScreen />);
       expect(
-        screen.queryByRole("checkbox", {
-          name: "Move the work item to In Progress on start",
+        screen.queryByRole('checkbox', {
+          name: 'Move the work item to In Progress on start',
         }),
       ).toBeNull();
       expect(
-        screen.queryByRole("checkbox", {
-          name: "Assign it to me if unassigned",
+        screen.queryByRole('checkbox', {
+          name: 'Assign it to me if unassigned',
         }),
       ).toBeNull();
     });
 
-    it("saves when the move option is unticked", async () => {
+    it('saves when the move option is unticked', async () => {
       const { calls } = installFakeApi(handlers() as never);
       useStore.setState({ repos: [linked], connections: [conn] });
       render(<SettingsScreen />);
       await userEvent.click(
-        screen.getByRole("checkbox", {
-          name: "Move the work item to In Progress on start",
+        screen.getByRole('checkbox', {
+          name: 'Move the work item to In Progress on start',
         }),
       );
       await waitFor(() =>
         expect(
-          calls.find((c) => c.channel === "repos:setWorkItemOnStart")?.args,
+          calls.find((c) => c.channel === 'repos:setWorkItemOnStart')?.args,
         ).toEqual([
-          "r1",
+          'r1',
           { moveToInProgress: false, assignToMe: true, stateOverrides: {} },
         ]),
       );
     });
 
-    it("loads types on open and sets and clears an override", async () => {
+    it('loads types on open and sets and clears an override', async () => {
       const { calls } = installFakeApi(handlers() as never);
       useStore.setState({ repos: [linked], connections: [conn] });
       render(<SettingsScreen />);
-      expect(calls.some((c) => c.channel === "workItems:types")).toBe(false);
-      await userEvent.click(screen.getByText("Override per type"));
-      const select = await screen.findByLabelText("In Progress state for Task");
+      expect(calls.some((c) => c.channel === 'workItems:types')).toBe(false);
+      await userEvent.click(screen.getByText('Override per type'));
+      const select = await screen.findByLabelText('In Progress state for Task');
       expect(
         Array.from((select as HTMLSelectElement).options).map((o) => o.text),
-      ).toEqual(["Default", "Doing"]);
-      await userEvent.selectOptions(select, "Doing");
+      ).toEqual(['Default', 'Doing']);
+      await userEvent.selectOptions(select, 'Doing');
       await waitFor(() =>
         expect(
-          calls.filter((c) => c.channel === "repos:setWorkItemOnStart").at(-1)
+          calls.filter((c) => c.channel === 'repos:setWorkItemOnStart').at(-1)
             ?.args,
         ).toEqual([
-          "r1",
+          'r1',
           {
             moveToInProgress: true,
             assignToMe: true,
-            stateOverrides: { Task: "Doing" },
+            stateOverrides: { Task: 'Doing' },
           },
         ]),
       );
     });
 
-    it("removes the key when Default is chosen", async () => {
+    it('removes the key when Default is chosen', async () => {
       const withOverride: Repo = {
         ...linked,
         workItemOnStart: {
           moveToInProgress: true,
           assignToMe: true,
-          stateOverrides: { Task: "Doing" },
+          stateOverrides: { Task: 'Doing' },
         },
       };
       const { calls } = installFakeApi(handlers() as never);
       useStore.setState({ repos: [withOverride], connections: [conn] });
       render(<SettingsScreen />);
-      await userEvent.click(screen.getByText("Override per type"));
-      const select = await screen.findByLabelText("In Progress state for Task");
-      await userEvent.selectOptions(select, "Default");
+      await userEvent.click(screen.getByText('Override per type'));
+      const select = await screen.findByLabelText('In Progress state for Task');
+      await userEvent.selectOptions(select, 'Default');
       await waitFor(() =>
         expect(
-          calls.find((c) => c.channel === "repos:setWorkItemOnStart")?.args[1],
+          calls.find((c) => c.channel === 'repos:setWorkItemOnStart')?.args[1],
         ).toEqual({
           moveToInProgress: true,
           assignToMe: true,
@@ -318,49 +318,49 @@ describe("SettingsScreen", () => {
     });
   });
 
-  it("turns anonymous usage and error data off", async () => {
-    const { calls } = installFakeApi({ "settings:save": (next) => next });
+  it('turns anonymous usage and error data off', async () => {
+    const { calls } = installFakeApi({ 'settings:save': (next) => next });
     render(<SettingsScreen />);
-    const box = await screen.findByRole("checkbox", {
-      name: "Send anonymous usage and error data",
+    const box = await screen.findByRole('checkbox', {
+      name: 'Send anonymous usage and error data',
     });
     await waitFor(() => expect(box).toBeChecked());
     await userEvent.click(box);
     expect(
-      calls.find((c) => c.channel === "settings:save")?.args[0],
+      calls.find((c) => c.channel === 'settings:save')?.args[0],
     ).toMatchObject({ sendTelemetry: false, showSplash: true });
     await waitFor(() => expect(box).not.toBeChecked());
   });
 
-  it("toggles the notify-on-done setting", async () => {
-    const { calls } = installFakeApi({ "settings:save": (next) => next });
+  it('toggles the notify-on-done setting', async () => {
+    const { calls } = installFakeApi({ 'settings:save': (next) => next });
     render(<SettingsScreen />);
-    const box = await screen.findByRole("checkbox", {
-      name: "Notify when an agent finishes its turn",
+    const box = await screen.findByRole('checkbox', {
+      name: 'Notify when an agent finishes its turn',
     });
     await waitFor(() => expect(box).toBeChecked());
     await userEvent.click(box);
     expect(
-      calls.find((c) => c.channel === "settings:save")?.args[0],
+      calls.find((c) => c.channel === 'settings:save')?.args[0],
     ).toMatchObject({ notifyOnDone: false });
     await waitFor(() => expect(box).not.toBeChecked());
   });
 
-  it("toggles the splash setting", async () => {
-    const { calls } = installFakeApi({ "settings:save": (next) => next });
+  it('toggles the splash setting', async () => {
+    const { calls } = installFakeApi({ 'settings:save': (next) => next });
     render(<SettingsScreen />);
-    const box = await screen.findByRole("checkbox", {
-      name: "Show splash on start",
+    const box = await screen.findByRole('checkbox', {
+      name: 'Show splash on start',
     });
     await waitFor(() => expect(box).toBeChecked());
     await userEvent.click(box);
-    expect(calls.find((c) => c.channel === "settings:save")?.args[0]).toEqual({
+    expect(calls.find((c) => c.channel === 'settings:save')?.args[0]).toEqual({
       version: 1,
       receiverPort: 4319,
       hourlySync: true,
       writeTimeToAdo: false,
       idleMinutes: 5,
-      workHours: { start: "09:00", end: "17:00", days: [1, 2, 3, 4, 5] },
+      workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
       writeCostToAdo: true,
       showSplash: false,
       notifyOnDone: true,
@@ -374,14 +374,14 @@ describe("SettingsScreen", () => {
     });
   });
 
-  it("keeps fields saved by the other section", async () => {
+  it('keeps fields saved by the other section', async () => {
     let stored: AppSettings = {
       version: 1 as const,
       receiverPort: 4319,
       hourlySync: true,
       writeTimeToAdo: false,
       idleMinutes: 5,
-      workHours: { start: "09:00", end: "17:00", days: [1, 2, 3, 4, 5] },
+      workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
       writeCostToAdo: true,
       showSplash: true,
       notifyOnDone: true,
@@ -394,36 +394,36 @@ describe("SettingsScreen", () => {
       editor: { default: null, repos: {} },
     };
     const { calls } = installFakeApi({
-      "settings:get": () => stored,
-      "settings:save": (next) => {
+      'settings:get': () => stored,
+      'settings:save': (next) => {
         stored = next;
         return next;
       },
     });
     render(<SettingsScreen />);
     await userEvent.click(
-      await screen.findByRole("checkbox", { name: "Show splash on start" }),
+      await screen.findByRole('checkbox', { name: 'Show splash on start' }),
     );
     await userEvent.click(
-      await screen.findByRole("checkbox", { name: /every hour/ }),
+      await screen.findByRole('checkbox', { name: /every hour/ }),
     );
     await userEvent.click(
-      screen.getByRole("button", { name: "Save settings" }),
+      screen.getByRole('button', { name: 'Save settings' }),
     );
     await waitFor(() =>
-      expect(calls.filter((c) => c.channel === "settings:save")).toHaveLength(
+      expect(calls.filter((c) => c.channel === 'settings:save')).toHaveLength(
         2,
       ),
     );
     expect(
-      calls.filter((c) => c.channel === "settings:save")[1]?.args[0],
+      calls.filter((c) => c.channel === 'settings:save')[1]?.args[0],
     ).toEqual({
       version: 1,
       receiverPort: 4319,
       hourlySync: false,
       writeTimeToAdo: false,
       idleMinutes: 5,
-      workHours: { start: "09:00", end: "17:00", days: [1, 2, 3, 4, 5] },
+      workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
       writeCostToAdo: true,
       showSplash: false,
       notifyOnDone: true,
@@ -437,34 +437,34 @@ describe("SettingsScreen", () => {
     });
   });
 
-  it("shows the About panel with the version", async () => {
+  it('shows the About panel with the version', async () => {
     installFakeApi();
     render(<SettingsScreen />);
-    const about = await screen.findByRole("region", { name: "About" });
+    const about = await screen.findByRole('region', { name: 'About' });
     expect(about).toHaveTextContent(
-      "Development tasks as isolated workspaces, with AI cost per task",
+      'Development tasks as isolated workspaces, with AI cost per task',
     );
     expect(about).toHaveTextContent(
-      "General Systems Vehicle (accounting division)",
+      'General Systems Vehicle (accounting division)',
     );
-    await waitFor(() => expect(about).toHaveTextContent("1.0.0"));
+    await waitFor(() => expect(about).toHaveTextContent('1.0.0'));
   });
 
-  it("has a Claude budget entry in the side nav after Time tracking", () => {
+  it('has a Claude budget entry in the side nav after Time tracking', () => {
     installFakeApi();
     render(<SettingsScreen />);
-    const nav = screen.getByRole("navigation", { name: "Settings sections" });
-    const links = [...nav.querySelectorAll("a")].map((a) => a.textContent);
-    expect(links.indexOf("Claude budget")).toBe(
-      links.indexOf("Time tracking") + 1,
+    const nav = screen.getByRole('navigation', { name: 'Settings sections' });
+    const links = [...nav.querySelectorAll('a')].map((a) => a.textContent);
+    expect(links.indexOf('Claude budget')).toBe(
+      links.indexOf('Time tracking') + 1,
     );
-    expect(screen.getByRole("link", { name: "Claude budget" })).toHaveAttribute(
-      "href",
-      "#claude-budget",
+    expect(screen.getByRole('link', { name: 'Claude budget' })).toHaveAttribute(
+      'href',
+      '#claude-budget',
     );
   });
 
-  it("scrolls to the section the settings screen was opened on", async () => {
+  it('scrolls to the section the settings screen was opened on', async () => {
     installFakeApi();
     const scroll = vi.fn();
     const proto = Element.prototype as { scrollIntoView?: unknown };
@@ -472,12 +472,12 @@ describe("SettingsScreen", () => {
     proto.scrollIntoView = scroll;
     try {
       useStore.setState({
-        screen: { kind: "settings", section: "claude-budget" },
+        screen: { kind: 'settings', section: 'claude-budget' },
       });
       const { container } = render(<SettingsScreen />);
       await waitFor(() => expect(scroll).toHaveBeenCalled());
       expect(scroll.mock.contexts[0]).toBe(
-        container.querySelector("#claude-budget"),
+        container.querySelector('#claude-budget'),
       );
     } finally {
       proto.scrollIntoView = original;

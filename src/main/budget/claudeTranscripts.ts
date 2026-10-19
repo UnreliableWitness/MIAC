@@ -1,7 +1,7 @@
-import { promises as fs } from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import type { BudgetRecord } from "../../shared/budget";
+import { promises as fs } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import type { BudgetRecord } from '../../shared/budget';
 
 type Usage = {
   input_tokens?: number;
@@ -14,7 +14,7 @@ type Usage = {
   };
   speed?: string;
 };
-const n = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? x : 0);
+const n = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) ? x : 0);
 
 /** One Claude Code transcript line as a budget record; null for anything that is not a priced response. */
 export function parseTranscriptLine(line: string): BudgetRecord | null {
@@ -30,14 +30,14 @@ export function parseTranscriptLine(line: string): BudgetRecord | null {
   } catch {
     return null;
   }
-  if (!d || typeof d !== "object") return null;
+  if (!d || typeof d !== 'object') return null;
   const m = d.message;
   if (
-    d.type !== "assistant" ||
+    d.type !== 'assistant' ||
     !m?.usage ||
     !m.id ||
     !m.model ||
-    m.model === "<synthetic>" ||
+    m.model === '<synthetic>' ||
     !d.timestamp
   )
     return null;
@@ -49,13 +49,13 @@ export function parseTranscriptLine(line: string): BudgetRecord | null {
     : n(u.cache_creation_input_tokens);
   return {
     id: `cc:${m.id}`,
-    tool: "claude-code",
-    sessionId: d.sessionId ?? "",
+    tool: 'claude-code',
+    sessionId: d.sessionId ?? '',
     model: m.model,
-    provider: "anthropic",
+    provider: 'anthropic',
     at: d.timestamp,
     cwd: d.cwd ?? null,
-    fast: u.speed === "fast",
+    fast: u.speed === 'fast',
     inputTokens: n(u.input_tokens),
     outputTokens: n(u.output_tokens),
     cacheReadTokens: n(u.cache_read_input_tokens),
@@ -69,8 +69,8 @@ export function claudeProjectsDir(
   home = os.homedir(),
 ): string {
   return env.CLAUDE_CONFIG_DIR
-    ? path.join(env.CLAUDE_CONFIG_DIR, "projects")
-    : path.join(home, ".claude", "projects");
+    ? path.join(env.CLAUDE_CONFIG_DIR, 'projects')
+    : path.join(home, '.claude', 'projects');
 }
 
 export type FileCursor = {
@@ -90,7 +90,7 @@ async function* jsonlFiles(dir: string): AsyncGenerator<string> {
   for (const e of entries) {
     const p = path.join(dir, e.name);
     if (e.isDirectory()) yield* jsonlFiles(p);
-    else if (e.isFile() && e.name.endsWith(".jsonl")) yield p;
+    else if (e.isFile() && e.name.endsWith('.jsonl')) yield p;
   }
 }
 
@@ -149,9 +149,9 @@ export class ClaudeTranscriptReader {
       const mine: BudgetRecord[] = [];
       let fh;
       try {
-        fh = await fs.open(file, "r");
+        fh = await fs.open(file, 'r');
       } catch (err) {
-        console.warn("[budget] skipping unreadable transcript", file, err);
+        console.warn('[budget] skipping unreadable transcript', file, err);
         if (prev) next[file] = prev;
         continue;
       }
@@ -175,8 +175,8 @@ export class ClaudeTranscriptReader {
           if (end >= 0) {
             for (const l of data
               .subarray(0, end)
-              .toString("utf8")
-              .split("\n")) {
+              .toString('utf8')
+              .split('\n')) {
               const r = l && parseTranscriptLine(l);
               if (r) mine.push(r);
             }
@@ -192,7 +192,7 @@ export class ClaudeTranscriptReader {
         };
         for (const r of mine) records.push(r);
       } catch (err) {
-        console.warn("[budget] skipping unreadable transcript", file, err);
+        console.warn('[budget] skipping unreadable transcript', file, err);
         if (prev) next[file] = prev;
         else delete next[file];
       } finally {

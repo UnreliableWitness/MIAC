@@ -5,7 +5,7 @@ import {
   budgetMonth,
   dayKey,
   tokensOf,
-} from "./budget";
+} from './budget';
 
 export type ModelTotal = {
   model: string;
@@ -36,7 +36,7 @@ export type BudgetView = {
   daysInMonth: number;
   /** Null when hidden: not the current month, or three days or fewer elapsed. */
   forecastEur: number | null;
-  status: "none" | "onTrack" | "paceOver" | "over";
+  status: 'none' | 'onTrack' | 'paceOver' | 'over';
   /** Past days and today only. */
   cumulative: { day: string; eur: number }[];
   days: BudgetDay[];
@@ -174,14 +174,14 @@ export function budgetView(input: {
       ? round6((spent / daysElapsed) * daysInMonth)
       : null;
   const budget = settings.monthlyEur;
-  const status: BudgetView["status"] =
+  const status: BudgetView['status'] =
     budget === null
-      ? "none"
+      ? 'none'
       : spent >= budget
-        ? "over"
+        ? 'over'
         : forecastEur !== null && forecastEur > budget
-          ? "paceOver"
-          : "onTrack";
+          ? 'paceOver'
+          : 'onTrack';
 
   const alertsDue: AlertKind[] = [];
   if (budget !== null && current) {
@@ -189,9 +189,9 @@ export function budgetView(input: {
       if (hit && settings.alerts[k] && !input.fired.includes(k))
         alertsDue.push(k);
     };
-    due("at80", spent >= budget * 0.8);
-    due("forecastOver", forecastEur !== null && forecastEur > budget);
-    due("at100", spent >= budget);
+    due('at80', spent >= budget * 0.8);
+    due('forecastOver', forecastEur !== null && forecastEur > budget);
+    due('at100', spent >= budget);
   }
 
   const sumDays = (from: string) =>

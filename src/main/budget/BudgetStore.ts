@@ -1,15 +1,15 @@
-import { z } from "zod";
+import { z } from 'zod';
 import type {
   AlertKind,
   BudgetRecord,
   BudgetRow,
   BudgetTokens,
-} from "../../shared/budget";
-import { budgetMonth, dayKey, tokensOf } from "../../shared/budget";
-import { OFFICIAL_USD_TO_EUR, type Rate } from "../../shared/usage";
-import { normalizeModel, round6, selectRate } from "../pricing/RateTable";
-import { JsonFileStore } from "../usage/JsonFileStore";
-import type { FileCursor } from "./claudeTranscripts";
+} from '../../shared/budget';
+import { budgetMonth, dayKey, tokensOf } from '../../shared/budget';
+import { OFFICIAL_USD_TO_EUR, type Rate } from '../../shared/usage';
+import { normalizeModel, round6, selectRate } from '../pricing/RateTable';
+import { JsonFileStore } from '../usage/JsonFileStore';
+import type { FileCursor } from './claudeTranscripts';
 
 export type SeenContribution = BudgetTokens & {
   day: string;
@@ -42,7 +42,7 @@ const tokens = {
 };
 const Row = z.object({
   ...tokens,
-  tool: z.enum(["claude-code", "opencode"]),
+  tool: z.enum(['claude-code', 'opencode']),
   model: z.string(),
   provider: z.string(),
   counted: z.boolean(),
@@ -77,10 +77,10 @@ const FileSchema: z.ZodType<BudgetFile> = z.object({
   openCodeCursor: z.number(),
   alerts: z.record(
     z.string(),
-    z.array(z.enum(["at80", "forecastOver", "at100"])),
+    z.array(z.enum(['at80', 'forecastOver', 'at100'])),
   ),
   sources: z.object({ claudeCode: z.boolean(), openCode: z.boolean() }),
-  maintainedOn: z.string().default(""),
+  maintainedOn: z.string().default(''),
   scanned: z.boolean().default(false),
 });
 const empty = (): BudgetFile => ({
@@ -91,7 +91,7 @@ const empty = (): BudgetFile => ({
   openCodeCursor: 0,
   alerts: {},
   sources: { claudeCode: false, openCode: false },
-  maintainedOn: "",
+  maintainedOn: '',
   scanned: false,
 });
 
@@ -115,11 +115,11 @@ const sameCursors = (
 };
 
 const TOKEN_KEYS = [
-  "inputTokens",
-  "outputTokens",
-  "cacheReadTokens",
-  "cacheWrite5mTokens",
-  "cacheWrite1hTokens",
+  'inputTokens',
+  'outputTokens',
+  'cacheReadTokens',
+  'cacheWrite5mTokens',
+  'cacheWrite1hTokens',
 ] as const;
 /** Seen entries older than this many days are compacted to their day key. */
 const COMPACT_AFTER_DAYS = 2;
@@ -127,13 +127,13 @@ const COMPACT_AFTER_DAYS = 2;
 export const rowKey = (
   r: Pick<
     BudgetRow,
-    "tool" | "model" | "provider" | "counted" | "inShellie" | "fast"
+    'tool' | 'model' | 'provider' | 'counted' | 'inShellie' | 'fast'
   >,
-) => [r.tool, r.model, r.provider, r.counted, r.inShellie, r.fast].join("|");
+) => [r.tool, r.model, r.provider, r.counted, r.inShellie, r.fast].join('|');
 
 export function isCounted(rec: BudgetRecord): boolean | null {
-  if (rec.tool === "claude-code" || rec.provider === "anthropic") return true;
-  return normalizeModel(rec.model).startsWith("claude-") ? false : null;
+  if (rec.tool === 'claude-code' || rec.provider === 'anthropic') return true;
+  return normalizeModel(rec.model).startsWith('claude-') ? false : null;
 }
 
 export function priceTokens(
@@ -206,7 +206,7 @@ export class BudgetStore {
     const fresh = input.records.filter((rec) => {
       if (isCounted(rec) === null) return false;
       const prev = cur.seen[rec.id];
-      if (typeof prev === "string") return false;
+      if (typeof prev === 'string') return false;
       if (prev) return tokensOf(rec) > tokensOf(prev);
       return dayKey(new Date(rec.at)) >= keepFrom;
     });
@@ -233,7 +233,7 @@ export class BudgetStore {
         day: string,
         proto: Omit<
           BudgetRow,
-          "requests" | "costEur" | (typeof TOKEN_KEYS)[number]
+          'requests' | 'costEur' | (typeof TOKEN_KEYS)[number]
         >,
       ) => {
         const list = (f.days[day] ??= []);
@@ -273,7 +273,7 @@ export class BudgetStore {
         const counted = isCounted(rec);
         if (counted === null) continue;
         const prev = f.seen[rec.id];
-        if (typeof prev === "string") continue;
+        if (typeof prev === 'string') continue;
         const day = dayKey(new Date(rec.at));
         // Older history is frozen: a resumed session copying it must not re-add it once its ids were pruned.
         if (!prev && day < keepFrom) continue;
@@ -340,11 +340,11 @@ export class BudgetStore {
         }
       }
       for (const [id, s] of maintain ? Object.entries(f.seen) : []) {
-        const d = typeof s === "string" ? s : s.day;
+        const d = typeof s === 'string' ? s : s.day;
         if (d < keepFrom) {
           delete f.seen[id];
           changed = true;
-        } else if (typeof s !== "string" && d < compactBefore) {
+        } else if (typeof s !== 'string' && d < compactBefore) {
           f.seen[id] = d;
           changed = true;
         }
