@@ -88,6 +88,8 @@ describe('parseTranscriptLine', () => {
       ),
     ).toBeNull();
     expect(parseTranscriptLine('{not json')).toBeNull();
+    for (const x of ['null', '42', '"x"'])
+      expect(parseTranscriptLine(x)).toBeNull();
   });
 });
 
@@ -161,6 +163,24 @@ describe('ClaudeTranscriptReader', () => {
       since: Date.now() + 60_000,
     });
     expect((await reader.read({})).records).toEqual([]);
+  });
+
+  it('reads a file larger than one chunk exactly once and leaves a partial tail', async () => {
+    const root = setup();
+    const f = path.join(root, 'proj', 's1.jsonl');
+    const ids = Array.from({ length: 20 }, (_, i) => `m${i}`);
+    const partial = line({ id: 'tail' });
+    writeFileSync(
+      f,
+      ids.map((i) => `${line({ id: i })}\n`).join('') + partial.slice(0, 40),
+    );
+    const reader = new ClaudeTranscriptReader(root, { chunkBytes: 64 });
+    const first = await reader.read({});
+    expect(first.records.map((r) => r.id)).toEqual(ids.map((i) => `cc:${i}`));
+    appendFileSync(f, `${partial.slice(40)}\n`);
+    expect((await reader.read(first.cursors)).records.map((r) => r.id)).toEqual(
+      ['cc:tail'],
+    );
   });
 
   it('reports a missing folder as not found', async () => {

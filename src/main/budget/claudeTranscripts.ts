@@ -30,7 +30,8 @@ export function parseTranscriptLine(line: string): BudgetRecord | null {
   } catch {
     return null;
   }
-  const m = d?.message;
+  if (!d || typeof d !== 'object') return null;
+  const m = d.message;
   if (
     d.type !== 'assistant' ||
     !m?.usage ||
@@ -97,10 +98,13 @@ const tick = () => new Promise<void>((r) => setImmediate(r));
 
 /** Follows every Claude Code transcript under `root`, reading only bytes appended since the last pass. */
 export class ClaudeTranscriptReader {
+  private readonly chunkBytes: number;
   constructor(
     private readonly root: string,
-    private readonly opts: { since?: number } = {},
-  ) {}
+    private readonly opts: { since?: number; chunkBytes?: number } = {},
+  ) {
+    this.chunkBytes = opts.chunkBytes ?? 1024 * 1024;
+  }
 
   async read(cursors: Record<string, FileCursor>) {
     try {
@@ -143,16 +147,36 @@ export class ClaudeTranscriptReader {
       }
       const fh = await fs.open(file, 'r');
       try {
-        const buf = Buffer.alloc(st.size - from);
-        await fh.read(buf, 0, buf.length, from);
-        const end = buf.lastIndexOf(0x0a);
-        const complete = end < 0 ? '' : buf.subarray(0, end).toString('utf8');
-        for (const l of complete.split('\n')) {
-          const r = l && parseTranscriptLine(l);
-          if (r) records.push(r);
+        const chunk = Buffer.alloc(this.chunkBytes);
+        let pos = from;
+        let carry = Buffer.alloc(0);
+        while (pos < st.size) {
+          const { bytesRead } = await fh.read(
+            chunk,
+            0,
+            Math.min(chunk.length, st.size - pos),
+            pos,
+          );
+          if (bytesRead === 0) break;
+          pos += bytesRead;
+          const data = carry.length
+            ? Buffer.concat([carry, chunk.subarray(0, bytesRead)])
+            : chunk.subarray(0, bytesRead);
+          const end = data.lastIndexOf(0x0a);
+          if (end >= 0) {
+            for (const l of data
+              .subarray(0, end)
+              .toString('utf8')
+              .split('\n')) {
+              const r = l && parseTranscriptLine(l);
+              if (r) records.push(r);
+            }
+          }
+          carry = Buffer.from(data.subarray(end + 1));
+          await tick();
         }
         next[file] = {
-          offset: from + end + 1,
+          offset: pos - carry.length,
           size: st.size,
           mtimeMs: st.mtimeMs,
           ino: st.ino,
