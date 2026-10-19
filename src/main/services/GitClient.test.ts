@@ -670,16 +670,20 @@ describe('GitClient worktree helpers', () => {
       ]);
     });
 
-    it('takes paths literally, not as pathspec patterns', async () => {
-      const repo = makeRepo();
-      commitFile(repo, 'a*.ts', 'star\n');
-      commitFile(repo, 'ab.ts', 'b\n');
-      writeFileSync(path.join(repo, 'a*.ts'), 'changed\n');
-      writeFileSync(path.join(repo, 'ab.ts'), 'keep\n');
-      await client.discardPaths(repo, 'HEAD', ['a*.ts']);
-      expect(read(repo, 'a*.ts')).toBe('star\n');
-      expect(read(repo, 'ab.ts')).toBe('keep\n');
-    });
+    // `*` cannot be in a Windows file name.
+    it.skipIf(process.platform === 'win32')(
+      'takes paths literally, not as pathspec patterns',
+      async () => {
+        const repo = makeRepo();
+        commitFile(repo, 'a*.ts', 'star\n');
+        commitFile(repo, 'ab.ts', 'b\n');
+        writeFileSync(path.join(repo, 'a*.ts'), 'changed\n');
+        writeFileSync(path.join(repo, 'ab.ts'), 'keep\n');
+        await client.discardPaths(repo, 'HEAD', ['a*.ts']);
+        expect(read(repo, 'a*.ts')).toBe('star\n');
+        expect(read(repo, 'ab.ts')).toBe('keep\n');
+      },
+    );
 
     it('refuses paths outside the worktree and through a symlinked folder', async () => {
       const repo = makeRepo();

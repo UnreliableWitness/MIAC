@@ -17,6 +17,9 @@ import { absoluteIn, mdEditsFromLines, SessionDocs } from './sessionDocs';
 
 afterAll(() => cleanupTempRepos());
 
+/** Files outside every worktree are listed by their absolute path in / form, as the docs tree splits it. */
+const slash = (p: string) => p.split(path.sep).join('/');
+
 const line = (
   name: string,
   input: Record<string, unknown>,
@@ -156,9 +159,12 @@ describe('SessionDocs', () => {
     writeFileSync(before, line('Write', { file_path: old }) + '\n');
     const past = new Date(Date.now() - 3_600_000);
     utimesSync(before, past, past);
-    expect((await s.list(task)).map((e) => e.path)).toEqual([a]);
+    expect((await s.list(task)).map((e) => e.path)).toEqual([slash(a)]);
     appendFileSync(log, line('Edit', { file_path: b }) + '\n');
-    expect((await s.list(task)).map((e) => e.path)).toEqual([a, b]);
+    expect((await s.list(task)).map((e) => e.path)).toEqual([
+      slash(a),
+      slash(b),
+    ]);
     expect(repo).toBeTruthy();
   });
 
@@ -172,7 +178,7 @@ describe('SessionDocs', () => {
       path.join(other, 'sid-1.jsonl'),
       line('Write', { file_path: a }) + '\n',
     );
-    expect((await s.list(task)).map((e) => e.path)).toEqual([a]);
+    expect((await s.list(task)).map((e) => e.path)).toEqual([slash(a)]);
     expect(await s.find(task, a)).toMatchObject({ workspaceId: null });
     expect(await s.find(task, path.join(tmp, 'nope.md'))).toBeNull();
     expect(await s.find(task, 'a.md')).toBeNull();

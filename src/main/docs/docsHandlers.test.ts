@@ -305,7 +305,8 @@ describe('docs handlers with session docs', () => {
       await h['docs:resolve']('t1', path.join(outside, 'not-mine.md')),
     ).toBeNull();
     await h['docs:reveal']('t1', abs);
-    expect(revealFile).toHaveBeenCalledWith(abs);
+    // Revealed by its real path (Windows' temp folder has an 8.3 short name in it).
+    expect(revealFile).toHaveBeenCalledWith(realpathSync.native(abs));
     await expect(
       h['docs:reveal']('t1', path.join(outside, 'not-mine.md')),
     ).rejects.toThrow('Outside the worktree');
