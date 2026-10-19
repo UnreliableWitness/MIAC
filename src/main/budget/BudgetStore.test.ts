@@ -261,4 +261,99 @@ describe('BudgetStore.apply', () => {
     expect(again.value.openCodeCursor).toBe(9);
     expect(again.value.seen['cc:m1']).toBe('2026-10-07');
   });
+
+  it('reprices an unpriced row at the tier of the average request, not the day total', async () => {
+    const rates: Rate[] = [];
+    const s = await store(rates);
+    const haiku = (id: string) =>
+      rec({ id, model: 'claude-haiku-5-5', inputTokens: 60_000 });
+    await s.apply({
+      ...base,
+      records: [haiku('cc:h1'), haiku('cc:h2'), haiku('cc:h3')],
+    });
+    const baseRate = {
+      ...opus,
+      id: 'h-base',
+      match: ['claude-haiku-5-5'],
+      inputPerM: 1,
+    } as Rate;
+    rates.push(baseRate, {
+      ...baseRate,
+      id: 'h-long',
+      minInputTokens: 100_000,
+      inputPerM: 5,
+    } as Rate);
+    await s.apply({ ...base, records: [] });
+    expect(day(s)[0].costEur).toBeCloseTo(3 * 0.06 * OFFICIAL_USD_TO_EUR, 6);
+  });
+
+  it('keeps a priced row priced when an unpriced contribution is replaced by a larger copy', async () => {
+    const rates: Rate[] = [];
+    const s = await store(rates);
+    const cc = (out: number) =>
+      rec({ id: 'cc:p', at: recent, inputTokens: 0, outputTokens: out });
+    await s.apply({ ...base, records: [cc(1_000_000)] });
+    rates.push(opus);
+    await s.apply({ ...base, records: [] });
+    await s.apply({ ...base, records: [cc(2_000_000)] });
+    expect(recentDay(s)[0]).toMatchObject({
+      requests: 1,
+      outputTokens: 2_000_000,
+    });
+    expect(recentDay(s)[0].costEur).toBeCloseTo(40 * OFFICIAL_USD_TO_EUR, 6);
+  });
+
+  it('removes rows and days emptied by a replacement that moves day', async () => {
+    const s = await store();
+    const at = (d: number) => new Date(2026, 9, d, 10).toISOString();
+    await s.apply({
+      ...base,
+      records: [
+        rec({ id: 'oc:mv', tool: 'opencode', at: at(18), inputTokens: 1 }),
+      ],
+    });
+    await s.apply({
+      ...base,
+      records: [
+        rec({ id: 'oc:mv', tool: 'opencode', at: at(19), inputTokens: 2 }),
+      ],
+    });
+    expect(s.value.days['2026-10-18']).toBeUndefined();
+    expect(s.value.days['2026-10-19']).toHaveLength(1);
+  });
+
+  it('ignores unseen records older than the previous budget month', async () => {
+    const s = await store();
+    expect(
+      await s.apply({
+        ...base,
+        records: [
+          rec({ id: 'cc:ancient', at: new Date(2026, 7, 2).toISOString() }),
+        ],
+      }),
+    ).toBe(true);
+    expect(s.value.days['2026-08-02']).toBeUndefined();
+    expect(s.value.seen['cc:ancient']).toBeUndefined();
+  });
+
+  it('keeps the larger copy when duplicates arrive larger-then-smaller in one apply', async () => {
+    const s = await store();
+    const cc = (out: number) =>
+      rec({ id: 'cc:w', at: recent, inputTokens: 0, outputTokens: out });
+    await s.apply({ ...base, records: [cc(50), cc(10)] });
+    expect(recentDay(s)[0]).toMatchObject({ requests: 1, outputTokens: 50 });
+  });
+
+  it('prices a fast record with the standard rate when no fast rate exists', async () => {
+    const s = await store();
+    await s.apply({ ...base, records: [rec({ id: 'cc:f', fast: true })] });
+    expect(day(s)[0].costEur).toBeCloseTo(4 * OFFICIAL_USD_TO_EUR, 6);
+  });
+
+  it('markAlert is idempotent', async () => {
+    const s = await store();
+    await s.markAlert('2026-10-01', 'at80');
+    await s.markAlert('2026-10-01', 'at80');
+    expect(s.value.alerts['2026-10-01']).toEqual(['at80']);
+  });
 });

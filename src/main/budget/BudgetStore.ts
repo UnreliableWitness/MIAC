@@ -114,12 +114,15 @@ export function priceTokens(
   model: string,
   fast: boolean,
   t: BudgetTokens,
+  /** Input size that picks the price tier; defaults to the tokens' own input total. */
+  tierInput?: number,
 ): number | null {
   const totalIn =
+    tierInput ??
     t.inputTokens +
-    t.cacheReadTokens +
-    t.cacheWrite5mTokens +
-    t.cacheWrite1hTokens;
+      t.cacheReadTokens +
+      t.cacheWrite5mTokens +
+      t.cacheWrite1hTokens;
   const rate =
     selectRate(rates, model, totalIn, fast) ??
     (fast ? selectRate(rates, model, totalIn, false) : null);
@@ -217,9 +220,11 @@ export class BudgetStore {
         if (counted === null) continue;
         const prev = f.seen[rec.id];
         if (typeof prev === 'string') continue;
+        const day = dayKey(new Date(rec.at));
+        // Older history is frozen: a resumed session copying it must not re-add it once its ids were pruned.
+        if (!prev && day < keepFrom) continue;
         // A repeat only wins when it is larger; Claude Code and OpenCode both re-write messages with more tokens.
         if (prev && tokensOf(rec) <= tokensOf(prev)) continue;
-        const day = dayKey(new Date(rec.at));
         const proto = {
           tool: rec.tool,
           model: rec.model,
@@ -233,7 +238,18 @@ export class BudgetStore {
           : null;
         if (prev) {
           const old = f.days[prev.day]?.find((r) => rowKey(r) === prev.key);
-          if (old) add(old, prev, 1, prev.costEur, -1);
+          if (old) {
+            const oldCost =
+              prev.costEur === null && old.costEur !== null
+                ? priceTokens(rates, old.model, old.fast, prev)
+                : prev.costEur;
+            add(old, prev, 1, oldCost, -1);
+            if (old.requests <= 0) {
+              const list = f.days[prev.day]!;
+              list.splice(list.indexOf(old), 1);
+              if (list.length === 0) delete f.days[prev.day];
+            }
+          }
         }
         add(rowFor(day, proto), rec, 1, cost, 1);
         const t = Object.fromEntries(
@@ -253,7 +269,13 @@ export class BudgetStore {
         if (day < keepFrom) continue;
         for (const row of list) {
           if (!row.counted || row.costEur !== null) continue;
-          const cost = priceTokens(rates, row.model, row.fast, row);
+          const avgInput =
+            (row.inputTokens +
+              row.cacheReadTokens +
+              row.cacheWrite5mTokens +
+              row.cacheWrite1hTokens) /
+            Math.max(1, row.requests);
+          const cost = priceTokens(rates, row.model, row.fast, row, avgInput);
           if (cost !== null) {
             row.costEur = cost;
             changed = true;
