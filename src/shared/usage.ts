@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { BudgetSettingsSchema, defaultBudgetSettings } from './budget';
 import { defaultEditorPrefs, EditorPrefsSchema } from './editors';
 import { WorkHoursSchema } from './time';
 
@@ -71,6 +72,8 @@ export const AppSettingsSchema = z.object({
   showSplash: z.boolean().default(true),
   /** Notify when an agent finishes its turn (blocked agents always notify). */
   notifyOnDone: z.boolean().default(true),
+  /** The developer's monthly Claude budget (Home's Claude budget band). */
+  claudeBudget: BudgetSettingsSchema.default(defaultBudgetSettings()),
   /** Send anonymous usage and error data (see docs/telemetry.md). */
   sendTelemetry: z.boolean().default(true),
   /** Which editor Open in editor uses, globally and per repo. */

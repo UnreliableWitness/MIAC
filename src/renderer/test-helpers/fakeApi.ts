@@ -78,6 +78,11 @@ const defaults: FakeHandlers = {
     writeCostToAdo: true,
     showSplash: true,
     notifyOnDone: true,
+    claudeBudget: {
+      monthlyEur: null,
+      monthStartDay: 1,
+      alerts: { at80: true, forecastOver: true, at100: true },
+    },
     sendTelemetry: true,
     editor: { default: null, repos: {} },
   }),
