@@ -33,10 +33,7 @@ export function useAttention(): void {
     const offs = [
       api().on('attention:changed', (s) => useStore.getState().setAttention(s)),
       api().on('attention:open', ({ taskId, terminalId }) => {
-        const st = useStore.getState();
-        st.select(taskId);
-        st.go({ kind: 'task' });
-        st.setTab(taskId, terminalId);
+        useStore.getState().openTab(taskId, terminalId);
       }),
     ];
     return () => {

@@ -94,6 +94,8 @@ type Store = {
   activeTab(taskId: string): string;
   openUsage(taskId: string): void;
   openChanges(taskId: string): void;
+  /** Opens the task's page on one tab, such as a terminal. */
+  openTab(taskId: string, tab: string): void;
   openDoc(
     taskId: string,
     path: string,
@@ -110,7 +112,10 @@ type Store = {
 
 let noticeSeq = 0;
 
-/** Opens the task's page on one of its tabs; `also` lands in the same update. */
+/**
+ * Opens the task's page on one of its tabs; `also` lands in the same update.
+ * The tab is set first, so no subscriber sees the task on screen with its previous tab.
+ */
 function showTab(
   get: () => Store,
   set: (s: Partial<Store>) => void,
@@ -118,9 +123,9 @@ function showTab(
   tab: string,
   also: Partial<Store> = {},
 ): void {
+  set({ tabByTask: { ...get().tabByTask, [taskId]: tab }, ...also });
   get().select(taskId);
   get().go({ kind: 'task' });
-  set({ tabByTask: { ...get().tabByTask, [taskId]: tab }, ...also });
 }
 
 /** Pages that are a step, not a place: Back never returns to them. */
@@ -206,6 +211,7 @@ export const useStore = create<Store>((set, get) => ({
     showTab(get, set, taskId, USAGE_TAB);
   },
   openChanges: (taskId) => showTab(get, set, taskId, CHANGES_TAB),
+  openTab: (taskId, tab) => showTab(get, set, taskId, tab),
   openDoc: (taskId, path, line, workspaceId) => {
     showTab(get, set, taskId, DOCS_TAB, {
       docTarget: {

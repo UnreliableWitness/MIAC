@@ -133,6 +133,7 @@ const tasks: TaskView[] = [
 beforeEach(() => {
   localStorage.clear();
   useStore.setState({
+    attention: {},
     navCollapsed: false,
     repos,
     tasks,

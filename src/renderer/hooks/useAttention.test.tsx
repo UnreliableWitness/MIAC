@@ -64,4 +64,17 @@ describe('useAttention', () => {
       'a2',
     ]);
   });
+
+  it('never reports the previous tab while a click-through switches', async () => {
+    const fake = installFakeApi();
+    useStore.setState({ tabByTask: { A: 'a1' } });
+    renderHook(() => useAttention());
+    await act(async () => undefined);
+    fake.calls.length = 0;
+    act(() => fake.emit('attention:open', { taskId: 'A', terminalId: 'a2' }));
+    const views = fake.calls
+      .filter((c) => c.channel === 'attention:view')
+      .map((c) => c.args[0]);
+    expect(views).toEqual([{ taskId: 'A', tabId: 'a2' }]);
+  });
 });
