@@ -54,6 +54,7 @@ const defaults: FakeHandlers = {
     notCounted: [],
     unpriced: [],
     sources: { claudeCode: false, openCode: false },
+    scanned: true,
     alertsDue: [],
   }),
   'home:get': () => null,

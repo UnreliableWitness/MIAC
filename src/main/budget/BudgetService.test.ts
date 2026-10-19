@@ -1,17 +1,18 @@
-import { mkdtempSync } from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
-import type { BudgetRecord } from '../../shared/budget';
-import { defaultBudgetSettings } from '../../shared/budget';
-import type { Rate } from '../../shared/usage';
-import { BudgetService, inShellieFor } from './BudgetService';
-import { BudgetStore } from './BudgetStore';
+import { mkdtempSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { describe, expect, it, vi } from "vitest";
+import type { BudgetRecord } from "../../shared/budget";
+import { defaultBudgetSettings } from "../../shared/budget";
+import type { Rate } from "../../shared/usage";
+import { BudgetService, inShellieFor } from "./BudgetService";
+import { OFFICIAL_RATES } from "../pricing/officialRates";
+import { BudgetStore } from "./BudgetStore";
 
 const opus = {
-  id: 'anthropic-opus-5-5',
-  label: 'Opus',
-  match: ['claude-opus-5-5'],
+  id: "anthropic-opus-5-5",
+  label: "Opus",
+  match: ["claude-opus-5-5"],
   minInputTokens: 0,
   fast: false,
   inputPerM: 4,
@@ -22,10 +23,10 @@ const opus = {
 } as Rate;
 const rec = (id: string, eurMillions = 1): BudgetRecord => ({
   id,
-  tool: 'claude-code',
-  sessionId: 's',
-  model: 'claude-opus-5-5',
-  provider: 'anthropic',
+  tool: "claude-code",
+  sessionId: "s",
+  model: "claude-opus-5-5",
+  provider: "anthropic",
   at: new Date(2026, 9, 10, 9).toISOString(),
   cwd: null,
   fast: false,
@@ -38,7 +39,7 @@ const rec = (id: string, eurMillions = 1): BudgetRecord => ({
 
 async function setup(records: BudgetRecord[], budget: number | null = 5) {
   const store = new BudgetStore(
-    path.join(mkdtempSync(path.join(os.tmpdir(), 'bsv-')), 'budget.json'),
+    path.join(mkdtempSync(path.join(os.tmpdir(), "bsv-")), "budget.json"),
     () => [opus],
   );
   await store.load();
@@ -50,7 +51,7 @@ async function setup(records: BudgetRecord[], budget: number | null = 5) {
     claude: { read: claudeRead },
     openCode: { read: () => ({ records: [], cursor: 0, found: false }) },
     settings: () => ({ ...defaultBudgetSettings(), monthlyEur: budget }),
-    inShellie: () => false,
+    inShellie: () => () => false,
     now: () => new Date(2026, 9, 19, 12),
     changed,
     notify,
@@ -58,38 +59,88 @@ async function setup(records: BudgetRecord[], budget: number | null = 5) {
   return { svc, store, notify, changed, claudeRead };
 }
 
-describe('BudgetService', () => {
-  it('runs one pass at a time', async () => {
+describe("BudgetService", () => {
+  it("runs one pass at a time", async () => {
     const { svc, claudeRead } = await setup([]);
     await Promise.all([svc.pass(), svc.pass()]);
     expect(claudeRead).toHaveBeenCalledTimes(1);
   });
 
-  it('broadcasts only when something changed', async () => {
-    const { svc, changed } = await setup([rec('cc:a')]);
+  it("broadcasts only when something changed", async () => {
+    const { svc, changed } = await setup([rec("cc:a")]);
     await svc.pass();
     await svc.pass();
     expect(changed).toHaveBeenCalledTimes(1);
   });
 
-  it('fires each alert once per month, also after a restart', async () => {
-    const { svc, store, notify } = await setup([rec('cc:a', 2)], 4); // 2M input at $4 = $8 → ~€7.36 > €4
+  it("fires each alert once per month, also after a restart", async () => {
+    const { svc, store, notify } = await setup([rec("cc:a", 2)], 4); // 2M input at $4 = $8 → ~€7.36 > €4
     await svc.pass();
     await svc.pass();
     expect(notify.mock.calls.map((c) => c[0].title)).toEqual([
-      'Claude budget: 80% used',
-      'Claude budget: on pace to go over',
-      'Claude budget: used up',
+      "Claude budget: 80% used",
+      "Claude budget: on pace to go over",
+      "Claude budget: used up",
     ]);
-    expect(store.value.alerts['2026-10-01']).toEqual([
-      'at80',
-      'forecastOver',
-      'at100',
+    expect(store.value.alerts["2026-10-01"]).toEqual([
+      "at80",
+      "forecastOver",
+      "at100",
     ]);
   });
 
-  it('records sources and builds the view', async () => {
-    const { svc } = await setup([rec('cc:a')]);
+  it("resolves a failed pass and logs it", async () => {
+    const { svc, claudeRead } = await setup([]);
+    claudeRead.mockRejectedValueOnce(new Error("disk gone"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await expect(svc.pass()).resolves.toBeUndefined();
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+    await svc.pass();
+    expect(claudeRead).toHaveBeenCalledTimes(2);
+  });
+
+  it("labels models by their official rate, merging dated ids", async () => {
+    const haiku = (id: string, model: string) => ({
+      ...rec(id),
+      model,
+      inputTokens: 1000,
+    });
+    const store = new BudgetStore(
+      path.join(mkdtempSync(path.join(os.tmpdir(), "bsv-")), "budget.json"),
+      () => OFFICIAL_RATES,
+    );
+    await store.load();
+    const svc = new BudgetService({
+      store,
+      claude: {
+        read: async () => ({
+          records: [
+            haiku("cc:h1", "claude-haiku-4-5-20251001"),
+            haiku("cc:h2", "claude-haiku-4-5"),
+          ],
+          cursors: {},
+          found: true,
+        }),
+      },
+      openCode: { read: () => ({ records: [], cursor: 0, found: false }) },
+      settings: () => defaultBudgetSettings(),
+      inShellie: () => () => false,
+      now: () => new Date(2026, 9, 19, 12),
+      changed: () => {},
+      notify: () => {},
+    });
+    await svc.pass();
+    expect(svc.view(0).models.map((m) => [m.model, m.requests])).toEqual([
+      ["Claude Haiku 4.5", 2],
+    ]);
+  });
+
+  it("records sources and builds the view", async () => {
+    const { svc } = await setup([rec("cc:a")]);
     await svc.pass();
     const v = svc.view(0);
     expect(v.sources).toEqual({ claudeCode: true, openCode: false });
@@ -97,25 +148,34 @@ describe('BudgetService', () => {
   });
 });
 
-describe('inShellieFor', () => {
+describe("inShellieFor", () => {
   const task = {
-    id: 't',
-    worktreePath: '/w/a',
+    id: "t",
+    worktreePath: "/w/a",
     extraWorkspaces: [
-      { id: 'x', repoId: 'r2', worktreePath: '/w/b', dropped: false },
+      { id: "x", repoId: "r2", worktreePath: "/w/b", dropped: false },
     ],
-    terminals: [{ id: '1', kind: 'claude', label: 'C', sessionId: 'S1' }],
-    closedTerminals: [{ id: '2', kind: 'claude', label: 'C', sessionId: 'S2' }],
+    terminals: [{ id: "1", kind: "claude", label: "C", sessionId: "S1" }],
+    closedTerminals: [{ id: "2", kind: "claude", label: "C", sessionId: "S2" }],
   } as never;
-  const f = inShellieFor(() => [task]);
-  const r = (o: Partial<BudgetRecord>) => ({ ...rec('x'), ...o });
-  it('matches Claude Code by session id, open or closed tab', () => {
-    expect(f(r({ sessionId: 'S1' }))).toBe(true);
-    expect(f(r({ sessionId: 'S2' }))).toBe(true);
-    expect(f(r({ sessionId: 'other' }))).toBe(false);
+  const f = inShellieFor(() => [task])();
+  const r = (o: Partial<BudgetRecord>) => ({ ...rec("x"), ...o });
+  it("matches Claude Code by session id, open or closed tab", () => {
+    expect(f(r({ sessionId: "S1" }))).toBe(true);
+    expect(f(r({ sessionId: "S2" }))).toBe(true);
+    expect(f(r({ sessionId: "other" }))).toBe(false);
   });
-  it('matches OpenCode by working directory inside any task worktree', () => {
-    expect(f(r({ tool: 'opencode', cwd: '/w/b/src' }))).toBe(true);
-    expect(f(r({ tool: 'opencode', cwd: '/elsewhere' }))).toBe(false);
+  it("also matches sessions the usage store saw for a task, built once per pass", () => {
+    const extra = vi.fn(() => new Set(["U1"]));
+    const g = inShellieFor(() => [task], extra)();
+    expect(g(r({ sessionId: "U1" }))).toBe(true);
+    expect(g(r({ sessionId: "S1" }))).toBe(true);
+    expect(g(r({ sessionId: "nope" }))).toBe(false);
+    expect(g(r({ sessionId: "nope2" }))).toBe(false);
+    expect(extra).toHaveBeenCalledTimes(1);
+  });
+  it("matches OpenCode by working directory inside any task worktree", () => {
+    expect(f(r({ tool: "opencode", cwd: "/w/b/src" }))).toBe(true);
+    expect(f(r({ tool: "opencode", cwd: "/elsewhere" }))).toBe(false);
   });
 });

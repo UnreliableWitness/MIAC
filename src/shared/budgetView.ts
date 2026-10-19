@@ -5,7 +5,7 @@ import {
   budgetMonth,
   dayKey,
   tokensOf,
-} from './budget';
+} from "./budget";
 
 export type ModelTotal = {
   model: string;
@@ -36,7 +36,7 @@ export type BudgetView = {
   daysInMonth: number;
   /** Null when hidden: not the current month, or three days or fewer elapsed. */
   forecastEur: number | null;
-  status: 'none' | 'onTrack' | 'paceOver' | 'over';
+  status: "none" | "onTrack" | "paceOver" | "over";
   /** Past days and today only. */
   cumulative: { day: string; eur: number }[];
   days: BudgetDay[];
@@ -55,6 +55,8 @@ export type BudgetView = {
   }[];
   unpriced: { model: string; tokens: number; requests: number }[];
   sources: { claudeCode: boolean; openCode: boolean };
+  /** False until the first read of the usage sources has finished. */
+  scanned: boolean;
   alertsDue: AlertKind[];
 };
 
@@ -67,8 +69,13 @@ export function budgetView(input: {
   monthOffset: number;
   fired: AlertKind[];
   sources: { claudeCode: boolean; openCode: boolean };
+  /** Defaults to true. */
+  scanned?: boolean;
+  /** Display name for a raw model id; models with the same name are merged. Defaults to the id. */
+  label?: (model: string) => string;
 }): BudgetView {
   const { settings, now, monthOffset } = input;
+  const label = input.label ?? ((m: string) => m);
   const month = budgetMonth(now, settings.monthStartDay, monthOffset);
   const today = dayKey(now);
   const current = monthOffset === 0;
@@ -97,10 +104,11 @@ export function budgetView(input: {
     let dayEur = 0;
     for (const row of input.days[day] ?? []) {
       const tokens = tokensOf(row);
+      const model = label(row.model);
       if (!row.counted) {
-        const k = `${row.provider}|${row.model}`;
+        const k = `${row.provider}|${model}`;
         const e = notCounted.get(k) ?? {
-          model: row.model,
+          model,
           provider: row.provider,
           requests: 0,
           tokens: 0,
@@ -111,20 +119,20 @@ export function budgetView(input: {
         continue;
       }
       if (row.costEur === null) {
-        const e = unpriced.get(row.model) ?? {
-          model: row.model,
+        const e = unpriced.get(model) ?? {
+          model,
           tokens: 0,
           requests: 0,
         };
         e.tokens += tokens;
         e.requests += row.requests;
-        unpriced.set(row.model, e);
+        unpriced.set(model, e);
         continue;
       }
       dayEur += row.costEur;
       if (!row.inShellie) outside += row.costEur;
-      const m = byModel.get(row.model) ?? {
-        model: row.model,
+      const m = byModel.get(model) ?? {
+        model,
         costEur: 0,
         outsideEur: 0,
         tokens: 0,
@@ -132,9 +140,9 @@ export function budgetView(input: {
       m.costEur += row.costEur;
       if (!row.inShellie) m.outsideEur += row.costEur;
       m.tokens += tokens;
-      byModel.set(row.model, m);
-      const t = models.get(row.model) ?? {
-        model: row.model,
+      byModel.set(model, m);
+      const t = models.get(model) ?? {
+        model,
         costEur: 0,
         tokens: 0,
         requests: 0,
@@ -142,7 +150,7 @@ export function budgetView(input: {
       t.costEur += row.costEur;
       t.tokens += tokens;
       t.requests += row.requests;
-      models.set(row.model, t);
+      models.set(model, t);
     }
     spent += dayEur;
     const future = current && day > today;
@@ -166,14 +174,14 @@ export function budgetView(input: {
       ? round6((spent / daysElapsed) * daysInMonth)
       : null;
   const budget = settings.monthlyEur;
-  const status: BudgetView['status'] =
+  const status: BudgetView["status"] =
     budget === null
-      ? 'none'
-      : spent > budget
-        ? 'over'
+      ? "none"
+      : spent >= budget
+        ? "over"
         : forecastEur !== null && forecastEur > budget
-          ? 'paceOver'
-          : 'onTrack';
+          ? "paceOver"
+          : "onTrack";
 
   const alertsDue: AlertKind[] = [];
   if (budget !== null && current) {
@@ -181,9 +189,9 @@ export function budgetView(input: {
       if (hit && settings.alerts[k] && !input.fired.includes(k))
         alertsDue.push(k);
     };
-    due('at80', spent >= budget * 0.8);
-    due('forecastOver', forecastEur !== null && forecastEur > budget);
-    due('at100', spent >= budget);
+    due("at80", spent >= budget * 0.8);
+    due("forecastOver", forecastEur !== null && forecastEur > budget);
+    due("at100", spent >= budget);
   }
 
   const sumDays = (from: string) =>
@@ -213,6 +221,7 @@ export function budgetView(input: {
     notCounted: [...notCounted.values()],
     unpriced: [...unpriced.values()],
     sources: input.sources,
+    scanned: input.scanned ?? true,
     alertsDue,
   };
 }
