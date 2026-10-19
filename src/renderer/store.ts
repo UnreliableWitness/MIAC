@@ -1,22 +1,22 @@
-import { create } from 'zustand';
-import type { AttentionSnapshot } from '../shared/attention';
-import type { NewReviewComment, ReviewScope } from '../shared/review';
+import { create } from "zustand";
+import type { AttentionSnapshot } from "../shared/attention";
+import type { NewReviewComment, ReviewScope } from "../shared/review";
 import type {
   Connection,
   Notice,
   Repo,
   TaskView,
   WorkItemRef,
-} from '../shared/types';
-import { taskConnectionId } from '../shared/workspaces';
-import { api } from './api';
-import type { RepoFold } from './review/repoGroups';
-import { track, trackScreen } from './telemetry';
-import { readPrefs, writePref } from './uiPrefs';
+} from "../shared/types";
+import { taskConnectionId } from "../shared/workspaces";
+import { api } from "./api";
+import type { RepoFold } from "./review/repoGroups";
+import { track, trackScreen } from "./telemetry";
+import { readPrefs, writePref } from "./uiPrefs";
 
-export const USAGE_TAB = 'usage';
-export const DOCS_TAB = 'docs';
-export const CHANGES_TAB = 'changes';
+export const USAGE_TAB = "usage";
+export const DOCS_TAB = "docs";
+export const CHANGES_TAB = "changes";
 /** Tabs that are not a terminal: always valid. */
 const FIXED_TABS = new Set([USAGE_TAB, DOCS_TAB, CHANGES_TAB]);
 
@@ -35,7 +35,7 @@ export type ReviewView = {
   repoFolds: Record<string, RepoFold>;
 };
 export const DEFAULT_REVIEW_VIEW: ReviewView = {
-  scope: { kind: 'all' },
+  scope: { kind: "all" },
   selected: null,
   draft: null,
   collapsed: [],
@@ -45,13 +45,14 @@ export const DEFAULT_REVIEW_VIEW: ReviewView = {
 
 /** Every screen is a full page next to the nav; `task` shows the selected task. */
 export type Screen =
-  | { kind: 'home' }
-  | { kind: 'sprint' }
-  | { kind: 'task' }
-  | { kind: 'new-task'; workItem?: WorkItemRef; repoId?: string }
-  | { kind: 'setup'; taskId: string }
-  | { kind: 'finish'; taskId: string }
-  | { kind: 'settings' };
+  | { kind: "home" }
+  | { kind: "sprint" }
+  | { kind: "task" }
+  | { kind: "new-task"; workItem?: WorkItemRef; repoId?: string }
+  | { kind: "setup"; taskId: string }
+  | { kind: "finish"; taskId: string }
+  /** `section` is the id of a settings section to scroll to on open. */
+  | { kind: "settings"; section?: string };
 
 type Store = {
   screen: Screen;
@@ -87,7 +88,7 @@ type Store = {
   setConnections(connections: Connection[]): void;
   setConnectionId(id: string | null): void;
   setSprintName(name: string | null): void;
-  notify(level: Notice['level'], message: string): void;
+  notify(level: Notice["level"], message: string): void;
   dismiss(id: string): void;
   load(): Promise<void>;
   setTab(taskId: string, tab: string): void;
@@ -125,14 +126,14 @@ function showTab(
 ): void {
   set({ tabByTask: { ...get().tabByTask, [taskId]: tab }, ...also });
   get().select(taskId);
-  get().go({ kind: 'task' });
+  get().go({ kind: "task" });
 }
 
 /** Pages that are a step, not a place: Back never returns to them. */
-const TRANSIENT = new Set<Screen['kind']>(['new-task', 'finish']);
+const TRANSIENT = new Set<Screen["kind"]>(["new-task", "finish"]);
 
 export const useStore = create<Store>((set, get) => ({
-  screen: { kind: 'home' },
+  screen: { kind: "home" },
   previous: null,
   repos: [],
   tasks: [],
@@ -161,9 +162,9 @@ export const useStore = create<Store>((set, get) => ({
   back: () => {
     const { previous, tasks, selectedTaskId } = get();
     const gone =
-      previous?.kind === 'task' && !tasks.some((t) => t.id === selectedTaskId);
+      previous?.kind === "task" && !tasks.some((t) => t.id === selectedTaskId);
     set({
-      screen: previous && !gone ? previous : { kind: 'home' },
+      screen: previous && !gone ? previous : { kind: "home" },
       previous: null,
     });
   },
@@ -171,9 +172,9 @@ export const useStore = create<Store>((set, get) => ({
   openTask: (taskId) => {
     const task = get().tasks.find((t) => t.id === taskId);
     get().select(taskId);
-    if (task?.status === 'setting-up' || task?.status === 'setup-failed')
-      get().go({ kind: 'setup', taskId });
-    else get().go({ kind: 'task' });
+    if (task?.status === "setting-up" || task?.status === "setup-failed")
+      get().go({ kind: "setup", taskId });
+    else get().go({ kind: "task" });
   },
   setRepos: (repos) => set({ repos }),
   setConnections: (connections) => set({ connections }),
@@ -187,16 +188,16 @@ export const useStore = create<Store>((set, get) => ({
   },
   notify: (level, message) => {
     // Main scrubs the message (paths, repo and work item names) before it is sent.
-    if (level !== 'info')
-      track('notice', { level, message: message.slice(0, 200) });
+    if (level !== "info")
+      track("notice", { level, message: message.slice(0, 200) });
     const id = `n${++noticeSeq}`;
     set({ notices: [...get().notices, { id, level, message }] });
-    if (level !== 'error') setTimeout(() => get().dismiss(id), 6000);
+    if (level !== "error") setTimeout(() => get().dismiss(id), 6000);
   },
   dismiss: (id) => set({ notices: get().notices.filter((n) => n.id !== id) }),
   setTab: (taskId, tab) => {
     if (tab === USAGE_TAB && get().activeTab(taskId) !== USAGE_TAB)
-      track('usage.opened', { via: 'tab' });
+      track("usage.opened", { via: "tab" });
     set({ tabByTask: { ...get().tabByTask, [taskId]: tab } });
   },
   activeTab: (taskId) => {
@@ -207,7 +208,7 @@ export const useStore = create<Store>((set, get) => ({
     return task?.terminals[0]?.id ?? USAGE_TAB;
   },
   openUsage: (taskId) => {
-    track('usage.opened', { via: 'strip' });
+    track("usage.opened", { via: "strip" });
     showTab(get, set, taskId, USAGE_TAB);
   },
   openChanges: (taskId) => showTab(get, set, taskId, CHANGES_TAB),
@@ -229,26 +230,26 @@ export const useStore = create<Store>((set, get) => ({
     const cur = get().reviewByTask[taskId] ?? DEFAULT_REVIEW_VIEW;
     const next = {
       ...cur,
-      ...(typeof patch === 'function' ? patch(cur) : patch),
+      ...(typeof patch === "function" ? patch(cur) : patch),
     };
     set({ reviewByTask: { ...get().reviewByTask, [taskId]: next } });
   },
   toggleFocus: () => {
     const focus = !get().focus;
-    track('focus.toggled', { on: focus });
-    writePref('focus', focus);
+    track("focus.toggled", { on: focus });
+    writePref("focus", focus);
     set({ focus });
   },
   setNavCollapsed: (navCollapsed) => {
-    track('nav.toggled', { collapsed: navCollapsed });
-    writePref('navCollapsed', navCollapsed);
+    track("nav.toggled", { collapsed: navCollapsed });
+    writePref("navCollapsed", navCollapsed);
     set({ navCollapsed });
   },
   load: async () => {
     const [repos, tasks, connections] = await Promise.all([
-      api().invoke('repos:list'),
-      api().invoke('tasks:list'),
-      api().invoke('connections:list'),
+      api().invoke("repos:list"),
+      api().invoke("tasks:list"),
+      api().invoke("connections:list"),
     ]);
     get().setRepos(repos);
     get().setTasks(tasks);
@@ -272,7 +273,7 @@ export const useTaskConnectionId = (
 
 type ConnectionState = Pick<
   Store,
-  'connections' | 'connectionId' | 'repos' | 'tasks' | 'selectedTaskId'
+  "connections" | "connectionId" | "repos" | "tasks" | "selectedTaskId"
 > & { screen?: Screen };
 
 /** The task whose page is on screen: the task page, or its setup or finish page; null elsewhere. */
@@ -281,10 +282,10 @@ export function taskOnScreen(s: {
   selectedTaskId: string | null;
 }): string | null {
   switch (s.screen?.kind) {
-    case 'task':
+    case "task":
       return s.selectedTaskId;
-    case 'setup':
-    case 'finish':
+    case "setup":
+    case "finish":
       return s.screen.taskId;
     default:
       return null;

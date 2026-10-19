@@ -1,19 +1,19 @@
-import { useEffect, useState } from 'react';
-import type { AppSettings } from '../../shared/usage';
+import { useEffect, useState } from "react";
+import type { AppSettings } from "../../shared/usage";
 import type {
   ShellieConfig,
   Repo,
   StartSettings,
   WorkItemTypeMeta,
-} from '../../shared/types';
-import { api, saveSettings, tryInvoke } from '../api';
-import { ConnectionsSection } from '../components/ConnectionsSection';
-import { CostSection } from '../components/CostSection';
-import { EditorSection } from '../components/EditorSection';
-import { TimeSection } from '../components/TimeSection';
-import { BudgetSection } from '../components/BudgetSection';
-import { MindMark, PageHeader } from '../components/ui';
-import { useStore } from '../store';
+} from "../../shared/types";
+import { api, saveSettings, tryInvoke } from "../api";
+import { ConnectionsSection } from "../components/ConnectionsSection";
+import { CostSection } from "../components/CostSection";
+import { EditorSection } from "../components/EditorSection";
+import { TimeSection } from "../components/TimeSection";
+import { BudgetSection } from "../components/BudgetSection";
+import { MindMark, PageHeader } from "../components/ui";
+import { useStore } from "../store";
 
 function renderConfig(
   name: string,
@@ -21,21 +21,21 @@ function renderConfig(
   worktreeRoot: string,
 ): string {
   const lines = [
-    `${name}/.shellie.yml${c.found ? '' : ' (defaults, file not found)'}`,
+    `${name}/.shellie.yml${c.found ? "" : " (defaults, file not found)"}`,
     `base: ${c.base}`,
     `branch: "${c.branch}"`,
-    `copy: [${c.copy.join(', ')}]`,
-    'setup:',
+    `copy: [${c.copy.join(", ")}]`,
+    "setup:",
     ...c.setup.map((s) => `  - ${s}`),
-    'run:',
+    "run:",
     ...Object.entries(c.run).map(([k, v]) => `  ${k}: ${v}`),
     ...(c.apm === undefined
       ? []
-      : [`apm: ${c.apm === false ? 'false' : `[${c.apm.join(', ')}]`}`]),
-    '',
+      : [`apm: ${c.apm === false ? "false" : `[${c.apm.join(", ")}]`}`]),
+    "",
     `# worktrees go in ${worktreeRoot}`,
   ];
-  return lines.join('\n');
+  return lines.join("\n");
 }
 
 function StartOptions({ repo }: { repo: Repo }) {
@@ -47,14 +47,14 @@ function StartOptions({ repo }: { repo: Repo }) {
   // repos:changed is broadcast by the handler and refreshes the store.
   const save = (next: StartSettings) =>
     tryInvoke(
-      () => api().invoke('repos:setWorkItemOnStart', repo.id, next),
+      () => api().invoke("repos:setWorkItemOnStart", repo.id, next),
       notify,
     );
 
   const loadTypes = async (open: boolean) => {
     if (!open || types !== null || !connectionId) return;
     const result = await tryInvoke(
-      () => api().invoke('workItems:types', connectionId),
+      () => api().invoke("workItems:types", connectionId),
       notify,
     );
     if (result) setTypes(result);
@@ -69,7 +69,7 @@ function StartOptions({ repo }: { repo: Repo }) {
   };
 
   return (
-    <div className="list-row" style={{ display: 'block' }}>
+    <div className="list-row" style={{ display: "block" }}>
       <div>
         <label className="checkbox">
           <input
@@ -78,7 +78,7 @@ function StartOptions({ repo }: { repo: Repo }) {
             onChange={(e) =>
               void save({ ...settings, moveToInProgress: e.target.checked })
             }
-          />{' '}
+          />{" "}
           Move the work item to In Progress on start
         </label>
       </div>
@@ -90,7 +90,7 @@ function StartOptions({ repo }: { repo: Repo }) {
             onChange={(e) =>
               void save({ ...settings, assignToMe: e.target.checked })
             }
-          />{' '}
+          />{" "}
           Assign it to me if unassigned
         </label>
       </div>
@@ -102,16 +102,16 @@ function StartOptions({ repo }: { repo: Repo }) {
         <summary>Override per type</summary>
         {types?.map((t) => (
           <div key={t.name} className="small" style={{ marginTop: 4 }}>
-            <span>{t.name}</span>{' '}
+            <span>{t.name}</span>{" "}
             <select
               className="field"
               aria-label={`In Progress state for ${t.name}`}
-              value={settings.stateOverrides[t.name] ?? ''}
+              value={settings.stateOverrides[t.name] ?? ""}
               onChange={(e) => choose(t.name, e.target.value)}
             >
               <option value="">Default</option>
               {t.states
-                .filter((s) => s.category === 'InProgress')
+                .filter((s) => s.category === "InProgress")
                 .map((s) => (
                   <option key={s.name} value={s.name}>
                     {s.name}
@@ -134,7 +134,7 @@ function RepoRow({ repo }: { repo: Repo }) {
   const show = async () => {
     if (shown !== null) return setShown(null);
     const result = await tryInvoke(
-      () => api().invoke('repos:config', repo.id),
+      () => api().invoke("repos:config", repo.id),
       notify,
     );
     if (result)
@@ -142,10 +142,10 @@ function RepoRow({ repo }: { repo: Repo }) {
   };
   const remove = async () => {
     const ok = await tryInvoke(async () => {
-      await api().invoke('repos:remove', repo.id);
+      await api().invoke("repos:remove", repo.id);
       return true;
     }, notify);
-    if (ok) setRepos(await api().invoke('repos:list'));
+    if (ok) setRepos(await api().invoke("repos:list"));
   };
 
   return (
@@ -165,7 +165,7 @@ function RepoRow({ repo }: { repo: Repo }) {
               className="btn btn-ghost btn-sm"
               onClick={() =>
                 tryInvoke(
-                  () => api().invoke('repos:setDiscovered', repo.id, false),
+                  () => api().invoke("repos:setDiscovered", repo.id, false),
                   notify,
                 )
               }
@@ -182,12 +182,12 @@ function RepoRow({ repo }: { repo: Repo }) {
         <select
           className="field"
           aria-label={`Connection for ${repo.name}`}
-          value={repo.connectionId ?? ''}
+          value={repo.connectionId ?? ""}
           onChange={async (e) => {
             const value = e.target.value || null;
             // repos:changed is broadcast by the handler and updates the store.
             await tryInvoke(
-              () => api().invoke('repos:setConnection', repo.id, value),
+              () => api().invoke("repos:setConnection", repo.id, value),
               notify,
             );
           }}
@@ -200,7 +200,7 @@ function RepoRow({ repo }: { repo: Repo }) {
           ))}
         </select>
         <button type="button" className="btn btn-ghost btn-sm" onClick={show}>
-          {shown === null ? 'Show setup' : 'Hide setup'}
+          {shown === null ? "Show setup" : "Hide setup"}
         </button>
         <button type="button" className="btn btn-ghost btn-sm" onClick={remove}>
           Remove
@@ -210,7 +210,7 @@ function RepoRow({ repo }: { repo: Repo }) {
       {shown !== null && (
         <div
           className="codeblock"
-          style={{ borderRadius: 0, borderWidth: '0 0 1px 0' }}
+          style={{ borderRadius: 0, borderWidth: "0 0 1px 0" }}
         >
           {shown}
         </div>
@@ -225,7 +225,7 @@ function AppearanceSection() {
 
   useEffect(() => {
     let live = true;
-    void tryInvoke(() => api().invoke('settings:get'), notify).then((s) => {
+    void tryInvoke(() => api().invoke("settings:get"), notify).then((s) => {
       if (live && s) setSettings(s);
     });
     return () => {
@@ -235,7 +235,7 @@ function AppearanceSection() {
 
   const toggle = async (
     patch: Partial<
-      Pick<AppSettings, 'showSplash' | 'sendTelemetry' | 'notifyOnDone'>
+      Pick<AppSettings, "showSplash" | "sendTelemetry" | "notifyOnDone">
     >,
   ) => {
     if (!settings) return;
@@ -256,7 +256,7 @@ function AppearanceSection() {
               checked={settings?.showSplash ?? true}
               disabled={!settings}
               onChange={(e) => void toggle({ showSplash: e.target.checked })}
-            />{' '}
+            />{" "}
             Show splash on start
           </label>
         </div>
@@ -267,7 +267,7 @@ function AppearanceSection() {
               checked={settings?.sendTelemetry ?? true}
               disabled={!settings}
               onChange={(e) => void toggle({ sendTelemetry: e.target.checked })}
-            />{' '}
+            />{" "}
             Send anonymous usage and error data
           </label>
         </div>
@@ -278,7 +278,7 @@ function AppearanceSection() {
               checked={settings?.notifyOnDone ?? true}
               disabled={!settings}
               onChange={(e) => void toggle({ notifyOnDone: e.target.checked })}
-            />{' '}
+            />{" "}
             Notify when an agent finishes its turn
           </label>
         </div>
@@ -288,12 +288,12 @@ function AppearanceSection() {
 }
 
 function AboutSection() {
-  const [version, setVersion] = useState('');
+  const [version, setVersion] = useState("");
 
   useEffect(() => {
     let live = true;
     api()
-      .invoke('app:info')
+      .invoke("app:info")
       .then((i) => {
         if (live) setVersion(i.version);
       })
@@ -329,18 +329,24 @@ export function SettingsScreen() {
   const repos = useStore((s) => s.repos);
   const setRepos = useStore((s) => s.setRepos);
   const notify = useStore((s) => s.notify);
+  const section = useStore((s) =>
+    s.screen.kind === "settings" ? s.screen.section : undefined,
+  );
+  useEffect(() => {
+    if (section) document.getElementById(section)?.scrollIntoView?.();
+  }, [section]);
 
   const addFolder = async () => {
     const folder = await tryInvoke(
-      () => api().invoke('repos:pickFolder'),
+      () => api().invoke("repos:pickFolder"),
       notify,
     );
     if (!folder) return;
     const added = await tryInvoke(
-      () => api().invoke('repos:add', folder),
+      () => api().invoke("repos:add", folder),
       notify,
     );
-    if (added) setRepos(await api().invoke('repos:list'));
+    if (added) setRepos(await api().invoke("repos:list"));
   };
 
   return (
@@ -355,6 +361,7 @@ export function SettingsScreen() {
           <a href="#ado">Azure DevOps</a>
           <a href="#cost">AI cost and invoicing</a>
           <a href="#time">Time tracking</a>
+          <a href="#claude-budget">Claude budget</a>
           <a href="#appearance">Appearance</a>
           <a href="#terminals" className="disabled" aria-disabled="true">
             Terminals and Claude
