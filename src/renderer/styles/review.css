@@ -277,6 +277,14 @@
 }
 .review-box textarea {
   width: 100%;
+  /* Inside the editor Monaco's styles win over the app's: the UI font, as everywhere else. */
+  font-family: var(--font-ui);
+  font-size: 13px;
+  /* .field is sized for one-line inputs. */
+  height: auto;
+  min-height: 72px;
+  padding: 6px 8px;
+  line-height: 1.4;
   resize: vertical;
 }
 .review-snippet {
