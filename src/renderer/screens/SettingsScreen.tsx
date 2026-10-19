@@ -11,6 +11,7 @@ import { ConnectionsSection } from '../components/ConnectionsSection';
 import { CostSection } from '../components/CostSection';
 import { EditorSection } from '../components/EditorSection';
 import { TimeSection } from '../components/TimeSection';
+import { BudgetSection } from '../components/BudgetSection';
 import { MindMark, PageHeader } from '../components/ui';
 import { useStore } from '../store';
 
@@ -386,6 +387,7 @@ export function SettingsScreen() {
           <ConnectionsSection />
           <CostSection />
           <TimeSection />
+          <BudgetSection />
           <section id="terminals" className="section">
             <div className="section-head">
               <h2>Terminals and Claude</h2>
