@@ -167,7 +167,13 @@ export function createLinkProvider(
             range,
             text: l.text,
             activate: () =>
-              open({ type: r.kind, path: r.path, line: l.line, col: l.col }),
+              open({
+                type: r.kind,
+                path: r.path,
+                line: l.line,
+                col: l.col,
+                ...(r.workspaceId ? { workspaceId: r.workspaceId } : {}),
+              }),
             ...tooltip(LABELS[r.kind]),
           };
         }),

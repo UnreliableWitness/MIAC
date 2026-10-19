@@ -57,3 +57,26 @@ export const writeSendTarget = (
     /* best effort */
   }
 };
+
+/** The file list shows the task's session docs (default) or every doc in the worktree. */
+export type DocsMode = 'session' | 'all';
+export const readDocsMode = (taskId: string, storage = local()): DocsMode => {
+  try {
+    return storage?.getItem(`shellie.docs.mode.${taskId}`) === 'all'
+      ? 'all'
+      : 'session';
+  } catch {
+    return 'session';
+  }
+};
+export const writeDocsMode = (
+  taskId: string,
+  mode: DocsMode,
+  storage = local(),
+): void => {
+  try {
+    storage?.setItem(`shellie.docs.mode.${taskId}`, mode);
+  } catch {
+    /* best effort */
+  }
+};

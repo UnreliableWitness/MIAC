@@ -413,3 +413,16 @@ export type WorkItemTypeMeta = {
 
 /** A Markdown file in a task's worktree; `changed` is relative to the task's base. */
 export type DocFile = { path: string; changed: 'new' | 'modified' | null };
+
+/**
+ * A Markdown file of the task's session: one its Claude Code sessions wrote, or one changed in a worktree.
+ * `path` is relative ("/") to the workspace's worktree, or absolute ("/" separators) when `workspaceId` is null.
+ */
+export type SessionDoc = {
+  path: string;
+  workspaceId: string | null;
+  changed: 'new' | 'modified' | null;
+  /** Written by a Claude Code session of the task (Write, Edit, MultiEdit, NotebookEdit). */
+  claude: boolean;
+  mtimeMs: number;
+};

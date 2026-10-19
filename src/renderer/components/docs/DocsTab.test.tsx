@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { TaskView } from '../../../shared/types';
+import type { SessionDoc, TaskView } from '../../../shared/types';
 import { useStore } from '../../store';
 import { installFakeApi } from '../../test-helpers/fakeApi';
 import { DocsTab, resetDocTargetsForTests } from './DocsTab';
@@ -27,8 +27,11 @@ const files = [
   { path: 'docs/plan.md', changed: 'new' as const },
 ];
 let texts: Record<string, string>;
+/** These tests cover the All docs list; the session view has its own below. */
+const allDocs = () => localStorage.setItem('shellie.docs.mode.t1', 'all');
 beforeEach(() => {
   localStorage.clear();
+  allDocs();
   resetDocTargetsForTests();
   texts = {
     '.shellie/task.md': '# Task file',
@@ -471,6 +474,7 @@ describe('DocsTab with several repos', () => {
     );
     first.unmount();
     localStorage.clear();
+    allDocs();
     render(<DocsTab task={multi} />);
     await screen.findByRole('heading', { name: 'alpha.md' });
     expect(
@@ -480,5 +484,180 @@ describe('DocsTab with several repos', () => {
         }) as HTMLSelectElement
       ).value,
     ).toBe('home');
+  });
+});
+
+describe('DocsTab session view', () => {
+  const multi = {
+    ...task,
+    repoId: 'r1',
+    branch: 'b1',
+    extraWorkspaces: [{ id: 'w2', repoId: 'r2', branch: 'b2', dropped: false }],
+  } as unknown as TaskView;
+  const OUT = 'C:/Projects/investigations/push-order.md';
+  const session: SessionDoc[] = [
+    {
+      path: 'docs/plan.md',
+      workspaceId: 'home',
+      changed: 'new',
+      claude: true,
+      mtimeMs: 1,
+    },
+    {
+      path: 'api.md',
+      workspaceId: 'w2',
+      changed: null,
+      claude: true,
+      mtimeMs: 1,
+    },
+    { path: OUT, workspaceId: null, changed: null, claude: true, mtimeMs: 1 },
+  ];
+  let reads: string[];
+  const start = (over = {}, t: TaskView = multi) => {
+    localStorage.removeItem('shellie.docs.mode.t1');
+    useStore.setState({
+      repos: [
+        { id: 'r1', name: 'alpha' },
+        { id: 'r2', name: 'beta' },
+      ] as never,
+    });
+    reads = [];
+    const api = installFakeApi({
+      'docs:list': () => ({ files }),
+      'docs:session': () => ({ files: session }),
+      'docs:read': (_t, p) => {
+        reads.push(p as string);
+        return { text: `# ${p}`, mtimeMs: 1 };
+      },
+      ...over,
+    });
+    render(<DocsTab task={t} />);
+    return api;
+  };
+  const fileButtons = () =>
+    [...document.querySelectorAll('.docs-list .docs-file')].map(
+      (b) => b.textContent,
+    );
+
+  it('shows only session docs, as a tree under repo names and outside folders', async () => {
+    start();
+    expect(
+      await screen.findByRole('heading', { name: 'docs/plan.md' }),
+    ).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Session' })).toHaveProperty(
+      'ariaSelected',
+      'true',
+    );
+    const folders = [
+      ...document.querySelectorAll('.docs-list .docs-tree-folder'),
+    ].map((b) => b.textContent);
+    expect(folders).toEqual([
+      'alpha',
+      'docs',
+      'beta',
+      'C:/Projects/investigations',
+    ]);
+    expect(fileButtons()).toEqual(['plan.mdnew', 'api.md', 'push-order.md']);
+    expect(screen.queryByRole('button', { name: /README\.md/ })).toBeNull();
+  });
+
+  it('opens a doc outside the worktree by its absolute path', async () => {
+    start();
+    await screen.findByRole('heading', { name: 'docs/plan.md' });
+    await userEvent.click(
+      screen.getByRole('button', { name: /push-order\.md/ }),
+    );
+    expect(await screen.findByRole('heading', { name: `${OUT}` })).toBeTruthy();
+    expect(reads).toContain(OUT);
+  });
+
+  it('opens another repo session doc in that repo', async () => {
+    start();
+    await screen.findByRole('heading', { name: 'docs/plan.md' });
+    await userEvent.click(screen.getByRole('button', { name: /api\.md/ }));
+    expect(await screen.findByRole('heading', { name: 'api.md' })).toBeTruthy();
+    expect(
+      (
+        screen.getByRole('combobox', {
+          name: 'Repository',
+        }) as HTMLSelectElement
+      ).value,
+    ).toBe('w2');
+  });
+
+  it('folds a folder', async () => {
+    start();
+    await screen.findByRole('heading', { name: 'docs/plan.md' });
+    await userEvent.click(screen.getByRole('button', { name: 'alpha' }));
+    expect(fileButtons()).toEqual(['api.md', 'push-order.md']);
+    expect(
+      screen
+        .getByRole('button', { name: 'alpha' })
+        .getAttribute('aria-expanded'),
+    ).toBe('false');
+  });
+
+  it('switches to All docs and back, and remembers the choice', async () => {
+    const api = start();
+    await screen.findByRole('heading', { name: 'docs/plan.md' });
+    await userEvent.click(screen.getByRole('tab', { name: 'All docs' }));
+    expect(
+      await screen.findByRole('button', { name: /README\.md/ }),
+    ).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Task/ })).toBeTruthy();
+    expect(localStorage.getItem('shellie.docs.mode.t1')).toBe('all');
+    expect(api.calls.some((c) => c.channel === 'docs:list')).toBe(true);
+    await userEvent.click(screen.getByRole('tab', { name: 'Session' }));
+    expect(
+      await screen.findByRole('button', { name: /push-order\.md/ }),
+    ).toBeTruthy();
+  });
+
+  it('explains the empty session view', async () => {
+    start({ 'docs:session': () => ({ files: [] }) });
+    expect(
+      await screen.findByText(
+        'No session docs yet. Markdown files Claude edits or creates in this task show up here.',
+      ),
+    ).toBeTruthy();
+  });
+
+  it('opens a terminal link to an outside doc', async () => {
+    start();
+    await screen.findByRole('heading', { name: 'docs/plan.md' });
+    act(() => useStore.getState().openDoc('t1', OUT));
+    expect(await screen.findByRole('heading', { name: OUT })).toBeTruthy();
+  });
+
+  it('polls the session list and reloads an open outside doc that changed', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let mtime = 1;
+      let text = '# v1';
+      start({
+        'docs:session': () => ({
+          files: session.map((d) =>
+            d.path === OUT ? { ...d, mtimeMs: mtime } : d,
+          ),
+        }),
+        'docs:read': (_t: string, p: string) => ({
+          text: p === OUT ? text : `# ${p}`,
+          mtimeMs: mtime,
+        }),
+      });
+      await screen.findByRole('heading', { name: 'docs/plan.md' });
+      await userEvent.click(
+        screen.getByRole('button', { name: /push-order\.md/ }),
+      );
+      await screen.findByRole('heading', { name: 'v1' });
+      mtime = 2;
+      text = '# v2';
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3100);
+      });
+      expect(await screen.findByRole('heading', { name: 'v2' })).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

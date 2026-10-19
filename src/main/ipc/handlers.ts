@@ -35,6 +35,7 @@ import {
   taskWorkspaces,
   workspaceById,
   type WorkspaceView,
+  parseDocsTarget,
 } from '../../shared/workspaces';
 import { pathExists } from '../fsRetry';
 import { worktreeRoot } from '../paths';
@@ -53,6 +54,7 @@ import { createReviewHandlers } from '../review/reviewHandlers';
 import { ReviewService } from '../review/ReviewService';
 import { ReviewStore } from '../review/ReviewStore';
 import { createDocsHandlers } from '../docs/docsHandlers';
+import { SessionDocs } from '../docs/sessionDocs';
 import type { AttentionHub } from '../attention/AttentionHub';
 import type { ActivityTracker } from '../time/ActivityTracker';
 import { baselineKey, createTimeHandlers } from '../time/timeHandlers';
@@ -1028,10 +1030,17 @@ export function createHandlers(s: Services): Handlers {
       undefined,
       (target) => docsWatcher.stopTarget(target),
     );
+  const sessionDocs = new SessionDocs({
+    git: s.git,
+    projectsDir: () => claudeProjectsDir(),
+  });
   const docsWatcher =
     s.docsWatcher ??
     new DocsWatcher(
-      (taskId, paths) => s.broadcast('docs:changed', { taskId, paths }),
+      (taskId, paths) => {
+        sessionDocs.invalidate(parseDocsTarget(taskId).taskId);
+        s.broadcast('docs:changed', { taskId, paths });
+      },
       undefined,
       (taskId) => {
         gitDirWatcher.stopTarget(taskId);
@@ -1534,6 +1543,7 @@ export function createHandlers(s: Services): Handlers {
       openExternal: s.openExternal,
       revealFile: s.revealFile ?? (() => undefined),
       watcher: docsWatcher,
+      session: sessionDocs,
       event: (n, p) => tel.event(n, p),
     }),
     ...createEditorHandlers({ taskById, editors }),

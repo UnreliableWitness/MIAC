@@ -70,4 +70,36 @@ describe('resolveRelative', () => {
   it('decodes percent-encoding', () => {
     expect(resolveRelative('a.md', 'my%20notes.md')).toBe('my notes.md');
   });
+  it('keeps a document outside the worktree absolute, under its root', () => {
+    expect(resolveRelative('/x/inv/a.md', 'img/p.png')).toBe(
+      '/x/inv/img/p.png',
+    );
+    expect(resolveRelative('C:/Projects/inv/a.md', './p.png')).toBe(
+      'C:/Projects/inv/p.png',
+    );
+    expect(resolveRelative('C:/Projects/inv/a.md', '../b.md')).toBe(
+      'C:/Projects/b.md',
+    );
+    expect(resolveRelative('C:/a.md', '../b.md')).toBeNull();
+    expect(resolveRelative('/a.md', '../b.md')).toBeNull();
+  });
+});
+
+describe('findLinks on Claude Code tool lines', () => {
+  it('finds a Windows path inside Update(...) and Write(...)', () => {
+    expect(
+      paths(
+        '● Update(C:\\Projects\\investigations\\2026-10-19-ado-7951-push-order-to-fo.md)',
+      ),
+    ).toEqual([
+      [
+        'C:\\Projects\\investigations\\2026-10-19-ado-7951-push-order-to-fo.md',
+        undefined,
+        undefined,
+      ],
+    ]);
+    expect(paths('● Write(/Users/me/notes/plan.md)')).toEqual([
+      ['/Users/me/notes/plan.md', undefined, undefined],
+    ]);
+  });
 });
