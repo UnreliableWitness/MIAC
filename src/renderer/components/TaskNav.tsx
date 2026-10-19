@@ -21,6 +21,7 @@ import { statusText } from '../connectionStatus';
 import { eur, plural } from '../format';
 import { useTaskUsage } from '../hooks/useTaskUsage';
 import { activeConnection, useStore, useTaskConnectionId } from '../store';
+import { AttentionDot } from './AttentionDot';
 import { WorkItemTypeIcon } from './ui';
 
 export function groupTasks(tasks: TaskView[], repos: Repo[]) {
@@ -77,6 +78,10 @@ function Row({ task }: { task: TaskView }) {
   const openTask = useStore((s) => s.openTask);
   const usage = useTaskUsage(task.id);
   const extras = activeWorkspaces(task).length - 1;
+  const waiting = useStore((s) => {
+    const entries = task.terminals.flatMap((d) => s.attention[d.id] ?? []);
+    return entries.find((e) => e.reason === 'blocked') ?? entries[0];
+  });
   const state = task.worktreeMissing
     ? { color: 'var(--red)', label: 'Worktree folder missing' }
     : NOT_READY[task.status];
@@ -95,6 +100,7 @@ function Row({ task }: { task: TaskView }) {
           +{plural(extras, 'repo')}
         </span>
       )}
+      {waiting && <AttentionDot entry={waiting} />}
       {state && (
         <span
           className="dot"
@@ -113,6 +119,10 @@ function Row({ task }: { task: TaskView }) {
 function RailRow({ task }: { task: TaskView }) {
   const current = useIsCurrent(task.id);
   const openTask = useStore((s) => s.openTask);
+  const waiting = useStore((s) => {
+    const entries = task.terminals.flatMap((d) => s.attention[d.id] ?? []);
+    return entries.find((e) => e.reason === 'blocked') ?? entries[0];
+  });
   const name =
     `${task.workItem?.id ?? ''} ${task.workItem?.title ?? task.name}`.trim();
   return (
@@ -125,6 +135,7 @@ function RailRow({ task }: { task: TaskView }) {
       onClick={() => openTask(task.id)}
     >
       <TypeIcon task={task} />
+      {waiting && <AttentionDot entry={waiting} />}
     </button>
   );
 }

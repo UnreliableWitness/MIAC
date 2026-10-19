@@ -98,6 +98,8 @@ describe('App', () => {
     expect(screen.getByText('Shellie')).toBeInTheDocument();
     await waitFor(() =>
       expect(calls.map((c) => c.channel).sort()).toEqual([
+        'attention:get',
+        'attention:view',
         'connections:list',
         'repos:list',
         'tasks:list',

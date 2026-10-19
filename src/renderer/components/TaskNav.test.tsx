@@ -144,6 +144,31 @@ beforeEach(() => {
   });
 });
 
+describe('attention', () => {
+  it('marks a task whose terminal waits on the developer', () => {
+    installFakeApi();
+    const withTerminal = {
+      ...tasks[0],
+      terminals: [{ id: 'c1', kind: 'claude', label: 'Claude Code' }],
+    } as unknown as TaskView;
+    useStore.setState({
+      tasks: [withTerminal],
+      attention: {
+        c1: {
+          reason: 'blocked',
+          kind: 'permission',
+          message: 'approve Bash: ls',
+          since: 1,
+        },
+      },
+    });
+    render(<TaskNav />);
+    expect(
+      screen.getByLabelText('Needs permission: approve Bash: ls'),
+    ).toBeInTheDocument();
+  });
+});
+
 describe('groupTasks', () => {
   it('groups open tasks by repo and collects done tasks separately', () => {
     const g = groupTasks(tasks, repos);

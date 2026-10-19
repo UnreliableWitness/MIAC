@@ -233,7 +233,9 @@ function AppearanceSection() {
   }, [notify]);
 
   const toggle = async (
-    patch: Partial<Pick<AppSettings, 'showSplash' | 'sendTelemetry'>>,
+    patch: Partial<
+      Pick<AppSettings, 'showSplash' | 'sendTelemetry' | 'notifyOnDone'>
+    >,
   ) => {
     if (!settings) return;
     const saved = await tryInvoke(() => saveSettings(patch), notify);
@@ -266,6 +268,17 @@ function AppearanceSection() {
               onChange={(e) => void toggle({ sendTelemetry: e.target.checked })}
             />{' '}
             Send anonymous usage and error data
+          </label>
+        </div>
+        <div className="list-row">
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={settings?.notifyOnDone ?? true}
+              disabled={!settings}
+              onChange={(e) => void toggle({ notifyOnDone: e.target.checked })}
+            />{' '}
+            Notify when an agent finishes its turn
           </label>
         </div>
       </div>

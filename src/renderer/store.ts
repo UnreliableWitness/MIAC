@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { AttentionSnapshot } from '../shared/attention';
 import type { NewReviewComment, ReviewScope } from '../shared/review';
 import type {
   Connection,
@@ -62,6 +63,9 @@ type Store = {
   /** The project chosen in the nav's project switcher; null follows the selection. */
   connectionId: string | null;
   selectedTaskId: string | null;
+  /** Terminals that wait on the developer, from main. */
+  attention: AttentionSnapshot;
+  setAttention(attention: AttentionSnapshot): void;
   /** The current sprint's name once the Sprint page has loaded it, for the breadcrumb. */
   sprintName: string | null;
   notices: Notice[];
@@ -130,6 +134,8 @@ export const useStore = create<Store>((set, get) => ({
   connections: [],
   connectionId: null,
   selectedTaskId: null,
+  attention: {},
+  setAttention: (attention) => set({ attention }),
   sprintName: null,
   notices: [],
   tabByTask: {},

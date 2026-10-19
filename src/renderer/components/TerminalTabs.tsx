@@ -19,6 +19,7 @@ import { useTaskUsage } from '../hooks/useTaskUsage';
 import { holdWatch } from '../review/holdWatch';
 import { useChangeCount } from '../review/useReview';
 import { CHANGES_TAB, DOCS_TAB, USAGE_TAB, useStore } from '../store';
+import { AttentionDot } from './AttentionDot';
 import { DocsTab } from './docs/DocsTab';
 import {
   activeHome,
@@ -150,6 +151,7 @@ export function TerminalTabs({
   const git = useGitSummary(task.id, task.worktreeMissing, visible);
   const active = useStore((s) => s.activeTab(task.id));
   const setTab = useStore((s) => s.setTab);
+  const attention = useStore((s) => s.attention);
   // Same rule as the shell: Focus chrome only for a ready task.
   const ready = task.status === 'ready';
   const inFocus = useStore((s) => s.focus) && ready;
@@ -295,6 +297,7 @@ export function TerminalTabs({
                 }}
               >
                 {t.label}
+                {attention[t.id] && <AttentionDot entry={attention[t.id]} />}
               </button>
               <button
                 type="button"

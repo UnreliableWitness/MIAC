@@ -332,6 +332,20 @@ describe('SettingsScreen', () => {
     await waitFor(() => expect(box).not.toBeChecked());
   });
 
+  it('toggles the notify-on-done setting', async () => {
+    const { calls } = installFakeApi({ 'settings:save': (next) => next });
+    render(<SettingsScreen />);
+    const box = await screen.findByRole('checkbox', {
+      name: 'Notify when an agent finishes its turn',
+    });
+    await waitFor(() => expect(box).toBeChecked());
+    await userEvent.click(box);
+    expect(
+      calls.find((c) => c.channel === 'settings:save')?.args[0],
+    ).toMatchObject({ notifyOnDone: false });
+    await waitFor(() => expect(box).not.toBeChecked());
+  });
+
   it('toggles the splash setting', async () => {
     const { calls } = installFakeApi({ 'settings:save': (next) => next });
     render(<SettingsScreen />);
