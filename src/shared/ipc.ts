@@ -10,6 +10,7 @@ import type {
   ShellieConfig,
   PullRequestRef,
   DocFile,
+  SessionDoc,
   NewTerminal,
   Repo,
   SetupEvent,
@@ -111,6 +112,8 @@ export type Channels = {
   };
   'shell:openExternal': { args: [url: string]; result: void };
   'docs:list': { args: [taskId: string]; result: { files: DocFile[] } };
+  /** The task's session docs (every workspace, plus files outside them); the target names the task. */
+  'docs:session': { args: [taskId: string]; result: { files: SessionDoc[] } };
   'docs:read': {
     args: [taskId: string, path: string];
     result: { text: string; mtimeMs: number };

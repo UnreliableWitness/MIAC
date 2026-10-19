@@ -61,6 +61,7 @@ const defaults: FakeHandlers = {
   'time:task': (taskId) => emptyTime(taskId),
   'time:sprint': () => ({}),
   'docs:list': () => ({ files: [] }),
+  'docs:session': () => ({ files: [] }),
   'docs:watch': () => ({ live: true }),
   'review:files': () => ({ repos: [] }),
   'review:state': () => ({ version: 1, viewed: {}, comments: [] }),

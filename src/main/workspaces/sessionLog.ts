@@ -187,53 +187,91 @@ export function writeHitsFromLines(lines: string[]): WriteHit[] {
   return hits;
 }
 
-type ReadChunk = (
+/** `skipped`: bytes consumed without text (part of a line longer than the read cap). */
+export type ReadChunk = (
   file: string,
   from: number,
-) => Promise<{ text: string; size: number } | null>;
+) => Promise<{ text: string; size: number; skipped?: number } | null>;
 
-/** Reads from `from` to the end, cut after the last newline so no multibyte character is split. */
-const readFromDisk: ReadChunk = async (file, from) => {
-  let handle;
-  try {
-    handle = await fs.open(file, 'r');
-    const { size } = await handle.stat();
-    if (from >= size) return { text: '', size };
-    const buf = Buffer.alloc(size - from);
-    const { bytesRead } = await handle.read(buf, 0, buf.length, from);
-    const end = buf.subarray(0, bytesRead).lastIndexOf(0x0a);
-    return {
-      text: end < 0 ? '' : buf.subarray(0, end + 1).toString('utf8'),
-      size,
-    };
-  } catch {
-    return null;
-  } finally {
-    await handle?.close();
-  }
-};
+/** At most this much of a log is read per call; Claude Code logs can grow to hundreds of MB. */
+export const MAX_READ_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Reads from `from` to the end (at most `cap` bytes), cut after the last newline so no multibyte character is
+ * split. A capped read without any newline is one huge line: it is skipped, not kept in memory.
+ */
+export const readFromDisk =
+  (cap: number = MAX_READ_BYTES): ReadChunk =>
+  async (file, from) => {
+    let handle;
+    try {
+      handle = await fs.open(file, 'r');
+      const { size } = await handle.stat();
+      if (from >= size) return { text: '', size };
+      const buf = Buffer.alloc(Math.min(size - from, cap));
+      const { bytesRead } = await handle.read(buf, 0, buf.length, from);
+      const end = buf.subarray(0, bytesRead).lastIndexOf(0x0a);
+      if (end < 0 && bytesRead === cap)
+        return { text: '', size, skipped: bytesRead };
+      return {
+        text: end < 0 ? '' : buf.subarray(0, end + 1).toString('utf8'),
+        size,
+      };
+    } catch {
+      return null;
+    } finally {
+      await handle?.close();
+    }
+  };
 
 /** Reads only what was appended since the last call per file. */
 export class SessionLogReader {
-  private state = new Map<string, { offset: number; partial: string }>();
+  private state = new Map<
+    string,
+    { offset: number; partial: string; size: number; dropFirst: boolean }
+  >();
 
-  constructor(private readChunk: ReadChunk = readFromDisk) {}
+  constructor(private readChunk: ReadChunk = readFromDisk()) {}
+
+  /** True when the last read stopped at the cap with more of the file left. */
+  behind(file: string): boolean {
+    const st = this.state.get(file);
+    return !!st && st.offset < st.size;
+  }
 
   async readNew(file: string): Promise<string[]> {
-    let st = this.state.get(file) ?? { offset: 0, partial: '' };
+    const fresh = { offset: 0, partial: '', size: 0, dropFirst: false };
+    let st = this.state.get(file) ?? fresh;
     let chunk = await this.readChunk(file, st.offset);
     if (!chunk) return [];
     if (chunk.size < st.offset) {
-      st = { offset: 0, partial: '' };
+      st = fresh;
       chunk = await this.readChunk(file, 0);
       if (!chunk) return [];
+    }
+    if (chunk.skipped) {
+      // The middle of a line too long to keep: drop it, and its end when the next newline comes.
+      this.state.set(file, {
+        offset: st.offset + chunk.skipped,
+        partial: '',
+        size: chunk.size,
+        dropFirst: true,
+      });
+      return [];
     }
     const text = st.partial + chunk.text;
     const parts = text.split('\n');
     const partial = parts.pop() ?? '';
+    let dropFirst = st.dropFirst;
+    if (dropFirst && chunk.text.length > 0) {
+      parts.shift();
+      dropFirst = false;
+    }
     this.state.set(file, {
       offset: st.offset + Buffer.byteLength(chunk.text),
       partial,
+      size: chunk.size,
+      dropFirst,
     });
     return parts.map((l) => l.replace(/\r$/, '')).filter((l) => l.length > 0);
   }

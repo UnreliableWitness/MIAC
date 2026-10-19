@@ -185,6 +185,65 @@ describe('createLinkProvider', () => {
   });
 });
 
+describe('links to session docs outside the worktree', () => {
+  it('resolves a Windows path in Update(...) through main and opens it in Docs', async () => {
+    const OUT =
+      'C:\\Projects\\investigations\\2026-10-19-ado-7951-push-order-to-fo.md';
+    const { calls } = installFakeApi({
+      'docs:resolve': (_t, p) =>
+        p === OUT
+          ? {
+              path: 'C:/Projects/investigations/2026-10-19-ado-7951-push-order-to-fo.md',
+              kind: 'md',
+            }
+          : null,
+    });
+    const openDoc = vi.fn();
+    useStore.setState({ openDoc });
+    const b = buffer([{ text: `● Update(${OUT})`, wrapped: false }], 200);
+    const term = { cols: 200, buffer: { active: b } } as never;
+    const p = createLinkProvider(term, 't1');
+    const links = await new Promise<ILink[] | undefined>((r) =>
+      p.provideLinks(1, r),
+    );
+    expect(links?.map((l) => l.text)).toEqual([OUT]);
+    expect(calls.find((c) => c.channel === 'docs:resolve')?.args).toEqual([
+      't1',
+      OUT,
+    ]);
+    const el = document.createElement('div');
+    links![0].hover!({ target: el } as unknown as MouseEvent, '');
+    expect(el.title).toBe('Open in Docs');
+    links![0].activate(new MouseEvent('click'), links![0].text);
+    expect(openDoc).toHaveBeenCalledWith(
+      't1',
+      'C:/Projects/investigations/2026-10-19-ado-7951-push-order-to-fo.md',
+      undefined,
+      undefined,
+    );
+  });
+  it('keeps the workspace main resolved a link in', async () => {
+    installFakeApi({
+      'docs:resolve': (t) =>
+        t === 't1' ? { path: 'x.md', kind: 'md', workspaceId: 'w2' } : null,
+    });
+    const b = buffer([{ text: 'see x.md', wrapped: false }], 80);
+    const open = vi.fn();
+    const p = createLinkProvider(
+      { cols: 80, buffer: { active: b } } as never,
+      't1',
+      { open },
+    );
+    const links = await new Promise<ILink[] | undefined>((r) =>
+      p.provideLinks(1, r),
+    );
+    links![0].activate(new MouseEvent('click'), links![0].text);
+    expect(open).toHaveBeenCalledWith(
+      expect.objectContaining({ path: 'x.md', workspaceId: 'w2' }),
+    );
+  });
+});
+
 describe('openLink', () => {
   it('opens Markdown in the Docs tab', () => {
     const { tracked } = installFakeApi();

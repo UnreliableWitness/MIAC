@@ -23,7 +23,8 @@ export function DocsBody({
   onOpenFile,
 }: {
   taskId: string;
-  empty: boolean;
+  /** The empty-state text, or null when there is something to show. */
+  empty: string | null;
   doc: Doc | null;
   current: string | null;
   slow: boolean;
@@ -33,8 +34,7 @@ export function DocsBody({
   onOpenDoc(path: string, anchor?: string): void;
   onOpenFile(path: string): void;
 }) {
-  if (empty)
-    return <div className="docs-state">No Markdown files in this worktree</div>;
+  if (empty) return <div className="docs-state">{empty}</div>;
   if (!doc || doc.path !== current)
     return slow ? <div className="docs-state">Loading</div> : null;
   if (doc.error === 'too-large')
