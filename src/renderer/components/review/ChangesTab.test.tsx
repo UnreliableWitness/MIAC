@@ -613,6 +613,138 @@ describe('ChangesTab comments', () => {
   });
 });
 
+describe('ChangesTab discard', () => {
+  const discardCalls = (api: ReturnType<typeof installFakeApi>) =>
+    api.calls.filter((c) => c.channel === 'review:discard');
+
+  it('asks first, and Cancel or Escape leaves the file alone', async () => {
+    const api = mount({ 'review:discard': () => undefined });
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: 'Discard changes to src/a.ts',
+      }),
+    );
+    const dialog = screen.getByRole('alertdialog');
+    expect(dialog.textContent).toContain(
+      'Discard changes to src/a.ts? It goes back to how it was at the start of the task',
+    );
+    expect(dialog.textContent).toContain('This cannot be undone.');
+    // Cancel has the focus, so Enter does not discard by accident.
+    expect(document.activeElement).toBe(
+      within(dialog).getByRole('button', { name: 'Cancel' }),
+    );
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Discard changes to src/a.ts' }),
+    );
+    fireEvent.keyDown(screen.getByRole('alertdialog'), { key: 'Escape' });
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(discardCalls(api)).toEqual([]);
+  });
+
+  it('discards the shown file, moves to the next one and refreshes', async () => {
+    const api = mount({
+      'review:discard': () => {
+        files = {
+          repos: [
+            {
+              ...files.repos[0],
+              files: files.repos[0].files.filter((f) => f.path !== 'src/a.ts'),
+            },
+          ],
+        };
+      },
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('after').textContent).toBe('new src/a.ts'),
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Discard changes to src/a.ts' }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+    await waitFor(() => expect(screen.queryByText('a.ts')).toBeNull());
+    expect(discardCalls(api).map((c) => c.args)).toEqual([
+      ['t1', 'home', 'src/a.ts', { kind: 'all' }],
+    ]);
+    expect(api.tracked).toContainEqual({
+      type: 'event',
+      name: 'review.fileDiscarded',
+      props: { scope: 'all' },
+    });
+    expect(screen.getByTestId('after').textContent).toBe('new src/b.ts');
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+  });
+
+  it('offers Delete for a new file, with its own wording, in Uncommitted', async () => {
+    const api = mount({ 'review:discard': () => undefined });
+    await screen.findByRole('tree', { name: 'Changed files' });
+    fireEvent.click(screen.getByRole('button', { name: 'Uncommitted' }));
+    await waitFor(() =>
+      expect(
+        api.calls.some(
+          (c) =>
+            c.channel === 'review:files' &&
+            (c.args[1] as { kind: string }).kind === 'uncommitted',
+        ),
+      ).toBe(true),
+    );
+    expect(
+      screen.getByRole('button', { name: 'Discard changes to src/a.ts' }).title,
+    ).toBe('Discard changes');
+    const del = screen.getByRole('button', { name: 'Delete file src/b.ts' });
+    expect(del.title).toBe('Delete file');
+    fireEvent.click(del);
+    expect(screen.getByRole('alertdialog').textContent).toContain(
+      'Delete src/b.ts? The file is removed from disk.',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    await waitFor(() =>
+      expect(discardCalls(api).map((c) => c.args)).toEqual([
+        ['t1', 'home', 'src/b.ts', { kind: 'uncommitted' }],
+      ]),
+    );
+  });
+
+  it('keeps the question open and shows the error when the discard fails', async () => {
+    const api = mount({
+      'review:discard': () => {
+        throw new Error('src/a.ts is not in this list any more');
+      },
+    });
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: 'Discard changes to src/a.ts',
+      }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+    await waitFor(() => expect(discardCalls(api)).toHaveLength(1));
+    expect(
+      api.tracked.some((t) => 'name' in t && t.name === 'review.fileDiscarded'),
+    ).toBe(false);
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: 'Discard' }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false),
+    );
+  });
+
+  it('offers no discard in a single commit', async () => {
+    mount();
+    await screen.findByRole('button', { name: 'Discard changes to src/a.ts' });
+    fireEvent.click(screen.getByRole('button', { name: 'Commits' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /first/ }));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', {
+          name: /^(Discard changes|Delete file)/,
+        }),
+      ).toBeNull(),
+    );
+  });
+});
+
 describe('ChangesTab more', () => {
   it('resolves and deletes, from the Comments list, a comment on a file that is no longer listed', async () => {
     state = {

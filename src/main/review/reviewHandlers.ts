@@ -23,6 +23,7 @@ type ReviewChannels =
   | 'review:deleteComment'
   | 'review:markSent'
   | 'review:summary'
+  | 'review:discard'
   | 'review:watch';
 
 export type ReviewHandlerDeps = {
@@ -72,6 +73,13 @@ export function createReviewHandlers(
     'review:markSent': async (taskId, ids) =>
       d.review.markSent(task(taskId), z.array(Id).max(500).parse(ids)),
     'review:summary': async (taskId) => d.review.summary(task(taskId)),
+    'review:discard': async (taskId, workspaceId, path, scope) =>
+      d.review.discard(
+        task(taskId),
+        Id.parse(workspaceId),
+        z.string().min(1).max(4096).parse(path),
+        ReviewScopeSchema.parse(scope),
+      ),
     'review:watch': async (target, on) => {
       if (!on) {
         d.docsWatcher.stop(target);

@@ -146,4 +146,32 @@ describe('FileTree', () => {
     expect(screen.getByText('dist/x')).toBeTruthy();
     expect(screen.getByText('out.js')).toBeTruthy();
   });
+
+  it('offers discard per row only when asked, without selecting the row', () => {
+    const onSelect = vi.fn();
+    const onDiscard = vi.fn();
+    show({
+      repos: [repo([f('src/a.ts'), { ...f('new.txt'), status: 'A' }])],
+      onSelect,
+      onDiscard,
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Discard changes to src/a.ts' }),
+    );
+    expect(onDiscard).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceId: 'home' }),
+      expect.objectContaining({ path: 'src/a.ts' }),
+    );
+    expect(
+      screen.getByRole('button', { name: 'Delete file new.txt' }).title,
+    ).toBe('Delete file');
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('shows no discard action without onDiscard', () => {
+    show();
+    expect(
+      screen.queryByRole('button', { name: /^Discard|^Delete/ }),
+    ).toBeNull();
+  });
 });

@@ -201,6 +201,16 @@ export type Channels = {
     result: ReviewState;
   };
   'review:summary': { args: [taskId: string]; result: ReviewSummary };
+  /** Discards one listed file's changes in the scope (`all` or `uncommitted`): restored to the scope's base side, or deleted when new there. */
+  'review:discard': {
+    args: [
+      taskId: string,
+      workspaceId: string,
+      path: string,
+      scope: ReviewScope,
+    ];
+    result: void;
+  };
   /** Holds the file and git-dir watchers of one worktree (a docs target); `live` false means poll. */
   'review:watch': {
     args: [target: string, on: boolean];

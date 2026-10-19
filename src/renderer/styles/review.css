@@ -138,7 +138,7 @@
 }
 .review-file {
   display: grid;
-  grid-template-columns: 16px minmax(0, 1fr) auto auto 16px;
+  grid-template-columns: 16px minmax(0, 1fr) auto auto auto 16px;
   align-items: center;
   gap: 6px;
   padding: 3px 12px;
@@ -158,6 +158,28 @@
 }
 .review-file.selected {
   background: var(--bg-selected);
+}
+/* Fixed columns: the comment count comes and goes, the discard button stays put. */
+.review-file > .review-count {
+  grid-column: 3;
+}
+.review-file > .review-stat {
+  grid-column: 4;
+}
+.review-file > .review-discard {
+  grid-column: 5;
+  width: 20px;
+  height: 20px;
+  /* Hidden, not removed: it stays in the tab order and shows on hover or focus. */
+  opacity: 0;
+}
+.review-file > input[type='checkbox'] {
+  grid-column: 6;
+}
+.review-file:hover > .review-discard,
+.review-file:focus-within > .review-discard,
+.review-file.selected > .review-discard {
+  opacity: 1;
 }
 .review-name {
   overflow: hidden;

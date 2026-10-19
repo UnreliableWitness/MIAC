@@ -1,8 +1,10 @@
 import {
   chmodSync,
   existsSync,
+  mkdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
@@ -612,5 +614,96 @@ describe('GitClient worktree helpers', () => {
     git(repo, 'worktree', 'add', '-q', '-b', 'x', wt);
     const dir = await client.gitDir(wt);
     expect(dir).toBe(path.join(repo, '.git', 'worktrees', 'wt'));
+  });
+
+  describe('discardPaths', () => {
+    const read = (repo: string, f: string) =>
+      readFileSync(path.join(repo, f), 'utf8');
+    const status = (repo: string) =>
+      git(repo, 'status', '--porcelain=v1', '--untracked-files=all').trim();
+
+    it('restores a modified file to HEAD, staged changes too', async () => {
+      const repo = makeRepo();
+      commitFile(repo, 'a.ts', 'one\n');
+      writeFileSync(path.join(repo, 'a.ts'), 'staged\n');
+      git(repo, 'add', 'a.ts');
+      writeFileSync(path.join(repo, 'a.ts'), 'unstaged\n');
+      await client.discardPaths(repo, 'HEAD', ['a.ts']);
+      expect(read(repo, 'a.ts')).toBe('one\n');
+      expect(status(repo)).toBe('');
+    });
+
+    it('brings back a deleted file', async () => {
+      const repo = makeRepo();
+      commitFile(repo, 'a.ts', 'one\n');
+      rmSync(path.join(repo, 'a.ts'));
+      await client.discardPaths(repo, 'HEAD', ['a.ts']);
+      expect(read(repo, 'a.ts')).toBe('one\n');
+      expect(status(repo)).toBe('');
+    });
+
+    it('deletes an untracked file and a staged new file', async () => {
+      const repo = makeRepo();
+      writeFileSync(path.join(repo, 'notes.txt'), 'x\n');
+      writeFileSync(path.join(repo, 'new.ts'), 'y\n');
+      git(repo, 'add', 'new.ts');
+      await client.discardPaths(repo, 'HEAD', ['notes.txt', 'new.ts']);
+      expect(existsSync(path.join(repo, 'notes.txt'))).toBe(false);
+      expect(existsSync(path.join(repo, 'new.ts'))).toBe(false);
+      expect(status(repo)).toBe('');
+    });
+
+    it('restores a file to an older base, leaving an uncommitted change', async () => {
+      const repo = makeRepo();
+      const base = git(repo, 'rev-parse', 'HEAD').trim();
+      git(repo, 'checkout', '-q', '-b', 'task');
+      writeFileSync(path.join(repo, 'README.md'), '# changed\n');
+      git(repo, 'commit', '-q', '-am', 'change');
+      commitFile(repo, 'added.ts', 'a\n');
+      await client.discardPaths(repo, base, ['README.md', 'added.ts']);
+      expect(read(repo, 'README.md')).toBe('# test\n');
+      expect(existsSync(path.join(repo, 'added.ts'))).toBe(false);
+      expect(git(repo, 'diff', '--name-only', base).trim()).toBe('');
+      expect(status(repo).split('\n').sort()).toEqual([
+        'D  added.ts',
+        'M  README.md',
+      ]);
+    });
+
+    it('takes paths literally, not as pathspec patterns', async () => {
+      const repo = makeRepo();
+      commitFile(repo, 'a*.ts', 'star\n');
+      commitFile(repo, 'ab.ts', 'b\n');
+      writeFileSync(path.join(repo, 'a*.ts'), 'changed\n');
+      writeFileSync(path.join(repo, 'ab.ts'), 'keep\n');
+      await client.discardPaths(repo, 'HEAD', ['a*.ts']);
+      expect(read(repo, 'a*.ts')).toBe('star\n');
+      expect(read(repo, 'ab.ts')).toBe('keep\n');
+    });
+
+    it('refuses paths outside the worktree and through a symlinked folder', async () => {
+      const repo = makeRepo();
+      const outside = path.join(path.dirname(repo), 'outside');
+      mkdirSync(outside);
+      writeFileSync(path.join(outside, 'x.txt'), 'keep\n');
+      symlinkSync(outside, path.join(repo, 'link'));
+      await expect(
+        client.discardPaths(repo, 'HEAD', ['../outside/x.txt']),
+      ).rejects.toThrow('Outside the worktree');
+      await expect(
+        client.discardPaths(repo, 'HEAD', ['link/x.txt']),
+      ).rejects.toThrow('Outside the worktree');
+      expect(read(outside, 'x.txt')).toBe('keep\n');
+    });
+
+    it('deletes an untracked symlink itself, not what it points to', async () => {
+      const repo = makeRepo();
+      const target = path.join(path.dirname(repo), 'target.txt');
+      writeFileSync(target, 'keep\n');
+      symlinkSync(target, path.join(repo, 'ln.txt'));
+      await client.discardPaths(repo, 'HEAD', ['ln.txt']);
+      expect(existsSync(path.join(repo, 'ln.txt'))).toBe(false);
+      expect(readFileSync(target, 'utf8')).toBe('keep\n');
+    });
   });
 });
