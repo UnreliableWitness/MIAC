@@ -892,15 +892,15 @@ describe('TaskScreen workspaces', () => {
     }),
   };
 
-  it('shows no chips for a single-repo task', () => {
+  it('shows no repos chip for a single-repo task', () => {
     installFakeApi(handlers);
     render(<Shell />);
-    expect(screen.queryByRole('group', { name: 'Repos of this task' })).toBe(
+    expect(screen.queryByRole('button', { name: 'Repos of this task' })).toBe(
       null,
     );
   });
 
-  it('shows a chip per repo, home first, and its menu works', async () => {
+  it('shows one chip for all repos, with a menu per repo, home first', async () => {
     two();
     const { calls } = installFakeApi({
       ...handlers,
@@ -909,26 +909,35 @@ describe('TaskScreen workspaces', () => {
       'terminals:open': (_t, def) => ({ id: 'n1', ...def }),
     });
     render(<Shell />);
-    const group = screen.getByRole('group', { name: 'Repos of this task' });
+    const chip = screen.getByRole('button', { name: 'Repos of this task' });
+    expect(chip).toHaveTextContent('2 repos');
     expect(
-      within(group)
-        .getAllByRole('button')
-        .map((b) => b.getAttribute('aria-label')),
-    ).toEqual(['Repo webshop', 'Repo api']);
-    expect(
-      [...group.querySelectorAll('.repo-mark')].map((m) =>
+      [...chip.querySelectorAll('.repo-mark')].map((m) =>
         m.getAttribute('data-color'),
       ),
     ).toEqual(['1', '2']);
 
-    await userEvent.click(
-      within(group).getByRole('button', { name: /webshop/ }),
-    );
-    expect(screen.queryByRole('menuitem', { name: 'Remove from task' })).toBe(
+    const menu = async () => {
+      await userEvent.click(chip);
+      return screen.getByRole('menu', { name: 'Repos of this task' });
+    };
+    const repo = (name: string) =>
+      within(
+        within(
+          screen.getByRole('menu', { name: 'Repos of this task' }),
+        ).getByRole('group', { name }),
+      );
+    expect(
+      within(await menu())
+        .getAllByRole('group')
+        .map((g) => g.getAttribute('aria-label')),
+    ).toEqual(['webshop', 'api']);
+    const web = repo('webshop');
+    expect(web.queryByRole('menuitem', { name: 'Remove from task' })).toBe(
       null,
     );
     await userEvent.click(
-      screen.getByRole('menuitem', { name: 'Open in editor' }),
+      web.getByRole('menuitem', { name: 'Open in editor' }),
     );
     await waitFor(() =>
       expect(
@@ -936,9 +945,9 @@ describe('TaskScreen workspaces', () => {
       ).toEqual(['a', 'home']),
     );
 
-    await userEvent.click(within(group).getByRole('button', { name: /api/ }));
+    await menu();
     await userEvent.click(
-      screen.getByRole('menuitem', { name: 'New shell here' }),
+      repo('api').getByRole('menuitem', { name: 'New shell here' }),
     );
     await waitFor(() =>
       expect(calls.find((c) => c.channel === 'terminals:open')?.args).toEqual([
@@ -946,9 +955,9 @@ describe('TaskScreen workspaces', () => {
         { kind: 'shell', label: 'shell', workspaceId: 'w1' },
       ]),
     );
-    await userEvent.click(within(group).getByRole('button', { name: /api/ }));
+    await menu();
     await userEvent.click(
-      screen.getByRole('menuitem', { name: 'Remove from task' }),
+      repo('api').getByRole('menuitem', { name: 'Remove from task' }),
     );
     await waitFor(() =>
       expect(
@@ -957,7 +966,7 @@ describe('TaskScreen workspaces', () => {
     );
   });
 
-  it('shows ahead, behind and changes on each repo chip', async () => {
+  it('shows ahead, behind and changes per repo in the repos menu', async () => {
     two();
     installFakeApi({
       ...handlers,
@@ -970,18 +979,20 @@ describe('TaskScreen workspaces', () => {
       }),
     });
     render(<Shell />);
-    const group = screen.getByRole('group', { name: 'Repos of this task' });
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Repos of this task' }),
+    );
+    const head = (name: string) =>
+      within(screen.getByRole('menu', { name: 'Repos of this task' }))
+        .getByRole('group', { name })
+        .querySelector('.ws-menu-head');
     const up = String.fromCharCode(0x2191);
     const down = String.fromCharCode(0x2193);
     const dot = String.fromCharCode(0x2022);
     await waitFor(() =>
-      expect(
-        within(group).getByRole('button', { name: /api/ }),
-      ).toHaveTextContent(`api ${up}3 ${down}1 ${dot}1`),
+      expect(head('api')).toHaveTextContent(`api${up}3 ${down}1 ${dot}1`),
     );
-    expect(
-      within(group).getByRole('button', { name: /webshop/ }),
-    ).toHaveTextContent(`webshop ${up}0 ${down}0 ${dot}0`);
+    expect(head('webshop')).toHaveTextContent(`webshop${up}0 ${down}0 ${dot}0`);
   });
 
   it("shows each repo's run commands, grouped by repo, and runs them there", async () => {

@@ -314,14 +314,38 @@ button.projecttile:hover {
   flex: none;
   white-space: nowrap;
 }
-.ws-chips {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+/* A multi-repo task's one "3 repos" chip: overlapping color dots, then the count. */
+.ws-chip {
+  gap: 6px;
   margin-right: 4px;
 }
-.ws-chips .chip svg {
-  margin-right: 4px;
+.ws-chip-marks {
+  display: inline-flex;
+}
+.ws-chip-marks .repo-mark-dot {
+  margin-right: -2px;
+  box-shadow: 0 0 0 1.5px var(--bg-page);
+}
+.ws-menu-repo + .ws-menu-repo {
+  border-top: 1px solid var(--line);
+  margin-top: 4px;
+  padding-top: 4px;
+}
+.ws-menu-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px 2px;
+  font-weight: 600;
+}
+.ws-menu-head .repo-mark-dot {
+  margin-right: 0;
+}
+.ws-menu-name {
+  flex: 1;
+}
+.ws-menu-repo .menu-item {
+  padding-left: 26px;
 }
 .ws-warning {
   display: flex;
@@ -392,6 +416,7 @@ button.projecttile:hover {
 
 /* Task page: one 36 px row of pivots and commands, then the terminal. */
 .taskbar {
+  container-type: inline-size;
   height: 36px;
   flex: none;
   display: flex;
@@ -497,9 +522,9 @@ button.projecttile:hover {
   font-size: 12px;
   height: 22px;
 }
+/* The commands never shrink: the tab row gives way (it clips), and the queries below drop the least needed text first. */
 .taskbar-right {
-  flex: 1 1 0;
-  min-width: 0;
+  flex: 1 0 auto;
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -517,6 +542,7 @@ button.projecttile:hover {
   align-items: center;
   gap: 4px;
   min-width: 0;
+  overflow: hidden;
   margin-right: 4px;
   color: var(--muted);
   font-size: 12px;
@@ -533,6 +559,24 @@ button.projecttile:hover {
 }
 .taskbar-cost {
   color: var(--text);
+}
+@container (max-width: 900px) {
+  .taskbar-branch {
+    display: none;
+  }
+  .taskbar .open-in-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+@container (max-width: 760px) {
+  .taskbar-git {
+    display: none;
+  }
 }
 .task-layer {
   flex: 1;

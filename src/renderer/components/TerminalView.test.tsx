@@ -8,6 +8,8 @@ vi.mock('@xterm/xterm', () => ({
     options: Record<string, unknown> = {};
     modes = {};
     loadAddon() {}
+    cols = 80;
+    rows = 24;
     open() {}
     write() {}
     reset() {}
@@ -88,5 +90,41 @@ describe('TerminalView after an app relaunch', () => {
       await screen.findByRole('button', { name: 'Resume session' }),
     ).toBeInTheDocument();
     expect(restarts(calls)).toBe(0);
+  });
+});
+
+describe('TerminalView sizing', () => {
+  const resizes = (calls: { channel: string }[]) =>
+    calls.filter((c) => c.channel === 'terminals:resize').length;
+  const running = () =>
+    installFakeApi({
+      'terminals:buffer': () => '',
+      'terminals:isRunning': () => true,
+      'terminals:resize': () => undefined,
+    });
+
+  it('does not size the pty while the terminal is hidden (#70)', async () => {
+    const { calls } = running();
+    // jsdom has no layout: every box is 0 x 0, like a display:none one.
+    render(<TerminalView terminalId="t1" taskId="a" active={false} />);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(resizes(calls)).toBe(0);
+  });
+
+  it('sizes the pty once the terminal has a box', async () => {
+    const { calls } = running();
+    const width = vi
+      .spyOn(HTMLElement.prototype, 'clientWidth', 'get')
+      .mockReturnValue(800);
+    const height = vi
+      .spyOn(HTMLElement.prototype, 'clientHeight', 'get')
+      .mockReturnValue(600);
+    try {
+      render(<TerminalView terminalId="t1" taskId="a" active />);
+      await waitFor(() => expect(resizes(calls)).toBeGreaterThan(0));
+    } finally {
+      width.mockRestore();
+      height.mockRestore();
+    }
   });
 });

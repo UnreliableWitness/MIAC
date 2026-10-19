@@ -50,7 +50,14 @@ type Props = {
   viewStates?: Map<string, unknown>;
 };
 
-/** Events inside a comment card must not reach Monaco (its keybindings and mouse handling). */
+/**
+ * Events inside a comment card must not reach Monaco (its keybindings and mouse handling).
+ *
+ * A card is not drawn in its view zone: Monaco puts view zones under the text layer, so a click
+ * there hits the code instead, and a zone is as wide as the longest line, so a card in it went off
+ * the right edge (#71). The zone only keeps the space open; the card is an overlay widget, laid over
+ * the zone, as wide as the visible code, as VS Code's own comment widget does.
+ */
 const SHIELD = [
   'keydown',
   'keyup',
@@ -298,10 +305,20 @@ export function DiffView(p: Props) {
       id: string;
       host: ReviewSide;
       zoneId: string;
-      zone: Monaco.editor.IViewZone;
+      widget: Monaco.editor.IOverlayWidget;
       inner: HTMLElement;
       ro: ResizeObserver;
     }[] = [];
+    // Each card spans the code area of its editor: right of the line numbers, left of the scrollbar.
+    const fitCards = (host: ReviewSide) => {
+      const i = eds[host].getLayoutInfo();
+      for (const x of made)
+        if (x.host === host) {
+          const dom = x.widget.getDomNode();
+          dom.style.left = `${i.contentLeft}px`;
+          dom.style.width = `${Math.max(0, i.width - i.contentLeft - i.verticalScrollbarWidth - i.minimap.minimapWidth)}px`;
+        }
+    };
     // The inline view hides the original editor: every zone goes to the modified one there.
     const placed = (latest.current.zones ?? []).map((z) => ({
       z,
@@ -325,13 +342,24 @@ export function DiffView(p: Props) {
           }
           dom.appendChild(inner);
           const node = inner;
+          // Off screen until Monaco reports where the zone is.
+          dom.style.top = '-1000px';
           const zone: Monaco.editor.IViewZone = {
             afterLineNumber: line,
             heightInPx: 96,
-            domNode: dom,
+            domNode: document.createElement('div'),
             suppressMouseDown: true,
+            onDomNodeTop: (top) => {
+              dom.style.top = `${top}px`;
+            },
           };
           const zoneId = acc.addZone(zone);
+          const widget: Monaco.editor.IOverlayWidget = {
+            getId: () => `shellie.review.zone.${host}.${zoneId}`,
+            getDomNode: () => dom,
+            getPosition: () => null,
+          };
+          eds[host].addOverlayWidget(widget);
           const ro = new ResizeObserver(() => {
             const h = node.offsetHeight + 8;
             if (h > 8 && Math.abs(h - (zone.heightInPx ?? 0)) > 1) {
@@ -340,17 +368,25 @@ export function DiffView(p: Props) {
             }
           });
           ro.observe(node);
-          made.push({ id: z.id, host, zoneId, zone, inner: node, ro });
+          made.push({ id: z.id, host, zoneId, widget, inner: node, ro });
         }
       });
+      fitCards(host);
     }
+    const layouts = (['before', 'after'] as const).map((host) =>
+      eds[host].onDidLayoutChange(() => fitCards(host)),
+    );
     const ids = new Set(placed.map((x) => x.z.id));
     for (const id of zoneNodes.current.keys())
       if (!ids.has(id)) zoneNodes.current.delete(id);
     // Same ids, same nodes: React keeps those portals and their state.
     setMounted(made.map((x) => ({ id: x.id, dom: x.inner })));
     return () => {
-      for (const x of made) x.ro.disconnect();
+      for (const l of layouts) l.dispose();
+      for (const x of made) {
+        x.ro.disconnect();
+        eds[x.host].removeOverlayWidget(x.widget);
+      }
       for (const host of ['before', 'after'] as const)
         eds[host].changeViewZones((acc) => {
           for (const x of made) if (x.host === host) acc.removeZone(x.zoneId);
