@@ -275,4 +275,14 @@ const COPILOT: Rate[] = [
   r('copilot-kimi-k3', 'Kimi K3', ['kimi-k3'], [3, 0.3, 0, 15]),
 ];
 
-export const OFFICIAL_RATES: Rate[] = [...ANTHROPIC, ...COPILOT];
+/** Anthropic's 1-hour cache writes cost 2x base input (pricing page, 2026-10-14). */
+const withHourWrites = (rates: Rate[]): Rate[] =>
+  rates.map((x) => ({
+    ...x,
+    cacheWrite1hPerM: Math.round(x.inputPerM * 2 * 1e6) / 1e6,
+  }));
+
+export const OFFICIAL_RATES: Rate[] = [
+  ...withHourWrites(ANTHROPIC),
+  ...COPILOT,
+];

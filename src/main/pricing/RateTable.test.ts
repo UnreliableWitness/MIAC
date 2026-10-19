@@ -129,3 +129,19 @@ describe('OFFICIAL_RATES', () => {
         expect(r[k]).toBeGreaterThanOrEqual(0);
   });
 });
+
+describe('1-hour cache writes', () => {
+  it('prices every Anthropic rate at twice its input price', () => {
+    const anthropic = OFFICIAL_RATES.filter((r) =>
+      r.id.startsWith('anthropic-'),
+    );
+    expect(anthropic.length).toBeGreaterThan(5);
+    for (const r of anthropic)
+      expect(r.cacheWrite1hPerM).toBeCloseTo(r.inputPerM * 2, 6);
+  });
+  it('leaves other providers without a 1-hour price', () => {
+    const other = OFFICIAL_RATES.filter((r) => !r.id.startsWith('anthropic-'));
+    expect(other.length).toBeGreaterThan(0);
+    for (const r of other) expect(r.cacheWrite1hPerM).toBeUndefined();
+  });
+});

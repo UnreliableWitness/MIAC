@@ -41,6 +41,8 @@ export const RateSchema = z.object({
   inputPerM: z.number().min(0),
   cachedInputPerM: z.number().min(0),
   cacheWritePerM: z.number().min(0),
+  /** 1-hour cache write price; absent means the 5-minute price applies. */
+  cacheWrite1hPerM: z.number().min(0).optional(),
   outputPerM: z.number().min(0),
 });
 export type Rate = z.infer<typeof RateSchema>;
