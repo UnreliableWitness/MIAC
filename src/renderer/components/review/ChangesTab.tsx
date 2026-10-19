@@ -48,7 +48,7 @@ import {
   useStore,
 } from '../../store';
 import { track } from '../../telemetry';
-import { PopupMenu } from '../ui';
+import { ConfirmBar, PopupMenu } from '../ui';
 import { CommentBox, CommentCard } from './CommentCard';
 import { CommentsList } from './CommentsList';
 import {
@@ -57,7 +57,7 @@ import {
   type DiffViewHandle,
   type DiffZone,
 } from './DiffView';
-import { FileTree, type FileRef } from './FileTree';
+import { discardKind, FileTree, type FileRef } from './FileTree';
 import { RepoMark } from '../RepoMark';
 import { RepoFilter } from './RepoFilter';
 import { ScopePicker } from './ScopePicker';
@@ -125,7 +125,7 @@ function ordered(
 export function ChangesTab({ task }: { task: TaskView }) {
   const notify = useStore((s) => s.notify);
   const [scope, setScope] = useViewField(task.id, 'scope');
-  const { files, state, setState, changedAt, error } = useReview(
+  const { files, state, setState, changedAt, error, refresh } = useReview(
     task,
     scope,
     true,
@@ -149,6 +149,14 @@ export function ChangesTab({ task }: { task: TaskView }) {
   const repos = useStore((s) => s.repos);
   const handle = useRef<DiffViewHandle | null>(null);
   const tracked = useRef(false);
+
+  // The file waiting for the user to confirm its discard, with the scope it was asked in.
+  const [discarding, setDiscarding] = useState<{
+    repo: ReviewRepo;
+    file: ReviewFile;
+    scopeKey: string;
+  } | null>(null);
+  const [discardBusy, setDiscardBusy] = useState(false);
 
   const [collapsed, setCollapsed] = useViewField(task.id, 'collapsed');
   const [storedFilter, setRepoFilter] = useViewField(task.id, 'repoFilter');
@@ -467,6 +475,61 @@ export function ChangesTab({ task }: { task: TaskView }) {
     const next = list[(i + by + list.length) % list.length];
     pick({ workspaceId: next.repo.workspaceId, path: next.file.path });
   };
+  // Discarding applies to the working tree: All changes and Uncommitted, never a commit.
+  const canDiscard = scope.kind !== 'commits';
+  const askDiscard = (repo: ReviewRepo, file: ReviewFile) =>
+    setDiscarding({ repo, file, scopeKey: JSON.stringify(scope) });
+  const pendingDiscard =
+    discarding && discarding.scopeKey === JSON.stringify(scope) && canDiscard
+      ? discarding
+      : null;
+  const confirmDiscard = async () => {
+    if (!pendingDiscard || discardBusy) return;
+    const { repo, file } = pendingDiscard;
+    const at = list.findIndex(
+      (x) =>
+        x.repo.workspaceId === repo.workspaceId && x.file.path === file.path,
+    );
+    const wasShown =
+      selected?.workspaceId === repo.workspaceId && selected.path === file.path;
+    // The file after it in the panel's order, else the one before: where the selection goes.
+    const rest = list.filter((_, i) => i !== at);
+    const next = at < 0 ? undefined : (rest[at] ?? rest[at - 1]);
+    setDiscardBusy(true);
+    try {
+      const ok = await tryInvoke(async () => {
+        await api().invoke(
+          'review:discard',
+          task.id,
+          repo.workspaceId,
+          file.path,
+          scope,
+        );
+        return true;
+      }, notify);
+      if (!ok) return;
+      track('review.fileDiscarded', { scope: scope.kind });
+      if (wasShown && next)
+        pick({ workspaceId: next.repo.workspaceId, path: next.file.path });
+      setDiscarding(null);
+      refresh();
+    } finally {
+      setDiscardBusy(false);
+    }
+  };
+  const discardText = (f: ReviewFile) => {
+    if (discardKind(f) === 'delete')
+      return `Delete ${f.path}? The file is removed from disk. This cannot be undone.`;
+    const what =
+      scope.kind === 'uncommitted'
+        ? 'Its uncommitted changes are lost.'
+        : 'It goes back to how it was at the start of the task; uncommitted changes to it are lost.';
+    const renamed = f.oldPath
+      ? ` ${f.oldPath} comes back and ${f.path} is removed.`
+      : '';
+    return `Discard changes to ${f.path}?${renamed} ${what} This cannot be undone.`;
+  };
+
   const chips = multiRepo
     ? inTask.map((w) => {
         const r = files?.repos.find((x) => x.workspaceId === w.id);
@@ -693,6 +756,19 @@ export function ChangesTab({ task }: { task: TaskView }) {
               </span>
             )}
           </div>
+          {panel === 'files' && pendingDiscard && (
+            <ConfirmBar
+              message={discardText(pendingDiscard.file)}
+              confirmLabel={
+                discardKind(pendingDiscard.file) === 'delete'
+                  ? 'Delete'
+                  : 'Discard'
+              }
+              busy={discardBusy}
+              onConfirm={() => void confirmDiscard()}
+              onCancel={() => setDiscarding(null)}
+            />
+          )}
           {panel === 'files' ? (
             <FileTree
               repos={shownRepos}
@@ -726,6 +802,7 @@ export function ChangesTab({ task }: { task: TaskView }) {
               }
               onSelect={pick}
               onViewed={(r, f, on) => void setViewed(r, f, on)}
+              onDiscard={canDiscard ? askDiscard : undefined}
             />
           ) : (
             <CommentsList

@@ -1,5 +1,11 @@
 // src/main/review/ReviewService.test.ts
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -321,5 +327,97 @@ describe('ReviewService', () => {
       kind: 'all',
     });
     expect(r.repos[0].error).toBe('git merge-base failed (128):');
+  });
+
+  describe('discard', () => {
+    const paths = async (
+      service: ReviewService,
+      task: ReturnType<typeof setup>['task'],
+      kind: 'all' | 'uncommitted',
+    ) =>
+      (await service.files(task, { kind })).repos[0].files.map((f) => f.path);
+
+    it('Uncommitted: restores a file to HEAD and deletes an untracked one', async () => {
+      const { repo, task, service } = setup();
+      writeFileSync(path.join(repo, 'notes.txt'), 'n\n');
+      await service.discard(task, 'home', 'a.ts', { kind: 'uncommitted' });
+      await service.discard(task, 'home', 'notes.txt', { kind: 'uncommitted' });
+      expect(readFileSync(path.join(repo, 'a.ts'), 'utf8')).toBe(
+        'l1\nl2\nl3\nl4\nl5\n',
+      );
+      expect(existsSync(path.join(repo, 'notes.txt'))).toBe(false);
+      expect(await paths(service, task, 'uncommitted')).toEqual([]);
+      // The committed b.ts is untouched.
+      expect(await paths(service, task, 'all')).toEqual(['b.ts']);
+    });
+
+    it('All changes: restores to the base, deleting a file the base does not have', async () => {
+      const { repo, task, service } = setup();
+      await service.discard(task, 'home', 'b.ts', { kind: 'all' });
+      expect(existsSync(path.join(repo, 'b.ts'))).toBe(false);
+      writeFileSync(path.join(repo, 'a.ts'), 'other\n');
+      git(repo, 'commit', '-q', '-m', 'commit a', '--', 'a.ts');
+      await service.discard(task, 'home', 'a.ts', { kind: 'all' });
+      expect(readFileSync(path.join(repo, 'a.ts'), 'utf8')).toBe(
+        'l1\nl2\nl3\nl4\nl5\n',
+      );
+      expect(await paths(service, task, 'all')).toEqual([]);
+      // Left as uncommitted changes against HEAD.
+      expect((await paths(service, task, 'uncommitted')).sort()).toEqual([
+        'a.ts',
+        'b.ts',
+      ]);
+    });
+
+    it('a rename brings back the old path and removes the new one', async () => {
+      const { repo, task, service } = setup();
+      git(repo, 'checkout', '-q', '--', 'a.ts');
+      git(repo, 'mv', 'a.ts', 'moved.ts');
+      const listed = (await service.files(task, { kind: 'uncommitted' }))
+        .repos[0].files;
+      expect(listed).toMatchObject([
+        { status: 'R', path: 'moved.ts', oldPath: 'a.ts' },
+      ]);
+      await service.discard(task, 'home', 'moved.ts', { kind: 'uncommitted' });
+      expect(existsSync(path.join(repo, 'moved.ts'))).toBe(false);
+      expect(existsSync(path.join(repo, 'a.ts'))).toBe(true);
+      expect(await paths(service, task, 'uncommitted')).toEqual([]);
+    });
+
+    it('refuses a file the scope does not list, and commit scopes', async () => {
+      const { repo, task, service } = setup();
+      await expect(
+        service.discard(task, 'home', 'b.ts', { kind: 'uncommitted' }),
+      ).rejects.toThrow('not in this list');
+      await expect(
+        service.discard(task, 'home', 'README.md', { kind: 'all' }),
+      ).rejects.toThrow('not in this list');
+      const sha = git(repo, 'rev-parse', 'HEAD').trim();
+      await expect(
+        service.discard(task, 'home', 'b.ts', {
+          kind: 'commits',
+          workspaceId: 'home',
+          from: sha,
+          to: sha,
+        }),
+      ).rejects.toThrow('single commit');
+      expect(existsSync(path.join(repo, 'b.ts'))).toBe(true);
+    });
+
+    it('keeps comments on a discarded file', async () => {
+      const { task, service } = setup();
+      await service.addComment(task, {
+        workspaceId: 'home',
+        path: 'a.ts',
+        side: 'after',
+        startLine: 3,
+        endLine: 3,
+        text: 'why?',
+      });
+      await service.discard(task, 'home', 'a.ts', { kind: 'all' });
+      const s = await service.state(task);
+      expect(s.comments).toHaveLength(1);
+      expect(s.comments[0].status).toBe('outdated');
+    });
   });
 });

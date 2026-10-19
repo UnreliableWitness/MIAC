@@ -129,6 +129,33 @@ export class ReviewService {
     return readContent(this.d.git, ws.worktreePath, range, file);
   }
 
+  /**
+   * Throws away what the scope shows for one file: Uncommitted puts it back as HEAD has it, All changes as
+   * the base has it (a new file is deleted). Only a file the scope lists right now; never a commit scope.
+   */
+  async discard(
+    task: Task,
+    workspaceId: string,
+    filePath: string,
+    scope: ReviewScope,
+  ): Promise<void> {
+    assertRelPath(filePath);
+    if (scope.kind === 'commits')
+      throw new Error('Changes in a single commit cannot be discarded here');
+    const ws = this.workspace(task, workspaceId);
+    const wt = ws.worktreePath;
+    const range = await rangeFor(this.d.git, wt, scope, await this.base(ws));
+    const file = (await listFiles(this.d.git, wt, range)).find(
+      (f) => f.path === filePath,
+    );
+    if (!file) throw new Error(`${filePath} is not in this list any more`);
+    await this.d.git.discardPaths(
+      wt,
+      range.from,
+      file.oldPath ? [file.oldPath, file.path] : [file.path],
+    );
+  }
+
   /** The state with every unresolved comment located again in the current files; saved only when one moved. */
   async state(task: Task): Promise<ReviewState> {
     const cur = await this.d.store.get(task.id);

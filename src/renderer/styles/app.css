@@ -150,6 +150,25 @@ h3 {
   color: var(--disabled);
   cursor: default;
 }
+.confirm-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--warn-bg);
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.confirm-bar-text {
+  flex: 1 1 180px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.confirm-bar-actions {
+  display: inline-flex;
+  gap: 6px;
+}
 .link {
   background: none;
   border: 0;

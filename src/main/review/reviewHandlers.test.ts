@@ -1,5 +1,5 @@
 // src/main/review/reviewHandlers.test.ts
-import { mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
@@ -78,6 +78,18 @@ describe('review handlers', () => {
         { kind: 'all' },
       ),
     ).rejects.toThrow('Outside the worktree');
+  });
+
+  it('discards a listed file and validates the input', async () => {
+    const { h, repo } = setup();
+    await expect(
+      h['review:discard']('t1', 'home', '../x', { kind: 'all' }),
+    ).rejects.toThrow('Outside the worktree');
+    await expect(
+      h['review:discard']('t1', 'home', 'a.ts', { kind: 'nope' } as never),
+    ).rejects.toThrow();
+    await h['review:discard']('t1', 'home', 'a.ts', { kind: 'all' });
+    expect(existsSync(path.join(repo, 'a.ts'))).toBe(false);
   });
 
   it('validates comment input', async () => {
