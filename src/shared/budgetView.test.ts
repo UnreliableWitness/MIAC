@@ -102,8 +102,8 @@ describe('budgetView', () => {
   it('splits models, today, the week and the outside share', () => {
     const v = view(
       {
-        '2026-10-13': [row({ costEur: 10 })], // Monday
-        '2026-10-12': [row({ costEur: 1000, inShellie: false })], // Sunday, not this week
+        '2026-10-13': [row({ costEur: 10 })], // Tuesday of last week
+        '2026-10-12': [row({ costEur: 1000, inShellie: false })], // Monday of last week
         '2026-10-19': [
           row({ costEur: 20, model: 'claude-sonnet-5-5', inShellie: false }),
           row({ costEur: 30 }),
@@ -116,7 +116,7 @@ describe('budgetView', () => {
       ['claude-sonnet-5-5', 20],
     ]);
     expect(v.todayEur).toBe(50);
-    expect(v.weekEur).toBe(60);
+    expect(v.weekEur).toBe(50); // 19 Oct 2026 is itself a Monday
     expect(v.outsideShare).toBeCloseTo(1020 / 1060, 6);
   });
 
