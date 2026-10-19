@@ -8,15 +8,34 @@ import { DiffView, type DiffZone } from './DiffView';
 // Monaco does not run in jsdom: a stand-in with just what DiffView calls. View zones are real DOM
 // nodes in a host per editor, added and removed like Monaco does.
 const fake = vi.hoisted(() => {
+  type Zone = { domNode: HTMLElement; onDomNodeTop?: (top: number) => void };
   const disp = { dispose: () => undefined };
   const restored: unknown[] = [];
   let saved = 0;
   const editor = () => {
     const host = document.createElement('div');
     let seq = 0;
-    const zones = new Map<string, { domNode: HTMLElement }>();
+    const zones = new Map<string, Zone>();
+    const widgets = new Set<HTMLElement>();
     return {
       host,
+      zones,
+      widgets,
+      getLayoutInfo: () => ({
+        width: 600,
+        contentLeft: 60,
+        verticalScrollbarWidth: 14,
+        minimap: { minimapWidth: 0 },
+      }),
+      onDidLayoutChange: () => disp,
+      addOverlayWidget: (w: { getDomNode: () => HTMLElement }) => {
+        widgets.add(w.getDomNode());
+        host.appendChild(w.getDomNode());
+      },
+      removeOverlayWidget: (w: { getDomNode: () => HTMLElement }) => {
+        widgets.delete(w.getDomNode());
+        w.getDomNode().remove();
+      },
       onMouseMove: () => disp,
       onMouseLeave: () => disp,
       onMouseDown: () => disp,
@@ -29,7 +48,7 @@ const fake = vi.hoisted(() => {
       revealLineInCenter: () => undefined,
       changeViewZones: (
         cb: (acc: {
-          addZone: (z: { domNode: HTMLElement }) => string;
+          addZone: (z: Zone) => string;
           removeZone: (id: string) => void;
           layoutZone: (id: string) => void;
         }) => void,
@@ -95,7 +114,14 @@ const fake = vi.hoisted(() => {
       },
     },
   };
-  return { monaco, restored };
+  const editors: ReturnType<typeof editor>[] = [];
+  const created = monaco.editor.createDiffEditor;
+  monaco.editor.createDiffEditor = (host: HTMLElement) => {
+    const d = created(host);
+    editors.push(d.getOriginalEditor(), d.getModifiedEditor());
+    return d;
+  };
+  return { monaco, restored, editors };
 });
 vi.mock('../../review/loadMonaco', () => ({
   loadMonaco: () => Promise.resolve(fake.monaco),
@@ -103,6 +129,7 @@ vi.mock('../../review/loadMonaco', () => ({
 
 beforeEach(() => {
   fake.restored.length = 0;
+  fake.editors.length = 0;
   vi.stubGlobal(
     'ResizeObserver',
     class {
@@ -149,6 +176,21 @@ const zone = (id: string, afterLine: number, node: DiffZone['node']) =>
   ({ id, side: 'after', afterLine, node }) as const;
 
 describe('DiffView zones', () => {
+  it('draws a card over its view zone, not in it, inside the visible code area (#71)', async () => {
+    render(<DiffView {...props} zones={[zone('c1', 1, card)]} />);
+    const button = await screen.findByRole('button', { name: 'Edit' });
+    const after = fake.editors[1];
+    const [z] = [...after.zones.values()];
+    // The zone, under Monaco's text layer, only keeps the space open.
+    expect(z.domNode.contains(button)).toBe(false);
+    const [widget] = [...after.widgets];
+    expect(widget.contains(button)).toBe(true);
+    expect(widget.style.left).toBe('60px');
+    expect(widget.style.width).toBe('526px');
+    act(() => z.onDomNodeTop?.(120));
+    expect(widget.style.top).toBe('120px');
+  });
+
   it('keeps a comment being edited, with its text, when the zones are rebuilt around it', async () => {
     const { rerender } = render(
       <DiffView {...props} zones={[zone('c1', 1, card)]} />,
@@ -168,7 +210,7 @@ describe('DiffView zones', () => {
     await screen.findByText('other');
     expect(screen.getByRole('textbox', { name: 'Comment' })).toBe(input);
     expect(input.value).toBe('Rename it');
-    // A zone whose id is gone is dropped.
+    // A zone whose id is gone is dropped, its card too.
     rerender(
       <DiffView {...props} zones={[zone('c2', 5, <span>other</span>)]} />,
     );

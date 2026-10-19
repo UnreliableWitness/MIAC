@@ -40,7 +40,10 @@
   color: #fff;
   font: 600 13px var(--font-ui);
 }
+/* An overlay widget laid over its view zone; DiffView sets top, left and width. */
 .review-zone {
+  position: absolute;
+  box-sizing: border-box;
   padding: 4px 16px 4px 8px;
   font-family: var(--font-ui);
 }
