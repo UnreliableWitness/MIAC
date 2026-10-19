@@ -72,7 +72,7 @@ Verified against the OpenCode 1.14.22 source; not yet run live.
 
 ### 1.3 Other terminals: bell
 
-- A BEL byte outside an escape sequence, in a terminal that has not reported OSC 7501 status and is not an OpenCode tab, emits `done` with message "rang the bell".
+- A BEL byte outside an escape sequence, in a terminal that has not reported OSC 7501 status and is not an OpenCode tab, emits `blocked` with kind `bell` *(our call: the program asked for the developer explicitly, so it notifies even with "notify when a turn finishes" off)*. The notification reads "<tab label> rang the bell".
 - Bells from one terminal are throttled to one signal per 10 s *(our call)*.
 
 ### 1.4 Receiver route
