@@ -3,6 +3,7 @@ import { useEffect, useMemo } from 'react';
 import { Band } from '../components/home/Band';
 import { PrBand } from '../components/home/PrBand';
 import { SprintsBand } from '../components/home/SprintsBand';
+import { BudgetBand } from '../components/home/BudgetBand';
 import { StatsBand } from '../components/home/StatsBand';
 import { TasksBand } from '../components/home/TasksBand';
 import { PageHeader } from '../components/ui';
@@ -132,6 +133,7 @@ export function HomeScreen() {
           </>
         )}
         <StatsBand />
+        <BudgetBand />
       </div>
     </div>
   );

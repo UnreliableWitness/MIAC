@@ -185,3 +185,76 @@
 .home-tile b {
   font-size: 18px;
 }
+
+.budget-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.budget-total {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.budget-total b {
+  font-size: 20px;
+}
+.budget-status {
+  margin-left: auto;
+  color: var(--muted);
+}
+.budget-status.is-over {
+  color: var(--red);
+}
+.budget-info {
+  cursor: help;
+  color: var(--muted);
+}
+.budget-burn {
+  width: 100%;
+  height: 92px;
+  margin-top: 8px;
+}
+.budget-bars {
+  width: 100%;
+  height: 60px;
+  margin-top: 6px;
+}
+.budget-limit {
+  stroke: var(--red);
+  stroke-dasharray: 4 3;
+}
+.budget-pace {
+  stroke: var(--line-strong);
+  opacity: 0.5;
+}
+.budget-line {
+  fill: none;
+  stroke: var(--chart-claude);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.budget-forecast {
+  stroke: var(--chart-claude);
+  stroke-dasharray: 3 3;
+  vector-effect: non-scaling-stroke;
+}
+.budget-bars .is-today rect {
+  opacity: 0.6;
+}
+.budget-models {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 4px;
+}
+.budget-models i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 4px;
+}

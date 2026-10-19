@@ -2304,6 +2304,8 @@ export function createHandlers(s: Services): Handlers {
           });
       }
       s.broadcast('usage:changed', { taskId: '*' });
+      void s.budget?.pass();
+      s.broadcast('budget:changed', {});
       return saved;
     },
   };

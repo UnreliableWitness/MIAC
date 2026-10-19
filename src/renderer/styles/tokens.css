@@ -25,6 +25,11 @@
   /* Usage charts: Claude Code in the accent blue, Copilot CLI in purple. */
   --chart-claude: #2b88d8;
   --chart-copilot: #a083e0;
+  /* Claude budget: one colour per model family. */
+  --chart-opus: #2b88d8;
+  --chart-sonnet: #6cb8f6;
+  --chart-haiku: #b4d6fa;
+  --chart-fable: #a083e0;
   /* Repos of a multi-repo task (repoColor): clear of the A/M/D status colors and the primary blue. */
   --repo-1: #5fb3f5;
   --repo-2: #b38ef2;

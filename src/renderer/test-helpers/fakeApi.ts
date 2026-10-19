@@ -35,6 +35,27 @@ export const emptyTime = (taskId: string): TaskTime => ({
 });
 
 const defaults: FakeHandlers = {
+  'budget:get': (monthOffset) => ({
+    monthOffset,
+    startDay: '2026-10-01',
+    endDay: '2026-10-31',
+    budgetEur: null,
+    spentEur: 0,
+    daysElapsed: 1,
+    daysInMonth: 31,
+    forecastEur: null,
+    status: 'none',
+    cumulative: [],
+    days: [],
+    models: [],
+    todayEur: 0,
+    weekEur: 0,
+    outsideShare: 0,
+    notCounted: [],
+    unpriced: [],
+    sources: { claudeCode: false, openCode: false },
+    alertsDue: [],
+  }),
   'home:get': () => null,
   'home:refresh': () => ({
     version: 1,

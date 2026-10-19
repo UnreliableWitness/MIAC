@@ -35,6 +35,7 @@ export function useAttention(): void {
       api().on('attention:open', ({ taskId, terminalId }) => {
         useStore.getState().openTab(taskId, terminalId);
       }),
+      api().on('budget:open', () => useStore.getState().go({ kind: 'home' })),
     ];
     return () => {
       offStore();
