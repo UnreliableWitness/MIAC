@@ -11,7 +11,7 @@ describe('clampMessage', () => {
   });
 
   it('never splits a surrogate pair at the limit', () => {
-    const out = clampMessage('a'.repeat(MESSAGE_MAX - 2) + '😀😀');
+    const out = clampMessage('a'.repeat(MESSAGE_MAX - 2) + '😀😀😀');
     expect(Array.from(out)).toHaveLength(MESSAGE_MAX);
     expect(out.endsWith('😀…')).toBe(true);
     expect(out).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])/);
