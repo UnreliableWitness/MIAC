@@ -39,6 +39,7 @@ import type { RendererTelemetry } from './telemetry';
 import type { TitleBarKind } from './titleBar';
 import type { LocalItemTime, TaskTime } from './time';
 import type { AttentionSnapshot, AttentionView } from './attention';
+import type { BudgetView } from './budgetView';
 import type { HomePeriod, HomeSnapshot, HomeStats } from './home';
 import type {
   FileContent,
@@ -275,6 +276,8 @@ export type Channels = {
   'home:refresh': { args: []; result: HomeSnapshot };
   /** The developer's own totals for this week or month, from local data. */
   'home:stats': { args: [period: HomePeriod]; result: HomeStats };
+  /** The Claude budget for a month: 0 is this one, -1 the one before. */
+  'budget:get': { args: [monthOffset: number]; result: BudgetView };
   'usage:task': { args: [taskId: string]; result: TaskUsage };
   'usage:setBillable': {
     args: [taskId: string, sessionId: string, billable: boolean];
@@ -338,6 +341,10 @@ export type Events = {
   'update:ready': PendingUpdate;
   /** A Home rebuild finished. */
   'home:updated': HomeSnapshot;
+  /** The Claude budget numbers changed. */
+  'budget:changed': Record<string, never>;
+  /** A budget notification was clicked; the renderer opens the budget view. */
+  'budget:open': Record<string, never>;
   /** The main window entered or left full screen (also sent on every load). */
   'window:fullScreen': boolean;
 };

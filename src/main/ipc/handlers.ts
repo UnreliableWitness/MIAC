@@ -39,6 +39,7 @@ import {
 } from '../../shared/workspaces';
 import { pathExists } from '../fsRetry';
 import { worktreeRoot } from '../paths';
+import type { BudgetService } from '../budget/BudgetService';
 import { HomeService } from '../home/HomeService';
 import { homeStats } from '../home/homeStats';
 import { DocsWatcher } from '../docs/DocsWatcher';
@@ -147,6 +148,7 @@ export type Services = {
   usageDir: string;
   /** Home's snapshot builder; handlers build one in usageDir when absent (tests). */
   home?: HomeService;
+  budget?: BudgetService;
   /** Registers a function to run every hour (main uses setInterval; tests capture it). */
   onHourly: (fn: () => void) => void;
   /** How long Finish waits after closing terminals so the last telemetry batch arrives (main 2500, tests 0). */
@@ -2212,6 +2214,10 @@ export function createHandlers(s: Services): Handlers {
         throw new Error('Only a finished task with booked time can be written');
       const error = await syncTime(taskId);
       if (error) throw new Error(error);
+    },
+    'budget:get': async (monthOffset) => {
+      if (!s.budget) throw new Error('Budget is not available');
+      return s.budget.view(monthOffset);
     },
     'home:get': () => home.get(),
     'home:refresh': () => home.refresh(),
