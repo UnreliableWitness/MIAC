@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  readFromDisk,
   SessionLogReader,
   writeHitsFromBash,
   writeHitsFromLines,
@@ -208,6 +209,23 @@ describe('SessionLogReader', () => {
     expect(await r.readNew(f)).toEqual(['é1', 'é2']);
     await fs.appendFile(f, 'é3\n');
     expect(await r.readNew(f)).toEqual(['é3']);
+    await fs.rm(dir, { recursive: true });
+  });
+
+  it('reads at most the cap per call and skips a line longer than the cap', async () => {
+    const fs = await import('node:fs/promises');
+    const os = await import('node:os');
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'sl-'));
+    const f = path.join(dir, 's.jsonl');
+    await fs.writeFile(f, `a\nb\n${'x'.repeat(25)}\nc\nd\n`);
+    const r = new SessionLogReader(readFromDisk(10));
+    const got: string[] = [];
+    for (let i = 0; i < 20; i++) {
+      got.push(...(await r.readNew(f)));
+      if (!r.behind(f)) break;
+    }
+    expect(got).toEqual(['a', 'b', 'c', 'd']);
+    expect(r.behind(f)).toBe(false);
     await fs.rm(dir, { recursive: true });
   });
 });

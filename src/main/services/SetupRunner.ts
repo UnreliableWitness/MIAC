@@ -474,17 +474,67 @@ export class SetupRunner {
       return { detail, warn: true };
     }
     const targets = plan.apmTargets ?? [];
-    for (const target of targets) {
-      const cmd = `apm install --target ${target}`;
-      log(`$ ${cmd}`);
-      await this.spawnLogged(
-        this.platform.shellCommand(cmd),
+    const changedBefore = await this.changedTrackedFiles(plan.worktreePath);
+    let restored: string[] = [];
+    try {
+      for (const target of targets) {
+        const cmd = `apm install --target ${target}`;
+        log(`$ ${cmd}`);
+        await this.spawnLogged(
+          this.platform.shellCommand(cmd),
+          plan.worktreePath,
+          log,
+          cmd,
+        );
+      }
+    } finally {
+      restored = await this.restoreTouched(
         plan.worktreePath,
+        changedBefore,
         log,
-        cmd,
       );
     }
-    return { detail: `Installed for ${targets.join(', ')}` };
+    return {
+      detail: `Installed for ${targets.join(', ')}${restored.length > 0 ? `; kept ${restored.join(', ')} as committed` : ''}`,
+    };
+  }
+
+  /** Tracked files that differ from HEAD (staged or not). */
+  private async changedTrackedFiles(worktree: string): Promise<Set<string>> {
+    const out = await this.git.run(worktree, [
+      'diff',
+      'HEAD',
+      '--name-only',
+      '-z',
+      '--',
+    ]);
+    return new Set(out.split('\0').filter(Boolean));
+  }
+
+  /**
+   * `apm install` rewrites committed files such as apm.lock.yaml (another apm version, or one target of
+   * several), so a new task started with changes nobody made (#74). Tracked files it changed go back to
+   * HEAD; the files it deployed (untracked, usually ignored) stay.
+   */
+  private async restoreTouched(
+    worktree: string,
+    before: Set<string>,
+    log: (l: string) => void,
+  ): Promise<string[]> {
+    try {
+      const touched = [...(await this.changedTrackedFiles(worktree))].filter(
+        (f) => !before.has(f),
+      );
+      if (touched.length === 0) return [];
+      await this.git.run(worktree, ['checkout', 'HEAD', '--', ...touched]);
+      log(
+        `kept as committed (apm install changed them): ${touched.join(', ')}`,
+      );
+      return touched;
+    } catch (e) {
+      log(`could not restore files apm install changed: ${errorMessage(e)}`);
+      return [];
+    }
   }
 
   private spawnLogged(

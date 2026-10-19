@@ -35,6 +35,7 @@ import {
   taskWorkspaces,
   workspaceById,
   type WorkspaceView,
+  parseDocsTarget,
 } from '../../shared/workspaces';
 import { pathExists } from '../fsRetry';
 import { worktreeRoot } from '../paths';
@@ -53,6 +54,7 @@ import { createReviewHandlers } from '../review/reviewHandlers';
 import { ReviewService } from '../review/ReviewService';
 import { ReviewStore } from '../review/ReviewStore';
 import { createDocsHandlers } from '../docs/docsHandlers';
+import { SessionDocs } from '../docs/sessionDocs';
 import type { AttentionHub } from '../attention/AttentionHub';
 import type { ActivityTracker } from '../time/ActivityTracker';
 import { baselineKey, createTimeHandlers } from '../time/timeHandlers';
@@ -113,6 +115,8 @@ export type Services = {
   openExternal: (url: string) => Promise<void>;
   /** Shows a file in Finder or Explorer (main uses shell.showItemInFolder). */
   revealFile?: (absPath: string) => void;
+  /** Opens a folder in Explorer or Finder; resolves to an error message, empty on success (shell.openPath). */
+  openPath?: (absPath: string) => Promise<string>;
   /** Owned by main so it can stop on quit; handlers create their own when absent (tests). */
   docsWatcher?: DocsWatcher;
   /** Watches worktrees' git dirs for the Changes page; owned by main so it stops on quit. */
@@ -1028,10 +1032,17 @@ export function createHandlers(s: Services): Handlers {
       undefined,
       (target) => docsWatcher.stopTarget(target),
     );
+  const sessionDocs = new SessionDocs({
+    git: s.git,
+    projectsDir: () => claudeProjectsDir(),
+  });
   const docsWatcher =
     s.docsWatcher ??
     new DocsWatcher(
-      (taskId, paths) => s.broadcast('docs:changed', { taskId, paths }),
+      (taskId, paths) => {
+        sessionDocs.invalidate(parseDocsTarget(taskId).taskId);
+        s.broadcast('docs:changed', { taskId, paths });
+      },
       undefined,
       (taskId) => {
         gitDirWatcher.stopTarget(taskId);
@@ -1534,9 +1545,17 @@ export function createHandlers(s: Services): Handlers {
       openExternal: s.openExternal,
       revealFile: s.revealFile ?? (() => undefined),
       watcher: docsWatcher,
+      session: sessionDocs,
       event: (n, p) => tel.event(n, p),
     }),
-    ...createEditorHandlers({ taskById, editors }),
+    ...createEditorHandlers({
+      taskById,
+      editors,
+      showFolder: async (p) => {
+        const error = await (s.openPath ?? (async () => ''))(p);
+        if (error) throw new Error(`Could not open the folder: ${error}`);
+      },
+    }),
     ...createReviewHandlers({ taskById, review, docsWatcher, gitDirWatcher }),
     'attention:view': async (view) => s.attention?.setView(view),
     'attention:get': async () => s.attention?.snapshot() ?? {},

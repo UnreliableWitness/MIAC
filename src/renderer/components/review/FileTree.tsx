@@ -1,6 +1,8 @@
 import {
+  ArrowUndo16Regular,
   ChevronDown12Regular,
   ChevronRight12Regular,
+  Delete16Regular,
 } from '@fluentui/react-icons';
 import { type ReactNode, useMemo, useState } from 'react';
 import {
@@ -33,6 +35,10 @@ const split = (p: string) => {
     : { dir: p.slice(0, i + 1), name: p.slice(i + 1) };
 };
 
+/** What discarding a file does to it: a new file (not on the scope's base side) is deleted. */
+export const discardKind = (file: Pick<ReviewFile, 'status'>) =>
+  file.status === 'A' ? 'delete' : 'discard';
+
 const indent = (depth: number) => ({ paddingLeft: 12 + depth * 14 });
 
 function Row({
@@ -43,6 +49,7 @@ function Row({
   comments,
   onSelect,
   onViewed,
+  onDiscard,
 }: {
   file: ReviewFile;
   /** Set in the tree: the folder depth to indent by, and no folder after the name. */
@@ -52,8 +59,10 @@ function Row({
   comments: number;
   onSelect: () => void;
   onViewed: (on: boolean) => void;
+  onDiscard?: () => void;
 }) {
   const { dir, name } = split(file.path);
+  const del = discardKind(file) === 'delete';
   const viewed = viewedHash === file.hash;
   const changedSince = viewedHash !== undefined && !viewed;
   return (
@@ -102,6 +111,24 @@ function Row({
           </>
         )}
       </span>
+      {onDiscard && (
+        <button
+          type="button"
+          className="ibtn review-discard"
+          aria-label={`${del ? 'Delete file' : 'Discard changes to'} ${file.path}`}
+          title={del ? 'Delete file' : 'Discard changes'}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDiscard();
+          }}
+        >
+          {del ? (
+            <Delete16Regular aria-hidden="true" />
+          ) : (
+            <ArrowUndo16Regular aria-hidden="true" />
+          )}
+        </button>
+      )}
       <input
         type="checkbox"
         aria-label={`Viewed ${file.path}`}
@@ -288,6 +315,7 @@ export function FileTree({
   onSelect,
   onViewed,
   onToggleDir,
+  onDiscard,
 }: {
   repos: ReviewRepo[];
   /** Show a header per repo: the task has more than one, even when the list is narrowed to one. */
@@ -305,6 +333,8 @@ export function FileTree({
   onSelect: (ref: FileRef) => void;
   onViewed: (repo: ReviewRepo, file: ReviewFile, on: boolean) => void;
   onToggleDir: (key: string) => void;
+  /** Offers a discard action on each file row; left out where discarding does not apply (a commit). */
+  onDiscard?: (repo: ReviewRepo, file: ReviewFile) => void;
 }) {
   const [openGenerated, setOpenGenerated] = useState<Record<string, boolean>>(
     {},
@@ -352,6 +382,7 @@ export function FileTree({
             comments={commentCount(ref(f))}
             onSelect={() => onSelect(ref(f))}
             onViewed={(on) => onViewed(r, f, on)}
+            onDiscard={onDiscard && (() => onDiscard(r, f))}
           />
         );
         const files = ({ list, tree }: { list: ReviewFile[]; tree: TreeDir }) =>

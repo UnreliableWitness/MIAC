@@ -1,9 +1,10 @@
 import { execFile, type ExecFileOptions } from 'node:child_process';
+import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import type { GitSummary, TaskSummary } from '../../shared/types';
 import { realWait, withRetry, type Wait } from '../fsRetry';
-import { nativePath } from '../paths';
+import { isInside, nativePath } from '../paths';
 
 const execFileAsync = promisify(execFile);
 
@@ -406,6 +407,56 @@ export class GitClient {
     return this.mergeBase(worktree, o.baseRef, 'HEAD');
   }
 
+  /**
+   * Puts each worktree-relative path back as it is at `ref`, in the index and the working tree; a path
+   * `ref` does not have is removed from both (an untracked file is just deleted). Paths are taken
+   * literally and must stay inside the worktree, also after following symlinked folders; a symlink
+   * itself is removed, never what it points to.
+   */
+  async discardPaths(
+    worktree: string,
+    ref: string,
+    paths: string[],
+  ): Promise<void> {
+    const root = await fs.realpath(worktree);
+    const targets = await Promise.all(
+      paths.map(async (rel) => ({ rel, abs: await containedPath(root, rel) })),
+    );
+    for (const { rel, abs } of targets) {
+      const inRef = await this.run(worktree, [
+        'cat-file',
+        '-e',
+        `${ref}:${rel}`,
+      ])
+        .then(() => true)
+        .catch(() => false);
+      if (inRef) {
+        await this.run(worktree, [
+          '--literal-pathspecs',
+          'restore',
+          `--source=${ref}`,
+          '--staged',
+          '--worktree',
+          '--',
+          rel,
+        ]);
+        continue;
+      }
+      const st = await fs.lstat(abs).catch(() => null);
+      if (st?.isDirectory()) throw new Error(`${rel} is a folder`);
+      await this.run(worktree, [
+        '--literal-pathspecs',
+        'rm',
+        '-f',
+        '-q',
+        '--ignore-unmatch',
+        '--',
+        rel,
+      ]);
+      await fs.rm(abs, { force: true });
+    }
+  }
+
   /** The worktree's own git dir (`.git/worktrees/<name>` for a linked worktree), absolute. */
   async gitDir(worktree: string): Promise<string> {
     const out = await this.run(worktree, ['rev-parse', '--absolute-git-dir']);
@@ -505,6 +556,37 @@ export class GitClient {
     } catch {
       return { upstream, pushed: false };
     }
+  }
+}
+
+/**
+ * `rel` joined to the worktree's real path, refused when it leaves the worktree: absolute, `..`, the
+ * `.git` folder, or a parent folder that is a symlink to somewhere outside.
+ */
+async function containedPath(root: string, rel: string): Promise<string> {
+  const parts = rel.split(/[\\/]/);
+  if (
+    !rel ||
+    rel.includes('\0') ||
+    path.isAbsolute(rel) ||
+    path.win32.isAbsolute(rel) ||
+    parts.includes('..') ||
+    parts[0] === '.git'
+  )
+    throw new Error('Outside the worktree');
+  const abs = path.join(root, rel);
+  // The nearest folder that exists decides: a deleted file's folder may be gone too.
+  for (let dir = path.dirname(abs); ; dir = path.dirname(dir)) {
+    let real: string;
+    try {
+      real = await fs.realpath(dir);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT' && dir !== root)
+        continue;
+      throw e;
+    }
+    if (!isInside(root, real)) throw new Error('Outside the worktree');
+    return abs;
   }
 }
 

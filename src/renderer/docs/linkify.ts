@@ -66,7 +66,11 @@ export function findLinks(text: string): FoundLink[] {
   return out.sort((a, b) => a.start - b.start);
 }
 
-/** A link in a document, resolved against that document's folder to a worktree-relative "/" path; null when it leaves the worktree. */
+/**
+ * A link in a document, resolved against that document's folder to a worktree-relative "/" path; null when it
+ * leaves the worktree. A document outside the worktrees has an absolute path ("/x/a.md", "C:/x/a.md"): its links
+ * resolve to absolute paths and may not climb above the drive or filesystem root.
+ */
 export function resolveRelative(fromDoc: string, href: string): string | null {
   const bare = href.split('#')[0].split('?')[0];
   let decoded: string;
@@ -75,7 +79,14 @@ export function resolveRelative(fromDoc: string, href: string): string | null {
   } catch {
     decoded = bare;
   }
-  const parts = decoded.startsWith('/') ? [] : fromDoc.split('/').slice(0, -1);
+  const root = /^[A-Za-z]:\//.test(fromDoc)
+    ? fromDoc.slice(0, 3)
+    : fromDoc.startsWith('/')
+      ? '/'
+      : '';
+  const parts = decoded.startsWith('/')
+    ? []
+    : fromDoc.slice(root.length).split('/').slice(0, -1);
   for (const seg of decoded.split('/')) {
     if (seg === '' || seg === '.') continue;
     if (seg === '..') {
@@ -83,7 +94,7 @@ export function resolveRelative(fromDoc: string, href: string): string | null {
       parts.pop();
     } else parts.push(seg);
   }
-  return parts.length ? parts.join('/') : null;
+  return parts.length ? root + parts.join('/') : null;
 }
 
 /** A web link `links:open` accepts (http or https, no username or password), normalized; null for anything else. */

@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 import type { Command, Platform } from './Platform';
 
 /** Makes a prompt safe to pass through a .cmd/.bat shim: no quotes or cmd.exe metacharacters. */
@@ -55,13 +57,34 @@ const BASE_ARGS = ['-NoLogo', '-ExecutionPolicy', 'Bypass'];
 /** Windows: PowerShell 7 if installed, else Windows PowerShell 5.1. */
 export function windowsPlatform(
   _env: NodeJS.ProcessEnv,
-  deps: { which: (name: string) => string | null },
+  deps: {
+    which: (name: string) => string | null;
+    exists?: (p: string) => boolean;
+  },
 ): Platform {
+  const exists = deps.exists ?? existsSync;
   const shell = deps.which('pwsh') ?? 'powershell.exe';
   const ps = (command: string): Command => ({
     command: shell,
     args: [...BASE_ARGS, '-NoProfile', '-Command', command],
   });
+
+  /**
+   * VS Code's own Code.exe next to the `bin\code.cmd` on PATH, started directly (#73): no hidden
+   * PowerShell and cmd.exe in between, and no ELECTRON_RUN_AS_NODE trip through its CLI script.
+   */
+  const vscode = (args: string[]): Command => {
+    const shim = deps.which('code');
+    if (!shim) throw new Error('VS Code (code) is not on PATH');
+    const exe = path.win32.join(
+      path.win32.dirname(path.win32.dirname(shim)),
+      'Code.exe',
+    );
+    if (exists(exe)) return { command: exe, args };
+    return ps(
+      `& code ${args.map((a) => (a === '-g' ? a : psQuote(a))).join(' ')}`,
+    );
+  };
 
   /** Native .exe runs directly (node-pty quotes args for ConPTY); shims go through PowerShell. */
   const nonInteractive = (command: string): Command => ({
@@ -116,15 +139,8 @@ export function windowsPlatform(
       ),
     copilotCommand: () => tool('copilot', []),
     opencodeCommand: () => tool('opencode', []),
-    editorCommand: (p) => {
-      if (!deps.which('code')) throw new Error('VS Code (code) is not on PATH');
-      return ps(`& code ${psQuote(p)}`);
-    },
-    editorGotoCommand: (wt, f, line, col) => {
-      if (!deps.which('code')) throw new Error('VS Code (code) is not on PATH');
-      return ps(
-        `& code ${psQuote(wt)} -g ${psQuote(`${f}:${line ?? 1}:${col ?? 1}`)}`,
-      );
-    },
+    editorCommand: (p) => vscode([p]),
+    editorGotoCommand: (wt, f, line, col) =>
+      vscode([wt, '-g', `${f}:${line ?? 1}:${col ?? 1}`]),
   };
 }

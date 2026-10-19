@@ -10,6 +10,7 @@ import type {
   ShellieConfig,
   PullRequestRef,
   DocFile,
+  SessionDoc,
   NewTerminal,
   Repo,
   SetupEvent,
@@ -111,6 +112,8 @@ export type Channels = {
   };
   'shell:openExternal': { args: [url: string]; result: void };
   'docs:list': { args: [taskId: string]; result: { files: DocFile[] } };
+  /** The task's session docs (every workspace, plus files outside them); the target names the task. */
+  'docs:session': { args: [taskId: string]; result: { files: SessionDoc[] } };
   'docs:read': {
     args: [taskId: string, path: string];
     result: { text: string; mtimeMs: number };
@@ -132,6 +135,11 @@ export type Channels = {
       workspaceId: string | undefined,
       o: { editorId?: EditorId; solution?: string },
     ];
+    result: void;
+  };
+  /** Opens the workspace's worktree folder in Explorer or Finder. */
+  'editor:showFolder': {
+    args: [taskId: string, workspaceId?: string];
     result: void;
   };
   /** Opens a worktree file (root-relative) at a line in the chosen editor, or in `editorId`. */
@@ -196,6 +204,16 @@ export type Channels = {
     result: ReviewState;
   };
   'review:summary': { args: [taskId: string]; result: ReviewSummary };
+  /** Discards one listed file's changes in the scope (`all` or `uncommitted`): restored to the scope's base side, or deleted when new there. */
+  'review:discard': {
+    args: [
+      taskId: string,
+      workspaceId: string,
+      path: string,
+      scope: ReviewScope,
+    ];
+    result: void;
+  };
   /** Holds the file and git-dir watchers of one worktree (a docs target); `live` false means poll. */
   'review:watch': {
     args: [target: string, on: boolean];

@@ -30,14 +30,29 @@ function setup() {
     event: () => undefined,
   });
   const task = testTask({ worktreePath: repo });
+  const shown: string[] = [];
   return {
     repo,
     launch,
-    h: createEditorHandlers({ taskById: () => task, editors }),
+    shown,
+    h: createEditorHandlers({
+      taskById: () => task,
+      editors,
+      showFolder: async (p) => {
+        shown.push(p);
+      },
+    }),
   };
 }
 
 describe('editor handlers', () => {
+  it('opens the worktree folder in the file manager (#73)', async () => {
+    const { h, repo, shown, launch } = setup();
+    await h['editor:showFolder']('t1');
+    expect(shown).toEqual([repo]);
+    expect(launch).not.toHaveBeenCalled();
+  });
+
   it('lists options for the task’s home worktree', async () => {
     const { h } = setup();
     expect((await h['editor:options']('t1')).chosen).toBe('vscode');

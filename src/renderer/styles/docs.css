@@ -132,6 +132,42 @@
 .docs-folder {
   padding: 8px 8px 2px;
 }
+.docs-mode {
+  margin-bottom: 8px;
+}
+.docs-tree-folder {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding-top: 4px;
+  padding-bottom: 2px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.docs-tree-folder > svg {
+  flex: none;
+}
+.docs-tree-folder:hover {
+  background: var(--bg-hover);
+}
+.docs-tree-folder.is-root {
+  color: var(--text);
+  font-weight: 600;
+}
+.docs-root-path {
+  direction: rtl;
+  text-align: left;
+}
+.docs-list-empty {
+  padding: 8px;
+  margin: 0;
+}
 .docs-file {
   display: flex;
   align-items: center;

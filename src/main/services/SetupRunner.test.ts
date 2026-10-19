@@ -470,6 +470,7 @@ function fakeApm(dir: string) {
       '#!/bin/sh',
       '[ -n "$FAKE_APM_MISSING" ] && exit 127',
       'echo "$*" >> "$FAKE_APM_LOG"',
+      'if [ -n "$FAKE_APM_TOUCH" ] && [ "$1" = "install" ]; then echo "$3" >> apm.lock.yaml; mkdir -p .claude; echo deployed > .claude/deployed.md; fi',
       'if [ -n "$FAKE_APM_FAIL" ] && [ "$3" = "$FAKE_APM_FAIL" ]; then echo "install failed" >&2; exit 2; fi',
       'exit 0',
       '',
@@ -482,6 +483,7 @@ function fakeApm(dir: string) {
       '@echo off',
       'if defined FAKE_APM_MISSING exit /b 127',
       'echo %*>> "%FAKE_APM_LOG%"',
+      'if defined FAKE_APM_TOUCH if "%1"=="install" (echo %3>> apm.lock.yaml & if not exist .claude mkdir .claude & echo deployed> .claude\\deployed.md)',
       'if defined FAKE_APM_FAIL if "%3"=="%FAKE_APM_FAIL%" (echo install failed 1>&2 & exit /b 2)',
       'exit /b 0',
       '',
@@ -497,6 +499,7 @@ describe('SetupRunner: apm step', () => {
       'FAKE_APM_LOG',
       'FAKE_APM_MISSING',
       'FAKE_APM_FAIL',
+      'FAKE_APM_TOUCH',
     ])
       if (saved[k] === undefined) delete process.env[k];
       else process.env[k] = saved[k];
@@ -540,6 +543,29 @@ describe('SetupRunner: apm step', () => {
     expect(apmStep(events)).toMatchObject({
       status: 'done',
       detail: 'Installed for claude, copilot',
+    });
+  });
+
+  it('keeps committed files apm install rewrites as committed, and what it deployed (#74)', async () => {
+    const { p } = setup({ FAKE_APM_TOUCH: '1' });
+    commitFile(p.repoPath, 'apm.lock.yaml', 'lock: 1\n');
+    const { events, onEvent } = collect();
+    const result = await runner.run(p, {
+      onEvent,
+      startTerminals: async () => {},
+    });
+    expect(result).toEqual({ ok: true });
+    expect(
+      normaliseEol(
+        readFileSync(path.join(p.worktreePath, 'apm.lock.yaml'), 'utf8'),
+      ),
+    ).toBe('lock: 1\n');
+    expect(
+      existsSync(path.join(p.worktreePath, '.claude', 'deployed.md')),
+    ).toBe(true);
+    expect(apmStep(events)).toMatchObject({
+      status: 'done',
+      detail: 'Installed for claude, copilot; kept apm.lock.yaml as committed',
     });
   });
 

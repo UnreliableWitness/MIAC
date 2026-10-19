@@ -538,6 +538,7 @@ async function boot(): Promise<void> {
       },
       openExternal: openLink,
       revealFile: (p) => shell.showItemInFolder(p),
+      openPath: (p) => shell.openPath(p),
       docsWatcher,
       gitDirWatcher,
       reviewDir: path.join(userData, 'review'),

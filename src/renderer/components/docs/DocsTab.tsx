@@ -6,11 +6,12 @@ import {
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
 } from 'react';
-import type { DocFile, TaskView } from '../../../shared/types';
+import type { DocFile, SessionDoc, TaskView } from '../../../shared/types';
 import {
   activeHome,
   activeWorkspaces,
@@ -18,12 +19,20 @@ import {
 } from '../../../shared/workspaces';
 import { api, ipcErrorMessage, tryInvoke } from '../../api';
 import {
+  readDocsMode,
   readDocState,
   readListCollapsed,
+  writeDocsMode,
   writeDocState,
   writeListCollapsed,
+  type DocsMode,
   type DocView,
 } from '../../docs/docsPrefs';
+import {
+  buildDocTree,
+  type TreeFolder,
+  type TreeNode,
+} from '../../docs/docTree';
 import { holdWatch } from '../../review/holdWatch';
 import { useStore } from '../../store';
 import { track } from '../../telemetry';
@@ -45,19 +54,49 @@ export const affectsList = (paths: string[]): boolean =>
 const handledTargets = new Map<string, number>();
 export const resetDocTargetsForTests = () => handledTargets.clear();
 
+/** How often the session list is asked for while shown (transcripts are read incrementally in main). */
+export const SESSION_POLL_MS = 3000;
+
+const firstFile = (
+  nodes: TreeNode[],
+  ok: (d: SessionDoc) => boolean,
+): SessionDoc | null => {
+  for (const n of nodes) {
+    const hit =
+      n.kind === 'file'
+        ? ok(n.doc)
+          ? n.doc
+          : null
+        : firstFile(n.children, ok);
+    if (hit) return hit;
+  }
+  return null;
+};
+
 function DocsPane({
   task,
   tid,
+  wsId,
+  rootName,
+  mode,
+  onMode,
   switcher,
 }: {
   task: TaskView;
   /** The docs target: the task id, or `<taskId>#<workspaceId>`. */
   tid: string;
+  /** The workspace whose worktree this pane reads relative paths in. */
+  wsId: string;
+  rootName(workspaceId: string): string;
+  mode: DocsMode;
+  onMode(m: DocsMode): void;
   switcher: ReactNode;
 }) {
   const notify = useStore((s) => s.notify);
+  const openDoc = useStore((s) => s.openDoc);
   const target = useStore((s) => s.docTarget[task.id]);
   const [files, setFiles] = useState<DocFile[] | null>(null);
+  const [session, setSession] = useState<SessionDoc[] | null>(null);
   const [filter, setFilter] = useState('');
   const [listCollapsed, setListCollapsed] = useState(readListCollapsed);
   const [current, setCurrent] = useState<string | null>(null);
@@ -70,6 +109,8 @@ function DocsPane({
   // The line a terminal link asked for, kept after the highlight fades, for Open in VS Code.
   const targetLine = useRef<{ path: string; line: number } | null>(null);
   const listing = useRef({ busy: false, again: false });
+  const sessionListing = useRef({ busy: false, again: false });
+  const sessionRef = useRef<SessionDoc[] | null>(null);
   const [updated, setUpdated] = useState(false);
   const [slow, setSlow] = useState(false);
   const [live, setLive] = useState<boolean | null>(null);
@@ -107,6 +148,39 @@ function DocsPane({
         } catch (e) {
           notify('error', ipcErrorMessage(e));
           setFiles((f) => f ?? []);
+        }
+      } while (l.again);
+    } finally {
+      l.busy = false;
+    }
+  }, [tid, notify]);
+
+  /** Loads the session docs, like loadFiles; an open doc outside the worktree reloads when its file changed. */
+  const loadSession = useCallback(async () => {
+    const l = sessionListing.current;
+    if (l.busy) {
+      l.again = true;
+      return;
+    }
+    l.busy = true;
+    try {
+      do {
+        l.again = false;
+        try {
+          const next = (await api().invoke('docs:session', tid)).files;
+          const prev = sessionRef.current;
+          sessionRef.current = next;
+          setSession(next);
+          const open = currentRef.current;
+          const outside = (l: SessionDoc[] | null) =>
+            l?.find((d) => d.workspaceId === null && d.path === open);
+          const was = outside(prev);
+          const now = outside(next);
+          if (open && was && now && was.mtimeMs !== now.mtimeMs)
+            void readRef.current(open, false);
+        } catch (e) {
+          notify('error', ipcErrorMessage(e));
+          setSession((f) => f ?? []);
         }
       } while (l.again);
     } finally {
@@ -165,6 +239,8 @@ function DocsPane({
     },
     [tid],
   );
+  const readRef = useRef(read);
+  readRef.current = read;
 
   const openPath = useCallback(
     (
@@ -192,16 +268,50 @@ function DocsPane({
     [],
   );
 
-  // File list: on mount and on every change event for this task.
+  // File list: on mount and on every change event for this task. The session list also polls, for transcripts
+  // and files outside the worktree that no watcher sees.
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
   useEffect(() => {
-    void loadFiles();
-    return api().on('docs:changed', (p) => {
+    const load = () =>
+      void (modeRef.current === 'session' ? loadSession() : loadFiles());
+    load();
+    const off = api().on('docs:changed', (p) => {
       if (p.taskId !== tid) return;
-      if (affectsList(p.paths)) void loadFiles();
+      if (affectsList(p.paths)) load();
       const open = currentRef.current;
       if (open && p.paths.includes(open)) void read(open, false);
     });
-  }, [tid, loadFiles, read]);
+    return off;
+  }, [tid, mode, loadFiles, loadSession, read]);
+  useEffect(() => {
+    if (mode !== 'session') return;
+    const id = window.setInterval(() => {
+      if (document.visibilityState !== 'hidden') void loadSession();
+    }, SESSION_POLL_MS);
+    return () => window.clearInterval(id);
+  }, [mode, loadSession]);
+
+  const q = filter.trim().toLowerCase();
+  const tree: TreeFolder[] = useMemo(
+    () =>
+      buildDocTree(
+        (session ?? []).filter((d) => !q || d.path.toLowerCase().includes(q)),
+        activeWorkspaces(task).map((w) => w.id),
+        rootName,
+      ),
+    [session, q, task, rootName],
+  );
+  /** A session doc this pane opens itself: in its own worktree, or outside every worktree. */
+  const ownDoc = useCallback(
+    (d: SessionDoc) => d.workspaceId === null || d.workspaceId === wsId,
+    [wsId],
+  );
+  const openSession = (d: SessionDoc) => {
+    if (ownDoc(d)) openPath(d.path, { from: 'list' });
+    // Another repo's doc: its own pane opens it (the switcher follows).
+    else openDoc(task.id, d.path, undefined, d.workspaceId ?? undefined);
+  };
 
   // Learn whether the watcher is live; a watcher main stops makes the tab poll.
   useEffect(() => holdWatch('docs:watch', tid, setLive), [tid]);
@@ -209,23 +319,38 @@ function DocsPane({
   // A target from a terminal link wins over the remembered file.
   useEffect(() => {
     if (!target || handledTargets.get(task.id) === target.nonce) return;
-    if (targetFor(task, target.workspaceId) !== tid) return;
+    // A doc outside every worktree (an absolute path) opens in whichever pane is shown.
+    const outside = /^(?:[A-Za-z]:\/|\/)/.test(target.path);
+    if (!outside && targetFor(task, target.workspaceId) !== tid) return;
     handledTargets.set(task.id, target.nonce);
     openPath(target.path, { from: 'terminal', line: target.line });
   }, [target, task.id, tid, openPath]);
 
-  // The first file: remembered, else the task file, README, or the first listed.
+  // The first file: remembered, else the task file, README, or the first listed. In the session view: remembered
+  // when it is a session doc, else the first one this pane can open.
   useEffect(() => {
-    if (current !== null || !files || files.length === 0) return;
+    if (current !== null) return;
     const remembered = readDocState(tid);
-    const has = (p: string | null) => !!p && files.some((f) => f.path === p);
-    const pick = has(remembered.path)
-      ? remembered.path!
-      : has(TASK_FILE)
-        ? TASK_FILE
-        : has('README.md')
-          ? 'README.md'
-          : files[0].path;
+    let pick: string;
+    if (mode === 'session') {
+      if (!session || session.length === 0) return;
+      const own = session.filter(ownDoc);
+      if (own.length === 0) return;
+      pick =
+        remembered.path && own.some((d) => d.path === remembered.path)
+          ? remembered.path
+          : (firstFile(tree, ownDoc)?.path ?? own[0].path);
+    } else {
+      if (!files || files.length === 0) return;
+      const has = (p: string | null) => !!p && files.some((f) => f.path === p);
+      pick = has(remembered.path)
+        ? remembered.path!
+        : has(TASK_FILE)
+          ? TASK_FILE
+          : has('README.md')
+            ? 'README.md'
+            : files[0].path;
+    }
     if (pick === remembered.path)
       pending.current = { scroll: remembered.scroll };
     saved.current = {
@@ -234,7 +359,9 @@ function DocsPane({
       scroll: pick === remembered.path ? remembered.scroll : 0,
     };
     setCurrent(pick);
-  }, [files, current, tid]);
+    // tree changes with the filter; the pick only matters once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [files, session, mode, current, tid, ownDoc]);
 
   useEffect(() => {
     if (current === null) return;
@@ -279,7 +406,7 @@ function DocsPane({
         } catch {
           if (current === currentRef.current) void read(current, false);
         }
-        void loadFiles();
+        if (modeRef.current === 'all') void loadFiles();
       })();
     }, 2000);
     return () => window.clearInterval(id);
@@ -330,6 +457,12 @@ function DocsPane({
         current={current}
         hidden={listCollapsed}
         onOpen={(p) => openPath(p, { from: 'list' })}
+        mode={mode}
+        onMode={onMode}
+        tree={tree}
+        sessionLoaded={session !== null}
+        isCurrent={(d) => ownDoc(d) && d.path === current}
+        onOpenSession={openSession}
       />
       <section className="docs-doc">
         <div className="docs-bar">
@@ -409,7 +542,15 @@ function DocsPane({
         >
           <DocsBody
             taskId={tid}
-            empty={files !== null && files.length === 0}
+            empty={
+              mode === 'all'
+                ? files !== null && files.length === 0
+                  ? 'No Markdown files in this worktree'
+                  : null
+                : session !== null && session.length === 0 && current === null
+                  ? 'No session docs yet. Markdown files Claude edits or creates in this task show up here.'
+                  : null
+            }
             doc={doc}
             current={current}
             slow={slow}
@@ -480,7 +621,34 @@ export function DocsTab({ task }: { task: TaskView }) {
         ))}
       </select>
     ) : null;
-  return <DocsPane key={tid} task={task} tid={tid} switcher={switcher} />;
+  const [mode, setMode] = useState<DocsMode>(() => readDocsMode(task.id));
+  const onMode = (m: DocsMode) => {
+    setMode(m);
+    writeDocsMode(task.id, m);
+    track('docs.sessionView', { mode: m });
+  };
+  const nameKey = names.join('\0');
+  const rootName = useCallback(
+    (id: string) => {
+      const i = workspaces.findIndex((w) => w.id === id);
+      return i < 0 ? id : names[i];
+    },
+    // names follow the workspaces and repos; nameKey keeps the callback stable between renders
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [nameKey],
+  );
+  return (
+    <DocsPane
+      key={tid}
+      task={task}
+      tid={tid}
+      wsId={chosen}
+      rootName={rootName}
+      mode={mode}
+      onMode={onMode}
+      switcher={switcher}
+    />
+  );
 }
 
 function scrollToAnchor(root: HTMLElement | null, anchor?: string) {

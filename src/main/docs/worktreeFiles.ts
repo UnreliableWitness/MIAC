@@ -9,7 +9,7 @@ export const MAX_ASSET_BYTES = 10 * 1024 * 1024;
 export const MAX_DOCS = 2000;
 export const TASK_FILE = '.shellie/task.md';
 const SPECS = [':(icase)*.md', ':(icase)*.markdown'];
-const MD = /\.(md|markdown)$/i;
+export const MD = /\.(md|markdown)$/i;
 const IMAGE_TYPES: Record<string, string> = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
@@ -51,50 +51,34 @@ export async function resolveInWorktree(
 
 const splitZ = (out: string) => out.split('\0').filter(Boolean);
 
-export async function listDocs(
+/** Markdown files changed against `base` (added, modified, untracked); empty without a base. */
+export async function changedDocs(
   git: GitClient,
   worktree: string,
-  baseSha: string | null,
-): Promise<DocFile[]> {
-  // All run at once but are awaited in the old order, so the same failure surfaces first.
-  const listedRun = git.run(worktree, [
+  base: string | null,
+): Promise<Map<string, 'new' | 'modified'>> {
+  const changed = new Map<string, 'new' | 'modified'>();
+  if (!base) return changed;
+  const diffRun = git
+    .run(worktree, [
+      'diff',
+      '-z',
+      '--name-status',
+      '--no-renames',
+      base,
+      '--',
+      ...SPECS,
+    ])
+    .catch(() => '');
+  const untrackedRun = git.run(worktree, [
     'ls-files',
     '-z',
-    '-co',
+    '-o',
     '--exclude-standard',
     '--',
     ...SPECS,
   ]);
-  const diffRun = baseSha
-    ? git
-        .run(worktree, [
-          'diff',
-          '-z',
-          '--name-status',
-          '--no-renames',
-          baseSha,
-          '--',
-          ...SPECS,
-        ])
-        .catch(() => '')
-    : Promise.resolve('');
-  const untrackedRun = baseSha
-    ? git.run(worktree, [
-        'ls-files',
-        '-z',
-        '-o',
-        '--exclude-standard',
-        '--',
-        ...SPECS,
-      ])
-    : Promise.resolve('');
   untrackedRun.catch(() => {});
-  const hasTaskRun = fs.stat(path.join(worktree, TASK_FILE)).then(
-    (s) => s.isFile(),
-    () => false,
-  );
-  const listed = splitZ(await listedRun).filter((p) => MD.test(p));
-  const changed = new Map<string, 'new' | 'modified'>();
   const diff = splitZ(await diffRun);
   for (let i = 0; i + 1 < diff.length; i += 2) {
     const status = diff[i][0];
@@ -103,6 +87,31 @@ export async function listDocs(
       changed.set(diff[i + 1], 'modified');
   }
   for (const p of splitZ(await untrackedRun)) changed.set(p, 'new');
+  return changed;
+}
+
+export async function listDocs(
+  git: GitClient,
+  worktree: string,
+  baseSha: string | null,
+): Promise<DocFile[]> {
+  // Both run at once but are awaited in the old order, so the same failure surfaces first.
+  const listedRun = git.run(worktree, [
+    'ls-files',
+    '-z',
+    '-co',
+    '--exclude-standard',
+    '--',
+    ...SPECS,
+  ]);
+  const changedRun = changedDocs(git, worktree, baseSha);
+  changedRun.catch(() => {});
+  const hasTaskRun = fs.stat(path.join(worktree, TASK_FILE)).then(
+    (s) => s.isFile(),
+    () => false,
+  );
+  const listed = splitZ(await listedRun).filter((p) => MD.test(p));
+  const changed = await changedRun;
   // Cap before stat: a huge worktree must not cost a stat per file. The task file comes first, so it
   // takes one of the slots.
   const candidates = [...new Set(listed)]
@@ -132,7 +141,13 @@ export async function readDoc(
   worktree: string,
   rel: string,
 ): Promise<{ text: string; mtimeMs: number }> {
-  const abs = await resolveInWorktree(worktree, rel);
+  return readText(await resolveInWorktree(worktree, rel));
+}
+
+/** A resolved Markdown file's text, refused over MAX_DOC_BYTES. */
+export async function readText(
+  abs: string,
+): Promise<{ text: string; mtimeMs: number }> {
   const st = await fs.stat(abs);
   if (st.size > MAX_DOC_BYTES) throw new Error('Too large');
   return { text: await fs.readFile(abs, 'utf8'), mtimeMs: st.mtimeMs };
@@ -142,7 +157,11 @@ export async function readAsset(
   worktree: string,
   rel: string,
 ): Promise<string> {
-  const abs = await resolveInWorktree(worktree, rel);
+  return readImage(await resolveInWorktree(worktree, rel));
+}
+
+/** An image file as a data URL; anything else, or a file over MAX_ASSET_BYTES, is refused. */
+export async function readImage(abs: string): Promise<string> {
   const type = IMAGE_TYPES[path.extname(abs).toLowerCase()];
   if (!type) throw new Error('Not an image');
   const st = await fs.stat(abs);
