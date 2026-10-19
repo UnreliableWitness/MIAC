@@ -134,6 +134,11 @@ export type Channels = {
     ];
     result: void;
   };
+  /** Opens the workspace's worktree folder in Explorer or Finder. */
+  'editor:showFolder': {
+    args: [taskId: string, workspaceId?: string];
+    result: void;
+  };
   /** Opens a worktree file (root-relative) at a line in the chosen editor, or in `editorId`. */
   'editor:openFile': {
     args: [

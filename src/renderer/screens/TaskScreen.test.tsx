@@ -300,13 +300,14 @@ describe('TaskScreen', () => {
         files: [],
       }),
       'tasks:openInEditor': () => undefined,
+      'editor:showFolder': () => undefined,
     });
     render(<Shell />);
     await userEvent.click(
-      await screen.findByRole('button', { name: 'Open in VS Code' }),
+      await screen.findByRole('button', { name: 'Open folder' }),
     );
     await waitFor(() =>
-      expect(calls.some((c) => c.channel === 'editor:openFolder')).toBe(true),
+      expect(calls.some((c) => c.channel === 'editor:showFolder')).toBe(true),
     );
     await userEvent.click(screen.getByRole('button', { name: 'Finish task' }));
     expect(useStore.getState().screen).toEqual({ kind: 'finish', taskId: 'a' });
@@ -435,7 +436,7 @@ describe('TaskScreen', () => {
     expect(screen.getByRole('region', { name: 'AI usage' })).toBeVisible();
   });
 
-  it('disables Open in VS Code when the worktree is missing and hides Finish unless ready', async () => {
+  it('disables Open folder when the worktree is missing and hides Finish unless ready', async () => {
     installFakeApi({
       'repos:config': () => config,
       'tasks:gitSummary': () => ({
@@ -449,15 +450,13 @@ describe('TaskScreen', () => {
     useStore.setState({ tasks: [{ ...task, worktreeMissing: true }] });
     const { unmount } = render(<Shell />);
     expect(
-      await screen.findByRole('button', { name: 'Open in VS Code' }),
+      await screen.findByRole('button', { name: 'Open folder' }),
     ).toBeDisabled();
     unmount();
     useStore.setState({ tasks: [{ ...task, status: 'finishing' }] });
     render(<Shell />);
     expect(screen.queryByRole('button', { name: 'Finish task' })).toBeNull();
-    expect(
-      screen.queryByRole('button', { name: 'Open in VS Code' }),
-    ).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Open folder' })).toBeNull();
   });
 
   it('shows an Open setup panel instead of the terminals for a setup-failed task', async () => {

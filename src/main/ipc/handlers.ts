@@ -113,6 +113,8 @@ export type Services = {
   openExternal: (url: string) => Promise<void>;
   /** Shows a file in Finder or Explorer (main uses shell.showItemInFolder). */
   revealFile?: (absPath: string) => void;
+  /** Opens a folder in Explorer or Finder; resolves to an error message, empty on success (shell.openPath). */
+  openPath?: (absPath: string) => Promise<string>;
   /** Owned by main so it can stop on quit; handlers create their own when absent (tests). */
   docsWatcher?: DocsWatcher;
   /** Watches worktrees' git dirs for the Changes page; owned by main so it stops on quit. */
@@ -1536,7 +1538,14 @@ export function createHandlers(s: Services): Handlers {
       watcher: docsWatcher,
       event: (n, p) => tel.event(n, p),
     }),
-    ...createEditorHandlers({ taskById, editors }),
+    ...createEditorHandlers({
+      taskById,
+      editors,
+      showFolder: async (p) => {
+        const error = await (s.openPath ?? (async () => ''))(p);
+        if (error) throw new Error(`Could not open the folder: ${error}`);
+      },
+    }),
     ...createReviewHandlers({ taskById, review, docsWatcher, gitDirWatcher }),
     'attention:view': async (view) => s.attention?.setView(view),
     'attention:get': async () => s.attention?.snapshot() ?? {},

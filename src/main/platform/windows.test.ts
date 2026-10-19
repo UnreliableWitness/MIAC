@@ -235,6 +235,24 @@ describe('windowsPlatform', () => {
     );
   });
 
+  it('starts Code.exe next to the code shim directly when it is there (#73)', () => {
+    const p = windowsPlatform(
+      {},
+      {
+        which: (n) => (n === 'code' ? 'C:\\VS Code\\bin\\code.cmd' : null),
+        exists: (f) => f === 'C:\\VS Code\\Code.exe',
+      },
+    );
+    expect(p.editorCommand("C:\\src\\o'b")).toEqual({
+      command: 'C:\\VS Code\\Code.exe',
+      args: ["C:\\src\\o'b"],
+    });
+    expect(p.editorGotoCommand('C:\\wt', 'C:\\wt\\a.md', 4)).toEqual({
+      command: 'C:\\VS Code\\Code.exe',
+      args: ['C:\\wt', '-g', 'C:\\wt\\a.md:4:1'],
+    });
+  });
+
   it('reports a missing VS Code clearly', () => {
     expect(() => make({}).editorCommand('C:\\x')).toThrow(
       'VS Code (code) is not on PATH',

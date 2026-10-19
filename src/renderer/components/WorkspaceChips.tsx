@@ -191,6 +191,17 @@ export function WorkspaceChips({ task }: { task: TaskView }) {
               >
                 Open in editor
               </Item>
+              <Item
+                onClick={() => {
+                  close();
+                  void tryInvoke(
+                    () => api().invoke('editor:showFolder', task.id, w.id),
+                    notify,
+                  );
+                }}
+              >
+                Open folder
+              </Item>
               {w.id !== HOME_ID && ready && (
                 <Item
                   onClick={() => {

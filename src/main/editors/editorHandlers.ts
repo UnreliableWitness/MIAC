@@ -11,6 +11,7 @@ type EditorChannels =
   | 'editor:installed'
   | 'editor:options'
   | 'editor:openFolder'
+  | 'editor:showFolder'
   | 'editor:openFile';
 
 const OpenSchema = z.object({
@@ -22,6 +23,8 @@ const Line = z.number().int().min(1).optional();
 export function createEditorHandlers(d: {
   taskById: (id: string) => Task;
   editors: EditorService;
+  /** Opens a folder in the system file manager. */
+  showFolder: (absPath: string) => Promise<void>;
 }): Pick<Handlers, EditorChannels> {
   const worktree = (taskId: string, workspaceId: string | undefined) =>
     existingWorkspace(d.taskById(taskId), workspaceId);
@@ -38,6 +41,10 @@ export function createEditorHandlers(d: {
         ws.worktreePath,
         OpenSchema.parse(o ?? {}),
       );
+    },
+    'editor:showFolder': async (taskId, workspaceId) => {
+      await d.showFolder(worktree(taskId, workspaceId).worktreePath);
+      d.editors.folderShown();
     },
     'editor:openFile': async (taskId, workspaceId, rel, line, editorId) => {
       const ws = worktree(taskId, workspaceId);

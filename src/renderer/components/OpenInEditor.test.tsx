@@ -1,69 +1,83 @@
 // src/renderer/components/OpenInEditor.test.tsx
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { installFakeApi } from '../test-helpers/fakeApi';
 import { OpenInEditor } from './OpenInEditor';
 
 const vs = { id: 'visualstudio', label: 'Visual Studio' } as const;
 const code = { id: 'vscode', label: 'VS Code' } as const;
-const opened = (calls: { channel: string; args: unknown[] }[]) =>
-  calls.filter((c) => c.channel === 'editor:openFolder').map((c) => c.args);
+const sent = (calls: { channel: string; args: unknown[] }[], channel: string) =>
+  calls.filter((c) => c.channel === channel).map((c) => c.args);
+const options = (
+  o: Partial<{
+    editors: (typeof vs | typeof code)[];
+    chosen: 'vscode' | 'visualstudio' | null;
+    solutions: string[];
+  }> = {},
+) => ({
+  'editor:options': () => ({
+    editors: [code, vs],
+    chosen: 'visualstudio' as 'vscode' | 'visualstudio' | null,
+    solutions: [] as string[],
+    solution: null,
+    ...o,
+  }),
+});
+const openMenu = async () =>
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Open in an editor' }),
+  );
 
 describe('OpenInEditor', () => {
-  it('names the chosen editor and opens the folder with it', async () => {
-    const { calls } = installFakeApi({
-      'editor:options': () => ({
-        editors: [code, vs],
-        chosen: 'visualstudio',
-        solutions: ['App.sln'],
-        solution: 'App.sln',
-      }),
-    });
+  it('opens the task folder in the file manager (#73)', async () => {
+    const { calls } = installFakeApi(options());
+    render(<OpenInEditor taskId="t1" workspaceId="w2" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Open folder' }));
+    expect(sent(calls, 'editor:showFolder')).toEqual([['t1', 'w2']]);
+    expect(sent(calls, 'editor:openFolder')).toEqual([]);
+  });
+
+  it('lists the chosen editor first in its menu and opens the folder with it', async () => {
+    const { calls } = installFakeApi(options());
     render(<OpenInEditor taskId="t1" />);
+    await openMenu();
+    const items = screen.getAllByRole('menuitem').map((m) => m.textContent);
+    expect(items).toEqual(['Open in Visual Studio', 'Open in VS Code']);
     fireEvent.click(
-      await screen.findByRole('button', { name: 'Open in Visual Studio' }),
+      screen.getByRole('menuitem', { name: 'Open in Visual Studio' }),
     );
-    expect(opened(calls)).toEqual([['t1', undefined, {}]]);
+    expect(sent(calls, 'editor:openFolder')).toEqual([['t1', undefined, {}]]);
   });
 
   it('offers the other editors and the solutions in its menu', async () => {
-    const { calls } = installFakeApi({
-      'editor:options': () => ({
-        editors: [code, vs],
-        chosen: 'visualstudio',
-        solutions: ['A.sln', 'tools/B.sln'],
-        solution: 'A.sln',
-      }),
-    });
-    render(<OpenInEditor taskId="t1" workspaceId="w2" />);
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'More ways to open' }),
+    const { calls } = installFakeApi(
+      options({ solutions: ['A.sln', 'tools/B.sln'] }),
     );
+    render(<OpenInEditor taskId="t1" workspaceId="w2" />);
+    await openMenu();
     fireEvent.click(screen.getByRole('menuitem', { name: 'Open B.sln' }));
-    fireEvent.click(screen.getByRole('button', { name: 'More ways to open' }));
+    await openMenu();
     fireEvent.click(screen.getByRole('menuitem', { name: 'Open in VS Code' }));
-    expect(opened(calls)).toEqual([
+    expect(sent(calls, 'editor:openFolder')).toEqual([
       ['t1', 'w2', { solution: 'tools/B.sln' }],
       ['t1', 'w2', { editorId: 'vscode' }],
     ]);
   });
 
-  it('says when no editor is found', async () => {
-    installFakeApi({
-      'editor:options': () => ({
-        editors: [],
-        chosen: null,
-        solutions: [],
-        solution: null,
-      }),
-    });
+  it('points to Settings when no editor is found, and still opens the folder', async () => {
+    const { calls } = installFakeApi(options({ editors: [], chosen: null }));
     render(<OpenInEditor taskId="t1" />);
+    await openMenu();
     expect(
-      await screen.findByRole('button', { name: 'No editor found' }),
+      screen.getByRole('menuitem', {
+        name: 'No editor found: choose one in Settings',
+      }),
     ).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Open folder' }));
+    expect(sent(calls, 'editor:showFolder')).toEqual([['t1', undefined]]);
   });
 
-  it('loads the options again when it becomes visible', async () => {
+  it('loads the options again when its menu opens', async () => {
     let chosen: 'vscode' | 'visualstudio' = 'vscode';
     installFakeApi({
       'editor:options': () => ({
@@ -73,13 +87,18 @@ describe('OpenInEditor', () => {
         solution: null,
       }),
     });
-    const { rerender } = render(<OpenInEditor taskId="t1" />);
-    await screen.findByRole('button', { name: 'Open in VS Code' });
-    rerender(<OpenInEditor taskId="t1" visible={false} />);
+    render(<OpenInEditor taskId="t1" />);
+    await openMenu();
+    expect(screen.getAllByRole('menuitem')[0].textContent).toBe(
+      'Open in VS Code',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Open in an editor' }));
     chosen = 'visualstudio';
-    rerender(<OpenInEditor taskId="t1" visible />);
-    expect(
-      await screen.findByRole('button', { name: 'Open in Visual Studio' }),
-    ).toBeTruthy();
+    await openMenu();
+    await waitFor(() =>
+      expect(screen.getAllByRole('menuitem')[0].textContent).toBe(
+        'Open in Visual Studio',
+      ),
+    );
   });
 });

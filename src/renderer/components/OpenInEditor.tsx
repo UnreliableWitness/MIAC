@@ -1,18 +1,21 @@
 // src/renderer/components/OpenInEditor.tsx
-import { ChevronDown16Regular, Code16Regular } from '@fluentui/react-icons';
-import { useCallback, useEffect, useState } from 'react';
 import {
-  EDITOR_LABELS,
-  type EditorId,
-  type EditorOptions,
-} from '../../shared/editors';
+  ChevronDown16Regular,
+  Code16Regular,
+  FolderOpen16Regular,
+} from '@fluentui/react-icons';
+import { useCallback, useEffect, useState } from 'react';
+import { type EditorId, type EditorOptions } from '../../shared/editors';
 import { api, tryInvoke } from '../api';
 import { useStore } from '../store';
 import { PopupMenu } from './ui';
 
 const fileName = (p: string) => p.split(/[\\/]/).at(-1) ?? p;
 
-/** Opens the worktree in the developer's editor; the menu holds the other editors and Visual Studio's solutions. */
+/**
+ * Opens the worktree folder in Explorer or Finder (#73); the menu opens it in an editor instead (the chosen one
+ * first) or one of Visual Studio's solutions.
+ */
 export function OpenInEditor({
   taskId,
   workspaceId,
@@ -56,20 +59,23 @@ export function OpenInEditor({
     );
   };
 
-  if (opts && !opts.chosen)
-    return (
-      <button
-        type="button"
-        className="btn btn-subtle btn-sm"
-        onClick={() => go({ kind: 'settings' })}
-      >
-        No editor found
-      </button>
+  const showFolder = () => {
+    setMenu(false);
+    void tryInvoke(
+      () => api().invoke('editor:showFolder', taskId, workspaceId),
+      notify,
     );
-  const label = opts?.chosen ? EDITOR_LABELS[opts.chosen] : 'editor';
-  const others = opts?.editors.filter((e) => e.id !== opts.chosen) ?? [];
+  };
+
+  const chosen = opts?.chosen ?? null;
+  const editors = chosen
+    ? [
+        ...(opts?.editors.filter((e) => e.id === chosen) ?? []),
+        ...(opts?.editors.filter((e) => e.id !== chosen) ?? []),
+      ]
+    : [];
   const solutions =
-    opts?.chosen === 'visualstudio' && opts.solutions.length > 1
+    chosen === 'visualstudio' && opts && opts.solutions.length > 1
       ? opts.solutions
       : [];
   return (
@@ -77,37 +83,48 @@ export function OpenInEditor({
       <button
         type="button"
         className="btn btn-subtle btn-sm"
-        disabled={disabled || !opts}
-        title={`Open in ${label}`}
-        onClick={() => open()}
+        disabled={disabled}
+        title="Open the task's folder"
+        onClick={showFolder}
+      >
+        <FolderOpen16Regular aria-hidden="true" />
+        {/* A narrow task bar keeps the icon only; the text stays the button's name. */}
+        <span className="open-in-label">Open folder</span>
+      </button>
+      <button
+        ref={setAnchor}
+        type="button"
+        className="btn btn-subtle btn-sm"
+        aria-label="Open in an editor"
+        title="Open in an editor"
+        aria-haspopup="menu"
+        aria-expanded={menu}
+        disabled={disabled}
+        onClick={() => {
+          if (!menu) setOpens((n) => n + 1);
+          setMenu(!menu);
+        }}
       >
         <Code16Regular aria-hidden="true" />
-        {/* A narrow task bar keeps the icon only; the text stays the button's name. */}
-        <span className="open-in-label">{`Open in ${label}`}</span>
+        <ChevronDown16Regular aria-hidden="true" />
       </button>
-      {(others.length > 0 || solutions.length > 0) && (
-        <button
-          ref={setAnchor}
-          type="button"
-          className="btn btn-subtle btn-sm"
-          aria-label="More ways to open"
-          aria-haspopup="menu"
-          aria-expanded={menu}
-          disabled={disabled}
-          onClick={() => {
-            if (!menu) setOpens((n) => n + 1);
-            setMenu(!menu);
-          }}
-        >
-          <ChevronDown16Regular aria-hidden="true" />
-        </button>
-      )}
       <PopupMenu
         label="Open in editor"
         anchor={anchor}
         open={menu}
         onClose={close}
       >
+        {editors.map((e) => (
+          <button
+            key={e.id}
+            type="button"
+            role="menuitem"
+            className="menu-item"
+            onClick={() => open(e.id === chosen ? {} : { editorId: e.id })}
+          >
+            <span className="menu-title">{`Open in ${e.label}`}</span>
+          </button>
+        ))}
         {solutions.map((s) => (
           <button
             key={s}
@@ -121,17 +138,21 @@ export function OpenInEditor({
             <span className="small muted mono">{s}</span>
           </button>
         ))}
-        {others.map((e) => (
+        {opts && !chosen && (
           <button
-            key={e.id}
             type="button"
             role="menuitem"
             className="menu-item"
-            onClick={() => open({ editorId: e.id })}
+            onClick={() => {
+              setMenu(false);
+              go({ kind: 'settings' });
+            }}
           >
-            <span className="menu-title">{`Open in ${e.label}`}</span>
+            <span className="menu-title">
+              No editor found: choose one in Settings
+            </span>
           </button>
-        ))}
+        )}
       </PopupMenu>
     </span>
   );

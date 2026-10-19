@@ -101,6 +101,11 @@ export class EditorService {
     this.d.event('editor.opened', { editor: id, at: 'folder' });
   }
 
+  /** The worktree was opened in the file manager instead of an editor. */
+  folderShown(): void {
+    this.d.event('editor.opened', { editor: 'files', at: 'folder' });
+  }
+
   async openFile(
     repoId: string,
     worktree: string,
