@@ -67,6 +67,8 @@ export const AppSettingsSchema = z.object({
     days: [1, 2, 3, 4, 5],
   }),
   showSplash: z.boolean().default(true),
+  /** Notify when an agent finishes its turn (blocked agents always notify). */
+  notifyOnDone: z.boolean().default(true),
   /** Send anonymous usage and error data (see docs/telemetry.md). */
   sendTelemetry: z.boolean().default(true),
   /** Which editor Open in editor uses, globally and per repo. */

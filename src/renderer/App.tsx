@@ -4,6 +4,7 @@ import { HeaderBar } from './components/HeaderBar';
 import { Notices } from './components/Notices';
 import { TaskNav } from './components/TaskNav';
 import { invalidateRepoConfig } from './hooks/useRepoConfig';
+import { useAttention } from './hooks/useAttention';
 import { useTimeFocus } from './hooks/useTimeFocus';
 import { useShortcuts } from './hooks/useShortcuts';
 import { FinishScreen } from './screens/FinishScreen';
@@ -74,6 +75,7 @@ export function App() {
   const setConnections = useStore((s) => s.setConnections);
   const notify = useStore((s) => s.notify);
   useTimeFocus();
+  useAttention();
 
   useEffect(() => {
     void load().catch((e: Error) => notify('error', e.message));

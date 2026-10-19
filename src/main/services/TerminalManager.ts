@@ -54,6 +54,7 @@ export class TerminalManager extends EventEmitter<{
     env.TERM = 'xterm-256color';
     env.SHELLIE_TASK_ID = options.taskId;
     env.MIAC_TASK_ID = options.taskId; // for scripts written before the rename
+    env.SHELLIE_TERMINAL_ID = options.id;
     const proc = pty.spawn(options.command, options.args, {
       name: 'xterm-256color',
       cols: options.cols ?? 120,

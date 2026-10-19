@@ -257,6 +257,7 @@ describe('UsagePanel', () => {
         workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
         writeCostToAdo: false,
         showSplash: true,
+        notifyOnDone: true,
         sendTelemetry: true,
         editor: { default: null, repos: {} },
       }),

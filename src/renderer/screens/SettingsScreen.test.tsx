@@ -332,6 +332,20 @@ describe('SettingsScreen', () => {
     await waitFor(() => expect(box).not.toBeChecked());
   });
 
+  it('toggles the notify-on-done setting', async () => {
+    const { calls } = installFakeApi({ 'settings:save': (next) => next });
+    render(<SettingsScreen />);
+    const box = await screen.findByRole('checkbox', {
+      name: 'Notify when an agent finishes its turn',
+    });
+    await waitFor(() => expect(box).toBeChecked());
+    await userEvent.click(box);
+    expect(
+      calls.find((c) => c.channel === 'settings:save')?.args[0],
+    ).toMatchObject({ notifyOnDone: false });
+    await waitFor(() => expect(box).not.toBeChecked());
+  });
+
   it('toggles the splash setting', async () => {
     const { calls } = installFakeApi({ 'settings:save': (next) => next });
     render(<SettingsScreen />);
@@ -349,6 +363,7 @@ describe('SettingsScreen', () => {
       workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
       writeCostToAdo: true,
       showSplash: false,
+      notifyOnDone: true,
       sendTelemetry: true,
       editor: { default: null, repos: {} },
     });
@@ -364,6 +379,7 @@ describe('SettingsScreen', () => {
       workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
       writeCostToAdo: true,
       showSplash: true,
+      notifyOnDone: true,
       sendTelemetry: true,
       editor: { default: null, repos: {} },
     };
@@ -400,6 +416,7 @@ describe('SettingsScreen', () => {
       workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
       writeCostToAdo: true,
       showSplash: false,
+      notifyOnDone: true,
       sendTelemetry: true,
       editor: { default: null, repos: {} },
     });

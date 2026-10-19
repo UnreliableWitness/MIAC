@@ -37,6 +37,7 @@ import type { EditorChoice, EditorId, EditorOptions } from './editors';
 import type { RendererTelemetry } from './telemetry';
 import type { TitleBarKind } from './titleBar';
 import type { LocalItemTime, TaskTime } from './time';
+import type { AttentionSnapshot, AttentionView } from './attention';
 import type { HomePeriod, HomeSnapshot, HomeStats } from './home';
 import type {
   FileContent,
@@ -289,6 +290,9 @@ export type Channels = {
     args: [connectionId: string];
     result: Record<string, LocalItemTime>;
   };
+  /** The terminal tab on screen (null: no task page), so main does not flag what the developer is looking at. */
+  'attention:view': { args: [view: AttentionView]; result: void };
+  'attention:get': { args: []; result: AttentionSnapshot };
 };
 
 /** Push events from main to the renderer. */
@@ -301,6 +305,10 @@ export type Events = {
   'connections:changed': Connection[];
   'usage:changed': { taskId: string };
   'time:changed': { taskId: string };
+  /** Terminals that wait on the developer. */
+  'attention:changed': AttentionSnapshot;
+  /** A notification was clicked: show this task's terminal tab. */
+  'attention:open': { taskId: string; terminalId: string };
   'usage:receiverStatus': ReceiverStatus;
   'docs:changed': { taskId: string; paths: string[] };
   /** Main stopped a task's watcher (an error, or Finish/Cancel before removing the worktree); Docs tabs poll instead. */

@@ -458,6 +458,21 @@ button.projecttile:hover {
   border-radius: 50%;
   background: var(--link);
 }
+.attention-dot {
+  display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-left: 6px;
+  border-radius: 50%;
+  vertical-align: middle;
+}
+.attention-blocked {
+  background: var(--amber);
+}
+.attention-done {
+  background: var(--link);
+}
 .tabrow-brand {
   display: flex;
   align-items: center;

@@ -53,6 +53,7 @@ import { createReviewHandlers } from '../review/reviewHandlers';
 import { ReviewService } from '../review/ReviewService';
 import { ReviewStore } from '../review/ReviewStore';
 import { createDocsHandlers } from '../docs/docsHandlers';
+import type { AttentionHub } from '../attention/AttentionHub';
 import type { ActivityTracker } from '../time/ActivityTracker';
 import { baselineKey, createTimeHandlers } from '../time/timeHandlers';
 import { closestMeasure, planTimeWrite } from '../time/timeWriteBack';
@@ -99,6 +100,10 @@ import { errorMessage } from '../../shared/errors';
 import { OFFICIAL_USD_TO_EUR } from '../../shared/usage';
 
 export type Services = {
+  /** What needs the developer's attention (main); absent in tests. */
+  attention?: Pick<AttentionHub, 'setView' | 'snapshot'>;
+  /** Extra env per terminal (main: the attention URL and token, OpenCode's plugin). */
+  terminalEnv?: (def: TerminalDef) => Record<string, string>;
   store: TaskStore;
   git: GitClient;
   platform: Platform;
@@ -640,6 +645,7 @@ export function createHandlers(s: Services): Handlers {
       args: cmd.args,
       env: {
         ...telemetryEnv(task.id, s.settings.get().receiverPort, s.usageDir),
+        ...s.terminalEnv?.(def),
         ...cmd.env,
       },
     });
@@ -1532,6 +1538,8 @@ export function createHandlers(s: Services): Handlers {
     }),
     ...createEditorHandlers({ taskById, editors }),
     ...createReviewHandlers({ taskById, review, docsWatcher, gitDirWatcher }),
+    'attention:view': async (view) => s.attention?.setView(view),
+    'attention:get': async () => s.attention?.snapshot() ?? {},
     ...createTimeHandlers({
       time: s.time,
       tasks: () => s.store.state.tasks,

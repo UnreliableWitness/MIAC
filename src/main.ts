@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -11,6 +11,7 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  Notification,
   powerMonitor,
   safeStorage,
   shell,
@@ -19,11 +20,17 @@ import started from 'electron-squirrel-startup';
 import iconUrl from '../assets/icon/png/256.png?inline';
 import { EVENT_PREFIX, type Events, type PendingUpdate } from './shared/ipc';
 import type { UsageEvent } from './shared/usage';
+import type { Task } from './shared/types';
 import {
   createHandlers,
   pruneDanglingConnectionLinks,
   recoverInterruptedTasks,
 } from './main/ipc/handlers';
+import { AttentionHub } from './main/attention/AttentionHub';
+import {
+  OPENCODE_PLUGIN_SOURCE,
+  opencodeConfigContent,
+} from './main/attention/opencodePlugin';
 import { DocsWatcher } from './main/docs/DocsWatcher';
 import { GitDirWatcher } from './main/review/GitDirWatcher';
 import { registerIpc } from './main/ipc/register';
@@ -203,7 +210,9 @@ function createWindow(): BrowserWindow {
   win.webContents.on('did-finish-load', sendFullScreen);
   win.on('focus', () => onWindowFocus(true));
   win.on('blur', () => onWindowFocus(false));
+  win.on('minimize', () => onWindowFocus(false));
   win.on('closed', () => {
+    onWindowFocus(false);
     if (mainWindow === win) mainWindow = null;
   });
   return win;
@@ -382,6 +391,23 @@ async function boot(): Promise<void> {
     lap('tasksMs');
     const usageDir = path.join(userData, 'usage');
     await fs.mkdir(path.join(usageDir, 'copilot'), { recursive: true });
+    // Per-run secret for the attention route, so other local programs cannot raise notifications.
+    const attentionToken = randomBytes(24).toString('hex');
+    const opencodePlugin = path.join(
+      userData,
+      'opencode',
+      'shellie-attention.js',
+    );
+    let opencodePluginReady = false;
+    await fs
+      .mkdir(path.dirname(opencodePlugin), { recursive: true })
+      .then(() => fs.writeFile(opencodePlugin, OPENCODE_PLUGIN_SOURCE))
+      .then(() => {
+        opencodePluginReady = true;
+      })
+      .catch((err) =>
+        console.error('[attention] could not write the OpenCode plugin', err),
+      );
     const usage = new UsageStore(usageDir, () => OFFICIAL_RATES);
     const time = new TimeStore(path.join(usageDir, 'time.json'));
     // usageMs covers both stores, loaded together.
@@ -427,9 +453,54 @@ async function boot(): Promise<void> {
       onInterval: (taskId, iv) => keep(time.addAgent(taskId, 'opencode', iv)),
     });
     time.on('changed', (taskId) => broadcast('time:changed', { taskId }));
-    const receiver = new UsageReceiver(ingest, (points) => {
-      for (const p of points) keep(time.addClaudeActive(p));
+    const taskTitle = (t: Task) =>
+      t.workItem ? `${t.workItem.id} ${t.workItem.title}` : t.name;
+    const attention = new AttentionHub({
+      now: Date.now,
+      write: (id, data) => terminals.write(id, data),
+      terminal: (id) => {
+        for (const t of store.state.tasks) {
+          const def = t.terminals.find((d) => d.id === id);
+          if (def)
+            return {
+              taskId: t.id,
+              taskTitle: taskTitle(t),
+              label: def.label,
+              kind: def.kind,
+            };
+        }
+        return null;
+      },
+      notifyOnDone: () => settings.get().notifyOnDone,
+      show: ({ title, body, onClick }) => {
+        try {
+          const n = new Notification({ title, body });
+          n.on('click', onClick);
+          n.show();
+          return n;
+        } catch (err) {
+          console.error('[attention] could not show a notification', err);
+          return { close: () => undefined };
+        }
+      },
+      setBadgeCount: (n) => app.setBadgeCount(n),
+      changed: (snapshot) => broadcast('attention:changed', snapshot),
+      open: (taskId, terminalId) => {
+        const w = mainWindow;
+        if (!w || w.isDestroyed()) return;
+        if (w.isMinimized()) w.restore();
+        w.show();
+        w.focus();
+        broadcast('attention:open', { taskId, terminalId });
+      },
     });
+    const receiver = new UsageReceiver(
+      ingest,
+      (points) => {
+        for (const p of points) keep(time.addClaudeActive(p));
+      },
+      { token: attentionToken, onSignal: (id, s) => attention.signal(id, s) },
+    );
     const copilot = new CopilotFileTailer(
       path.join(usageDir, 'copilot'),
       ingest,
@@ -499,7 +570,26 @@ async function boot(): Promise<void> {
             resolve();
           });
         }),
-      broadcast,
+      attention,
+      terminalEnv: (def) => {
+        const env: Record<string, string> = {
+          SHELLIE_ATTENTION_URL: `http://127.0.0.1:${settings.get().receiverPort}/v1/attention`,
+          SHELLIE_ATTENTION_TOKEN: attentionToken,
+        };
+        if (def.kind === 'opencode' && opencodePluginReady) {
+          const content = opencodeConfigContent(
+            process.env.OPENCODE_CONFIG_CONTENT,
+            opencodePlugin,
+          );
+          if (content) env.OPENCODE_CONFIG_CONTENT = content;
+        }
+        return env;
+      },
+      broadcast: (event, payload) => {
+        if (event === 'tasks:changed')
+          attention.retain(new Set(terminals.ids()));
+        broadcast(event, payload);
+      },
     });
     registerIpc(ipcMain, trackHandlerFailures(handlers, telemetry), isMainPage);
     reporter.step(
@@ -522,6 +612,8 @@ async function boot(): Promise<void> {
     terminals.on('exit', () => void copilot.poll());
     terminals.on('data', (id) => agentTimer.output(id));
     terminals.on('exit', (id) => agentTimer.close(id));
+    terminals.on('data', (id, data) => attention.data(id, data));
+    terminals.on('exit', (id) => attention.exit(id));
     const timeTick = setInterval(() => {
       tracker.tick();
       agentTimer.tick();
@@ -538,7 +630,10 @@ async function boot(): Promise<void> {
       tracker.setFocused(false);
       for (const id of terminals.ids()) agentTimer.close(id);
     };
-    onWindowFocus = (focused) => tracker.setFocused(focused);
+    onWindowFocus = (focused) => {
+      tracker.setFocused(focused);
+      attention.setFocused(focused);
+    };
 
     reporter.step(
       `Checking Azure DevOps ${DOT} ${connections.list().length} connection(s)`,

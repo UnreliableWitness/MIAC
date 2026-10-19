@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import path from 'node:path';
 import { gzipSync } from 'node:zlib';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UsageEvent } from '../../shared/usage';
 import type { ClaudeActive } from './otlp';
 import { UsageReceiver } from './UsageReceiver';
@@ -193,5 +193,64 @@ describe('UsageReceiver', () => {
     });
     expect(again.status).toBe(200);
     expect(got.length).toBeGreaterThan(0);
+  });
+});
+
+describe('POST /v1/attention', () => {
+  const signals: [string, unknown][] = [];
+  let r: UsageReceiver;
+  let base: string;
+  beforeEach(async () => {
+    signals.length = 0;
+    r = new UsageReceiver(() => undefined, undefined, {
+      token: 'secret',
+      onSignal: (id, s) => {
+        if (id === 'unknown') return false;
+        signals.push([id, s]);
+        return true;
+      },
+    });
+    receivers.push(r);
+    const port = await freePort();
+    expect((await r.start(port)).listening).toBe(true);
+    base = `http://127.0.0.1:${port}`;
+  });
+
+  const post = (body: unknown, token = 'secret') =>
+    fetch(`${base}/v1/attention`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-shellie-token': token },
+      body: JSON.stringify(body),
+    });
+
+  it('accepts a valid signal', async () => {
+    const res = await post({
+      terminalId: 't1',
+      state: 'blocked',
+      kind: 'permission',
+      message: 'm',
+    });
+    expect(res.status).toBe(200);
+    expect(signals).toEqual([
+      ['t1', { state: 'blocked', kind: 'permission', message: 'm' }],
+    ]);
+  });
+
+  it('rejects a wrong token, a bad body and an unknown terminal', async () => {
+    expect(
+      (await post({ terminalId: 't1', state: 'done' }, 'nope')).status,
+    ).toBe(403);
+    expect((await post({ terminalId: 't1', state: 'dancing' })).status).toBe(
+      400,
+    );
+    expect((await post({ terminalId: 'unknown', state: 'done' })).status).toBe(
+      404,
+    );
+    expect(signals).toEqual([]);
+  });
+
+  it('clamps the message', async () => {
+    await post({ terminalId: 't1', state: 'done', message: 'x'.repeat(3000) });
+    expect((signals[0][1] as { message: string }).message).toHaveLength(200);
   });
 });
