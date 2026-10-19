@@ -98,7 +98,7 @@ describe('ShellieAttention plugin', () => {
     ]);
   });
 
-  it('ignores child sessions', async () => {
+  it('lets a child session block and unblock, but ignores its status', async () => {
     const h = await plugin({});
     await fire(h, 'session.created', {
       sessionID: 'c',
@@ -108,8 +108,23 @@ describe('ShellieAttention plugin', () => {
       sessionID: 'c',
       status: { type: 'idle' },
     });
-    await fire(h, 'permission.asked', { sessionID: 'c', permission: 'edit' });
     expect(posts).toEqual([]);
+    await fire(h, 'permission.asked', { sessionID: 'c', permission: 'edit' });
+    await fire(h, 'permission.asked', { sessionID: 'c', permission: 'bash' });
+    await fire(h, 'permission.replied', { sessionID: 'c' });
+    expect(posts).toEqual([
+      expect.objectContaining({
+        state: 'blocked',
+        kind: 'permission',
+        message: 'edit',
+      }),
+      expect.objectContaining({
+        state: 'blocked',
+        kind: 'permission',
+        message: 'bash',
+      }),
+      expect.objectContaining({ state: 'working' }),
+    ]);
   });
 
   it('does nothing outside Shellie and survives fetch failures', async () => {

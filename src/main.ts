@@ -398,9 +398,13 @@ async function boot(): Promise<void> {
       'opencode',
       'shellie-attention.js',
     );
+    let opencodePluginReady = false;
     await fs
       .mkdir(path.dirname(opencodePlugin), { recursive: true })
       .then(() => fs.writeFile(opencodePlugin, OPENCODE_PLUGIN_SOURCE))
+      .then(() => {
+        opencodePluginReady = true;
+      })
       .catch((err) =>
         console.error('[attention] could not write the OpenCode plugin', err),
       );
@@ -572,7 +576,7 @@ async function boot(): Promise<void> {
           SHELLIE_ATTENTION_URL: `http://127.0.0.1:${settings.get().receiverPort}/v1/attention`,
           SHELLIE_ATTENTION_TOKEN: attentionToken,
         };
-        if (def.kind === 'opencode') {
+        if (def.kind === 'opencode' && opencodePluginReady) {
           const content = opencodeConfigContent(
             process.env.OPENCODE_CONFIG_CONTENT,
             opencodePlugin,

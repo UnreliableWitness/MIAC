@@ -32,11 +32,15 @@ export type AttentionView = { taskId: string; tabId: string } | null;
 
 export const MESSAGE_MAX = 200;
 
-/** One line, at most MESSAGE_MAX characters. */
+/** One line without control or format characters (bidi overrides), at most MESSAGE_MAX code points. */
 export const clampMessage = (s: string): string => {
-  const line = s.replace(/\s+/g, ' ').trim();
-  return line.length > MESSAGE_MAX
-    ? `${line.slice(0, MESSAGE_MAX - 1)}…`
+  const line = s
+    .replace(/\s+/g, ' ')
+    .replace(/[\p{Cc}\p{Cf}]/gu, '')
+    .trim();
+  const points = Array.from(line);
+  return points.length > MESSAGE_MAX
+    ? `${points.slice(0, MESSAGE_MAX - 1).join('')}…`
     : line;
 };
 

@@ -12,7 +12,7 @@ export const ShellieAttention = async () => {
   const children = new Set();
   let last = '';
   const send = (state, kind, message) => {
-    const key = state + '|' + (kind || '');
+    const key = state + '|' + (kind || '') + '|' + (message || '');
     if (key === last) return;
     last = key;
     const body = { terminalId, state };
@@ -32,7 +32,9 @@ export const ShellieAttention = async () => {
           if (p.info && p.info.parentID) children.add(p.info.id || p.sessionID);
           return;
         }
-        if (p.sessionID && children.has(p.sessionID)) return;
+        const child = p.sessionID && children.has(p.sessionID);
+        // A subagent's prompt blocks the run, but its status, idle and error events would give a false done.
+        if (child && !/^(permission|question)\./.test(event.type)) return;
         switch (event.type) {
           case 'permission.asked':
             return send('blocked', 'permission', [p.permission, (p.patterns || []).join(' ')].filter(Boolean).join(': '));

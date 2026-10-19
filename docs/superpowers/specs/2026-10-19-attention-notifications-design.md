@@ -67,7 +67,7 @@ Verified against the OpenCode 1.14.22 source; not yet run live.
   - `permission.replied`, `question.replied`, `question.rejected`, `session.status` busy/retry → `working`.
   - `session.status` idle → `done`. `session.idle` (deprecated) is handled the same way, deduplicated.
   - `session.error` → `done` with the error as message *(our call: an error also means the agent stopped and waits)*.
-- Subagent sessions are ignored: the plugin remembers `info.parentID` from `session.created` / `session.updated` and drops events for child sessions.
+- Subagent sessions: the plugin remembers `info.parentID` from `session.created` / `session.updated`. A child session's `permission.asked` / `question.asked` post `blocked` and its `permission.replied` / `question.replied` / `question.rejected` post `working`, like the main session (owner decision 2026-10-19: a subagent's permission prompt blocks the run). Child `session.status`, `session.idle` and `session.error` are dropped, since they would give a false `done`. The dedupe key includes the message, so a second, different request from a parallel subagent is not dropped.
 - The plugin POSTs each signal with `fetch` and swallows every error. OpenCode never waits on it.
 
 ### 1.3 Other terminals: bell
