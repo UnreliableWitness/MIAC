@@ -1,3 +1,4 @@
+import { useStore } from '../../store';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { BudgetView } from '../../../shared/budgetView';
@@ -148,6 +149,79 @@ describe('BudgetBand', () => {
     spent = 2;
     act(() => emit('budget:changed', {}));
     expect(await screen.findByText('€2.00')).toBeTruthy();
+  });
+});
+
+describe('BudgetBand details', () => {
+  it('has one hover title per cumulative point', async () => {
+    installFakeApi({
+      'budget:get': () =>
+        view({
+          cumulative: [
+            { day: '2026-10-01', eur: 12 },
+            { day: '2026-10-02', eur: 30 },
+          ],
+        }),
+    });
+    const { container } = render(<BudgetBand />);
+    await screen.findByText('€312.00');
+    const titles = [
+      ...container.querySelectorAll(
+        '.budget-burn [data-part="burn-hit"] title',
+      ),
+    ].map((t) => t.textContent);
+    expect(titles).toEqual(['Oct 1: €12.00', 'Oct 2: €30.00']);
+  });
+
+  it('outlines today in the bars', async () => {
+    const day = (d: string, today: boolean) => ({
+      day: d,
+      future: false,
+      today,
+      costEur: 5,
+      byModel: [
+        { model: 'claude-opus-5-5', costEur: 5, outsideEur: 1, tokens: 10 },
+      ],
+    });
+    installFakeApi({
+      'budget:get': () =>
+        view({ days: [day('2026-10-18', false), day('2026-10-19', true)] }),
+    });
+    const { container } = render(<BudgetBand />);
+    await screen.findByText('€312.00');
+    const groups = container.querySelectorAll('[data-part="day"]');
+    expect(groups[0].querySelector('[data-part="today-outline"]')).toBeNull();
+    expect(
+      groups[1].querySelector('[data-part="today-outline"]'),
+    ).not.toBeNull();
+  });
+
+  it('is neutral about the forecast when there is no budget', async () => {
+    installFakeApi({
+      'budget:get': () => view({ budgetEur: null, status: 'none' }),
+    });
+    render(<BudgetBand />);
+    expect(await screen.findByText('About €470.00 by Oct 31')).toBeTruthy();
+    expect(screen.queryByText(/On track/)).toBeNull();
+  });
+
+  it('opens settings from the set-a-budget link and tracks it', async () => {
+    const { tracked } = installFakeApi({
+      'budget:get': () => view({ budgetEur: null, status: 'none' }),
+    });
+    render(<BudgetBand />);
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Set a monthly budget' }),
+    );
+    expect(useStore.getState().screen).toEqual({ kind: 'settings' });
+    expect(
+      tracked.some(
+        (t) =>
+          t.type === 'event' &&
+          t.name === 'home.clicked' &&
+          t.props?.band === 'budget-settings',
+      ),
+    ).toBe(true);
   });
 });
 

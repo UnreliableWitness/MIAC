@@ -6,6 +6,7 @@ export function useBudget(monthOffset: number): BudgetView | null {
   const [view, setView] = useState<BudgetView | null>(null);
   useEffect(() => {
     let live = true;
+    setView(null);
     const load = () =>
       api()
         .invoke('budget:get', monthOffset)

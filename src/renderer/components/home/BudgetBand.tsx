@@ -34,6 +34,12 @@ function Status({ v }: { v: BudgetView }) {
         over
       </span>
     );
+  if (v.forecastEur !== null && v.status === 'none')
+    return (
+      <span className="budget-status">
+        About {eur(v.forecastEur)} by {shortDate(v.endDay)}
+      </span>
+    );
   if (v.forecastEur !== null)
     return (
       <span className="budget-status">
@@ -78,13 +84,24 @@ function BurnDown({ v }: { v: BudgetView }) {
           />
         </>
       )}
-      <polyline points={line} className="budget-line">
-        <title>
-          {v.cumulative
-            .map((p) => `${shortDate(p.day)}: ${eur(p.eur)}`)
-            .join('\n')}
-        </title>
-      </polyline>
+      <polyline points={line} className="budget-line" />
+      {v.cumulative.map((p, i) => {
+        const slot = W / Math.max(1, n);
+        return (
+          <rect
+            key={p.day}
+            data-part="burn-hit"
+            x={i * slot}
+            y={0}
+            width={slot}
+            height={92}
+            fill="transparent"
+            pointerEvents="all"
+          >
+            <title>{`${shortDate(p.day)}: ${eur(p.eur)}`}</title>
+          </rect>
+        );
+      })}
       {v.forecastEur !== null && last >= 0 && (
         <line
           x1={x(last)}
@@ -117,7 +134,7 @@ function DailyBars({ v }: { v: BudgetView }) {
           patternUnits="userSpaceOnUse"
           patternTransform="rotate(45)"
         >
-          <rect width="2" height="4" fill="var(--bg-card)" opacity="0.6" />
+          <rect width="2" height="4" fill="var(--bg-card)" opacity="0.85" />
         </pattern>
       </defs>
       {v.days.map((d, i) => {
@@ -154,6 +171,20 @@ function DailyBars({ v }: { v: BudgetView }) {
                 </g>
               );
             })}
+            {d.today && (
+              <rect
+                data-part="today-outline"
+                x={i * bw + 0.5}
+                y={yTop - 0.5}
+                width={bw - 1}
+                height={60 - yTop + 0.5}
+                fill="none"
+                stroke="var(--chart-claude)"
+                strokeWidth={1}
+                strokeDasharray="2 2"
+                vectorEffect="non-scaling-stroke"
+              />
+            )}
           </g>
         );
       })}
