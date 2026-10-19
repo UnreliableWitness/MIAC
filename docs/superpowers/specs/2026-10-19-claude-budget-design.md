@@ -159,3 +159,4 @@ Clicking one opens Home. Fired alerts are stored in `budget.json`, so a restart 
 - Usage on other machines or in claude.ai is not counted.
 - OpenCode cache writes are priced as 5-minute writes.
 - Windows paths for both sources are verified by CI only until checked on real hardware.
+- Claude Code deletes transcripts after about 30 days (`cleanupPeriodDays`), so history from before Shellie first ran only goes back that far.
