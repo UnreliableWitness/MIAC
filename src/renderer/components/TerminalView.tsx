@@ -29,7 +29,8 @@ export function TerminalView({
 }) {
   const host = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
-  const fit = useRef<FitAddon | null>(null);
+  /** Fits the terminal to its box and tells the pty; a no-op while hidden. */
+  const sendSize = useRef<() => void>(() => undefined);
   const notify = useStore((s) => s.notify);
   const [exitCode, setExitCode] = useState<number | null>(null);
   /** Main has no process for this terminal: the app was relaunched (or updated) since it started. */
@@ -44,16 +45,18 @@ export function TerminalView({
     attachClipboardKeys(t, isMac, navigator.clipboard);
     term.current = t;
     const unregister = registerTerminal(terminalId, t);
-    fit.current = f;
     let live = true;
     let links: { dispose(): void } | null = null;
 
-    const sendSize = () => {
+    sendSize.current = () => {
+      // A hidden box has no layout: FitAddon would read its width and height as the literal "100%", fit to
+      // 100 x 100 px (12 columns) and ConPTY would draw the prompt wrapped at that width for good (#70).
+      if (el.clientWidth === 0 || el.clientHeight === 0) return;
       try {
         f.fit();
         void api().invoke('terminals:resize', terminalId, t.cols, t.rows);
       } catch {
-        /* hidden tab: no size yet */
+        /* not opened yet */
       }
     };
     // Live chunks are queued until the buffer snapshot is written, so output is
@@ -99,9 +102,7 @@ export function TerminalView({
     const onData = t.onData((data) => {
       void api().invoke('terminals:write', terminalId, data);
     });
-    const observer = new ResizeObserver(() => {
-      if (el.offsetParent !== null) sendSize();
-    });
+    const observer = new ResizeObserver(() => sendSize.current());
     // Open once the ConPTY build is known. Output written before that is buffered by xterm.
     void windowsBuild().then((build) => {
       if (!live) return;
@@ -112,7 +113,7 @@ export function TerminalView({
         createLinkProvider(t, taskId, { workspaceId }),
       );
       observer.observe(el);
-      sendSize();
+      sendSize.current();
     });
 
     return () => {
@@ -131,22 +132,11 @@ export function TerminalView({
   useEffect(() => {
     if (active) {
       requestAnimationFrame(() => {
-        try {
-          fit.current?.fit();
-          if (term.current)
-            void api().invoke(
-              'terminals:resize',
-              terminalId,
-              term.current.cols,
-              term.current.rows,
-            );
-          term.current?.focus();
-        } catch {
-          /* ignore */
-        }
+        sendSize.current();
+        term.current?.focus();
       });
     }
-  }, [active, terminalId]);
+  }, [active]);
 
   const restart = async () => {
     // Reset first so a fast exit of the new process is not wiped afterwards.
