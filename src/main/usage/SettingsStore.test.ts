@@ -64,6 +64,7 @@ describe('SettingsStore', () => {
       idleMinutes: 5,
       workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
       showSplash: true,
+      notifyOnDone: true,
       sendTelemetry: true,
       editor: { default: null, repos: {} },
     });
@@ -77,6 +78,7 @@ describe('SettingsStore', () => {
       idleMinutes: 5,
       workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
       showSplash: true,
+      notifyOnDone: true,
       sendTelemetry: true,
       editor: { default: null, repos: {} },
     });

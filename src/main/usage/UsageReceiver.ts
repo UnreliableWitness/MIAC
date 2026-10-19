@@ -5,6 +5,11 @@ import {
   type ServerResponse,
 } from 'node:http';
 import { gunzipSync } from 'node:zlib';
+import {
+  AttentionPostSchema,
+  clampMessage,
+  type AttentionSignal,
+} from '../../shared/attention';
 import type { UsageEvent } from '../../shared/usage';
 import {
   type ClaudeActive,
@@ -15,7 +20,7 @@ import {
 const LIMIT = 5 * 1024 * 1024;
 type Status = { listening: boolean; port: number; error: string | null };
 
-/** OTLP/HTTP JSON endpoint on 127.0.0.1 for Claude Code log events. */
+/** OTLP/HTTP JSON endpoint on 127.0.0.1 for Claude Code log events, and the attention route for the OpenCode plugin. */
 export class UsageReceiver {
   private server: Server | null = null;
   private current: Status = { listening: false, port: 0, error: null };
@@ -23,6 +28,10 @@ export class UsageReceiver {
   constructor(
     private readonly onEvents: (events: UsageEvent[]) => void,
     private readonly onActiveTime?: (points: ClaudeActive[]) => void,
+    private readonly attention?: {
+      token: string;
+      onSignal: (terminalId: string, s: AttentionSignal) => boolean;
+    },
   ) {}
 
   get status(): Status {
@@ -65,8 +74,18 @@ export class UsageReceiver {
       res.end(body);
     };
     const path = (req.url ?? '').split('?')[0];
-    if (path !== '/v1/logs' && path !== '/v1/metrics') return reply(404);
+    const isAttention =
+      path === '/v1/attention' && this.attention !== undefined;
+    if (!isAttention && path !== '/v1/logs' && path !== '/v1/metrics')
+      return reply(404);
     if (req.method !== 'POST') return reply(405);
+    if (
+      isAttention &&
+      req.headers['x-shellie-token'] !== this.attention!.token
+    ) {
+      req.resume();
+      return reply(403);
+    }
     if (
       !(req.headers['content-type'] ?? '')
         .toLowerCase()
@@ -90,6 +109,24 @@ export class UsageReceiver {
     });
     req.on('end', () => {
       if (tooBig) return;
+      if (isAttention) {
+        let body: ReturnType<typeof AttentionPostSchema.parse>;
+        try {
+          body = AttentionPostSchema.parse(
+            JSON.parse(Buffer.concat(chunks).toString('utf8')),
+          );
+        } catch {
+          return reply(400);
+        }
+        const { terminalId, state, kind } = body;
+        const message = body.message ? clampMessage(body.message) : '';
+        const known = this.attention!.onSignal(terminalId, {
+          state,
+          ...(kind ? { kind } : {}),
+          ...(message ? { message } : {}),
+        });
+        return reply(known ? 200 : 404);
+      }
       let events: UsageEvent[] = [];
       let skipped = 0;
       let active: ClaudeActive[] = [];

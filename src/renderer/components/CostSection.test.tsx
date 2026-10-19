@@ -28,6 +28,7 @@ const settings = {
   workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
   writeCostToAdo: true,
   showSplash: true,
+  notifyOnDone: true,
   sendTelemetry: true,
   editor: { default: null, repos: {} },
 };
@@ -100,6 +101,7 @@ describe('CostSection', () => {
       workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
       writeCostToAdo: true,
       showSplash: true,
+      notifyOnDone: true,
       sendTelemetry: true,
       editor: { default: null, repos: {} },
     });

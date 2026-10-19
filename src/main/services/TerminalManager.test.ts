@@ -67,12 +67,12 @@ describe('TerminalManager', () => {
       cwd: os.tmpdir(),
       ...sh(
         isWindows
-          ? 'Write-Output "ids:$env:SHELLIE_TASK_ID,$env:MIAC_TASK_ID"'
-          : 'echo ids:$SHELLIE_TASK_ID,$MIAC_TASK_ID',
+          ? 'Write-Output "ids:$env:SHELLIE_TASK_ID,$env:MIAC_TASK_ID,$env:SHELLIE_TERMINAL_ID"'
+          : 'echo ids:$SHELLIE_TASK_ID,$MIAC_TASK_ID,$SHELLIE_TERMINAL_ID',
       ),
     });
     await exited;
-    expect(m.buffer('env1')).toContain('ids:task-env,task-env');
+    expect(m.buffer('env1')).toContain('ids:task-env,task-env,env1');
   });
 
   it('writes to stdin and counts running terminals per task', async () => {

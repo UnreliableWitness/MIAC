@@ -244,6 +244,40 @@ async function harness(
   };
 }
 
+describe('handlers: attention', () => {
+  it('attention handlers pass the view to main and return the snapshot', async () => {
+    const { services } = await harness();
+    const views: unknown[] = [];
+    const h = createHandlers({
+      ...services,
+      attention: {
+        setView: (v) => views.push(v),
+        snapshot: () => ({ t1: { reason: 'done', since: 1 } }),
+      },
+    });
+    await h['attention:view']({ taskId: 'a', tabId: 't1' });
+    expect(views).toEqual([{ taskId: 'a', tabId: 't1' }]);
+    expect(await h['attention:get']()).toEqual({
+      t1: { reason: 'done', since: 1 },
+    });
+  });
+
+  it('adds the per-terminal env from terminalEnv to the spawned terminal', async () => {
+    const { services, terminals, setupDone, input } = await harness();
+    const spawn = vi.spyOn(terminals, 'spawn');
+    const h = createHandlers({
+      ...services,
+      terminalEnv: (def) => ({ X_KIND: def.kind }),
+    });
+    const done = setupDone();
+    const task = await h['tasks:create'](input());
+    await done;
+    expect(spawn).toHaveBeenCalled();
+    expect(spawn.mock.calls[0][0].env?.X_KIND).toBe('shell');
+    await terminals.killAllForTask(task.id);
+  });
+});
+
 describe('handlers: repos', () => {
   it('lists, picks and removes repos', async () => {
     const { h, added } = await harness();
