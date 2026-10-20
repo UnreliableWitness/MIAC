@@ -21,6 +21,12 @@ const SETTLE_MS = 200;
 export const reviewTarget = (taskId: string, workspaceId: string): string =>
   workspaceId === HOME_ID ? taskId : docsTarget(taskId, workspaceId);
 
+/** The task's repos as one string: a repo joining or leaving changes it. */
+const workspaceIds = (task: TaskView): string =>
+  activeWorkspaces(task)
+    .map((w) => w.id)
+    .join(',');
+
 /** Follows the task's worktrees (files and git dirs) while `visible`; polls when a watcher is not live. */
 function useWorktreeChanges(
   task: TaskView,
@@ -29,9 +35,7 @@ function useWorktreeChanges(
 ) {
   const latest = useRef(onChange);
   latest.current = onChange;
-  const ids = activeWorkspaces(task)
-    .map((w) => w.id)
-    .join(',');
+  const ids = workspaceIds(task);
   useEffect(() => {
     if (!visible || task.status !== 'ready' || task.worktreeMissing) return;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -130,9 +134,11 @@ export function useReview(
     setChangedAt((x) => x + 1);
   });
 
+  // A repo that joins the task (#84) or leaves it is loaded or dropped at once, not at its next change.
+  const ids = workspaceIds(task);
   useEffect(() => {
     if (visible) refresh();
-  }, [visible, key, refresh]);
+  }, [visible, key, ids, refresh]);
   useWorktreeChanges(task, visible, refresh);
 
   return { files, state, setState, refresh, changedAt, error };
@@ -159,9 +165,10 @@ export function useChangeCount(
     // A newer task drops any answer still on its way for the previous one.
     seq.current++;
   }, [task.id]);
+  const ids = workspaceIds(task);
   useEffect(() => {
     if (enabled && task.status === 'ready' && !task.worktreeMissing) refresh();
-  }, [enabled, task.id, task.status, task.worktreeMissing, refresh]);
+  }, [enabled, task.id, task.status, task.worktreeMissing, ids, refresh]);
   useWorktreeChanges(task, enabled, refresh);
   return count;
 }

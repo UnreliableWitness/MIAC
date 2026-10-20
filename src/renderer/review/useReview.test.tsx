@@ -23,12 +23,32 @@ const settle = () =>
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
-const hooks: [string, () => unknown][] = [
-  ['useReview', () => useReview(task, { kind: 'all' }, true)],
-  ['useChangeCount', () => useChangeCount(task, true)],
+const hooks: [string, (t?: TaskView) => unknown][] = [
+  ['useReview', (t = task) => useReview(t, { kind: 'all' }, true)],
+  ['useChangeCount', (t = task) => useChangeCount(t, true)],
 ];
 
 describe.each(hooks)('%s', (_name, hook) => {
+  it('loads again when a repo joins the task (#84)', async () => {
+    const api = installFakeApi();
+    const { rerender } = renderHook((t: TaskView) => hook(t), {
+      initialProps: task,
+    });
+    await settle();
+    const files = () =>
+      api.calls.filter((c) => c.channel === 'review:files').length;
+    const before = files();
+    rerender({ ...task, terminals: [] } as TaskView);
+    await settle();
+    expect(files()).toBe(before);
+    rerender({
+      ...task,
+      extraWorkspaces: [{ id: 'w2', repoId: 'r2', dropped: false }],
+    } as unknown as TaskView);
+    await settle();
+    expect(files()).toBe(before + 1);
+  });
+
   it('makes one review:files call for a burst of events', async () => {
     const api = installFakeApi();
     renderHook(hook);
