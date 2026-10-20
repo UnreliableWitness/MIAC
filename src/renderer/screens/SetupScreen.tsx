@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { SetupEvent, SetupState } from '../../shared/types';
 import { isReopening } from '../../shared/workspaces';
 import { api, tryInvoke } from '../api';
+import { GitAuthNotice } from '../components/GitAuthNotice';
 import { StepList } from '../components/StepList';
 import { TaskTypeIcon } from '../components/TaskTypeIcon';
 import { PageHeader } from '../components/ui';
@@ -17,6 +18,7 @@ export function applySetupEvent(state: SetupState, e: SetupEvent): SetupState {
             status: e.status,
             detail: e.status === 'running' ? e.detail : (e.detail ?? s.detail),
             ms: e.status === 'running' ? e.ms : (e.ms ?? s.ms),
+            auth: e.status === 'failed' ? e.auth : undefined,
           }
         : s,
     );
@@ -118,6 +120,10 @@ export function SetupScreen({ taskId }: { taskId: string }) {
   const failedLabel =
     failedStep !== null ? state?.steps[failedStep]?.def.label : null;
   const running = state?.steps.find((s) => s.status === 'running');
+  const authHint =
+    failedStep !== null && state?.steps[failedStep]?.status === 'failed'
+      ? state.steps[failedStep].auth
+      : undefined;
 
   const retry = async () => {
     const ok = await tryInvoke(async () => {
@@ -179,6 +185,7 @@ export function SetupScreen({ taskId }: { taskId: string }) {
           ) : (
             <div className="muted">Loading...</div>
           )}
+          {authHint && <GitAuthNotice hint={authHint} />}
           <div className="actions" style={{ justifyContent: 'flex-start' }}>
             <button type="button" className="btn" onClick={back}>
               Back to Sprint

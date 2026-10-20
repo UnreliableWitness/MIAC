@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { TimeBookingSchema } from './time';
+import type { GitAuthHint } from './gitAuth';
 
 /** Work item type names come from the project's process (Agile, Scrum, Basic, custom); any string is valid. */
 export type WorkItemType = string;
@@ -240,6 +241,8 @@ export type FinishRowResult = {
   /** `linked`: an existing PR, not one made by this Finish. */
   pullRequest: { id: number; url: string; linked: boolean } | null;
   error: string | null;
+  /** Set when the push could not sign in to the remote. */
+  auth?: GitAuthHint;
 };
 
 /** The Finish page's look at one workspace still in the task. */
@@ -302,6 +305,8 @@ export type SetupEvent =
       status: SetupStepStatus;
       detail?: string;
       ms?: number;
+      /** A failed step whose git command could not sign in to its remote. */
+      auth?: GitAuthHint;
     }
   | { taskId: string; type: 'log'; line: string }
   | { taskId: string; type: 'finished'; ok: boolean; failedStep?: number };
@@ -311,6 +316,7 @@ export type SetupState = {
     status: SetupStepStatus;
     detail?: string;
     ms?: number;
+    auth?: GitAuthHint;
   }[];
   log: string[];
   finished: boolean;

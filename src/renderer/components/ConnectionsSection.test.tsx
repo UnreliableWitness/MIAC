@@ -215,4 +215,71 @@ describe('ConnectionsSection', () => {
     );
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
+
+  it('replaces the token of an existing connection, checked like a new one', async () => {
+    useStore.setState({ connections: [{ ...ok, status: 'unauthorized' }] });
+    const { calls } = installFakeApi({
+      'connections:save': () => ok,
+      'connections:list': () => [ok],
+    });
+    render(<ConnectionsSection />);
+    expect(
+      screen.queryByLabelText('New personal access token'),
+    ).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Update token' }));
+    await userEvent.type(
+      screen.getByLabelText('New personal access token'),
+      'fresh-pat',
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Save token' }));
+    await waitFor(() =>
+      expect(
+        calls.find((c) => c.channel === 'connections:save')?.args[0],
+      ).toEqual({
+        id: 'c1',
+        name: 'unreliablewitness',
+        organizationUrl: 'https://dev.azure.com/unreliablewitness',
+        project: 'Shellie',
+        pat: 'fresh-pat',
+      }),
+    );
+    await waitFor(() => expect(useStore.getState().connections).toEqual([ok]));
+    expect(
+      screen.queryByLabelText('New personal access token'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('keeps the token form open with a redacted error when the new token is refused', async () => {
+    useStore.setState({ connections: [ok] });
+    installFakeApi({
+      'connections:save': () => {
+        throw new Error('Azure DevOps rejected fresh-pat');
+      },
+    });
+    render(<ConnectionsSection />);
+    await userEvent.click(screen.getByRole('button', { name: 'Update token' }));
+    await userEvent.type(
+      screen.getByLabelText('New personal access token'),
+      'fresh-pat',
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Save token' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Azure DevOps rejected ***',
+    );
+    expect(
+      screen.getByLabelText('New personal access token'),
+    ).toBeInTheDocument();
+  });
+
+  it('opens the token form of the connection Settings was opened at', () => {
+    installFakeApi();
+    useStore.setState({
+      connections: [ok, { ...ok, id: 'c2', name: 'client' }],
+      screen: { kind: 'settings', section: 'conn-c2' },
+    });
+    const { container } = render(<ConnectionsSection />);
+    const forms = container.querySelectorAll('.conn-form');
+    expect(forms).toHaveLength(1);
+    expect(container.querySelector('#conn-c2 + .conn-form')).not.toBeNull();
+  });
 });

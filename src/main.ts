@@ -55,6 +55,7 @@ import { createPlatform } from './main/platform';
 import { AdoRegistry } from './main/services/AdoRegistry';
 import { ConnectionStore } from './main/services/ConnectionStore';
 import { GitClient } from './main/services/GitClient';
+import { connectionIdForPath, createGitAuth } from './main/services/gitAuth';
 import { loadShellieConfig } from './main/services/ShellieConfig';
 import { RepoRegistry } from './main/services/RepoRegistry';
 import { taskWorkspaces } from './shared/workspaces';
@@ -384,7 +385,14 @@ async function boot(): Promise<void> {
       connections.load(),
     ]);
     const recovered = await recoverInterruptedTasks(store);
-    const git = new GitClient();
+    // Fetch and push to Azure Repos sign in with the connection's token, not a credential helper that may not start.
+    const git = new GitClient(undefined, {
+      auth: createGitAuth({
+        connections: () => connections.list(),
+        token: (id) => connections.token(id),
+        connectionIdFor: (cwd) => connectionIdForPath(store.state, cwd),
+      }),
+    });
     const platform = createPlatform();
     const repos = new RepoRegistry(store, git);
     // Worktrees made before the rename keep their task file in .miac/; move it in the background.

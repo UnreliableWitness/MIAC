@@ -5,7 +5,7 @@ import type { SetupEvent, SetupStepDef } from '../../shared/types';
 import { pathExists } from '../fsRetry';
 import { isInside } from '../paths';
 import type { Command, Platform } from '../platform/Platform';
-import type { GitClient } from './GitClient';
+import { GitAuthError, type GitClient } from './GitClient';
 import { nodeModulesMatch } from './nodeModules';
 import { errorMessage } from '../../shared/errors';
 
@@ -244,6 +244,7 @@ export class SetupRunner {
           status: 'failed',
           detail,
           ms: Date.now() - started,
+          ...(e instanceof GitAuthError ? { auth: e.hint } : {}),
         });
         emit({ type: 'finished', ok: false, failedStep: index });
         return { ok: false, failedStep: index };

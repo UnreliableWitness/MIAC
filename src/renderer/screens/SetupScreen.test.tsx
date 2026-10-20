@@ -189,6 +189,90 @@ describe('SetupScreen', () => {
     expect(useStore.getState().screen).toEqual({ kind: 'home' });
   });
 
+  const authFailed = (connectionId: string | null): SetupState => ({
+    ...state,
+    steps: state.steps.map((s, i) => ({
+      ...s,
+      status: i === 0 ? 'failed' : 'todo',
+      detail:
+        i === 0
+          ? "git fetch --quiet origin main failed (128): fatal: could not read Password for 'https://o@dev.azure.com/o/p/_git/r': terminal prompts disabled"
+          : s.detail,
+      auth:
+        i === 0
+          ? { host: 'dev.azure.com', connectionId, path: '/src/webshop' }
+          : undefined,
+    })),
+    finished: true,
+    ok: false,
+    failedStep: 0,
+  });
+
+  it('after a sign-in failure, says to update the token and opens Settings at the connection', async () => {
+    useStore.setState({
+      tasks: [{ ...task, status: 'setup-failed' }],
+      connections: [
+        {
+          id: 'c1',
+          name: 'o',
+          organizationUrl: 'https://dev.azure.com/o',
+          project: 'p',
+          user: null,
+          status: 'ok',
+          checkedAt: null,
+          userUniqueName: null,
+        },
+      ],
+    });
+    installFakeApi({ 'tasks:setupState': () => authFailed('c1') });
+    render(<SetupScreen taskId="t1" />);
+    expect(
+      await screen.findByText(
+        'Git could not sign in to dev.azure.com with your Azure DevOps token. Update the token, then Retry.',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Retry from Fetch base' }),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Update token' }));
+    expect(useStore.getState().screen).toEqual({
+      kind: 'settings',
+      section: 'conn-c1',
+    });
+  });
+
+  it('after a sign-in failure without a token, says to sign in from a terminal', async () => {
+    useStore.setState({ tasks: [{ ...task, status: 'setup-failed' }] });
+    installFakeApi({ 'tasks:setupState': () => authFailed(null) });
+    render(<SetupScreen taskId="t1" />);
+    expect(
+      await screen.findByText(
+        'Git could not sign in to dev.azure.com. Sign in once from a terminal (run `git fetch` in /src/webshop), then Retry.',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Update token' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('drops the sign-in hint once the step runs again', async () => {
+    useStore.setState({ tasks: [{ ...task, status: 'setup-failed' }] });
+    const { emit } = installFakeApi({
+      'tasks:setupState': () => authFailed(null),
+    });
+    render(<SetupScreen taskId="t1" />);
+    await screen.findByText(/Git could not sign in/);
+    act(() =>
+      emit('setup', {
+        taskId: 't1',
+        type: 'step',
+        index: 0,
+        status: 'running',
+      }),
+    );
+    expect(screen.queryByText(/Git could not sign in/)).not.toBeInTheDocument();
+  });
+
   it('for a failed reopen, cancelling puts the task back on its Done page', async () => {
     useStore.setState({
       tasks: [{ ...task, status: 'setup-failed', reopen: { from: null } }],

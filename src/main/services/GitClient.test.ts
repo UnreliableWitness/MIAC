@@ -7,8 +7,18 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import path from 'node:path';
-import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest';
 import {
   addOrigin,
   cleanupTempRepos,
@@ -16,7 +26,8 @@ import {
   git,
   makeRepo,
 } from '../test-helpers/gitRepo';
-import { GitClient, GitError } from './GitClient';
+import { GitAuthError, GitClient, GitError } from './GitClient';
+import { extraHeaderEnv } from './gitAuth';
 
 const client = new GitClient();
 
@@ -709,5 +720,139 @@ describe('GitClient worktree helpers', () => {
       expect(existsSync(path.join(repo, 'ln.txt'))).toBe(false);
       expect(readFileSync(target, 'utf8')).toBe('keep\n');
     });
+  });
+});
+
+describe('GitClient sign-in with an Azure DevOps token', () => {
+  const PAT = 'pat-never-shown-42';
+  const B64 = Buffer.from(`:${PAT}`).toString('base64');
+  let server: http.Server;
+  let base: string;
+  const seen: (string | undefined)[] = [];
+
+  beforeAll(async () => {
+    server = http.createServer((req, res) => {
+      seen.push(req.headers.authorization);
+      res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="test"' });
+      res.end();
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, '127.0.0.1', resolve),
+    );
+    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+  afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    seen.length = 0;
+  });
+
+  /** No helper from the machine's config may answer (or pop up) for the test server. */
+  const isolate = () => {
+    vi.stubEnv('GIT_CONFIG_GLOBAL', '/dev/null');
+    vi.stubEnv('GIT_CONFIG_NOSYSTEM', '1');
+    vi.stubEnv('GIT_CONFIG_COUNT', '1');
+    vi.stubEnv('GIT_CONFIG_KEY_0', 'credential.helper');
+    vi.stubEnv('GIT_CONFIG_VALUE_0', '');
+    vi.stubEnv('GCM_INTERACTIVE', 'never');
+  };
+
+  const clientWithToken = () => {
+    const calls: { cwd: string; remote: string; url: string }[] = [];
+    const c = new GitClient(undefined, {
+      auth: async (o) => {
+        calls.push(o);
+        return {
+          env: extraHeaderEnv(`${base}/org/`, PAT),
+          connectionId: 'c1',
+        };
+      },
+    });
+    return { c, calls };
+  };
+
+  /** `user` puts a user name in the URL, as Azure DevOps clone URLs have; the header's scope has none. */
+  const repoWithServerOrigin = (user = '') => {
+    const repo = makeRepo();
+    const url = user ? base.replace('://', `://${user}@`) : base;
+    git(repo, 'remote', 'add', 'origin', `${url}/org/p/_git/r`);
+    return repo;
+  };
+
+  const expectNoToken = (e: unknown) => {
+    const err = e as GitAuthError;
+    for (const text of [err.message, err.stderr, String(err.cause)]) {
+      expect(text).not.toContain(PAT);
+      expect(text).not.toContain(B64);
+    }
+  };
+
+  it('fetch sends the token as a header and reports a sign-in failure without it', async () => {
+    isolate();
+    const repo = repoWithServerOrigin();
+    const { c, calls } = clientWithToken();
+    const err = await c.fetch(repo, 'origin/main').catch((e: unknown) => e);
+    expect(calls).toEqual([
+      { cwd: repo, remote: 'origin', url: `${base}/org/p/_git/r` },
+    ]);
+    expect(seen).toContain(`Basic ${B64}`);
+    expect(err).toBeInstanceOf(GitAuthError);
+    expect((err as GitAuthError).hint).toEqual({
+      host: '127.0.0.1',
+      connectionId: 'c1',
+      path: repo,
+    });
+    expect((err as Error).message).toMatch(
+      /^git fetch --quiet origin main failed/,
+    );
+    expectNoToken(err);
+  });
+
+  it('push sends the token as a header and reports a sign-in failure without it', async () => {
+    isolate();
+    const repo = repoWithServerOrigin('org');
+    git(repo, 'checkout', '-q', '-b', 'feature/a');
+    const { c } = clientWithToken();
+    const err = await c
+      .push(repo, 'origin', 'feature/a')
+      .catch((e: unknown) => e);
+    expect(seen).toContain(`Basic ${B64}`);
+    expect(err).toBeInstanceOf(GitAuthError);
+    expect((err as Error).message).not.toMatch(/^git push/);
+    expect((err as GitAuthError).hint.connectionId).toBe('c1');
+    expectNoToken(err);
+  });
+
+  it('without a provider, a sign-in failure still says so and names no connection', async () => {
+    isolate();
+    const repo = repoWithServerOrigin();
+    const err = await new GitClient()
+      .fetch(repo, 'origin/main')
+      .catch((e: unknown) => e);
+    expect(seen.every((h) => h === undefined)).toBe(true);
+    expect(err).toBeInstanceOf(GitAuthError);
+    expect((err as GitAuthError).hint).toMatchObject({ connectionId: null });
+  });
+
+  it('a provider that throws runs git without a token', async () => {
+    isolate();
+    const repo = repoWithServerOrigin();
+    const c = new GitClient(undefined, {
+      auth: async () => {
+        throw new Error('boom');
+      },
+    });
+    const err = await c.fetch(repo, 'origin/main').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(GitAuthError);
+    expect(seen.every((h) => h === undefined)).toBe(true);
+  });
+
+  it('other failures stay GitErrors', async () => {
+    const repo = makeRepo();
+    addOrigin(repo);
+    const { c } = clientWithToken();
+    const err = await c.fetch(repo, 'origin/nope').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(GitError);
+    expect(err).not.toBeInstanceOf(GitAuthError);
   });
 });

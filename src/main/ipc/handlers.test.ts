@@ -18,7 +18,7 @@ import { startAdoServer, type AdoServer } from '../test-helpers/adoServer';
 import { OFFICIAL_RATES } from '../pricing/officialRates';
 import { SettingsStore } from '../usage/SettingsStore';
 import { UsageStore } from '../usage/UsageStore';
-import { GitClient } from '../services/GitClient';
+import { GitAuthError, GitClient } from '../services/GitClient';
 import { loadShellieConfig } from '../services/ShellieConfig';
 import { RepoRegistry } from '../services/RepoRegistry';
 import { SetupRunner } from '../services/SetupRunner';
@@ -3594,6 +3594,38 @@ describe('handlers: finish every workspace of a task', () => {
     expect(existsSync(hx.repos[0].wt)).toBe(false);
     expect(existsSync(toolsWt)).toBe(true);
     expect(await new GitClient().branchExists(tools, 'dev')).toBe(true);
+  });
+
+  it('keeps where a push could not sign in on the failed row', async () => {
+    const hx = await multiHarness([{ name: 'api' }]);
+    commitFile(hx.repos[0].wt, 'api.txt', 'a\n', 'API change');
+    const hint = {
+      host: 'dev.azure.com',
+      connectionId: hx.c.id,
+      path: hx.repos[0].wt,
+    };
+    hx.push.mockImplementation(async () => {
+      throw new GitAuthError(
+        "fatal: could not read Password for 'https://dev.azure.com/contoso': terminal prompts disabled",
+        'fatal: could not read Password',
+        hint,
+      );
+    });
+    await expect(
+      hx.h['tasks:finish'](hx.t.id, {
+        ...opts,
+        workspaces: [
+          { workspaceId: 'home', action: 'drop' },
+          { workspaceId: hx.ids[0], action: 'pr' },
+        ],
+      }),
+    ).rejects.toThrow(/could not read Password/);
+    const rows = await hx.h['tasks:finishResults'](hx.t.id);
+    expect(rows?.find((r) => r.workspaceId === hx.ids[0])).toMatchObject({
+      ok: false,
+      auth: hint,
+    });
+    expect(rows?.find((r) => r.workspaceId === 'home')?.auth).toBeUndefined();
   });
 
   it('marks the cost line as the whole task when several repos have changes', async () => {

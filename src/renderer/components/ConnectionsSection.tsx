@@ -3,6 +3,7 @@ import type { Connection } from '../../shared/types';
 import { api, tryInvoke } from '../api';
 import { statusText } from '../connectionStatus';
 import { useStore } from '../store';
+import { connectionSection } from './GitAuthNotice';
 import { errorMessage } from '../../shared/errors';
 
 function ConnectionRow({ connection }: { connection: Connection }) {
@@ -12,6 +13,13 @@ function ConnectionRow({ connection }: { connection: Connection }) {
   const setRepos = useStore((s) => s.setRepos);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Opened from a git sign-in failure ("Update token"), the row starts with its token form open.
+  const asked = useStore(
+    (s) =>
+      s.screen.kind === 'settings' &&
+      s.screen.section === connectionSection(connection.id),
+  );
+  const [updating, setUpdating] = useState(asked);
   const users = repos.filter((r) => r.connectionId === connection.id).length;
   const status = statusText(connection);
 
@@ -55,7 +63,7 @@ function ConnectionRow({ connection }: { connection: Connection }) {
 
   return (
     <>
-      <div className="list-row">
+      <div className="list-row" id={connectionSection(connection.id)}>
         <div className="grow">
           <span style={{ fontWeight: 600 }}>{connection.name}</span>
           <span className="mono small muted">
@@ -76,12 +84,26 @@ function ConnectionRow({ connection }: { connection: Connection }) {
         <button
           type="button"
           className="btn btn-ghost btn-sm"
+          onClick={() => setUpdating(true)}
+          disabled={busy || updating}
+        >
+          Update token
+        </button>
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
           onClick={remove}
           disabled={busy || confirming}
         >
           Remove
         </button>
       </div>
+      {updating && (
+        <UpdateTokenForm
+          connection={connection}
+          onDone={() => setUpdating(false)}
+        />
+      )}
       {confirming && (
         <div className="conn-confirm" role="status">
           <span>{`${users} ${users === 1 ? 'repository uses' : 'repositories use'} this connection; they will be unlinked.`}</span>
@@ -104,6 +126,85 @@ function ConnectionRow({ connection }: { connection: Connection }) {
         </div>
       )}
     </>
+  );
+}
+
+/** Replaces a connection's token, checked against Azure DevOps first exactly like a new connection. */
+function UpdateTokenForm({
+  connection,
+  onDone,
+}: {
+  connection: Connection;
+  onDone: () => void;
+}) {
+  const setConnections = useStore((s) => s.setConnections);
+  const [pat, setPat] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const inputId = `conn-pat-${connection.id}`;
+
+  const save = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api().invoke('connections:save', {
+        id: connection.id,
+        name: connection.name,
+        organizationUrl: connection.organizationUrl,
+        project: connection.project,
+        pat,
+      });
+      setConnections(await api().invoke('connections:list'));
+      setPat('');
+      onDone();
+    } catch (e) {
+      const message = errorMessage(e);
+      setError(pat ? message.split(pat).join('***') : message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="conn-form">
+      <label htmlFor={inputId}>New personal access token</label>
+      <input
+        id={inputId}
+        className="field mono"
+        type="password"
+        autoComplete="off"
+        autoFocus
+        value={pat}
+        onChange={(e) => setPat(e.target.value)}
+      />
+      {error && (
+        <div
+          role="alert"
+          className="conn-status-bad"
+          style={{ gridColumn: '1 / -1' }}
+        >
+          {error}
+        </div>
+      )}
+      <div className="small muted" style={{ gridColumn: '1 / -1' }}>
+        The token needs Work Items (Read & write) and Code (Read & write). Git
+        uses it to fetch and push this organization&apos;s repos.
+      </div>
+      <div className="actions">
+        <button type="button" className="btn" onClick={onDone} disabled={busy}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={save}
+          disabled={busy || !pat.trim()}
+        >
+          Save token
+        </button>
+      </div>
+    </div>
   );
 }
 
