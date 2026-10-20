@@ -5,6 +5,12 @@ import { promisify } from 'node:util';
 import type { GitSummary, TaskSummary } from '../../shared/types';
 import { realWait, withRetry, type Wait } from '../fsRetry';
 import { isInside, nativePath } from '../paths';
+import {
+  isGitAuthFailure,
+  remoteHost,
+  type GitAuthHint,
+} from '../../shared/gitAuth';
+import type { GitAuth, GitAuthEnv } from './gitAuth';
 
 const execFileAsync = promisify(execFile);
 
@@ -28,6 +34,21 @@ export class GitError extends Error {
       { cause },
     );
     this.name = 'GitError';
+  }
+}
+
+const NO_AUTH: GitAuthEnv = { env: {}, connectionId: null };
+
+/** A fetch or push that could not sign in to its remote. The message is git's own, without the token. */
+export class GitAuthError extends Error {
+  constructor(
+    message: string,
+    public readonly stderr: string,
+    public readonly hint: GitAuthHint,
+    cause?: unknown,
+  ) {
+    super(message, { cause });
+    this.name = 'GitAuthError';
   }
 }
 
@@ -57,12 +78,51 @@ export function splitRemoteRef(
 /** Thin wrapper over the git CLI. Every method takes the directory to run in. */
 export class GitClient {
   readonly pushTimeoutMs: number;
+  private readonly auth: GitAuth | undefined;
 
   constructor(
     private readonly wait: Wait = realWait,
-    opts: { pushTimeoutMs?: number } = {},
+    opts: { pushTimeoutMs?: number; auth?: GitAuth } = {},
   ) {
     this.pushTimeoutMs = opts.pushTimeoutMs ?? PUSH_TIMEOUT_MS;
+    this.auth = opts.auth;
+  }
+
+  /** The environment a network command against `remote` runs with (an Azure Repos token), and where it goes. */
+  private async remoteAuth(
+    cwd: string,
+    remote: string,
+  ): Promise<{ auth: GitAuthEnv; host: string | null }> {
+    const url = await this.remoteUrl(cwd, remote);
+    if (!url) return { auth: NO_AUTH, host: null };
+    const host = remoteHost(url);
+    if (!this.auth) return { auth: NO_AUTH, host };
+    try {
+      return { auth: await this.auth({ cwd, remote, url }), host };
+    } catch {
+      return { auth: NO_AUTH, host };
+    }
+  }
+
+  /** A GitError that says git could not sign in becomes a GitAuthError with the same message; others pass. */
+  private signInError(
+    e: unknown,
+    cwd: string,
+    remote: string,
+    ctx: { auth: GitAuthEnv; host: string | null },
+    message: (e: GitError) => string,
+  ): unknown {
+    if (!(e instanceof GitError) || !isGitAuthFailure(e.stderr)) return e;
+    return new GitAuthError(
+      message(e),
+      e.stderr,
+      {
+        host: ctx.host ?? remote,
+        connectionId: ctx.auth.connectionId,
+        path: cwd,
+      },
+      e,
+    );
   }
 
   async run(
@@ -161,7 +221,14 @@ export class GitClient {
     if (baseRef.indexOf('/') <= 0) return false;
     const split = splitRemoteRef(baseRef, await this.remotes(cwd));
     if (!split) return false;
-    await this.run(cwd, ['fetch', '--quiet', split.remote, split.branch]);
+    const ctx = await this.remoteAuth(cwd, split.remote);
+    try {
+      await this.run(cwd, ['fetch', '--quiet', split.remote, split.branch], {
+        env: ctx.auth.env,
+      });
+    } catch (e) {
+      throw this.signInError(e, cwd, split.remote, ctx, (g) => g.message);
+    }
     return true;
   }
 
@@ -304,9 +371,13 @@ export class GitClient {
    * after `pushTimeoutMs`. Git Credential Manager stays on: users sign in through it.
    */
   async push(cwd: string, remote: string, branch: string): Promise<void> {
-    const env: Record<string, string> = (await this.hasOwnSshCommand(cwd))
-      ? {}
-      : { GIT_SSH_COMMAND: BATCH_SSH };
+    const ctx = await this.remoteAuth(cwd, remote);
+    const env: Record<string, string> = {
+      ...((await this.hasOwnSshCommand(cwd))
+        ? {}
+        : { GIT_SSH_COMMAND: BATCH_SSH }),
+      ...ctx.auth.env,
+    };
     try {
       await this.run(cwd, ['push', '-u', remote, branch], {
         timeoutMs: this.pushTimeoutMs,
@@ -317,6 +388,10 @@ export class GitClient {
         throw new Error(
           `git push timed out after ${this.pushTimeoutMs / 1000} s (a credential prompt may be waiting)`,
         );
+      const signIn = this.signInError(e, cwd, remote, ctx, (g) =>
+        g.stderr.trim(),
+      );
+      if (signIn instanceof GitAuthError) throw signIn;
       throw e instanceof GitError ? new Error(e.stderr.trim()) : e;
     }
   }
