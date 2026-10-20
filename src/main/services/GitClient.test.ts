@@ -771,9 +771,11 @@ describe('GitClient sign-in with an Azure DevOps token', () => {
     return { c, calls };
   };
 
-  const repoWithServerOrigin = () => {
+  /** `user` puts a user name in the URL, as Azure DevOps clone URLs have; the header's scope has none. */
+  const repoWithServerOrigin = (user = '') => {
     const repo = makeRepo();
-    git(repo, 'remote', 'add', 'origin', `${base}/org/p/_git/r`);
+    const url = user ? base.replace('://', `://${user}@`) : base;
+    git(repo, 'remote', 'add', 'origin', `${url}/org/p/_git/r`);
     return repo;
   };
 
@@ -808,7 +810,7 @@ describe('GitClient sign-in with an Azure DevOps token', () => {
 
   it('push sends the token as a header and reports a sign-in failure without it', async () => {
     isolate();
-    const repo = repoWithServerOrigin();
+    const repo = repoWithServerOrigin('org');
     git(repo, 'checkout', '-q', '-b', 'feature/a');
     const { c } = clientWithToken();
     const err = await c
