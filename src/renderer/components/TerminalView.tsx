@@ -7,7 +7,12 @@ import { useStore } from '../store';
 import { attachClipboardKeys, isMac } from '../terminalClipboard';
 import { createLinkProvider } from '../terminalLinks';
 import { registerTerminal } from '../terminalRegistry';
-import { loadRenderer, terminalOptions, windowsBuild } from '../terminalSetup';
+import {
+  followColorScheme,
+  loadRenderer,
+  terminalOptions,
+  windowsBuild,
+} from '../terminalSetup';
 
 export function TerminalView({
   terminalId,
@@ -44,6 +49,7 @@ export function TerminalView({
     t.loadAddon(f);
     attachClipboardKeys(t, isMac, navigator.clipboard);
     term.current = t;
+    const offScheme = followColorScheme(t);
     const unregister = registerTerminal(terminalId, t);
     let live = true;
     let links: { dispose(): void } | null = null;
@@ -124,6 +130,7 @@ export function TerminalView({
       offData();
       offExit();
       unregister();
+      offScheme();
       t.dispose();
       term.current = null;
     };
