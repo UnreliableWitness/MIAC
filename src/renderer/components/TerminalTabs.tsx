@@ -9,7 +9,7 @@ import {
   FullScreenMinimize16Regular,
   Globe16Regular,
 } from '@fluentui/react-icons';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Events } from '../../shared/ipc';
 import type { NewTerminal, TaskView } from '../../shared/types';
 import { api, tryInvoke } from '../api';
@@ -230,6 +230,14 @@ export function TerminalTabs({
     if (created) setTab(task.id, created.id);
   };
 
+  // The row scrolls sideways when its tabs do not fit; the selected tab (a new terminal or page) is kept in view.
+  const tabrow = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    tabrow.current
+      ?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
+      ?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [active, task.terminals.length]);
+
   const closeTerminal = (id: string) =>
     tryInvoke(() => api().invoke('terminals:kill', id), notify);
 
@@ -237,6 +245,7 @@ export function TerminalTabs({
     <>
       <div className="taskbar">
         <div
+          ref={tabrow}
           role="tablist"
           aria-label="Terminals"
           className="tabrow"

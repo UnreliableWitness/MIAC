@@ -432,7 +432,13 @@ button.projecttile:hover {
   display: flex;
   align-items: center;
   gap: 2px;
-  overflow: hidden;
+  /* Scrolls sideways (trackpad, Shift+wheel) when the tabs do not fit; no scrollbar in the 36 px row. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.tabrow::-webkit-scrollbar {
+  display: none;
 }
 .tabrow .pivot svg {
   color: var(--link);
