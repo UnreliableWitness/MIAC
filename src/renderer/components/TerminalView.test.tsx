@@ -31,6 +31,7 @@ vi.mock('@xterm/addon-fit', () => ({
   },
 }));
 vi.mock('../terminalSetup', () => ({
+  followColorScheme: () => () => undefined,
   loadRenderer: () => undefined,
   terminalOptions: () => ({}),
   windowsBuild: async () => null,

@@ -3,6 +3,7 @@ import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommentCard } from './CommentCard';
+import { setTestColorScheme } from '../../testColorScheme';
 import { DiffView, type DiffZone } from './DiffView';
 
 // Monaco does not run in jsdom: a stand-in with just what DiffView calls. View zones are real DOM
@@ -93,7 +94,8 @@ const fake = vi.hoisted(() => {
           dispose: () => undefined,
         };
       },
-      createDiffEditor: (host: HTMLElement) => {
+      setTheme: vi.fn(),
+      createDiffEditor: (host: HTMLElement, _options?: { theme?: string }) => {
         const original = editor();
         const modified = editor();
         host.append(original.host, modified.host);
@@ -116,12 +118,17 @@ const fake = vi.hoisted(() => {
   };
   const editors: ReturnType<typeof editor>[] = [];
   const created = monaco.editor.createDiffEditor;
-  monaco.editor.createDiffEditor = (host: HTMLElement) => {
-    const d = created(host);
+  const diffOptions: ({ theme?: string } | undefined)[] = [];
+  monaco.editor.createDiffEditor = (
+    host: HTMLElement,
+    options?: { theme?: string },
+  ) => {
+    diffOptions.push(options);
+    const d = created(host, options);
     editors.push(d.getOriginalEditor(), d.getModifiedEditor());
     return d;
   };
-  return { monaco, restored, editors };
+  return { monaco, restored, editors, diffOptions };
 });
 vi.mock('../../review/loadMonaco', () => ({
   loadMonaco: () => Promise.resolve(fake.monaco),
@@ -130,6 +137,8 @@ vi.mock('../../review/loadMonaco', () => ({
 beforeEach(() => {
   fake.restored.length = 0;
   fake.editors.length = 0;
+  fake.diffOptions.length = 0;
+  fake.monaco.editor.setTheme.mockClear();
   vi.stubGlobal(
     'ResizeObserver',
     class {
@@ -174,6 +183,20 @@ const props = {
 };
 const zone = (id: string, afterLine: number, node: DiffZone['node']) =>
   ({ id, side: 'after', afterLine, node }) as const;
+
+describe('DiffView theme', () => {
+  it('creates the diff in the scheme on screen and follows a switch', async () => {
+    setTestColorScheme('light');
+    render(<DiffView {...props} />);
+    await vi.waitFor(() => expect(fake.diffOptions).toHaveLength(1));
+    expect(fake.diffOptions[0]?.theme).toBe('shellie-light');
+    act(() => setTestColorScheme('dark'));
+    expect(fake.monaco.editor.setTheme).toHaveBeenLastCalledWith(
+      'shellie-dark',
+    );
+    expect(fake.diffOptions).toHaveLength(1);
+  });
+});
 
 describe('DiffView zones', () => {
   it('draws a card over its view zone, not in it, inside the visible code area (#71)', async () => {

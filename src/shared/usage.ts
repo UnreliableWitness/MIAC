@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { BudgetSettingsSchema, defaultBudgetSettings } from './budget';
 import { defaultEditorPrefs, EditorPrefsSchema } from './editors';
+import { THEMES } from './theme';
 import { WorkHoursSchema } from './time';
 
 export type UsageTool = 'claude-code' | 'copilot-cli';
@@ -72,6 +73,8 @@ export const AppSettingsSchema = z.object({
   showSplash: z.boolean().default(true),
   /** Notify when an agent finishes its turn (blocked agents always notify). */
   notifyOnDone: z.boolean().default(true),
+  /** Light or dark look; `system` follows the OS appearance (sets nativeTheme.themeSource). */
+  theme: z.enum(THEMES).default('system'),
   /** The developer's monthly Claude budget (Home's Claude budget band). */
   claudeBudget: BudgetSettingsSchema.default(defaultBudgetSettings()),
   /** Send anonymous usage and error data (see docs/telemetry.md). */

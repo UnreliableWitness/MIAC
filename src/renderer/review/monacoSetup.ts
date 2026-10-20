@@ -61,4 +61,24 @@ monaco.editor.defineTheme('shellie-dark', {
   },
 });
 
+// The ADO light palette (the prefers-color-scheme: light block of tokens.css).
+monaco.editor.defineTheme('shellie-light', {
+  base: 'vs',
+  inherit: true,
+  rules: [],
+  colors: {
+    'editor.background': '#faf9f8',
+    'editorGutter.background': '#faf9f8',
+    'editor.lineHighlightBackground': '#0000000a',
+    'editorLineNumber.foreground': '#00000073',
+    'editorLineNumber.activeForeground': '#000000e6',
+    'diffEditor.insertedTextBackground': '#107c1026',
+    'diffEditor.removedTextBackground': '#a4262c26',
+    'diffEditor.insertedLineBackground': '#107c1012',
+    'diffEditor.removedLineBackground': '#a4262c12',
+    'diffEditor.unchangedRegionBackground': '#f3f2f1',
+    'scrollbarSlider.background': '#0000001f',
+  },
+});
+
 export { monaco };

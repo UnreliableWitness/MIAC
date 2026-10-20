@@ -2,7 +2,8 @@ import type { ITerminalOptions, Terminal } from '@xterm/xterm';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { api } from './api';
-import { TERMINAL_THEME } from './terminalTheme';
+import { currentColorScheme, onColorSchemeChange } from './colorScheme';
+import { terminalTheme } from './terminalTheme';
 
 /**
  * The system's own terminal fonts (Windows Terminal's Cascadia Mono, then Consolas; SF Mono or Menlo on macOS), nothing
@@ -16,7 +17,7 @@ export function terminalOptions(windowsBuild: number | null): ITerminalOptions {
   return {
     fontFamily: TERMINAL_FONT,
     fontSize: FONT_SIZE,
-    theme: TERMINAL_THEME,
+    theme: terminalTheme(currentColorScheme()),
     cursorBlink: true,
     scrollback: 5000,
     allowProposedApi: true,
@@ -29,6 +30,13 @@ export function terminalOptions(windowsBuild: number | null): ITerminalOptions {
         }
       : {}),
   };
+}
+
+/** Re-colours the terminal whenever the colour scheme changes; returns the unsubscribe. */
+export function followColorScheme(t: Pick<Terminal, 'options'>): () => void {
+  return onColorSchemeChange((s) => {
+    t.options.theme = terminalTheme(s);
+  });
 }
 
 let info: Promise<number | null> | null = null;

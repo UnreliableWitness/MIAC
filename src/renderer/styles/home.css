@@ -166,7 +166,7 @@
 .home-period button[aria-pressed='true'] {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 .home-tiles {
   display: grid;

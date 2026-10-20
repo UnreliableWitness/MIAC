@@ -98,6 +98,7 @@ import type { UsageReceiver } from '../usage/UsageReceiver';
 import type { UsageStore } from '../usage/UsageStore';
 import { UsageSync } from '../usage/UsageSync';
 import { renderCostLine } from '../../shared/workItemUsage';
+import type { ThemeChoice } from '../../shared/theme';
 import type { TimeBooking } from '../../shared/time';
 import { errorMessage } from '../../shared/errors';
 import { OFFICIAL_USD_TO_EUR } from '../../shared/usage';
@@ -140,6 +141,8 @@ export type Services = {
   /** Sees what is typed into a terminal (main estimates OpenCode agent time from it). */
   onTerminalInput?: (id: string, data: string) => void;
   settings: SettingsStore;
+  /** Sets nativeTheme.themeSource (main); absent in tests that don't care. */
+  applyTheme?: (theme: ThemeChoice) => void;
   appVersion: string;
   /** Windows OS build number (e.g. 22631), null elsewhere. */
   windowsBuild?: number | null;
@@ -2283,6 +2286,7 @@ export function createHandlers(s: Services): Handlers {
       const before = s.settings.get();
       const saved = await s.settings.save(next);
       const changed = changedKeys(before, saved);
+      if (saved.theme !== before.theme) s.applyTheme?.(saved.theme);
       // Turning telemetry off is the one change that is not reported.
       if (changed.length > 0 && saved.sendTelemetry)
         tel.event('settings.changed', { keys: changed.join(',') });

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { AppSettings } from '../../shared/usage';
+import type { ThemeChoice } from '../../shared/theme';
 import type {
   ShellieConfig,
   Repo,
@@ -235,7 +236,10 @@ function AppearanceSection() {
 
   const toggle = async (
     patch: Partial<
-      Pick<AppSettings, 'showSplash' | 'sendTelemetry' | 'notifyOnDone'>
+      Pick<
+        AppSettings,
+        'showSplash' | 'sendTelemetry' | 'notifyOnDone' | 'theme'
+      >
     >,
   ) => {
     if (!settings) return;
@@ -249,6 +253,24 @@ function AppearanceSection() {
         <h2>Appearance</h2>
       </div>
       <div className="list">
+        <div className="list-row">
+          <label>
+            Theme{' '}
+            <select
+              className="field"
+              aria-label="Theme"
+              value={settings?.theme ?? 'system'}
+              disabled={!settings}
+              onChange={(e) =>
+                void toggle({ theme: e.target.value as ThemeChoice })
+              }
+            >
+              <option value="system">System</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </label>
+        </div>
         <div className="list-row">
           <label className="checkbox">
             <input

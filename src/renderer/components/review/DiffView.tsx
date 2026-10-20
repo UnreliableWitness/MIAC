@@ -6,6 +6,10 @@ import type { ReviewSide } from '../../../shared/review';
 import { loadMonaco } from '../../review/loadMonaco';
 import { type LineChange, mapOriginalLine } from '../../review/mapOriginalLine';
 import { errorMessage } from '../../../shared/errors';
+import type { ColorScheme } from '../../../shared/theme';
+import { currentColorScheme, useColorScheme } from '../../colorScheme';
+
+export const monacoTheme = (s: ColorScheme) => `shellie-${s}`;
 
 export type DiffZone = {
   id: string;
@@ -71,6 +75,7 @@ const SHIELD = [
 ];
 
 export function DiffView(p: Props) {
+  const scheme = useColorScheme();
   const host = useRef<HTMLDivElement>(null);
   const latest = useRef(p);
   latest.current = p;
@@ -101,13 +106,18 @@ export function DiffView(p: Props) {
     };
   }, []);
 
+  // Monaco themes are global: one call re-colours every editor.
+  useEffect(() => {
+    m?.editor.setTheme(monacoTheme(scheme));
+  }, [m, scheme]);
+
   useEffect(() => {
     if (!m || !host.current) return;
     const font = getComputedStyle(document.documentElement)
       .getPropertyValue('--font-code')
       .trim();
     const d = m.editor.createDiffEditor(host.current, {
-      theme: 'shellie-dark',
+      theme: monacoTheme(currentColorScheme()),
       readOnly: true,
       originalEditable: false,
       domReadOnly: true,

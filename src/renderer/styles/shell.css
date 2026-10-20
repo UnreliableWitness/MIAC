@@ -185,7 +185,7 @@ button.projecttile:hover {
   align-items: center;
   justify-content: center;
   border-radius: var(--radius);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 12px;
   font-weight: 600;
 }
@@ -619,7 +619,7 @@ button.projecttile:hover {
   padding: 8px 12px;
   border-radius: var(--radius-card);
   background: var(--bg-card);
-  box-shadow: 0 6.4px 14.4px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-2);
   font-size: 13px;
 }
 

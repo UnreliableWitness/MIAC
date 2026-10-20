@@ -346,6 +346,53 @@ describe('SettingsScreen', () => {
     await waitFor(() => expect(box).not.toBeChecked());
   });
 
+  it('picks the theme, starting at System', async () => {
+    const { calls } = installFakeApi({ 'settings:save': (next) => next });
+    render(<SettingsScreen />);
+    const select = await screen.findByRole('combobox', { name: 'Theme' });
+    await waitFor(() => expect(select).toHaveValue('system'));
+    await userEvent.selectOptions(select, 'light');
+    expect(
+      calls.find((c) => c.channel === 'settings:save')?.args[0],
+    ).toMatchObject({ theme: 'light' });
+    await waitFor(() => expect(select).toHaveValue('light'));
+  });
+
+  it('keeps the chosen theme when another appearance setting is saved', async () => {
+    const stored: AppSettings = {
+      version: 1 as const,
+      receiverPort: 4319,
+      hourlySync: true,
+      writeTimeToAdo: false,
+      idleMinutes: 5,
+      workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
+      writeCostToAdo: true,
+      showSplash: true,
+      notifyOnDone: true,
+      theme: 'light',
+      claudeBudget: {
+        monthlyEur: null,
+        monthStartDay: 1,
+        alerts: { at80: true, forecastOver: true, at100: true },
+      },
+      sendTelemetry: true,
+      editor: { default: null, repos: {} },
+    };
+    const { calls } = installFakeApi({
+      'settings:get': () => stored,
+      'settings:save': (next) => next,
+    });
+    render(<SettingsScreen />);
+    const box = await screen.findByRole('checkbox', {
+      name: 'Show splash on start',
+    });
+    await waitFor(() => expect(box).toBeChecked());
+    await userEvent.click(box);
+    expect(
+      calls.find((c) => c.channel === 'settings:save')?.args[0],
+    ).toMatchObject({ theme: 'light', showSplash: false });
+  });
+
   it('toggles the splash setting', async () => {
     const { calls } = installFakeApi({ 'settings:save': (next) => next });
     render(<SettingsScreen />);
@@ -364,6 +411,7 @@ describe('SettingsScreen', () => {
       writeCostToAdo: true,
       showSplash: false,
       notifyOnDone: true,
+      theme: 'system',
       claudeBudget: {
         monthlyEur: null,
         monthStartDay: 1,
@@ -385,6 +433,7 @@ describe('SettingsScreen', () => {
       writeCostToAdo: true,
       showSplash: true,
       notifyOnDone: true,
+      theme: 'system',
       claudeBudget: {
         monthlyEur: null,
         monthStartDay: 1,
@@ -427,6 +476,7 @@ describe('SettingsScreen', () => {
       writeCostToAdo: true,
       showSplash: false,
       notifyOnDone: true,
+      theme: 'system',
       claudeBudget: {
         monthlyEur: null,
         monthStartDay: 1,

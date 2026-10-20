@@ -226,6 +226,7 @@ function ProjectTile({ rail }: { rail: boolean }) {
       aria-hidden="true"
       style={{
         background: connection ? avatarColor(name) : 'var(--bg-selected)',
+        color: connection ? undefined : 'var(--muted)',
       }}
     >
       {connection ? name.charAt(0).toUpperCase() : '?'}

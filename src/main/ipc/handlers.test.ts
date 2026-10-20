@@ -2757,6 +2757,18 @@ describe('handlers: telemetry', () => {
     hx.terminals.killAllForTask(task.id);
   });
 
+  it('applies the theme when it changes, and only then', async () => {
+    const applied: string[] = [];
+    const hx = await harness(fakeCrypto(), {
+      applyTheme: (t: string) => applied.push(t),
+    });
+    const s = await hx.h['settings:get']();
+    await hx.h['settings:save']({ ...s, theme: 'light' });
+    await hx.h['settings:save']({ ...s, theme: 'light', showSplash: false });
+    await hx.h['settings:save']({ ...s, theme: 'dark', showSplash: false });
+    expect(applied).toEqual(['light', 'dark']);
+  });
+
   it('reports which settings changed, but not turning telemetry off', async () => {
     const { items, telemetry } = recorder();
     const hx = await harness(fakeCrypto(), { telemetry });

@@ -1,6 +1,6 @@
 import { stateMeta, useTypeMeta } from '../../workItemTypes';
 
-/** ADO's default state colors, used until the project's state colors are fetched. */
+/** ADO's default state colors, used until the project's state colors are fetched. Removed is ADO's white, drawn muted so it shows on a light page. */
 const STATE_COLOR: Record<string, string> = {
   new: '#b2b2b2',
   active: '#007acc',
@@ -9,7 +9,7 @@ const STATE_COLOR: Record<string, string> = {
   resolved: '#ff9d00',
   done: '#339933',
   closed: '#339933',
-  removed: '#ffffff',
+  removed: 'var(--muted)',
 };
 
 const stateColor = (state: string): string =>
