@@ -100,6 +100,7 @@ const defaults: FakeHandlers = {
     writeCostToAdo: true,
     showSplash: true,
     notifyOnDone: true,
+    theme: 'system',
     claudeBudget: {
       monthlyEur: null,
       monthStartDay: 1,

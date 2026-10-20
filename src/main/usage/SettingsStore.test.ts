@@ -66,6 +66,7 @@ describe('SettingsStore', () => {
       workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
       showSplash: true,
       notifyOnDone: true,
+      theme: 'system',
       claudeBudget: {
         monthlyEur: null,
         monthStartDay: 1,
@@ -85,6 +86,7 @@ describe('SettingsStore', () => {
       workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
       showSplash: true,
       notifyOnDone: true,
+      theme: 'system',
       claudeBudget: {
         monthlyEur: null,
         monthStartDay: 1,

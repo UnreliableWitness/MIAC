@@ -364,6 +364,7 @@ describe('SettingsScreen', () => {
       writeCostToAdo: true,
       showSplash: false,
       notifyOnDone: true,
+      theme: 'system',
       claudeBudget: {
         monthlyEur: null,
         monthStartDay: 1,
@@ -385,6 +386,7 @@ describe('SettingsScreen', () => {
       writeCostToAdo: true,
       showSplash: true,
       notifyOnDone: true,
+      theme: 'system',
       claudeBudget: {
         monthlyEur: null,
         monthStartDay: 1,
@@ -427,6 +429,7 @@ describe('SettingsScreen', () => {
       writeCostToAdo: true,
       showSplash: false,
       notifyOnDone: true,
+      theme: 'system',
       claudeBudget: {
         monthlyEur: null,
         monthStartDay: 1,

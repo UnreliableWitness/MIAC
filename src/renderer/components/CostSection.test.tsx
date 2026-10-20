@@ -29,6 +29,7 @@ const settings = {
   writeCostToAdo: true,
   showSplash: true,
   notifyOnDone: true,
+  theme: 'system' as const,
   claudeBudget: {
     monthlyEur: null,
     monthStartDay: 1,
@@ -107,6 +108,7 @@ describe('CostSection', () => {
       writeCostToAdo: true,
       showSplash: true,
       notifyOnDone: true,
+      theme: 'system',
       claudeBudget: {
         monthlyEur: null,
         monthStartDay: 1,

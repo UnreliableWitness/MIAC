@@ -478,6 +478,7 @@ describe('FinishScreen AI usage', () => {
         writeCostToAdo: false,
         showSplash: true,
         notifyOnDone: true,
+        theme: 'system',
         claudeBudget: {
           monthlyEur: null,
           monthStartDay: 1,

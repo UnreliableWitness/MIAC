@@ -11,6 +11,7 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  nativeTheme,
   Notification,
   powerMonitor,
   safeStorage,
@@ -266,6 +267,8 @@ async function boot(): Promise<void> {
   const migrationMs = performance.now() - migrationStart;
   const settings = new SettingsStore(path.join(userData, 'settings.json'));
   const settingsLoaded = await settings.load();
+  // Before any window: the splash, the first frame and prefers-color-scheme all follow it.
+  nativeTheme.themeSource = settings.get().theme;
   splashWin = settings.get().showSplash ? createSplashWindow(windowIcon) : null;
   if (splashWin) guardWindow(splashWin.webContents, isSplashPage, openLink);
   const reporter = new SplashReporter(splashWin);
@@ -566,6 +569,9 @@ async function boot(): Promise<void> {
     stopBudget = () => budget.stop();
     const handlers = createHandlers({
       budget,
+      applyTheme: (theme) => {
+        nativeTheme.themeSource = theme;
+      },
       update: {
         pending: () => pendingUpdate,
         install: () => updates?.install() ?? false,
