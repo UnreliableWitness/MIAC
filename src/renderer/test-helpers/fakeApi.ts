@@ -49,6 +49,7 @@ const defaults: FakeHandlers = {
     days: [],
     models: [],
     todayEur: 0,
+    todayAllowanceEur: null,
     weekEur: 0,
     outsideShare: 0,
     notCounted: [],

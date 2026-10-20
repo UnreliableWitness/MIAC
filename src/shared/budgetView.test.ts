@@ -122,6 +122,28 @@ describe('budgetView', () => {
     expect(v.outsideShare).toBeCloseTo(1020 / 1060, 6);
   });
 
+  it('gives today what is left of the budget over the days left', () => {
+    // 31-day month, today is the 19th: 13 days left including today.
+    const v = view({
+      '2026-10-01': [row({ costEur: 240 })],
+      '2026-10-19': [row({ costEur: 30 })],
+    });
+    expect(v.todayEur).toBe(30);
+    expect(v.todayAllowanceEur).toBeCloseTo((500 - 240) / 13, 6);
+  });
+
+  it('gives today no allowance once the budget is used up before today', () => {
+    const v = view({ '2026-10-01': [row({ costEur: 600 })] });
+    expect(v.todayAllowanceEur).toBe(0);
+  });
+
+  it('has no daily allowance without a budget or for a past month', () => {
+    expect(
+      view({}, { s: settings({ monthlyEur: null }) }).todayAllowanceEur,
+    ).toBeNull();
+    expect(view({}, { offset: -1 }).todayAllowanceEur).toBeNull();
+  });
+
   it('lists not-counted and unpriced usage apart from the totals', () => {
     const v = view({
       '2026-10-19': [

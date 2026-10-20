@@ -21,6 +21,7 @@ const view = (o: Partial<BudgetView> = {}): BudgetView => ({
     { model: 'claude-opus-5-5', costEur: 241, tokens: 1_000_000, requests: 10 },
   ],
   todayEur: 14,
+  todayAllowanceEur: 20,
   weekEur: 71,
   outsideShare: 0.38,
   notCounted: [],
@@ -39,8 +40,52 @@ describe('BudgetBand', () => {
     expect(screen.getByText('of €500.00')).toBeTruthy();
     expect(screen.getByText('On track: about €470.00 by Oct 31')).toBeTruthy();
     expect(
-      screen.getByText('Today €14.00 · This week €71.00 · 38% outside Shellie'),
+      screen.getByText('This week €71.00 · 38% outside Shellie'),
     ).toBeTruthy();
+  });
+
+  it('shows today against its daily allowance', async () => {
+    installFakeApi({ 'budget:get': () => view() });
+    const { container } = render(<BudgetBand />);
+    expect(await screen.findByText('€14.00')).toBeTruthy();
+    expect(screen.getByText('today of €20.00')).toBeTruthy();
+    expect(screen.getByText('€6.00 left today')).toBeTruthy();
+    expect(container.querySelector('.budget-today.is-over')).toBeNull();
+  });
+
+  it('flags today when it is over its allowance', async () => {
+    installFakeApi({
+      'budget:get': () => view({ todayEur: 26.5, todayAllowanceEur: 20 }),
+    });
+    const { container } = render(<BudgetBand />);
+    expect(await screen.findByText('€6.50 over today')).toBeTruthy();
+    expect(container.querySelector('.budget-today.is-over')).toBeTruthy();
+  });
+
+  it('shows today without an allowance when there is no budget', async () => {
+    installFakeApi({
+      'budget:get': () =>
+        view({ budgetEur: null, status: 'none', todayAllowanceEur: null }),
+    });
+    render(<BudgetBand />);
+    expect(await screen.findByText('€14.00')).toBeTruthy();
+    expect(screen.getByText('today')).toBeTruthy();
+    expect(screen.queryByText(/left today|over today/)).toBeNull();
+  });
+
+  it('hides today for a past month', async () => {
+    installFakeApi({
+      'budget:get': (offset) =>
+        offset < 0
+          ? view({ monthOffset: offset, todayEur: 0, todayAllowanceEur: null })
+          : view(),
+    });
+    const { container } = render(<BudgetBand />);
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Previous month' }),
+    );
+    await screen.findByRole('button', { name: 'Next month' });
+    expect(container.querySelector('.budget-today')).toBeNull();
   });
 
   it('warns when the pace or the spend goes over', async () => {

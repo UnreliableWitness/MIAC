@@ -43,6 +43,8 @@ export type BudgetView = {
   /** Counted models, by cost descending. */
   models: ModelTotal[];
   todayEur: number;
+  /** What is left of the budget at the start of today, spread over the days left including today. Null without a budget or for a past month. */
+  todayAllowanceEur: number | null;
   /** Sums only days inside the budget month. */
   weekEur: number;
   /** Share of spentEur spent outside Shellie, 0-1. */
@@ -200,6 +202,14 @@ export function budgetView(input: {
         .filter((d) => d.day >= from && d.day <= today)
         .reduce((a, d) => a + d.costEur, 0),
     );
+  const todayEur = current ? sumDays(today) : 0;
+  const daysLeft = daysInMonth - daysElapsed + 1;
+  const todayAllowanceEur =
+    budget === null || !current
+      ? null
+      : round6(
+          Math.max(0, budget - (sumDays(month.days[0]) - todayEur)) / daysLeft,
+        );
   return {
     monthOffset,
     startDay: month.days[0],
@@ -215,7 +225,8 @@ export function budgetView(input: {
     models: [...models.values()]
       .map((m) => ({ ...m, costEur: round6(m.costEur) }))
       .sort((a, b) => b.costEur - a.costEur),
-    todayEur: current ? sumDays(today) : 0,
+    todayEur,
+    todayAllowanceEur,
     weekEur: current ? sumDays(weekFrom) : 0,
     outsideShare: spent > 0 ? outside / spent : 0,
     notCounted: [...notCounted.values()],
