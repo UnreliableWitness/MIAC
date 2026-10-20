@@ -340,7 +340,7 @@ describe('HTML files', () => {
     const s = setup();
     mkdirSync(path.join(s.repo, 'report'));
     writeFileSync(path.join(s.repo, 'report', 'index.html'), '<h1>r</h1>');
-    const tmp = realpathSync(
+    const tmp = realpathSync.native(
       mkdtempSync(path.join(os.tmpdir(), 'shellie-html-')),
     );
     tempRoots.push(tmp);
@@ -372,9 +372,9 @@ describe('HTML files', () => {
     expect(
       await h['docs:resolve']('t1', path.join(outside, 'notes.txt')),
     ).toBeNull();
-    // Only absolute paths reach outside the worktrees.
+    // Only absolute paths reach outside the worktrees: a relative one resolves inside them.
     expect(
-      await h['docs:resolve']('t1', path.relative(process.cwd(), abs)),
+      await h['docs:resolve']('t1', 'reviews/pr-759/index.html'),
     ).toBeNull();
   });
   it('never looks at UNC or //host paths', async () => {
@@ -391,11 +391,11 @@ describe('HTML files', () => {
       name: 'index.html',
     });
     expect(grantView).toHaveBeenLastCalledWith(
-      realpathSync(path.join(repo, 'report', 'index.html')),
+      realpathSync.native(path.join(repo, 'report', 'index.html')),
     );
     await h['html:open']('t1', slash(path.join(outside, 'index.html')));
     expect(grantView).toHaveBeenLastCalledWith(
-      realpathSync(path.join(outside, 'index.html')),
+      realpathSync.native(path.join(outside, 'index.html')),
     );
   });
   it('html:open refuses what is not an existing HTML file', async () => {
@@ -421,7 +421,7 @@ describe('HTML files', () => {
     const { h, openPath, outside } = html();
     await h['html:openExternal']('t1', path.join(outside, 'index.html'));
     expect(openPath).toHaveBeenCalledWith(
-      realpathSync(path.join(outside, 'index.html')),
+      realpathSync.native(path.join(outside, 'index.html')),
     );
     openPath.mockResolvedValueOnce('No application');
     await expect(

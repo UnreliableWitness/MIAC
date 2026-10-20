@@ -11,7 +11,10 @@ import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { contentType, HtmlViews, serveView } from './htmlView';
 
-const tmp = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'shellie-view-')));
+// Native, as the code under test: on Windows it expands 8.3 short names (RUNNER~1) like fs.promises.realpath does.
+const tmp = realpathSync.native(
+  mkdtempSync(path.join(os.tmpdir(), 'shellie-view-')),
+);
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 
 function site() {
