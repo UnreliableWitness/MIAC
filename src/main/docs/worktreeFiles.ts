@@ -10,6 +10,7 @@ export const MAX_DOCS = 2000;
 export const TASK_FILE = '.shellie/task.md';
 const SPECS = [':(icase)*.md', ':(icase)*.markdown'];
 export const MD = /\.(md|markdown)$/i;
+export const HTML = /\.html?$/i;
 const IMAGE_TYPES: Record<string, string> = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
@@ -172,11 +173,12 @@ export async function readImage(abs: string): Promise<string> {
 export async function resolveLink(
   worktree: string,
   rel: string,
-): Promise<{ path: string; kind: 'md' | 'file' } | null> {
+): Promise<{ path: string; kind: 'md' | 'html' | 'file' } | null> {
   try {
     const abs = await resolveInWorktree(worktree, rel);
     const root = await fs.realpath(worktree);
-    return { path: toRel(root, abs), kind: MD.test(abs) ? 'md' : 'file' };
+    const kind = MD.test(abs) ? 'md' : HTML.test(abs) ? 'html' : 'file';
+    return { path: toRel(root, abs), kind };
   } catch {
     return null;
   }

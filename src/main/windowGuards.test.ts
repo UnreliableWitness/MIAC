@@ -75,6 +75,56 @@ describe('guardWindow', () => {
     },
   );
 
+  describe('sub-frames', () => {
+    const frameNav = (
+      listeners: Map<string, (e: unknown) => void>,
+      url: string,
+      isMainFrame: boolean,
+      from = '',
+    ) => {
+      const e = {
+        url,
+        isMainFrame,
+        frame: { url: from },
+        preventDefault: vi.fn(),
+      };
+      listeners.get('will-frame-navigate')!(e);
+      return e.preventDefault.mock.calls.length > 0;
+    };
+    const view = 'shellie-view://abc123/index.html';
+
+    it('may show shellie-view pages; the main frame may not', () => {
+      const { wc, listeners } = fakeContents();
+      guardWindow(wc as never, isApp, vi.fn());
+      expect(frameNav(listeners, view, false)).toBe(false);
+      expect(frameNav(listeners, 'http://localhost:5173/x', false)).toBe(false);
+      expect(frameNav(listeners, view, true)).toBe(true);
+      expect(frameNav(listeners, 'file:///etc/passwd', false, view)).toBe(true);
+      expect(frameNav(listeners, 'data:text/html,x', false, view)).toBe(true);
+    });
+
+    it('opens web links followed from a viewed page in the browser', () => {
+      const { wc, listeners } = fakeContents();
+      const openExternal = vi.fn(async () => undefined);
+      guardWindow(wc as never, isApp, openExternal);
+      expect(frameNav(listeners, 'https://example.com/a', false, view)).toBe(
+        true,
+      );
+      expect(frameNav(listeners, 'https://u:p@example.com/', false, view)).toBe(
+        true,
+      );
+      // A web iframe embedded by the page is not loaded and not opened.
+      expect(
+        frameNav(listeners, 'https://example.com/embed', false, 'about:blank'),
+      ).toBe(true);
+      // Main frame: still only cancelled.
+      expect(frameNav(listeners, 'https://example.com/top', true, view)).toBe(
+        true,
+      );
+      expect(openExternal.mock.calls).toEqual([['https://example.com/a']]);
+    });
+  });
+
   it('denies every new window and opens only allowed web links in the browser', () => {
     const { wc, open } = fakeContents();
     const openExternal = vi.fn(async () => undefined);

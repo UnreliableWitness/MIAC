@@ -14,6 +14,7 @@ import {
   nativeTheme,
   Notification,
   powerMonitor,
+  protocol,
   safeStorage,
   shell,
 } from 'electron';
@@ -96,8 +97,16 @@ import {
 import { schemeOf } from './shared/theme';
 import { TITLE_BAR_HEIGHT, titleBarKind } from './shared/titleBar';
 import { errorMessage } from './shared/errors';
+import { HtmlViews, serveView, VIEW_SCHEME } from './main/htmlView';
 
 if (started) app.quit();
+
+// HTML files opened in a tab load from shellie-view: (registered before ready, as Electron requires).
+// Not CORS-enabled and no CSP bypass: the pages run in a sandboxed iframe with an opaque origin.
+protocol.registerSchemesAsPrivileged([
+  { scheme: VIEW_SCHEME, privileges: { standard: true, secure: true } },
+]);
+const htmlViews = new HtmlViews();
 
 /** Replaced by the real client in boot when the build has a connection string (CI release builds). */
 let telemetry: Telemetry = NoopTelemetry;
@@ -577,6 +586,7 @@ async function boot(): Promise<void> {
       telemetry: (kind) => telemetry.event('budget.alert', { kind }),
     });
     stopBudget = () => budget.stop();
+    protocol.handle(VIEW_SCHEME, (req) => serveView(htmlViews, req.url));
     const handlers = createHandlers({
       budget,
       applyTheme: (theme) => {
@@ -612,6 +622,7 @@ async function boot(): Promise<void> {
       openExternal: openLink,
       revealFile: (p) => shell.showItemInFolder(p),
       openPath: (p) => shell.openPath(p),
+      grantView: (f) => htmlViews.grant(f),
       docsWatcher,
       gitDirWatcher,
       reviewDir: path.join(userData, 'review'),

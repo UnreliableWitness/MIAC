@@ -2,6 +2,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { WebContents } from 'electron';
 import { allowedLink } from './docs/docsHandlers';
+import { VIEW_SCHEME } from './htmlView';
 
 /**
  * Where a window's own pages come from, the same values main.ts loads it with:
@@ -35,6 +36,12 @@ export function appUrlMatcher(src: AppSource): (url: string) => boolean {
 }
 
 type Navigation = { url: string; preventDefault(): void };
+/** `will-frame-navigate`: which frame navigates, and what it shows now. */
+type FrameNavigation = Navigation & {
+  isMainFrame?: boolean;
+  frame?: { url: string } | null;
+};
+const isView = (url: string) => url.startsWith(`${VIEW_SCHEME}:`);
 type GuardedContents = {
   on(event: string, fn: (e: Navigation) => void): unknown;
   setWindowOpenHandler: WebContents['setWindowOpenHandler'];
@@ -43,6 +50,8 @@ type GuardedContents = {
 /**
  * Keeps a window on the app's own pages: navigation elsewhere is cancelled, and new windows
  * are never created (web links allowed for `links:open` go to the browser instead).
+ * A sub-frame may also show `shellie-view:` pages (HTML files opened in a tab); a web link
+ * clicked inside such a page opens in the browser, not in the frame.
  */
 export function guardWindow(
   wc: GuardedContents,
@@ -52,14 +61,21 @@ export function guardWindow(
   const stay = (e: Navigation) => {
     if (!isApp(e.url)) e.preventDefault();
   };
+  const open = (url: string) =>
+    openExternal(url).catch((e) =>
+      console.error('[links] could not open a link', e),
+    );
   wc.on('will-navigate', stay);
-  wc.on('will-frame-navigate', stay);
+  wc.on('will-frame-navigate', (e: FrameNavigation) => {
+    if (e.isMainFrame !== false) return stay(e);
+    if (isView(e.url) || isApp(e.url)) return;
+    e.preventDefault();
+    // Only a link followed from a viewed page; a web iframe the page embeds is just not loaded.
+    if (allowedLink(e.url) && isView(e.frame?.url ?? '')) void open(e.url);
+  });
   wc.on('will-redirect', stay);
   wc.setWindowOpenHandler(({ url }) => {
-    if (allowedLink(url))
-      openExternal(url).catch((e) =>
-        console.error('[links] could not open a link', e),
-      );
+    if (allowedLink(url)) void open(url);
     return { action: 'deny' };
   });
 }

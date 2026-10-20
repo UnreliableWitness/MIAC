@@ -122,8 +122,22 @@ export type Channels = {
   'docs:asset': { args: [taskId: string, path: string]; result: string };
   'docs:resolve': {
     args: [taskId: string, path: string];
-    result: { path: string; kind: 'md' | 'file'; workspaceId?: string } | null;
+    result: {
+      path: string;
+      kind: 'md' | 'html' | 'file';
+      workspaceId?: string;
+    } | null;
   };
+  /**
+   * A `shellie-view:` URL for an HTML file to show in a tab: worktree-relative, or an absolute path outside the
+   * worktrees (any `.html`/`.htm` file the developer clicked).
+   */
+  'html:open': {
+    args: [taskId: string, path: string];
+    result: { url: string; name: string };
+  };
+  /** Opens the same HTML file in the default browser. */
+  'html:openExternal': { args: [taskId: string, path: string]; result: void };
   /** Installed editors; `refresh` looks again instead of using this launch's cached detection. */
   'editor:installed': { args: [refresh?: boolean]; result: EditorChoice[] };
   'editor:options': {
