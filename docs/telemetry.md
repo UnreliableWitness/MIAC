@@ -57,7 +57,7 @@ This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 
 | `docs.opened` | view (`rendered`, `source`); from (`list`, `link`, `terminal`); the file opened automatically with the tab is not tracked |
 | `docs.sessionView` | mode chosen in the Docs file list (`session`: the task's session docs, `all`: every doc in the worktree) |
 | `docs.sentTo` | kind of the target terminal (`claude`, `copilot`, `shell`, `run`) |
-| `terminal.linkOpened` | type of the clicked terminal link (`md`, `file`, `url`) |
+| `terminal.linkOpened` | type of the clicked terminal link (`md`, `html`, `file`, `url`) |
 | `editor.opened` | `editor` (`vscode`, `visualstudio`); `at` (`folder`, or `file` when opened at a line from Changes, Docs or a terminal link) |
 | `review.opened` | scope (`all`, `uncommitted`, `commits`); number of files; number of repos |
 | `review.fileViewed` | none |
