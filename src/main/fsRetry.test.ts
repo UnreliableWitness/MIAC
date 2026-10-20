@@ -1,5 +1,17 @@
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { renameWithRetry, withRetry } from './fsRetry';
+import { removeTree, renameWithRetry, withRetry } from './fsRetry';
 
 const err = (code: string) => Object.assign(new Error(code), { code });
 
@@ -104,5 +116,32 @@ describe('withRetry', () => {
       ),
     ).rejects.toThrow('busy');
     expect(waits).toEqual([10, 20, 30]);
+  });
+});
+
+describe('removeTree', () => {
+  it('deletes nested folders and read-only files, and leaves what a link points at', async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), 'shellie-rm-'));
+    try {
+      const dir = path.join(root, 'wt');
+      const outside = path.join(root, 'outside');
+      mkdirSync(path.join(dir, 'a', 'b'), { recursive: true });
+      mkdirSync(outside);
+      writeFileSync(path.join(outside, 'keep.txt'), 'keep');
+      writeFileSync(path.join(dir, 'a', 'b', 'f.txt'), 'x');
+      writeFileSync(path.join(dir, 'ro.txt'), 'x');
+      chmodSync(path.join(dir, 'ro.txt'), 0o444);
+      symlinkSync(
+        outside,
+        path.join(dir, 'link'),
+        process.platform === 'win32' ? 'junction' : 'dir',
+      );
+      await removeTree(dir, async () => {});
+      expect(existsSync(dir)).toBe(false);
+      expect(readFileSync(path.join(outside, 'keep.txt'), 'utf8')).toBe('keep');
+      await removeTree(dir, async () => {}); // already gone: no error
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

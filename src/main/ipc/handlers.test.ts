@@ -612,6 +612,25 @@ describe('handlers: missing worktree folder', () => {
 });
 
 describe('handlers: finish', () => {
+  it('finish cleans up a worktree an earlier failed removal left without its .git file (#87)', async () => {
+    const { h, input, setupDone, services, store } = await harness();
+    const done = setupDone();
+    const t = await h['tasks:create'](input());
+    await done;
+    const wt = store.state.tasks[0].worktreePath;
+    rmSync(path.join(wt, '.git'));
+    await h['tasks:finish'](t.id, {
+      closeTerminals: true,
+      removeWorktree: true,
+      deleteBranch: true,
+      syncUsage: false,
+    });
+    expect(store.state.tasks[0].status).toBe('done');
+    expect(existsSync(wt)).toBe(false);
+    const repo = services.repos.list()[0].path;
+    expect(await services.git.worktreeList(repo)).toHaveLength(1);
+  });
+
   it('finish waits for the terminals to exit before removing the worktree', async () => {
     const { h, input, setupDone, terminals, services } = await harness();
     const done = setupDone();

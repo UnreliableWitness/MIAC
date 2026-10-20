@@ -3,13 +3,20 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import type { GitSummary, TaskSummary } from '../../shared/types';
-import { realWait, withRetry, type Wait } from '../fsRetry';
-import { isInside, nativePath } from '../paths';
+import {
+  pathExists,
+  realWait,
+  removeTree,
+  withRetry,
+  type Wait,
+} from '../fsRetry';
+import { isInside, nativePath, samePath, worktreeRoot } from '../paths';
 import {
   isGitAuthFailure,
   remoteHost,
   type GitAuthHint,
 } from '../../shared/gitAuth';
+import { errorMessage } from '../../shared/errors';
 import type { GitAuth, GitAuthEnv } from './gitAuth';
 
 const execFileAsync = promisify(execFile);
@@ -330,19 +337,54 @@ export class GitClient {
     force: boolean,
   ): Promise<void> {
     // Just-killed terminals can hold the folder for a moment on Windows; retry those failures only.
-    await withRetry(
-      () =>
-        this.run(cwd, [
-          '-c',
-          'core.longpaths=true',
-          'worktree',
-          'remove',
-          ...(force ? ['--force'] : []),
-          worktreePath,
-        ]),
-      (e) => e instanceof GitError && FOLDER_IN_USE.test(e.stderr),
-      this.wait,
-      REMOVE_WAITS,
+    try {
+      await withRetry(
+        () =>
+          this.run(cwd, [
+            '-c',
+            'core.longpaths=true',
+            'worktree',
+            'remove',
+            ...(force ? ['--force'] : []),
+            worktreePath,
+          ]),
+        (e) => e instanceof GitError && FOLDER_IN_USE.test(e.stderr),
+        this.wait,
+        REMOVE_WAITS,
+      );
+    } catch (e) {
+      if (!force || !(await this.isOwnLeftover(cwd, worktreePath))) throw e;
+      // Git stops at a name Windows will not delete (a `nul` file left by a shell's `2>nul`, #87) after it
+      // has removed the folder's .git file and its registration, so every later try fails too. Delete
+      // what is left here and drop any registration.
+      try {
+        await removeTree(worktreePath, this.wait);
+      } catch (rm) {
+        throw new Error(
+          `Could not delete ${worktreePath}: ${errorMessage(rm)}. Close what has files open there and try again.`,
+          { cause: e },
+        );
+      }
+      await this.worktreePrune(cwd);
+    }
+  }
+
+  /**
+   * `p` may be deleted by hand: one of the repo's linked worktrees (never its main checkout), or what a
+   * failed removal left in the repo's `<repo>.worktrees` folder, no longer a working tree of anything.
+   */
+  private async isOwnLeftover(cwd: string, p: string): Promise<boolean> {
+    const list = await this.worktreeList(cwd).catch(() => null);
+    if (!list) return false;
+    // Never one that holds another checkout of the repo (the first entry is the main checkout).
+    if (list.some((w) => !samePath(w.path, p) && isInside(p, w.path)))
+      return false;
+    if (list.slice(1).some((w) => samePath(w.path, p))) return true;
+    const root = worktreeRoot(list[0].path);
+    return (
+      isInside(root, p) &&
+      !samePath(root, p) &&
+      !(await pathExists(path.join(p, '.git')))
     );
   }
 
