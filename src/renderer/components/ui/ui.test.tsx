@@ -172,6 +172,12 @@ describe('StateDot', () => {
       expect(dot().style.background).toBe('rgb(0, 122, 204)'),
     );
   });
+  it('draws a Removed item in the muted colour, not white', () => {
+    const { container } = render(<StateDot state="Removed" />);
+    expect(
+      (container.querySelector('.state-dot') as HTMLElement).style.background,
+    ).toBe('var(--muted)');
+  });
 });
 
 describe('PageHeader and Pivots', () => {
