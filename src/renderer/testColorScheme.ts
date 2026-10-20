@@ -23,7 +23,7 @@ export function installMatchMedia(): void {
 /** Switches the emulated OS appearance and fires the change listeners. */
 export function setTestColorScheme(next: ColorScheme): void {
   scheme = next;
-  for (const l of [...listeners]) l();
+  for (const l of Array.from(listeners)) l();
 }
 
 export function resetTestColorScheme(): void {

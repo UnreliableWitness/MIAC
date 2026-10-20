@@ -96,10 +96,16 @@ describe.each([
   )(`${name}: %s on %s is at least 4.5:1`, (fg, bg) =>
     expect(contrast(fg, bg, t)).toBeGreaterThanOrEqual(4.5),
   );
-  if (name === 'light')
-    it.each(CHART)(`${name}: %s on --bg-card is at least 3:1`, (fg) =>
-      expect(contrast(fg, '--bg-card', t)).toBeGreaterThanOrEqual(3),
-    );
+  it.each(CHART)(`${name}: %s on --bg-card is at least 3:1`, (fg) =>
+    expect(contrast(fg, '--bg-card', t)).toBeGreaterThanOrEqual(3),
+  );
+});
+
+describe('button hover', () => {
+  it('keeps the dark --btn-hover opaque as before and lightens in light', () => {
+    expect(DARK['--btn-hover']).toBe('#2f2e2d');
+    expect(LIGHT['--btn-hover']).toBe('rgba(0, 0, 0, 0.06)');
+  });
 });
 
 describe('light block', () => {
@@ -115,6 +121,8 @@ describe('light block', () => {
 });
 
 describe('stylesheets', () => {
+  // Third-party sheets imported with @import (highlight.js in docs.css) are not scanned
+  // here; they must be split per colour scheme with a media condition instead.
   it('use tokens instead of colour literals', () => {
     const hits: string[] = [];
     for (const f of readdirSync(dir).filter(

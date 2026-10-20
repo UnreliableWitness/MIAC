@@ -6,6 +6,7 @@
   --bg-card: #252423;
   --bg-hover: rgba(255, 255, 255, 0.04);
   --bg-selected: rgba(255, 255, 255, 0.08);
+  --btn-hover: #2f2e2d;
   --line: rgba(255, 255, 255, 0.08);
   --line-strong: rgba(255, 255, 255, 0.16);
   --text: rgba(255, 255, 255, 0.9);
@@ -63,6 +64,7 @@
     --bg-card: #ffffff;
     --bg-hover: rgba(0, 0, 0, 0.04);
     --bg-selected: rgba(0, 0, 0, 0.06);
+    --btn-hover: rgba(0, 0, 0, 0.06);
     --line: rgba(0, 0, 0, 0.08);
     --line-strong: rgba(0, 0, 0, 0.16);
     --text: rgba(0, 0, 0, 0.9);

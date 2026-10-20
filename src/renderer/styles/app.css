@@ -82,7 +82,7 @@ h3 {
   text-decoration: none;
 }
 .btn:hover:not(:disabled) {
-  background: var(--bg-selected);
+  background: var(--btn-hover);
 }
 .btn:disabled {
   color: var(--disabled);
