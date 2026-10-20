@@ -11,7 +11,9 @@ import {
   dropsAtFinish,
   HOME_ID,
 } from '../../shared/workspaces';
+import { gitAuthHintFromText, remoteHost } from '../../shared/gitAuth';
 import { api, tryInvoke } from '../api';
+import { GitAuthNotice } from '../components/GitAuthNotice';
 import { eur, plural } from '../format';
 import { useTaskUsage } from '../hooks/useTaskUsage';
 import { useWriteCostToAdo } from '../hooks/useWriteCostToAdo';
@@ -85,6 +87,8 @@ export function FinishScreen({ taskId }: { taskId: string }) {
   const back = useStore((s) => s.back);
   const openTask = useStore((s) => s.openTask);
   const notify = useStore((s) => s.notify);
+  const repos = useStore((s) => s.repos);
+  const connections = useStore((s) => s.connections);
   const [checks, setChecks] = useState<FinishChecks | null>(null);
   const [review, setReview] = useState<ReviewSummary | null>(null);
   useEffect(() => {
@@ -314,6 +318,20 @@ export function FinishScreen({ taskId }: { taskId: string }) {
   // A task with other repos finishes per workspace; a single-repo task keeps the page as it was. Repos dropped at
   // an earlier Finish do not count, but a dropped home does: the single-repo path works on the home.
   const multi = activeWorkspaces(task).length > 1 || task.homeDropped;
+  // The single-repo push error reaches the page as text; the repo's connection is the one whose token git used.
+  const singleConnectionId =
+    repos.find((r) => r.id === task.repoId)?.connectionId ?? null;
+  const singleOrgUrl = connections.find(
+    (c) => c.id === singleConnectionId,
+  )?.organizationUrl;
+  const singleAuth =
+    !multi && finishError
+      ? gitAuthHintFromText(finishError, {
+          connectionId: singleConnectionId,
+          path: task.worktreePath,
+          fallbackHost: singleOrgUrl ? remoteHost(singleOrgUrl) : null,
+        })
+      : null;
   const taskBranch = task.branch;
   const rows = checks?.workspaces ?? [];
 
@@ -774,6 +792,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
             {finishError}
           </Check>
         )}
+        {singleAuth && <GitAuthNotice hint={singleAuth} command="git push" />}
 
         <div className="finish-foot">
           <button type="button" className="btn" onClick={back}>
@@ -891,6 +910,9 @@ function WorkspaceRow({
         <Check tone="warn" glyph={G.WARN}>
           {result.error}
         </Check>
+      )}
+      {result && !result.ok && result.auth && (
+        <GitAuthNotice hint={result.auth} command="git push" />
       )}
       {c.missing ? (
         <div className="muted small">Folder missing, skipped</div>

@@ -49,3 +49,16 @@ export function gitAuthAdvice(
     return `Git could not sign in to ${hint.host} with your Azure DevOps token. Update the token, then Retry.`;
   return `Git could not sign in to ${hint.host}. Sign in once from a terminal (run \`${command}\` in ${hint.path}), then Retry.`;
 }
+
+/**
+ * A hint from an error message alone, for errors that reach the renderer as text (a single-repo Finish push):
+ * null unless the text is a sign-in failure. The host is the one git names, else `fallbackHost`.
+ */
+export function gitAuthHintFromText(
+  text: string,
+  o: { connectionId: string | null; path: string; fallbackHost: string | null },
+): GitAuthHint | null {
+  if (!isGitAuthFailure(text)) return null;
+  const host = hostInText(text) ?? o.fallbackHost;
+  return host ? { host, connectionId: o.connectionId, path: o.path } : null;
+}

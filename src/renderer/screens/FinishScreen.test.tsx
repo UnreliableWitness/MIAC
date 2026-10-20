@@ -622,6 +622,95 @@ describe('FinishScreen pull request', () => {
   });
 });
 
+describe('FinishScreen push that cannot sign in', () => {
+  const connection = {
+    id: 'c1',
+    name: 'o',
+    organizationUrl: 'https://dev.azure.com/o',
+    project: 'p',
+    user: null,
+    status: 'ok' as const,
+    checkedAt: null,
+    userUniqueName: null,
+  };
+
+  it('says to update the token and opens Settings at the connection', async () => {
+    useStore.setState({
+      repos: [
+        {
+          id: task.repoId,
+          name: 'webshop',
+          path: '/r',
+          baseBranch: 'main',
+          connectionId: 'c1',
+          configFound: true,
+          discovered: false,
+          workItemOnStart: {
+            moveToInProgress: true,
+            assignToMe: true,
+            stateOverrides: {},
+          },
+        },
+      ],
+      connections: [connection],
+    });
+    installFakeApi({
+      'tasks:prAvailability': () => ({
+        available: true,
+        reason: null,
+        target: 'main',
+      }),
+      'tasks:finishChecks': () => clean,
+      'tasks:finish': () => {
+        throw new Error(
+          "Pull request not created: fatal: could not read Password for 'https://o@dev.azure.com/o/p/_git/r': terminal prompts disabled",
+        );
+      },
+    });
+    render(<FinishScreen taskId="a" />);
+    await userEvent.click(
+      await screen.findByLabelText('Create a draft pull request into main'),
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Finish and clean up' }),
+    );
+    expect(
+      await screen.findByText(
+        'Git could not sign in to dev.azure.com with your Azure DevOps token. Update the token, then Retry.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Update token' }));
+    expect(useStore.getState().screen).toEqual({
+      kind: 'settings',
+      section: 'conn-c1',
+    });
+  });
+
+  it('shows no sign-in advice for other push failures', async () => {
+    installFakeApi({
+      'tasks:prAvailability': () => ({
+        available: true,
+        reason: null,
+        target: 'main',
+      }),
+      'tasks:finishChecks': () => clean,
+      'tasks:finish': () => {
+        throw new Error('Pull request not created: ! [rejected] (fetch first)');
+      },
+    });
+    render(<FinishScreen taskId="a" />);
+    await userEvent.click(
+      await screen.findByLabelText('Create a draft pull request into main'),
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Finish and clean up' }),
+    );
+    await screen.findByText(/rejected/);
+    expect(screen.queryByText(/Git could not sign in/)).toBeNull();
+  });
+});
+
 describe('FinishScreen pull request failure with unpushed commits', () => {
   const available = {
     'tasks:prAvailability': () => ({
@@ -1409,6 +1498,40 @@ describe('FinishScreen with several repos', () => {
     await waitFor(() =>
       expect(useStore.getState().screen).toEqual({ kind: 'task' }),
     );
+  });
+
+  it('under a row whose push could not sign in, says how to sign in', async () => {
+    installFakeApi({
+      'tasks:finishChecks': () => checks({ unpushed: 0 }),
+      'tasks:finish': () => {
+        throw new Error(
+          'Pull request not created for api: fatal: could not read Username',
+        );
+      },
+      'tasks:finishResults': () => [
+        ok('home', 'drop'),
+        ok('w2', 'pr', {
+          ok: false,
+          error: 'fatal: could not read Username',
+          auth: { host: 'github.com', connectionId: null, path: '/src/api.wt' },
+        }),
+        ok('w3', 'push'),
+        ok('w4', 'keep'),
+      ],
+    });
+    render(<FinishScreen taskId="a" />);
+    await screen.findByRole('group', { name: 'api' });
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Finish and clean up' }),
+    );
+    expect(
+      await within(group('api')).findByText(
+        'Git could not sign in to github.com. Sign in once from a terminal (run `git push` in /src/api.wt), then Retry.',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(group('docs')).queryByText(/Git could not sign in/),
+    ).toBeNull();
   });
 
   it('shows the pull request a row got when another row failed', async () => {

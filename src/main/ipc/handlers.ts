@@ -77,7 +77,7 @@ import {
   prWebUrl,
   targetBranch,
 } from '../services/azureRepos';
-import type { GitClient } from '../services/GitClient';
+import { GitAuthError, type GitClient } from '../services/GitClient';
 import type { RepoRegistry } from '../services/RepoRegistry';
 import {
   planSteps,
@@ -1444,6 +1444,7 @@ export function createHandlers(s: Services): Handlers {
             } catch (e) {
               const message = errorMessage(e);
               tel.event('pr.failed', { kind: 'git' });
+              if (e instanceof GitAuthError) result.auth = e.hint;
               fail(message, `Branch not pushed for ${r.repoName}: ${message}`);
             }
           } else if (r.action === 'pr') {
@@ -1479,6 +1480,7 @@ export function createHandlers(s: Services): Handlers {
               tel.event('pr.failed', {
                 kind: e instanceof AdoError ? e.kind : 'git',
               });
+              if (e instanceof GitAuthError) result.auth = e.hint;
               fail(
                 message,
                 `Pull request not created for ${r.repoName}: ${message}`,

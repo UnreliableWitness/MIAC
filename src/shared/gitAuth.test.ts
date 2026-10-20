@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   gitAuthAdvice,
+  gitAuthHintFromText,
   hostInText,
   isGitAuthFailure,
   remoteHost,
@@ -73,5 +74,36 @@ describe('gitAuthAdvice', () => {
         'git push',
       ),
     ).toContain('run `git push` in /w');
+  });
+});
+
+describe('gitAuthHintFromText', () => {
+  const o = { connectionId: 'c1', path: '/w', fallbackHost: 'dev.azure.com' };
+
+  it('takes the host git names, else the fallback', () => {
+    expect(
+      gitAuthHintFromText(
+        "Pull request not created: fatal: Authentication failed for 'https://x.visualstudio.com/p/_git/r/'",
+        o,
+      ),
+    ).toEqual({ host: 'x.visualstudio.com', connectionId: 'c1', path: '/w' });
+    expect(
+      gitAuthHintFromText(
+        'Pull request not created: remote: HTTP Basic: Access denied',
+        o,
+      ),
+    ).toEqual({ host: 'dev.azure.com', connectionId: 'c1', path: '/w' });
+  });
+
+  it('is null for other errors or without any host', () => {
+    expect(
+      gitAuthHintFromText('Pull request not created: ! [rejected]', o),
+    ).toBeNull();
+    expect(
+      gitAuthHintFromText('remote: HTTP Basic: Access denied', {
+        ...o,
+        fallbackHost: null,
+      }),
+    ).toBeNull();
   });
 });
