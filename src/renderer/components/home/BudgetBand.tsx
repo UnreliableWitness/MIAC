@@ -58,6 +58,40 @@ function Status({ v }: { v: BudgetView }) {
   return null;
 }
 
+const ALLOWANCE_INFO =
+  'What is left of the monthly budget, spread over the days left including today.';
+
+function Today({ v }: { v: BudgetView }) {
+  const allowance = v.todayAllowanceEur;
+  const over = allowance !== null && v.todayEur > allowance;
+  return (
+    <div className={`budget-today${over ? ' is-over' : ''}`}>
+      <b>{eur(v.todayEur)}</b>{' '}
+      {allowance === null ? (
+        <span className="muted">today</span>
+      ) : (
+        <>
+          <span className="muted" title={ALLOWANCE_INFO}>
+            today of {eur(allowance)}
+          </span>
+          <span className="budget-today-note">
+            {over
+              ? `${eur(v.todayEur - allowance)} over today`
+              : `${eur(allowance - v.todayEur)} left today`}
+          </span>
+          <span className="budget-meter" aria-hidden="true">
+            <i
+              style={{
+                width: `${allowance > 0 ? Math.min(100, (100 * v.todayEur) / allowance) : 100}%`,
+              }}
+            />
+          </span>
+        </>
+      )}
+    </div>
+  );
+}
+
 const W = 600;
 function BurnDown({ v }: { v: BudgetView }) {
   const n = v.daysInMonth;
@@ -274,6 +308,7 @@ export function BudgetBand() {
                 <span className="budget-info" title={INFO} aria-label={INFO}>
                   ⓘ
                 </span>
+                {offset === 0 && <Today v={v} />}
                 <Status v={v} />
               </div>
               <BurnDown v={v} />
@@ -287,7 +322,7 @@ export function BudgetBand() {
                 ))}
               </ul>
               {offset === 0 && (
-                <p className="muted small">{`Today ${eur(v.todayEur)} · This week ${eur(v.weekEur)} · ${Math.round(v.outsideShare * 100)}% outside Shellie`}</p>
+                <p className="muted small">{`This week ${eur(v.weekEur)} · ${Math.round(v.outsideShare * 100)}% outside Shellie`}</p>
               )}
               {v.notCounted.map((x) => (
                 <p

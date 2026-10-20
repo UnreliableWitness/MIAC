@@ -208,6 +208,38 @@
 .budget-status.is-over {
   color: var(--red);
 }
+.budget-today {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: 16px;
+  padding-left: 16px;
+  border-left: 1px solid var(--line-strong);
+}
+.budget-today-note {
+  color: var(--muted);
+}
+.budget-today.is-over b,
+.budget-today.is-over .budget-today-note {
+  color: var(--red);
+}
+.budget-meter {
+  align-self: center;
+  width: 64px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line-strong);
+  overflow: hidden;
+}
+.budget-meter i {
+  display: block;
+  height: 100%;
+  background: var(--chart-claude);
+}
+.budget-today.is-over .budget-meter i {
+  background: var(--red);
+}
 .budget-info {
   cursor: help;
   color: var(--muted);
