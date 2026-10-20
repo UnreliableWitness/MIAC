@@ -88,7 +88,13 @@ import {
 import { TELEMETRY_CHANNEL } from './shared/telemetry';
 import { type AutoUpdate, startAutoUpdate } from './main/autoUpdate';
 import { appUrlMatcher, guardWindow, trustedSender } from './main/windowGuards';
-import { titleBarOptions } from './main/windowChrome';
+import {
+  chromeColors,
+  titleBarOptions,
+  windowBackground,
+} from './main/windowChrome';
+import { schemeOf } from './shared/theme';
+import { TITLE_BAR_HEIGHT, titleBarKind } from './shared/titleBar';
 import { errorMessage } from './shared/errors';
 
 if (started) app.quit();
@@ -177,6 +183,8 @@ function broadcast<K extends keyof Events>(event: K, payload: Events[K]): void {
   mainWindow.webContents.send(`${EVENT_PREFIX}${event}`, payload);
 }
 
+const scheme = () => schemeOf(nativeTheme.shouldUseDarkColors);
+
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1440,
@@ -184,10 +192,10 @@ function createWindow(): BrowserWindow {
     minWidth: 960,
     minHeight: 600,
     show: false,
-    backgroundColor: '#201f1e',
+    backgroundColor: windowBackground(scheme()),
     // The title stays for the taskbar, Alt+Tab and the Window menu; the header shows the app instead of a title bar.
     title: 'Shellie',
-    ...titleBarOptions(process.platform),
+    ...titleBarOptions(process.platform, scheme()),
     ...(windowIcon ? { icon: windowIcon } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -269,7 +277,9 @@ async function boot(): Promise<void> {
   const settingsLoaded = await settings.load();
   // Before any window: the splash, the first frame and prefers-color-scheme all follow it.
   nativeTheme.themeSource = settings.get().theme;
-  splashWin = settings.get().showSplash ? createSplashWindow(windowIcon) : null;
+  splashWin = settings.get().showSplash
+    ? createSplashWindow(windowIcon, scheme())
+    : null;
   if (splashWin) guardWindow(splashWin.webContents, isSplashPage, openLink);
   const reporter = new SplashReporter(splashWin);
   ipcMain.on('splash:skip', (e) => {
@@ -704,6 +714,16 @@ async function boot(): Promise<void> {
       `Checking Azure DevOps ${DOT} ${connections.list().length} connection(s)`,
     );
     mainWindow = createWindow();
+    // System mode follows the OS live; a Settings change lands here too.
+    nativeTheme.on('updated', () => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      mainWindow.setBackgroundColor(windowBackground(scheme()));
+      if (titleBarKind(process.platform) === 'overlay')
+        mainWindow.setTitleBarOverlay({
+          ...chromeColors(scheme()),
+          height: TITLE_BAR_HEIGHT,
+        });
+    });
     const win = mainWindow;
     win.webContents.once('did-finish-load', () => {
       budget.start();

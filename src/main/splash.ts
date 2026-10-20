@@ -1,5 +1,7 @@
 import path from 'node:path';
 import { app, BrowserWindow, type NativeImage } from 'electron';
+import type { ColorScheme } from '../shared/theme';
+import { splashBackground } from './windowChrome';
 
 export const SPLASH_MIN_MS = 1200;
 export const SPLASH_FADE_MS = 200;
@@ -125,7 +127,10 @@ export class SplashReporter {
 const ERR_ABORTED = -3;
 
 /** `icon` is set on Windows and Linux only (macOS takes the app bundle icon). */
-export function createSplashWindow(icon?: NativeImage): BrowserWindow {
+export function createSplashWindow(
+  icon: NativeImage | undefined,
+  scheme: ColorScheme,
+): BrowserWindow {
   const win = new BrowserWindow({
     width: 480,
     height: 300,
@@ -134,7 +139,7 @@ export function createSplashWindow(icon?: NativeImage): BrowserWindow {
     center: true,
     show: false,
     alwaysOnTop: false,
-    backgroundColor: '#1b1a19',
+    backgroundColor: splashBackground(scheme),
     title: 'Shellie',
     ...(icon ? { icon } : {}),
     skipTaskbar: false,
