@@ -1,6 +1,8 @@
 import { useEffect, useId, useRef, useState, type MouseEvent } from 'react';
 import { openWeb } from '../../docs/linkify';
 import { errorMessage } from '../../../shared/errors';
+import type { ColorScheme } from '../../../shared/theme';
+import { useColorScheme } from '../../colorScheme';
 
 const XLINK = 'http://www.w3.org/1999/xlink';
 
@@ -22,19 +24,25 @@ function followDiagramLink(e: MouseEvent<HTMLDivElement>): void {
 }
 
 let ready: Promise<typeof import('mermaid').default> | null = null;
-const load = () =>
-  (ready ??= import('mermaid').then((m) => {
-    m.default.initialize({
-      startOnLoad: false,
-      theme: 'dark',
-      securityLevel: 'strict',
-    });
-    return m.default;
-  }));
+let initializedFor: ColorScheme | null = null;
+/** Mermaid's theme is global to initialize(): set it again whenever the scheme on screen changes. */
+const load = (scheme: ColorScheme) =>
+  (ready ??= import('mermaid').then((m) => m.default)).then((m) => {
+    if (initializedFor !== scheme) {
+      m.initialize({
+        startOnLoad: false,
+        theme: scheme === 'light' ? 'default' : 'dark',
+        securityLevel: 'strict',
+      });
+      initializedFor = scheme;
+    }
+    return m;
+  });
 
 /** A ```mermaid block as a diagram; on a parse error, its source and the message. Loaded on first use. */
 export function MermaidBlock({ code }: { code: string }) {
   const id = `mmd-${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
+  const scheme = useColorScheme();
   const host = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [svg, setSvg] = useState<string | null>(null);
@@ -42,14 +50,14 @@ export function MermaidBlock({ code }: { code: string }) {
     let live = true;
     setError(null);
     setSvg(null);
-    load()
+    load(scheme)
       .then((m) => m.render(id, code))
       .then(({ svg }) => live && setSvg(svg))
       .catch((e: unknown) => live && setError(errorMessage(e)));
     return () => {
       live = false;
     };
-  }, [id, code]);
+  }, [id, code, scheme]);
   useEffect(() => {
     // innerHTML is safe here: Mermaid's strict security level sanitizes its own SVG with DOMPurify.
     if (host.current && svg !== null) {
