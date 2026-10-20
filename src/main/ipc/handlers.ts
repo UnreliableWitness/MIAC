@@ -742,6 +742,8 @@ export function createHandlers(s: Services): Handlers {
         step.status = e.status;
         step.detail = e.detail ?? step.detail;
         step.ms = e.ms ?? step.ms;
+        if (e.status === 'failed' && e.auth) step.auth = e.auth;
+        else delete step.auth;
       }
     } else {
       state.finished = true;

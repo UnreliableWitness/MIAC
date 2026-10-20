@@ -6,7 +6,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
-import { afterAll, afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import type { SetupEvent } from '../../shared/types';
 import {
   addOrigin,
@@ -20,7 +20,7 @@ import {
   testPlatform,
   writeLineCmd,
 } from '../test-helpers/shell';
-import { GitClient } from './GitClient';
+import { GitAuthError, GitClient } from './GitClient';
 import {
   ensureExcluded,
   planSteps,
@@ -299,6 +299,41 @@ describe('SetupRunner', () => {
           /invalid reference|not a valid|fatal/i.test(e.line),
       ),
     ).toBe(true);
+  });
+
+  it('marks a fetch that could not sign in with where it failed', async () => {
+    const repo = makeRepo();
+    const g = new GitClient();
+    const hint = { host: 'dev.azure.com', connectionId: 'c1', path: repo };
+    vi.spyOn(g, 'fetch').mockRejectedValue(
+      new GitAuthError(
+        'git fetch --quiet origin main failed (128): fatal: could not read Password',
+        'fatal: could not read Password',
+        hint,
+      ),
+    );
+    const { events, onEvent } = collect();
+    const result = await new SetupRunner(g, testPlatform()).run(
+      plan(repo, { baseRef: 'origin/main' }),
+      { onEvent, startTerminals: async () => {} },
+    );
+    expect(result).toEqual({ ok: false, failedStep: 0 });
+    expect(
+      events.find((e) => e.type === 'step' && e.status === 'failed'),
+    ).toMatchObject({ index: 0, auth: hint });
+  });
+
+  it('a failure that is not about signing in has no hint', async () => {
+    const repo = makeRepo();
+    const { events, onEvent } = collect();
+    await runner.run(plan(repo, { baseRef: 'does-not-exist' }), {
+      onEvent,
+      startTerminals: async () => {},
+    });
+    const failed = events.find(
+      (e) => e.type === 'step' && e.status === 'failed',
+    );
+    expect(failed && 'auth' in failed).toBe(false);
   });
 
   it('rejects a fromStep outside the plan', async () => {
