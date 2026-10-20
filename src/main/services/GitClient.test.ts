@@ -584,6 +584,48 @@ describe('GitClient push from the GUI', () => {
 });
 
 describe('GitClient worktree helpers', () => {
+  it('worktreeRemove deletes a worktree git half removed (#87)', async () => {
+    const repo = makeRepo();
+    const wt = path.join(path.dirname(repo), 'wt-half');
+    git(repo, 'worktree', 'add', '-q', '-b', 'half', wt);
+    writeFileSync(path.join(wt, 'left.txt'), 'x');
+    // What a failed `worktree remove` leaves: the folder without its .git file, still registered.
+    rmSync(path.join(wt, '.git'));
+    await expect(
+      client.run(repo, ['worktree', 'remove', '--force', wt]),
+    ).rejects.toThrow(GitError);
+    await client.worktreeRemove(repo, wt, true);
+    expect(existsSync(wt)).toBe(false);
+    expect((await client.worktreeList(repo)).map((w) => w.path)).toEqual([
+      repo,
+    ]);
+    expect(existsSync(path.join(repo, 'README.md'))).toBe(true);
+  });
+
+  it('worktreeRemove never deletes a folder that is not a linked worktree', async () => {
+    const repo = makeRepo();
+    const other = path.join(path.dirname(repo), 'not-a-worktree');
+    mkdirSync(other);
+    writeFileSync(path.join(other, 'keep.txt'), 'x');
+    await expect(client.worktreeRemove(repo, other, true)).rejects.toThrow();
+    expect(existsSync(path.join(other, 'keep.txt'))).toBe(true);
+    await expect(client.worktreeRemove(repo, repo, true)).rejects.toThrow();
+    expect(existsSync(path.join(repo, 'README.md'))).toBe(true);
+  });
+
+  it.runIf(process.platform === 'win32')(
+    'worktreeRemove deletes a worktree with a nul file in it (#87)',
+    async () => {
+      const repo = makeRepo();
+      const wt = path.join(path.dirname(repo), 'wt-nul');
+      git(repo, 'worktree', 'add', '-q', '-b', 'nul-file', wt);
+      writeFileSync(path.toNamespacedPath(path.join(wt, 'nul')), 'x');
+      await client.worktreeRemove(repo, wt, true);
+      expect(existsSync(wt)).toBe(false);
+      expect(await client.worktreeList(repo)).toHaveLength(1);
+    },
+  );
+
   it('worktreeList, mergeBase, defaultBaseRef and currentBranch', async () => {
     const repo = makeRepo();
     const wt = path.join(path.dirname(repo), 'wt-list');
