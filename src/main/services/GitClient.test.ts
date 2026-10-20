@@ -602,6 +602,33 @@ describe('GitClient worktree helpers', () => {
     expect(existsSync(path.join(repo, 'README.md'))).toBe(true);
   });
 
+  it('worktreeRemove deletes what git left in <repo>.worktrees after dropping the registration (#87)', async () => {
+    const repo = makeRepo();
+    const wt = path.join(`${repo}.worktrees`, 'left');
+    git(repo, 'worktree', 'add', '-q', '-b', 'left', wt);
+    writeFileSync(path.join(wt, 'left.txt'), 'x');
+    // Git on Windows removes the .git file and the registration, then stops at a name it cannot delete.
+    rmSync(path.join(wt, '.git'));
+    git(repo, 'worktree', 'prune');
+    expect(await client.worktreeList(repo)).toHaveLength(1);
+    await client.worktreeRemove(repo, wt, true);
+    expect(existsSync(wt)).toBe(false);
+    expect(existsSync(`${repo}.worktrees`)).toBe(true);
+  });
+
+  it('worktreeRemove leaves a folder in <repo>.worktrees that is still a checkout', async () => {
+    const repo = makeRepo();
+    const clone = path.join(`${repo}.worktrees`, 'clone');
+    mkdirSync(`${repo}.worktrees`);
+    git(`${repo}.worktrees`, 'clone', '-q', repo, 'clone');
+    await expect(client.worktreeRemove(repo, clone, true)).rejects.toThrow();
+    expect(existsSync(path.join(clone, 'README.md'))).toBe(true);
+    await expect(
+      client.worktreeRemove(repo, `${repo}.worktrees`, true),
+    ).rejects.toThrow();
+    expect(existsSync(path.join(clone, 'README.md'))).toBe(true);
+  });
+
   it('worktreeRemove never deletes a folder that is not a linked worktree', async () => {
     const repo = makeRepo();
     const other = path.join(path.dirname(repo), 'not-a-worktree');

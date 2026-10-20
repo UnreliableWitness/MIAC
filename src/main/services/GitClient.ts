@@ -3,8 +3,14 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import type { GitSummary, TaskSummary } from '../../shared/types';
-import { realWait, removeTree, withRetry, type Wait } from '../fsRetry';
-import { isInside, nativePath, samePath } from '../paths';
+import {
+  pathExists,
+  realWait,
+  removeTree,
+  withRetry,
+  type Wait,
+} from '../fsRetry';
+import { isInside, nativePath, samePath, worktreeRoot } from '../paths';
 import {
   isGitAuthFailure,
   remoteHost,
@@ -347,10 +353,10 @@ export class GitClient {
         REMOVE_WAITS,
       );
     } catch (e) {
-      if (!force || !(await this.isLinkedWorktree(cwd, worktreePath))) throw e;
+      if (!force || !(await this.isOwnLeftover(cwd, worktreePath))) throw e;
       // Git stops at a name Windows will not delete (a `nul` file left by a shell's `2>nul`, #87) after it
-      // has removed the folder's .git file, so every later try fails too. The folder is still this repo's
-      // worktree: delete it here and drop the registration.
+      // has removed the folder's .git file and its registration, so every later try fails too. Delete
+      // what is left here and drop any registration.
       try {
         await removeTree(worktreePath, this.wait);
       } catch (rm) {
@@ -363,11 +369,23 @@ export class GitClient {
     }
   }
 
-  /** `p` is one of the repo's linked worktrees (never its main checkout), registered even if broken. */
-  private async isLinkedWorktree(cwd: string, p: string): Promise<boolean> {
-    const list = await this.worktreeList(cwd).catch(() => []);
-    // The first entry is the main checkout.
-    return list.slice(1).some((w) => samePath(w.path, p));
+  /**
+   * `p` may be deleted by hand: one of the repo's linked worktrees (never its main checkout), or what a
+   * failed removal left in the repo's `<repo>.worktrees` folder, no longer a working tree of anything.
+   */
+  private async isOwnLeftover(cwd: string, p: string): Promise<boolean> {
+    const list = await this.worktreeList(cwd).catch(() => null);
+    if (!list) return false;
+    // Never one that holds another checkout of the repo (the first entry is the main checkout).
+    if (list.some((w) => !samePath(w.path, p) && isInside(p, w.path)))
+      return false;
+    if (list.slice(1).some((w) => samePath(w.path, p))) return true;
+    const root = worktreeRoot(list[0].path);
+    return (
+      isInside(root, p) &&
+      !samePath(root, p) &&
+      !(await pathExists(path.join(p, '.git')))
+    );
   }
 
   async worktreePrune(cwd: string): Promise<void> {
