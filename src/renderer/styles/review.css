@@ -37,7 +37,7 @@
   text-align: center;
   border-radius: var(--radius);
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font: 600 13px var(--font-ui);
 }
 /* An overlay widget laid over its view zone; DiffView sets top, left and width. */

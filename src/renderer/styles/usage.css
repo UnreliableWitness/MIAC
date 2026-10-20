@@ -166,7 +166,7 @@ rect.is-live {
 }
 .switch input:checked::after {
   left: 17px;
-  background: #fff;
+  background: var(--on-accent);
 }
 .usage-fields {
   display: grid;

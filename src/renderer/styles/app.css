@@ -82,7 +82,7 @@ h3 {
   text-decoration: none;
 }
 .btn:hover:not(:disabled) {
-  background: #2f2e2d;
+  background: var(--bg-selected);
 }
 .btn:disabled {
   color: var(--disabled);
@@ -91,7 +91,7 @@ h3 {
 .btn-primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 .btn-primary:hover:not(:disabled) {
   background: var(--accent-hover);
@@ -112,12 +112,12 @@ h3 {
   background: var(--bg-hover);
 }
 .btn-danger {
-  background: #a4262c;
-  border-color: #a4262c;
-  color: #fff;
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--on-accent);
 }
 .btn-danger:hover:not(:disabled) {
-  background: #8e1f25;
+  background: var(--danger-hover);
 }
 .btn-warn {
   color: var(--warn);
@@ -191,7 +191,7 @@ h3 {
   min-width: 0;
 }
 .field:hover {
-  border-color: rgba(255, 255, 255, 0.3);
+  border-color: var(--focus-ring);
 }
 .field:focus {
   outline: none;
@@ -393,9 +393,7 @@ fieldset.group legend {
 .card {
   background: var(--bg-card);
   border-radius: var(--radius-card);
-  box-shadow:
-    0 1.6px 3.6px rgba(0, 0, 0, 0.26),
-    0 0.3px 0.9px rgba(0, 0, 0, 0.22);
+  box-shadow: var(--shadow-1);
 }
 .card h3 {
   font-size: 14px;
@@ -465,9 +463,7 @@ fieldset.group legend {
   z-index: 20;
   background: var(--bg-card);
   border-radius: var(--radius-card);
-  box-shadow:
-    0 6.4px 14.4px rgba(0, 0, 0, 0.4),
-    0 1.2px 3.6px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-2);
 }
 .callout {
   top: 34px;
@@ -521,7 +517,7 @@ fieldset.group legend {
   border-radius: var(--radius-card);
   background: var(--bg-card);
   border-left: 3px solid var(--accent);
-  box-shadow: 0 6.4px 14.4px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-2);
   max-width: 420px;
   display: flex;
   gap: 12px;

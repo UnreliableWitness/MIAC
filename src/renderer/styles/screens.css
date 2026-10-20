@@ -63,9 +63,7 @@
   background: var(--bg-card);
   border-radius: var(--radius-card);
   overflow: hidden;
-  box-shadow:
-    0 1.6px 3.6px rgba(0, 0, 0, 0.26),
-    0 0.3px 0.9px rgba(0, 0, 0, 0.22);
+  box-shadow: var(--shadow-1);
 }
 .list-row {
   display: flex;

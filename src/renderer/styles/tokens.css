@@ -1,6 +1,6 @@
 /* Azure DevOps dark theme (spec 2026-10-15, section 1). */
 :root {
-  color-scheme: dark;
+  color-scheme: light dark;
   --bg-page: #201f1e;
   --bg-chrome: #1b1a19;
   --bg-card: #252423;
@@ -37,6 +37,15 @@
   --repo-4: #f08c4f;
   --repo-5: #ef7fc8;
   --repo-6: #8a95f7;
+  --on-accent: #ffffff;
+  --danger: #a4262c;
+  --danger-hover: #8e1f25;
+  --focus-ring: rgba(255, 255, 255, 0.3);
+  --highlight-flash: rgba(0, 120, 212, 0.25);
+  --shadow-1:
+    0 1.6px 3.6px rgba(0, 0, 0, 0.26), 0 0.3px 0.9px rgba(0, 0, 0, 0.22);
+  --shadow-2:
+    0 6.4px 14.4px rgba(0, 0, 0, 0.4), 0 1.2px 3.6px rgba(0, 0, 0, 0.3);
   --font-ui:
     'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, 'Helvetica Neue',
     sans-serif;
@@ -44,6 +53,53 @@
     'Cascadia Mono', 'Cascadia Code', Consolas, 'SF Mono', Menlo, monospace;
   --radius: 2px;
   --radius-card: 4px;
+}
+
+/* Azure DevOps light theme: chosen by Settings → Appearance through nativeTheme (spec 2026-10-20). */
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg-page: #faf9f8;
+    --bg-chrome: #f3f2f1;
+    --bg-card: #ffffff;
+    --bg-hover: rgba(0, 0, 0, 0.04);
+    --bg-selected: rgba(0, 0, 0, 0.06);
+    --line: rgba(0, 0, 0, 0.08);
+    --line-strong: rgba(0, 0, 0, 0.16);
+    --text: rgba(0, 0, 0, 0.9);
+    --muted: rgba(0, 0, 0, 0.6);
+    --disabled: rgba(0, 0, 0, 0.38);
+    --accent-hover: #106ebe;
+    --accent-bg: rgba(0, 120, 212, 0.08);
+    --link: #0063b1;
+    --green: #107c10;
+    --green-bg: rgba(16, 124, 16, 0.08);
+    --red: #a4262c;
+    --amber: #8a6100;
+    --red-bg: rgba(164, 38, 44, 0.08);
+    --warn: #8a5300;
+    --warn-bg: rgba(138, 83, 0, 0.1);
+    --chart-claude: #0078d4;
+    --chart-copilot: #8764b8;
+    --chart-opus: #0063b1;
+    --chart-sonnet: #2b88d8;
+    --chart-haiku: #4f8fcf;
+    --chart-fable: #8764b8;
+    --repo-1: #2b7bb9;
+    --repo-2: #8764b8;
+    --repo-3: #00827a;
+    --repo-4: #ca5010;
+    --repo-5: #c239b3;
+    --repo-6: #5c63d6;
+    --on-accent: #ffffff;
+    --danger: #a4262c;
+    --danger-hover: #8e1f25;
+    --focus-ring: rgba(0, 0, 0, 0.3);
+    --highlight-flash: rgba(0, 120, 212, 0.18);
+    --shadow-1:
+      0 1.6px 3.6px rgba(0, 0, 0, 0.13), 0 0.3px 0.9px rgba(0, 0, 0, 0.11);
+    --shadow-2:
+      0 6.4px 14.4px rgba(0, 0, 0, 0.13), 0 1.2px 3.6px rgba(0, 0, 0, 0.11);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
