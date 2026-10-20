@@ -644,7 +644,7 @@ describe('GitClient worktree helpers', () => {
     'worktreeRemove deletes a worktree with a nul file in it (#87)',
     async () => {
       const repo = makeRepo();
-      const wt = path.join(path.dirname(repo), 'wt-nul');
+      const wt = path.join(`${repo}.worktrees`, 'wt-nul');
       git(repo, 'worktree', 'add', '-q', '-b', 'nul-file', wt);
       writeFileSync(path.toNamespacedPath(path.join(wt, 'nul')), 'x');
       await client.worktreeRemove(repo, wt, true);
