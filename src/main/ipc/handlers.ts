@@ -119,6 +119,8 @@ export type Services = {
   revealFile?: (absPath: string) => void;
   /** Opens a folder in Explorer or Finder; resolves to an error message, empty on success (shell.openPath). */
   openPath?: (absPath: string) => Promise<string>;
+  /** Serves an HTML file in a Shellie tab (main: HtmlViews.grant); absent in tests, where opening one fails. */
+  grantView?: (realFile: string) => string;
   /** Owned by main so it can stop on quit; handlers create their own when absent (tests). */
   docsWatcher?: DocsWatcher;
   /** Watches worktrees' git dirs for the Changes page; owned by main so it stops on quit. */
@@ -1548,6 +1550,12 @@ export function createHandlers(s: Services): Handlers {
       openFile: (ws, abs, line, col) =>
         editors.openFile(ws.repoId, ws.worktreePath, abs, line, col),
       openExternal: s.openExternal,
+      openPath: s.openPath ?? (async () => ''),
+      grantView:
+        s.grantView ??
+        (() => {
+          throw new Error('HTML files cannot be shown here');
+        }),
       revealFile: s.revealFile ?? (() => undefined),
       watcher: docsWatcher,
       session: sessionDocs,

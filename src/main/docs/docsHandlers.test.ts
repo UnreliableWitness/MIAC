@@ -32,6 +32,9 @@ function setup(status: Task['status'] = 'ready') {
     baseSha: null,
     homeDropped: false,
     extraWorkspaces: [],
+    terminals: [],
+    closedTerminals: [],
+    createdAt: '2026-10-19T09:00:00Z',
   } as unknown as Task;
   const launch = vi.fn(
     async (_ws: unknown, _file: string, _line?: number, _col?: number) =>
@@ -40,11 +43,17 @@ function setup(status: Task['status'] = 'ready') {
   const openExternal = vi.fn(async () => undefined);
   const revealFile = vi.fn();
   const watcher = new DocsWatcher(() => undefined);
+  const openPath = vi.fn(async (_p: string) => '');
+  const grantView = vi.fn(
+    (f: string) => `shellie-view://tok/${path.basename(f)}`,
+  );
   const h = createDocsHandlers({
     taskById: () => task,
     git: new GitClient(),
     openFile: launch,
     openExternal,
+    openPath,
+    grantView,
     revealFile,
     watcher,
     session: new SessionDocs({
@@ -53,7 +62,16 @@ function setup(status: Task['status'] = 'ready') {
     }),
     event: () => undefined,
   });
-  return { repo, h, launch, openExternal, revealFile, watcher };
+  return {
+    repo,
+    h,
+    launch,
+    openExternal,
+    revealFile,
+    watcher,
+    openPath,
+    grantView,
+  };
 }
 
 describe('docs handlers', () => {
@@ -139,6 +157,8 @@ describe('docs handlers across workspaces', () => {
       git: new GitClient(),
       openFile: vi.fn(async () => undefined),
       openExternal: vi.fn(async () => undefined),
+      openPath: vi.fn(async () => ''),
+      grantView: () => 'shellie-view://tok/x.html',
       revealFile: vi.fn(),
       watcher: new DocsWatcher(() => undefined),
       session: new SessionDocs({
@@ -238,6 +258,8 @@ describe('docs handlers with session docs', () => {
       git: new GitClient(),
       openFile: vi.fn(async () => undefined),
       openExternal: vi.fn(async () => undefined),
+      openPath: vi.fn(async () => ''),
+      grantView: () => 'shellie-view://tok/x.html',
       revealFile,
       watcher: new DocsWatcher(() => undefined),
       session: new SessionDocs({
@@ -310,6 +332,104 @@ describe('docs handlers with session docs', () => {
     await expect(
       h['docs:reveal']('t1', path.join(outside, 'not-mine.md')),
     ).rejects.toThrow('Outside the worktree');
+  });
+});
+
+describe('HTML files', () => {
+  function html() {
+    const s = setup();
+    mkdirSync(path.join(s.repo, 'report'));
+    writeFileSync(path.join(s.repo, 'report', 'index.html'), '<h1>r</h1>');
+    const tmp = realpathSync.native(
+      mkdtempSync(path.join(os.tmpdir(), 'shellie-html-')),
+    );
+    tempRoots.push(tmp);
+    const outside = path.join(tmp, 'reviews', 'pr-759');
+    mkdirSync(outside, { recursive: true });
+    writeFileSync(path.join(outside, 'index.html'), '<h1>pr</h1>');
+    writeFileSync(path.join(outside, 'notes.txt'), 'x');
+    return { ...s, outside };
+  }
+  const slash = (p: string) => p.split(path.sep).join('/');
+
+  it('resolves a worktree HTML file as html', async () => {
+    const { h } = html();
+    expect(await h['docs:resolve']('t1', 'report/index.html')).toEqual({
+      path: 'report/index.html',
+      kind: 'html',
+    });
+  });
+  it('resolves an absolute HTML file outside the worktrees, nothing else outside', async () => {
+    const { h, outside } = html();
+    const abs = path.join(outside, 'index.html');
+    expect(await h['docs:resolve']('t1', abs)).toEqual({
+      path: slash(abs),
+      kind: 'html',
+    });
+    expect(
+      await h['docs:resolve']('t1', path.join(outside, 'missing.html')),
+    ).toBeNull();
+    expect(
+      await h['docs:resolve']('t1', path.join(outside, 'notes.txt')),
+    ).toBeNull();
+    // Only absolute paths reach outside the worktrees: a relative one resolves inside them.
+    expect(
+      await h['docs:resolve']('t1', 'reviews/pr-759/index.html'),
+    ).toBeNull();
+  });
+  it('never looks at UNC or //host paths', async () => {
+    const { h } = html();
+    expect(
+      await h['docs:resolve']('t1', '\\\\server\\share\\a.html'),
+    ).toBeNull();
+    expect(await h['docs:resolve']('t1', '//server/share/a.html')).toBeNull();
+  });
+  it('html:open grants worktree and absolute outside HTML files', async () => {
+    const { h, grantView, repo, outside } = html();
+    expect(await h['html:open']('t1', 'report/index.html')).toEqual({
+      url: 'shellie-view://tok/index.html',
+      name: 'index.html',
+    });
+    expect(grantView).toHaveBeenLastCalledWith(
+      realpathSync.native(path.join(repo, 'report', 'index.html')),
+    );
+    await h['html:open']('t1', slash(path.join(outside, 'index.html')));
+    expect(grantView).toHaveBeenLastCalledWith(
+      realpathSync.native(path.join(outside, 'index.html')),
+    );
+  });
+  it('html:open refuses what is not an existing HTML file', async () => {
+    const { h, grantView, outside } = html();
+    await expect(h['html:open']('t1', 'README.md')).rejects.toThrow(
+      'Not an HTML file',
+    );
+    await expect(
+      h['html:open']('t1', path.join(outside, 'notes.txt')),
+    ).rejects.toThrow('Not an HTML file');
+    await expect(
+      h['html:open']('t1', path.join(outside, 'gone.html')),
+    ).rejects.toThrow('Not found');
+    await expect(h['html:open']('t1', 'nope.html')).rejects.toThrow(
+      'Not found',
+    );
+    await expect(
+      h['html:open']('t1', '../../somewhere/x.html'),
+    ).rejects.toThrow('Outside the worktree');
+    expect(grantView).not.toHaveBeenCalled();
+  });
+  it('html:openExternal opens the file with its default app', async () => {
+    const { h, openPath, outside } = html();
+    await h['html:openExternal']('t1', path.join(outside, 'index.html'));
+    expect(openPath).toHaveBeenCalledWith(
+      realpathSync.native(path.join(outside, 'index.html')),
+    );
+    openPath.mockResolvedValueOnce('No application');
+    await expect(
+      h['html:openExternal']('t1', 'report/index.html'),
+    ).rejects.toThrow('Could not open the file: No application');
+    await expect(h['html:openExternal']('t1', 'README.md')).rejects.toThrow(
+      'Not an HTML file',
+    );
   });
 });
 

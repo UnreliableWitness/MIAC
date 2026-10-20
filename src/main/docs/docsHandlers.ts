@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, promises as fs } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import type { Handlers } from '../../shared/ipc';
@@ -21,6 +21,7 @@ import {
   readDoc,
   readImage,
   readText,
+  HTML,
   resolveInWorktree,
   resolveLink,
 } from './worktreeFiles';
@@ -34,6 +35,8 @@ type DocsChannels =
   | 'docs:openInEditor'
   | 'docs:reveal'
   | 'docs:watch'
+  | 'html:open'
+  | 'html:openExternal'
   | 'links:open';
 
 const Position = z.number().int().min(1).optional();
@@ -49,6 +52,10 @@ export type DocsDeps = {
     col?: number,
   ) => Promise<void>;
   openExternal: (url: string) => Promise<void>;
+  /** Opens a file with its default app; resolves to an error message, empty on success (shell.openPath). */
+  openPath: (absPath: string) => Promise<string>;
+  /** A `shellie-view:` URL serving a real HTML file and its folder (HtmlViews.grant). */
+  grantView: (realFile: string) => string;
   revealFile: (absPath: string) => void;
   watcher: DocsWatcher;
   /** The task's session docs; also the whitelist for files outside its worktrees. */
@@ -72,6 +79,22 @@ export function allowedLink(url: string): boolean {
 
 const OUTSIDE = 'Outside the worktree';
 const isOutside = (e: unknown) => e instanceof Error && e.message === OUTSIDE;
+
+/** `/x` or `C:\x` / `C:/x`; not a UNC or `//host` path, so hovering a printed path never reaches the network. */
+const isLocalAbsolute = (p: string) =>
+  /^[A-Za-z]:[\\/]/.test(p) || (p.startsWith('/') && !p.startsWith('//'));
+
+/** The real path of an existing `.html`/`.htm` regular file at an absolute local path, or null. */
+export async function outsideHtml(p: string): Promise<string | null> {
+  if (!HTML.test(p) || p.includes('\0') || !isLocalAbsolute(p)) return null;
+  try {
+    const real = await fs.realpath(p);
+    if (!HTML.test(real)) return null;
+    return (await fs.stat(real)).isFile() ? real : null;
+  } catch {
+    return null;
+  }
+}
 
 export function createDocsHandlers(d: DocsDeps): Pick<Handlers, DocsChannels> {
   /** The task and workspace a docs target names; a plain task id is the active home. */
@@ -106,6 +129,22 @@ export function createDocsHandlers(d: DocsDeps): Pick<Handlers, DocsChannels> {
       if (!real) throw e;
       return session(real);
     }
+  };
+  /** The real path of an HTML file: inside the target's worktree, or an absolute path to one anywhere else. */
+  const htmlFile = async (target: string, p: string): Promise<string> => {
+    if (typeof p !== 'string' || !HTML.test(p))
+      throw new Error('Not an HTML file');
+    let real: string;
+    try {
+      real = await resolveInWorktree(worktree(target), p);
+    } catch (e) {
+      if (!isOutside(e)) throw e;
+      const outside = await outsideHtml(p);
+      if (!outside) throw new Error(isLocalAbsolute(p) ? 'Not found' : OUTSIDE);
+      real = outside;
+    }
+    if (!HTML.test(real)) throw new Error('Not an HTML file');
+    return real;
   };
   return {
     'docs:list': async (target) => {
@@ -151,6 +190,9 @@ export function createDocsHandlers(d: DocsDeps): Pick<Handlers, DocsChannels> {
         if (hit && hit.workspaceId === null)
           return { path: toSlash(hit.path), kind: 'md' as const };
       }
+      // An HTML file anywhere else, printed with its absolute path (a report a command wrote): shown in a tab.
+      if (await outsideHtml(p))
+        return { path: toSlash(path.resolve(p)), kind: 'html' as const };
       return null;
     },
     'docs:openInEditor': async (target, p, line, col) => {
@@ -181,6 +223,14 @@ export function createDocsHandlers(d: DocsDeps): Pick<Handlers, DocsChannels> {
         return { live: false };
       }
       return { live: d.watcher.start(target, worktree(target)) };
+    },
+    'html:open': async (target, p) => {
+      const real = await htmlFile(target, p);
+      return { url: d.grantView(real), name: path.basename(real) };
+    },
+    'html:openExternal': async (target, p) => {
+      const error = await d.openPath(await htmlFile(target, p));
+      if (error) throw new Error(`Could not open the file: ${error}`);
     },
     'links:open': async (url) => {
       if (!allowedLink(url)) throw new Error(`Opening ${url} is not allowed`);

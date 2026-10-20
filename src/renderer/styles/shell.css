@@ -432,7 +432,13 @@ button.projecttile:hover {
   display: flex;
   align-items: center;
   gap: 2px;
-  overflow: hidden;
+  /* Scrolls sideways (trackpad, Shift+wheel) when the tabs do not fit; no scrollbar in the 36 px row. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.tabrow::-webkit-scrollbar {
+  display: none;
 }
 .tabrow .pivot svg {
   color: var(--link);
@@ -601,6 +607,42 @@ button.projecttile:hover {
 }
 .termview[hidden] {
   display: none;
+}
+/* An HTML file in a tab (#80): a toolbar over a sandboxed iframe filling the rest. */
+.htmlview {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.htmlview-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.htmlview-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.htmlview-error {
+  padding: 16px;
+  color: var(--red);
+}
+/* Pages expect a browser's white canvas in either theme (--on-accent is white in both). */
+.htmlview-frame {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+  color-scheme: light;
+  background: var(--on-accent);
 }
 /* xterm's layers carry their own z-indexes (the link layer canvas is above the screen); keeping them in this
    box stops them covering the exit bar, whose Restart button otherwise never got the click. */

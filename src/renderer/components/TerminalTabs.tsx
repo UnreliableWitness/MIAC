@@ -7,8 +7,9 @@ import {
   Document16Regular,
   FullScreenMaximize16Regular,
   FullScreenMinimize16Regular,
+  Globe16Regular,
 } from '@fluentui/react-icons';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Events } from '../../shared/ipc';
 import type { NewTerminal, TaskView } from '../../shared/types';
 import { api, tryInvoke } from '../api';
@@ -18,9 +19,16 @@ import { useRepoConfig } from '../hooks/useRepoConfig';
 import { useTaskUsage } from '../hooks/useTaskUsage';
 import { holdWatch } from '../review/holdWatch';
 import { useChangeCount } from '../review/useReview';
-import { CHANGES_TAB, DOCS_TAB, USAGE_TAB, useStore } from '../store';
+import {
+  CHANGES_TAB,
+  DOCS_TAB,
+  type HtmlView,
+  USAGE_TAB,
+  useStore,
+} from '../store';
 import { AttentionDot } from './AttentionDot';
 import { DocsTab } from './docs/DocsTab';
+import { HtmlViewTab } from './HtmlViewTab';
 import {
   activeHome,
   activeWorkspaces,
@@ -69,6 +77,8 @@ function useUnseen<K extends 'docs:changed' | 'usage:changed'>(
   }, [active, tab]);
   return unseen;
 }
+
+const NO_VIEWS: HtmlView[] = [];
 
 const folderName = (p: string) => p.split(/[\\/]/).filter(Boolean).at(-1) ?? p;
 
@@ -161,6 +171,8 @@ export function TerminalTabs({
     visible && ready && active !== CHANGES_TAB,
   );
   const toggleFocus = useStore((s) => s.toggleFocus);
+  const views = useStore((s) => s.viewsByTask[task.id]) ?? NO_VIEWS;
+  const closeView = useStore((s) => s.closeView);
   const docsUnseen = useUnseen(
     task.id,
     DOCS_TAB,
@@ -218,6 +230,14 @@ export function TerminalTabs({
     if (created) setTab(task.id, created.id);
   };
 
+  // The row scrolls sideways when its tabs do not fit; the selected tab (a new terminal or page) is kept in view.
+  const tabrow = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    tabrow.current
+      ?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
+      ?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [active, task.terminals.length]);
+
   const closeTerminal = (id: string) =>
     tryInvoke(() => api().invoke('terminals:kill', id), notify);
 
@@ -225,6 +245,7 @@ export function TerminalTabs({
     <>
       <div className="taskbar">
         <div
+          ref={tabrow}
           role="tablist"
           aria-label="Terminals"
           className="tabrow"
@@ -310,6 +331,33 @@ export function TerminalTabs({
               </button>
             </span>
           ))}
+          {views.map((v) => (
+            <span key={v.id} className="term-tab">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={active === v.id}
+                className="pivot"
+                title={v.path}
+                onClick={() => setTab(task.id, v.id)}
+                onAuxClick={(e) => {
+                  if (e.button === 1) closeView(task.id, v.id);
+                }}
+              >
+                <Globe16Regular aria-hidden="true" />
+                {v.name}
+              </button>
+              <button
+                type="button"
+                className="term-tab-close"
+                aria-label={`Close ${v.name}`}
+                title={`Close ${v.name}`}
+                onClick={() => closeView(task.id, v.id)}
+              >
+                <Dismiss12Regular aria-hidden="true" />
+              </button>
+            </span>
+          ))}
           <NewTerminalMenu
             disabled={task.worktreeMissing}
             workspaces={workspaces}
@@ -381,6 +429,13 @@ export function TerminalTabs({
           active === CHANGES_TAB &&
           ready &&
           !task.worktreeMissing && <ChangesTab task={task} />}
+        {views.map(
+          (v) =>
+            visible &&
+            active === v.id && (
+              <HtmlViewTab key={v.id} taskId={task.id} view={v} />
+            ),
+        )}
         {task.terminals.map((t) => (
           <TerminalView
             key={t.id}
