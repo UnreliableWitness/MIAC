@@ -207,6 +207,12 @@ describe('groupTasks', () => {
 });
 
 describe('TaskNav', () => {
+  it('draws the no-connection avatar in a readable text colour, not white', () => {
+    installFakeApi();
+    useStore.setState({ repos, connections: [] });
+    render(<TaskNav />);
+    expect(screen.getByText('?').style.color).toBe('var(--muted)');
+  });
   it('shows the selected task repo connection status in the footer', () => {
     installFakeApi();
     useStore.setState({
