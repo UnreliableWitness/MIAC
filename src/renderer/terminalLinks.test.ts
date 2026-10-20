@@ -222,6 +222,40 @@ describe('links to session docs outside the worktree', () => {
       undefined,
     );
   });
+  it('opens an HTML file outside the worktrees in a tab (#80)', async () => {
+    const OUT =
+      'C:\\Users\\hoebeked\\.claude\\reviews\\DXP\\pr-759\\index.html';
+    const { tracked } = installFakeApi({
+      'docs:resolve': (_t, p) =>
+        p === OUT
+          ? {
+              path: 'C:/Users/hoebeked/.claude/reviews/DXP/pr-759/index.html',
+              kind: 'html',
+            }
+          : null,
+    });
+    const openView = vi.fn();
+    useStore.setState({ openView });
+    const b = buffer([{ text: `Wrote ${OUT}`, wrapped: false }], 200);
+    const p = createLinkProvider(
+      { cols: 200, buffer: { active: b } } as never,
+      't1',
+    );
+    const links = await new Promise<ILink[] | undefined>((r) =>
+      p.provideLinks(1, r),
+    );
+    expect(links?.map((l) => l.text)).toEqual([OUT]);
+    const el = document.createElement('div');
+    links![0].hover!({ target: el } as unknown as MouseEvent, '');
+    expect(el.title).toBe('Open in a tab');
+    links![0].activate(new MouseEvent('click'), links![0].text);
+    expect(openView).toHaveBeenCalledWith(
+      't1',
+      'C:/Users/hoebeked/.claude/reviews/DXP/pr-759/index.html',
+      undefined,
+    );
+    expect(JSON.stringify(tracked)).toContain('"type":"html"');
+  });
   it('keeps the workspace main resolved a link in', async () => {
     installFakeApi({
       'docs:resolve': (t) =>

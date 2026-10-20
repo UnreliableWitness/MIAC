@@ -54,6 +54,7 @@ beforeEach(() => {
     ...base,
     tasks: [],
     tabByTask: {},
+    viewsByTask: {},
     focus: false,
     navCollapsed: false,
     screen: { kind: 'sprint' },
@@ -97,6 +98,55 @@ describe('tabs', () => {
     const first = s.docTarget.t1.nonce;
     s.openDoc('t1', 'a.md', 4);
     expect(useStore.getState().docTarget.t1.nonce).not.toBe(first);
+  });
+
+  it('openView opens an HTML file in a tab, and the same file again refocuses it', () => {
+    useStore.setState({
+      tasks: [task('t1', ['x'])],
+      screen: { kind: 'home' },
+    });
+    const s = useStore.getState();
+    s.openView('t1', 'C:/Users/me/.claude/reviews/pr-759/index.html');
+    const [v] = useStore.getState().viewsByTask.t1;
+    expect(v).toMatchObject({
+      path: 'C:/Users/me/.claude/reviews/pr-759/index.html',
+      name: 'index.html',
+    });
+    expect(v.id.startsWith('view:')).toBe(true);
+    expect(useStore.getState().screen).toEqual({ kind: 'task' });
+    expect(useStore.getState().selectedTaskId).toBe('t1');
+    expect(s.activeTab('t1')).toBe(v.id);
+
+    s.setTab('t1', 'x');
+    s.openView('t1', 'report/a.html', 'w2');
+    s.openView('t1', 'C:/Users/me/.claude/reviews/pr-759/index.html');
+    expect(useStore.getState().viewsByTask.t1).toHaveLength(2);
+    expect(s.activeTab('t1')).toBe(v.id);
+    // The same path in another workspace is another file.
+    s.openView('t1', 'report/a.html');
+    expect(useStore.getState().viewsByTask.t1).toHaveLength(3);
+  });
+  it('closeView removes the tab; the active tab falls back to the first terminal', () => {
+    useStore.setState({ tasks: [task('t1', ['x', 'y']), task('t2', [])] });
+    const s = useStore.getState();
+    s.openView('t1', 'a.html');
+    s.openView('t1', 'b.html');
+    const [a, b] = useStore.getState().viewsByTask.t1;
+    s.closeView('t1', a.id);
+    expect(useStore.getState().viewsByTask.t1).toEqual([b]);
+    expect(s.activeTab('t1')).toBe(b.id);
+    s.closeView('t1', b.id);
+    expect(s.activeTab('t1')).toBe('x');
+    s.openView('t2', 'c.html');
+    s.closeView('t2', useStore.getState().viewsByTask.t2[0].id);
+    expect(s.activeTab('t2')).toBe(USAGE_TAB);
+  });
+  it('a view id of another task is not a valid tab', () => {
+    useStore.setState({ tasks: [task('t1', ['x']), task('t2', ['z'])] });
+    useStore.getState().openView('t1', 'a.html');
+    const id = useStore.getState().viewsByTask.t1[0].id;
+    useStore.getState().setTab('t2', id);
+    expect(useStore.getState().activeTab('t2')).toBe('z');
   });
 
   it('keeps the Changes tab and opens it for a task', () => {

@@ -17,8 +17,19 @@ import { readPrefs, writePref } from './uiPrefs';
 export const USAGE_TAB = 'usage';
 export const DOCS_TAB = 'docs';
 export const CHANGES_TAB = 'changes';
+/** Tab ids of HTML files opened in a tab start with this. */
+export const VIEW_PREFIX = 'view:';
 /** Tabs that are not a terminal: always valid. */
 const FIXED_TABS = new Set([USAGE_TAB, DOCS_TAB, CHANGES_TAB]);
+
+/** An HTML file shown in a tab of the task (in memory only, gone after a relaunch). */
+export type HtmlView = {
+  id: string;
+  /** Worktree-relative, or absolute for a file outside the worktrees. */
+  path: string;
+  workspaceId?: string;
+  name: string;
+};
 
 /** A comment being written on the Changes tab. */
 export type ReviewDraft = NewReviewComment;
@@ -77,6 +88,8 @@ type Store = {
     { path: string; line?: number; workspaceId?: string; nonce: number }
   >;
   reviewByTask: Record<string, ReviewView>;
+  /** HTML files open in a tab, per task, in tab order. */
+  viewsByTask: Record<string, HtmlView[]>;
   focus: boolean;
   navCollapsed: boolean;
   go(screen: Screen): void;
@@ -103,6 +116,9 @@ type Store = {
     line?: number,
     workspaceId?: string,
   ): void;
+  /** Shows an HTML file in a tab of the task; the same file again focuses its tab. */
+  openView(taskId: string, path: string, workspaceId?: string): void;
+  closeView(taskId: string, id: string): void;
   setReviewView(
     taskId: string,
     patch: Partial<ReviewView> | ((v: ReviewView) => Partial<ReviewView>),
@@ -112,6 +128,9 @@ type Store = {
 };
 
 let noticeSeq = 0;
+let viewSeq = 0;
+
+const fileName = (p: string) => p.split(/[\\/]/).filter(Boolean).at(-1) ?? p;
 
 /**
  * Opens the task's page on one of its tabs; `also` lands in the same update.
@@ -147,6 +166,7 @@ export const useStore = create<Store>((set, get) => ({
   tabByTask: {},
   docTarget: {},
   reviewByTask: {},
+  viewsByTask: {},
   ...readPrefs(),
   go: (screen) => {
     const current = get().screen;
@@ -204,6 +224,11 @@ export const useStore = create<Store>((set, get) => ({
     const task = get().tasks.find((t) => t.id === taskId);
     const want = get().tabByTask[taskId];
     if (want !== undefined && FIXED_TABS.has(want)) return want;
+    if (
+      want?.startsWith(VIEW_PREFIX) &&
+      get().viewsByTask[taskId]?.some((v) => v.id === want)
+    )
+      return want;
     if (task && want && task.terminals.some((t) => t.id === want)) return want;
     return task?.terminals[0]?.id ?? USAGE_TAB;
   },
@@ -223,6 +248,33 @@ export const useStore = create<Store>((set, get) => ({
           workspaceId,
           nonce: Date.now() + Math.random(),
         },
+      },
+    });
+  },
+  openView: (taskId, path, ws) => {
+    const workspaceId = ws || undefined;
+    const views = get().viewsByTask[taskId] ?? [];
+    const found = views.find(
+      (v) => v.path === path && v.workspaceId === workspaceId,
+    );
+    if (found) return showTab(get, set, taskId, found.id);
+    const view: HtmlView = {
+      id: `${VIEW_PREFIX}${++viewSeq}`,
+      path,
+      ...(workspaceId ? { workspaceId } : {}),
+      name: fileName(path),
+    };
+    showTab(get, set, taskId, view.id, {
+      viewsByTask: { ...get().viewsByTask, [taskId]: [...views, view] },
+    });
+  },
+  closeView: (taskId, id) => {
+    const views = get().viewsByTask[taskId] ?? [];
+    // activeTab falls back to the first terminal (or Usage) once the view is gone.
+    set({
+      viewsByTask: {
+        ...get().viewsByTask,
+        [taskId]: views.filter((v) => v.id !== id),
       },
     });
   },

@@ -5,6 +5,7 @@ import { useStore } from './store';
 import { track } from './telemetry';
 import { docsTarget } from '../shared/workspaces';
 import { errorMessage } from '../shared/errors';
+import type { Channels } from '../shared/ipc';
 
 export type BufferLike = {
   getLine(
@@ -15,7 +16,7 @@ export type BufferLike = {
 };
 export type LinkTarget =
   | {
-      type: 'md' | 'file';
+      type: 'md' | 'html' | 'file';
       path: string;
       line?: number;
       col?: number;
@@ -25,11 +26,7 @@ export type LinkTarget =
 type Resolve = (
   taskId: string,
   path: string,
-) => Promise<{
-  path: string;
-  kind: 'md' | 'file';
-  workspaceId?: string;
-} | null>;
+) => Promise<Channels['docs:resolve']['result']>;
 
 /** findLinks is quadratic on long lines: only the first 2,000 characters are scanned. */
 const MAX_SCAN = 2000;
@@ -70,6 +67,8 @@ export function openLink(taskId: string, target: LinkTarget): void {
     useStore
       .getState()
       .openDoc(taskId, target.path, target.line, target.workspaceId);
+  else if (target.type === 'html')
+    useStore.getState().openView(taskId, target.path, target.workspaceId);
   else
     void api()
       .invoke(
@@ -87,6 +86,7 @@ export function openLink(taskId: string, target: LinkTarget): void {
 
 const LABELS = {
   md: 'Open in Docs',
+  html: 'Open in a tab',
   file: 'Open in VS Code',
   url: 'Open in browser',
 } as const;

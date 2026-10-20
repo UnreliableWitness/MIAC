@@ -289,6 +289,48 @@ describe('TaskScreen', () => {
     expect(calls.filter((c) => c.channel === 'terminals:kill')).toHaveLength(2);
   });
 
+  it('shows an HTML file in a tab and closes it with its close button or a middle click', async () => {
+    const OUT = 'C:/Users/me/.claude/reviews/pr-759/index.html';
+    const { calls } = installFakeApi({
+      'repos:config': () => config,
+      'html:open': () => ({
+        url: 'shellie-view://tok/index.html',
+        name: 'index.html',
+      }),
+    });
+    useStore.setState({ viewsByTask: {}, tabByTask: {} });
+    render(<Shell />);
+    act(() => useStore.getState().openView('a', OUT));
+    const tab = await screen.findByRole('tab', { name: /index\.html/ });
+    expect(tab).toHaveAttribute('aria-selected', 'true');
+    expect(tab).toHaveAttribute('title', OUT);
+    expect(await screen.findByTitle('index.html')).toHaveAttribute(
+      'src',
+      'shellie-view://tok/index.html',
+    );
+    expect(calls.find((c) => c.channel === 'html:open')?.args).toEqual([
+      'a',
+      OUT,
+    ]);
+    expect(screen.getByTestId('term-c1')).toHaveAttribute(
+      'data-active',
+      'false',
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Close index.html' }),
+    );
+    expect(screen.queryByRole('tab', { name: /index\.html/ })).toBeNull();
+    expect(screen.queryByTitle('index.html')).toBeNull();
+    expect(screen.getByRole('tab', { name: /Claude Code/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    act(() => useStore.getState().openView('a', 'report/b.html'));
+    const again = await screen.findByRole('tab', { name: /b\.html/ });
+    await userEvent.pointer({ keys: '[MouseMiddle]', target: again });
+    expect(screen.queryByRole('tab', { name: /b\.html/ })).toBeNull();
+  });
+
   it('opens the editor and the Finish page from the task row', async () => {
     const { calls } = installFakeApi({
       'repos:config': () => config,
