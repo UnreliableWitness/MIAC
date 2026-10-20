@@ -77,3 +77,5 @@ Download the installer from GitHub: open the Actions run for the commit, then th
     - Uninstall MIAC from Apps & features.
 
 If a setup command or a shim fails with "running scripts is disabled on this system": Shellie passes `-ExecutionPolicy Bypass`, but an execution policy set by Group Policy overrides it. Ask IT, or install claude and copilot as native `.exe` builds.
+
+17. **Claude budget.** Home band shows Claude Code usage from `%USERPROFILE%\.claude\projects` and OpenCode from `%USERPROFILE%\.local\share\opencode\opencode.db`.

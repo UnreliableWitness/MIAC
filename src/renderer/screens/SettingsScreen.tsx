@@ -11,6 +11,7 @@ import { ConnectionsSection } from '../components/ConnectionsSection';
 import { CostSection } from '../components/CostSection';
 import { EditorSection } from '../components/EditorSection';
 import { TimeSection } from '../components/TimeSection';
+import { BudgetSection } from '../components/BudgetSection';
 import { MindMark, PageHeader } from '../components/ui';
 import { useStore } from '../store';
 
@@ -328,6 +329,33 @@ export function SettingsScreen() {
   const repos = useStore((s) => s.repos);
   const setRepos = useStore((s) => s.setRepos);
   const notify = useStore((s) => s.notify);
+  const section = useStore((s) =>
+    s.screen.kind === 'settings' ? s.screen.section : undefined,
+  );
+  useEffect(() => {
+    if (!section) return;
+    const jump = () =>
+      document.getElementById(section)?.scrollIntoView?.({ block: 'start' });
+    jump();
+    // Sections above the target load asynchronously and grow, so keep the
+    // target in view while the layout settles, until the user takes over.
+    const main = document.querySelector('.settings-main');
+    let observer: ResizeObserver | undefined;
+    if (main && typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(jump);
+      observer.observe(main);
+      for (const child of Array.from(main.children)) observer.observe(child);
+    }
+    const stop = () => {
+      observer?.disconnect();
+      window.clearTimeout(timer);
+      for (const ev of userEvents) window.removeEventListener(ev, stop, true);
+    };
+    const userEvents = ['wheel', 'pointerdown', 'keydown', 'touchstart'];
+    for (const ev of userEvents) window.addEventListener(ev, stop, true);
+    const timer = window.setTimeout(stop, 2000);
+    return stop;
+  }, [section]);
 
   const addFolder = async () => {
     const folder = await tryInvoke(
@@ -354,6 +382,7 @@ export function SettingsScreen() {
           <a href="#ado">Azure DevOps</a>
           <a href="#cost">AI cost and invoicing</a>
           <a href="#time">Time tracking</a>
+          <a href="#claude-budget">Claude budget</a>
           <a href="#appearance">Appearance</a>
           <a href="#terminals" className="disabled" aria-disabled="true">
             Terminals and Claude
@@ -386,6 +415,7 @@ export function SettingsScreen() {
           <ConnectionsSection />
           <CostSection />
           <TimeSection />
+          <BudgetSection />
           <section id="terminals" className="section">
             <div className="section-head">
               <h2>Terminals and Claude</h2>

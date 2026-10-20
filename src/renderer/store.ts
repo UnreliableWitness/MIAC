@@ -51,7 +51,8 @@ export type Screen =
   | { kind: 'new-task'; workItem?: WorkItemRef; repoId?: string }
   | { kind: 'setup'; taskId: string }
   | { kind: 'finish'; taskId: string }
-  | { kind: 'settings' };
+  /** `section` is the id of a settings section to scroll to on open. */
+  | { kind: 'settings'; section?: string };
 
 type Store = {
   screen: Screen;

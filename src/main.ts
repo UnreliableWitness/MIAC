@@ -41,6 +41,14 @@ import {
   readMiacWindowsKey,
   type TokenMigration,
 } from './main/migrate/tokens';
+import { budgetMonth } from './shared/budget';
+import { BudgetService, inShellieFor } from './main/budget/BudgetService';
+import { BudgetStore } from './main/budget/BudgetStore';
+import {
+  ClaudeTranscriptReader,
+  claudeProjectsDir,
+} from './main/budget/claudeTranscripts';
+import { OpenCodeReader, openCodeDbPath } from './main/budget/openCode';
 import { createPlatform } from './main/platform';
 import { AdoRegistry } from './main/services/AdoRegistry';
 import { ConnectionStore } from './main/services/ConnectionStore';
@@ -128,6 +136,7 @@ const DOT = String.fromCharCode(0xb7);
 let stopUsage: () => void = () => {};
 /** Ends the time tracking timers and closes the open intervals (on quit). */
 let stopTime: () => void = () => {};
+let stopBudget: () => void = () => {};
 /** Time writes still in flight; the quit waits for them. */
 const timeWrites = new Set<Promise<void>>();
 /** Window focus, for active time (set once the tracker exists). */
@@ -508,7 +517,55 @@ async function boot(): Promise<void> {
         for (const iv of ivs) keep(time.addAgent(taskId, 'copilot-cli', iv));
       },
     );
+    const budgetStore = new BudgetStore(
+      path.join(usageDir, 'budget.json'),
+      () => OFFICIAL_RATES,
+    );
+    await budgetStore.load();
+    // First reads go back to the start of the previous budget month.
+    const budgetSince = budgetMonth(
+      new Date(),
+      settings.get().claudeBudget.monthStartDay,
+      -1,
+    ).start.getTime();
+    const budget = new BudgetService({
+      store: budgetStore,
+      claude: new ClaudeTranscriptReader(claudeProjectsDir(), {
+        since: budgetSince,
+      }),
+      openCode: new OpenCodeReader(openCodeDbPath(), { since: budgetSince }),
+      settings: () => settings.get().claudeBudget,
+      inShellie: inShellieFor(
+        () => store.state.tasks,
+        () =>
+          new Set(
+            store.state.tasks.flatMap((t) =>
+              usage.records(t.id).map((r) => r.sessionId),
+            ),
+          ),
+      ),
+      changed: () => broadcast('budget:changed', {}),
+      notify: ({ title, body }) => {
+        try {
+          const n = new Notification({ title, body });
+          n.on('click', () => {
+            const w = mainWindow;
+            if (!w || w.isDestroyed()) return;
+            if (w.isMinimized()) w.restore();
+            w.show();
+            w.focus();
+            broadcast('budget:open', {});
+          });
+          n.show();
+        } catch (err) {
+          console.error('[budget] could not show a notification', err);
+        }
+      },
+      telemetry: (kind) => telemetry.event('budget.alert', { kind }),
+    });
+    stopBudget = () => budget.stop();
     const handlers = createHandlers({
+      budget,
       update: {
         pending: () => pendingUpdate,
         install: () => updates?.install() ?? false,
@@ -634,6 +691,7 @@ async function boot(): Promise<void> {
     onWindowFocus = (focused) => {
       tracker.setFocused(focused);
       attention.setFocused(focused);
+      if (focused) void budget.pass();
     };
 
     reporter.step(
@@ -642,6 +700,7 @@ async function boot(): Promise<void> {
     mainWindow = createWindow();
     const win = mainWindow;
     win.webContents.once('did-finish-load', () => {
+      budget.start();
       const warnings = [
         loaded.recovered &&
           `state.json was unreadable and was moved to ${path.basename(loaded.backup ?? '')}. Starting empty.`,
@@ -796,6 +855,7 @@ app.on('before-quit', () => {
   gitDirWatcher.stopAll();
   for (const id of terminals.ids()) terminals.kill(id);
   stopUsage();
+  stopBudget();
   updates?.stop();
 });
 

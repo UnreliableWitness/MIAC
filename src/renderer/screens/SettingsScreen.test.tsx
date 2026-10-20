@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppSettings } from '../../shared/usage';
 import type { Repo } from '../../shared/types';
 import { useStore } from '../store';
@@ -364,6 +364,11 @@ describe('SettingsScreen', () => {
       writeCostToAdo: true,
       showSplash: false,
       notifyOnDone: true,
+      claudeBudget: {
+        monthlyEur: null,
+        monthStartDay: 1,
+        alerts: { at80: true, forecastOver: true, at100: true },
+      },
       sendTelemetry: true,
       editor: { default: null, repos: {} },
     });
@@ -380,6 +385,11 @@ describe('SettingsScreen', () => {
       writeCostToAdo: true,
       showSplash: true,
       notifyOnDone: true,
+      claudeBudget: {
+        monthlyEur: null,
+        monthStartDay: 1,
+        alerts: { at80: true, forecastOver: true, at100: true },
+      },
       sendTelemetry: true,
       editor: { default: null, repos: {} },
     };
@@ -417,6 +427,11 @@ describe('SettingsScreen', () => {
       writeCostToAdo: true,
       showSplash: false,
       notifyOnDone: true,
+      claudeBudget: {
+        monthlyEur: null,
+        monthStartDay: 1,
+        alerts: { at80: true, forecastOver: true, at100: true },
+      },
       sendTelemetry: true,
       editor: { default: null, repos: {} },
     });
@@ -433,5 +448,81 @@ describe('SettingsScreen', () => {
       'General Systems Vehicle (accounting division)',
     );
     await waitFor(() => expect(about).toHaveTextContent('1.0.0'));
+  });
+
+  it('has a Claude budget entry in the side nav after Time tracking', () => {
+    installFakeApi();
+    render(<SettingsScreen />);
+    const nav = screen.getByRole('navigation', { name: 'Settings sections' });
+    const links = [...nav.querySelectorAll('a')].map((a) => a.textContent);
+    expect(links.indexOf('Claude budget')).toBe(
+      links.indexOf('Time tracking') + 1,
+    );
+    expect(screen.getByRole('link', { name: 'Claude budget' })).toHaveAttribute(
+      'href',
+      '#claude-budget',
+    );
+  });
+
+  it('scrolls to the section the settings screen was opened on', async () => {
+    installFakeApi();
+    const scroll = vi.fn();
+    const proto = Element.prototype as { scrollIntoView?: unknown };
+    const original = proto.scrollIntoView;
+    proto.scrollIntoView = scroll;
+    try {
+      useStore.setState({
+        screen: { kind: 'settings', section: 'claude-budget' },
+      });
+      const { container } = render(<SettingsScreen />);
+      await waitFor(() => expect(scroll).toHaveBeenCalled());
+      expect(scroll.mock.contexts[0]).toBe(
+        container.querySelector('#claude-budget'),
+      );
+    } finally {
+      proto.scrollIntoView = original;
+    }
+  });
+
+  it('keeps the section in view while the layout settles, until the user scrolls', async () => {
+    installFakeApi();
+    const scroll = vi.fn();
+    const proto = Element.prototype as { scrollIntoView?: unknown };
+    const original = proto.scrollIntoView;
+    proto.scrollIntoView = scroll;
+    const originalRO = globalThis.ResizeObserver;
+    const callbacks: Array<() => void> = [];
+    globalThis.ResizeObserver = class {
+      private cb: () => void;
+      constructor(cb: () => void) {
+        this.cb = cb;
+        callbacks.push(cb);
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {
+        callbacks.splice(callbacks.indexOf(this.cb), 1);
+      }
+    } as unknown as typeof ResizeObserver;
+    try {
+      useStore.setState({
+        screen: { kind: 'settings', section: 'claude-budget' },
+      });
+      const { container } = render(<SettingsScreen />);
+      await waitFor(() => expect(scroll).toHaveBeenCalled());
+      expect(callbacks.length).toBeGreaterThan(0);
+      const before = scroll.mock.calls.length;
+      [...callbacks].forEach((cb) => cb());
+      expect(scroll.mock.calls.length).toBe(before + 1);
+      expect(scroll.mock.contexts.at(-1)).toBe(
+        container.querySelector('#claude-budget'),
+      );
+      window.dispatchEvent(new Event('wheel'));
+      [...callbacks].forEach((cb) => cb());
+      expect(scroll.mock.calls.length).toBe(before + 1);
+    } finally {
+      proto.scrollIntoView = original;
+      globalThis.ResizeObserver = originalRO;
+    }
   });
 });

@@ -12,6 +12,25 @@ export function normalizeModel(model: string): string {
   return m;
 }
 
+/** Readable model names from a rate table: dated and undated ids share one label ("Claude Haiku 4.5"); unknown models keep their normalized id. */
+export function modelLabeler(rates: Rate[]): (model: string) => string {
+  const byId = new Map<string, string>();
+  // Base rates (standard speed, lowest tier) first so their label wins.
+  const ordered = [...rates].sort(
+    (a, b) =>
+      Number(a.fast) - Number(b.fast) || a.minInputTokens - b.minInputTokens,
+  );
+  for (const r of ordered)
+    for (const m of r.match) {
+      const id = normalizeModel(m);
+      if (!byId.has(id)) byId.set(id, r.label.replace(/ \(fast\)$/, ''));
+    }
+  return (model) => {
+    const id = normalizeModel(model);
+    return byId.get(id) ?? id;
+  };
+}
+
 export function selectRate(
   rates: Rate[],
   model: string,

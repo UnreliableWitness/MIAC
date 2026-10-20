@@ -2,7 +2,8 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { defaultSettings } from '../../shared/usage';
+import { defaultBudgetSettings } from '../../shared/budget';
+import { AppSettingsSchema, defaultSettings } from '../../shared/usage';
 import { SettingsStore } from './SettingsStore';
 
 const dirs: string[] = [];
@@ -65,6 +66,11 @@ describe('SettingsStore', () => {
       workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
       showSplash: true,
       notifyOnDone: true,
+      claudeBudget: {
+        monthlyEur: null,
+        monthStartDay: 1,
+        alerts: { at80: true, forecastOver: true, at100: true },
+      },
       sendTelemetry: true,
       editor: { default: null, repos: {} },
     });
@@ -79,6 +85,11 @@ describe('SettingsStore', () => {
       workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
       showSplash: true,
       notifyOnDone: true,
+      claudeBudget: {
+        monthlyEur: null,
+        monthStartDay: 1,
+        alerts: { at80: true, forecastOver: true, at100: true },
+      },
       sendTelemetry: true,
       editor: { default: null, repos: {} },
     });
@@ -90,5 +101,29 @@ describe('SettingsStore', () => {
       s.save({ ...defaultSettings(), receiverPort: 80 }),
     ).rejects.toThrow();
     expect(s.get().receiverPort).toBe(4319);
+  });
+
+  it('fills claudeBudget with defaults for older settings files', async () => {
+    const f = file();
+    writeFileSync(
+      f,
+      JSON.stringify({ version: 1, receiverPort: 4319, hourlySync: true }),
+    );
+    const s = new SettingsStore(f);
+    await s.load();
+    expect(s.get().claudeBudget).toEqual({
+      monthlyEur: null,
+      monthStartDay: 1,
+      alerts: { at80: true, forecastOver: true, at100: true },
+    });
+  });
+
+  it('rejects a month start day after 28', () => {
+    expect(() =>
+      AppSettingsSchema.parse({
+        ...defaultSettings(),
+        claudeBudget: { ...defaultBudgetSettings(), monthStartDay: 29 },
+      }),
+    ).toThrow();
   });
 });

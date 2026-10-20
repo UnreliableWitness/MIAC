@@ -2491,6 +2491,10 @@ describe('handlers: usage', () => {
     const hx = await harness();
     const s = await hx.h['settings:get']();
     await hx.h['settings:save']({ ...s, hourlySync: false });
+    expect(hx.broadcasts).toContainEqual({
+      event: 'budget:changed',
+      payload: {},
+    });
     expect(hx.receiverStarts).toEqual([]);
     await hx.h['settings:save']({ ...s, receiverPort: 1999 });
     expect(hx.receiverStarts).toEqual([1999]);
