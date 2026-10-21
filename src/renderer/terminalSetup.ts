@@ -3,7 +3,8 @@ import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { api } from './api';
 import { currentColorScheme, onColorSchemeChange } from './colorScheme';
-import { terminalTheme } from './terminalTheme';
+import type { ColorScheme } from '../shared/theme';
+import { MIN_CONTRAST, terminalTheme } from './terminalTheme';
 
 /**
  * The system's own terminal fonts (Windows Terminal's Cascadia Mono, then Consolas; SF Mono or Menlo on macOS), nothing
@@ -18,6 +19,7 @@ export function terminalOptions(windowsBuild: number | null): ITerminalOptions {
     fontFamily: TERMINAL_FONT,
     fontSize: FONT_SIZE,
     theme: terminalTheme(currentColorScheme()),
+    minimumContrastRatio: MIN_CONTRAST[currentColorScheme()],
     cursorBlink: true,
     scrollback: 5000,
     allowProposedApi: true,
@@ -32,10 +34,18 @@ export function terminalOptions(windowsBuild: number | null): ITerminalOptions {
   };
 }
 
-/** Re-colours the terminal whenever the colour scheme changes; returns the unsubscribe. */
-export function followColorScheme(t: Pick<Terminal, 'options'>): () => void {
+/**
+ * Re-colours the terminal whenever the colour scheme changes, then calls `changed` (TerminalView tells the program,
+ * see TerminalManager.reportScheme); returns the unsubscribe.
+ */
+export function followColorScheme(
+  t: Pick<Terminal, 'options'>,
+  changed?: (s: ColorScheme) => void,
+): () => void {
   return onColorSchemeChange((s) => {
     t.options.theme = terminalTheme(s);
+    t.options.minimumContrastRatio = MIN_CONTRAST[s];
+    changed?.(s);
   });
 }
 

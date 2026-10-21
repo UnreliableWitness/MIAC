@@ -1,5 +1,5 @@
 import os from 'node:os';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   echoCmd,
   failCmd,
@@ -9,6 +9,8 @@ import {
 } from '../test-helpers/shell';
 import {
   normaliseExitCode,
+  schemeReport,
+  schemeReportsAfter,
   TerminalManager,
   UNKNOWN_EXIT,
 } from './TerminalManager';
@@ -73,6 +75,22 @@ describe('TerminalManager', () => {
     });
     await exited;
     expect(m.buffer('env1')).toContain('ids:task-env,task-env,env1');
+  });
+
+  it('tells programs that xterm draws 24-bit colour', async () => {
+    const m = create();
+    const exited = waitFor(m, 'ct');
+    m.spawn({
+      id: 'ct',
+      taskId: 't',
+      cwd: os.tmpdir(),
+      env: { COLORTERM: '' },
+      ...sh(
+        isWindows ? 'Write-Output "ct:$env:COLORTERM"' : 'echo ct:$COLORTERM',
+      ),
+    });
+    await exited;
+    expect(m.buffer('ct')).toContain('ct:truecolor');
   });
 
   it('writes to stdin and counts running terminals per task', async () => {
@@ -367,4 +385,42 @@ describe.runIf(isWindows)('run terminals on Windows', () => {
     m.spawn({ id: 'th', taskId: 't', cwd: os.tmpdir(), ...sh("throw 'boom'") });
     expect(await exited).toBe(1);
   });
+});
+
+describe('colour scheme reports (mode 2031)', () => {
+  it('follows the last set or reset of mode 2031, also among other modes', () => {
+    expect(schemeReportsAfter(false, 'hi')).toBe(false);
+    expect(schemeReportsAfter(false, '\x1b[?2031h')).toBe(true);
+    expect(schemeReportsAfter(false, '\x1b[?1004;2031;2004h')).toBe(true);
+    expect(schemeReportsAfter(true, 'x\x1b[?2031lx')).toBe(false);
+    expect(schemeReportsAfter(true, '\x1b[?2031l\x1b[?2031h')).toBe(true);
+    expect(schemeReportsAfter(true, '\x1b[?20310h\x1b[?12031l')).toBe(true);
+  });
+
+  it('reports dark as 1 and light as 2', () => {
+    expect(schemeReport('dark')).toBe('\x1b[?997;1n');
+    expect(schemeReport('light')).toBe('\x1b[?997;2n');
+  });
+
+  it.skipIf(isWindows)(
+    'writes the report only to a program that turned the mode on, even when split over chunks',
+    async () => {
+      const m = create();
+      const run = (id: string, cmd: string) =>
+        m.spawn({ id, taskId: 't', cwd: os.tmpdir(), ...sh(cmd) });
+      // The tty echoes what is written, so the report shows up in the output.
+      run('on', "printf '\\033[?20'; sleep 0.2; printf '31hREADY'; sleep 5");
+      run('off', "printf 'READY'; sleep 5");
+      await vi.waitFor(() => {
+        expect(m.buffer('on')).toContain('READY');
+        expect(m.buffer('off')).toContain('READY');
+      });
+      m.reportScheme('on', 'light');
+      m.reportScheme('off', 'light');
+      m.reportScheme('unknown', 'light');
+      await vi.waitFor(() => expect(m.buffer('on')).toContain('[?997;2n'));
+      await sleep(300);
+      expect(m.buffer('off')).not.toContain('997');
+    },
+  );
 });

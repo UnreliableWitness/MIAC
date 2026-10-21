@@ -147,6 +147,7 @@ const defaults: FakeHandlers = {
   }),
   'terminals:buffer': () => '',
   'terminals:isRunning': () => false,
+  'terminals:reportScheme': () => undefined,
   'terminals:write': () => undefined,
   'terminals:resize': () => undefined,
   'usage:receiverStatus': () => ({

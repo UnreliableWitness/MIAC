@@ -1,7 +1,11 @@
 import type { ITheme } from '@xterm/xterm';
 import type { ColorScheme } from '../shared/theme';
 
-/** xterm colours matched to tokens.css (xterm needs literal values, not CSS variables); ANSI from VS Code Dark Modern / Light Modern. */
+/**
+ * xterm colours (xterm needs literal values, not CSS variables); the backgrounds match `--bg-terminal` in tokens.css.
+ * Dark: VS Code Dark Modern ANSI on the ADO page ground. Light (#93): GitHub Light's ANSI, darkened where they were
+ * under 4.5:1 on the soft off-white ground, with a softer near-black text, so nothing glares and nothing is faint.
+ */
 export const TERMINAL_THEMES: Record<ColorScheme, ITheme> = {
   dark: {
     background: '#201f1e',
@@ -9,6 +13,10 @@ export const TERMINAL_THEMES: Record<ColorScheme, ITheme> = {
     cursor: '#5ca9f2',
     cursorAccent: '#201f1e',
     selectionBackground: 'rgba(0,120,212,0.4)',
+    selectionInactiveBackground: 'rgba(0,120,212,0.2)',
+    scrollbarSliderBackground: 'rgba(121,121,121,0.4)',
+    scrollbarSliderHoverBackground: 'rgba(100,100,100,0.7)',
+    scrollbarSliderActiveBackground: 'rgba(191,191,191,0.4)',
     black: '#1b1a19',
     red: '#f1707b',
     green: '#6ccb5f',
@@ -27,28 +35,42 @@ export const TERMINAL_THEMES: Record<ColorScheme, ITheme> = {
     brightWhite: '#ffffff',
   },
   light: {
-    background: '#faf9f8',
-    foreground: '#1f1f1f',
+    background: '#f7f6f4',
+    foreground: '#323130',
     cursor: '#005fb8',
-    cursorAccent: '#faf9f8',
-    selectionBackground: 'rgba(0,120,212,0.25)',
-    black: '#000000',
-    red: '#cd3131',
-    green: '#107c10',
-    yellow: '#949800',
-    blue: '#0451a5',
-    magenta: '#bc05bc',
-    cyan: '#0598bc',
-    white: '#555555',
-    brightBlack: '#666666',
-    brightRed: '#cd3131',
-    brightGreen: '#14ce14',
-    brightYellow: '#b5ba00',
-    brightBlue: '#0451a5',
-    brightMagenta: '#bc05bc',
-    brightCyan: '#0598bc',
-    brightWhite: '#a5a5a5',
+    cursorAccent: '#f7f6f4',
+    selectionBackground: 'rgba(0,120,212,0.22)',
+    selectionInactiveBackground: 'rgba(0,120,212,0.12)',
+    scrollbarSliderBackground: 'rgba(100,100,100,0.3)',
+    scrollbarSliderHoverBackground: 'rgba(100,100,100,0.5)',
+    scrollbarSliderActiveBackground: 'rgba(0,0,0,0.45)',
+    black: '#24292f',
+    red: '#cf222e',
+    green: '#116329',
+    yellow: '#7d4e00',
+    blue: '#0969da',
+    magenta: '#8250df',
+    cyan: '#1b7c83',
+    white: '#656d76',
+    brightBlack: '#57606a',
+    brightRed: '#a40e26',
+    brightGreen: '#1a7f37',
+    brightYellow: '#633c01',
+    brightBlue: '#0550ae',
+    brightMagenta: '#6639ba',
+    brightCyan: '#1b6e79',
+    brightWhite: '#8c959f',
   },
+};
+
+/**
+ * xterm's minimumContrastRatio per scheme. Light lifts any text under 4.5:1 (dim text under half that), as VS Code
+ * does: programs written for dark terminals (pale yellow, bright white, light blue) stay readable. Dark keeps colours
+ * as programs send them.
+ */
+export const MIN_CONTRAST: Record<ColorScheme, number> = {
+  dark: 1,
+  light: 4.5,
 };
 
 export const terminalTheme = (s: ColorScheme): ITheme => TERMINAL_THEMES[s];

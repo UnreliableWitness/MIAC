@@ -1102,6 +1102,45 @@ describe('handlers: Claude Code sessions', () => {
     });
   });
 
+  it('starts and resumes Claude Code with the theme settings file and every terminal with COLORFGBG', async () => {
+    const { platform, calls } = recording();
+    let scheme: 'light' | 'dark' = 'light';
+    const hx = await harness(fakeCrypto(), {
+      platform,
+      claudeSessionExists: () => true,
+      colorScheme: () => scheme,
+      claudeThemeSettings: () => `/cfg/claude-theme-${scheme}.json`,
+    });
+    const spawn = vi.spyOn(hx.terminals, 'spawn');
+    const done = hx.setupDone();
+    await hx.h['tasks:create'](
+      hx.input({ openShell: true, startClaude: true }),
+    );
+    await done;
+    const def = hx.store.state.tasks[0].terminals.find(
+      (x) => x.kind === 'claude',
+    );
+    expect(calls[0].flags).toEqual([
+      '--session-id',
+      def?.sessionId,
+      '--settings',
+      '/cfg/claude-theme-light.json',
+    ]);
+    expect(spawn.mock.calls.map((c) => c[0].env?.COLORFGBG)).toEqual([
+      '0;15',
+      '0;15',
+    ]);
+    scheme = 'dark';
+    await hx.h['terminals:restart'](def!.id);
+    expect(calls[1].flags).toEqual([
+      '--resume',
+      def?.sessionId,
+      '--settings',
+      '/cfg/claude-theme-dark.json',
+    ]);
+    expect(spawn.mock.calls.at(-1)?.[0].env?.COLORFGBG).toBe('15;0');
+  });
+
   it('continues the latest conversation for a Claude Code tab without a session id', async () => {
     const { platform, calls } = recording();
     const hx = await harness(fakeCrypto(), { platform });

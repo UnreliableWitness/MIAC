@@ -1,3 +1,4 @@
+import type { ColorScheme } from './theme';
 import type {
   Connection,
   ConnectionInput,
@@ -284,6 +285,11 @@ export type Channels = {
   'terminals:restart': { args: [id: string]; result: void };
   'terminals:buffer': { args: [id: string]; result: string };
   'terminals:isRunning': { args: [id: string]; result: boolean };
+  /** The renderer re-coloured this terminal; programs that asked (mode 2031) are told the scheme changed. */
+  'terminals:reportScheme': {
+    args: [id: string, scheme: ColorScheme];
+    result: void;
+  };
   /** The last Home snapshot (from disk at launch), null before the first build. */
   'home:get': { args: []; result: HomeSnapshot | null };
   /** Rebuilds the Home snapshot over every connection, or joins the rebuild already running. */
