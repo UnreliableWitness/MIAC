@@ -211,3 +211,32 @@ describe('summarize views', () => {
     expect(u.recent[0].costEur).toBeGreaterThan(0);
   });
 });
+
+describe('summarize byModel', () => {
+  it('totals billable usage per tool and readable model name, most expensive first', async () => {
+    const s = new UsageStore(dir(), () => OFFICIAL_RATES);
+    await s.load();
+    await s.add(ev({ id: 'a', model: 'claude-haiku-5-5' }));
+    await s.add(ev({ id: 'b', model: 'claude-sonnet-5-5' }));
+    await s.add(ev({ id: 'c', model: 'claude-sonnet-5-5-20261001' }));
+    await s.add(ev({ id: 'd', model: 'mystery-1', sessionId: 's2' }));
+    await s.add(ev({ id: 'e', model: 'claude-opus-5-5', sessionId: 's3' }));
+    await s.setBillable('t1', 's3', false);
+    const u = s.summarize('t1');
+    const cost = (ids: string[]) =>
+      s
+        .records('t1')
+        .filter((r) => ids.includes(r.id))
+        .reduce((n, r) => n + (r.costUsd ?? 0) * OFFICIAL_USD_TO_EUR, 0);
+    expect(u.byModel.map((m) => [m.label, m.requests])).toEqual([
+      ['Claude Sonnet 5.5', 2],
+      ['Claude Haiku 5.5', 1],
+      ['mystery-1', 1],
+    ]);
+    expect(u.byModel[0].model).toBe('claude-sonnet-5-5');
+    expect(u.byModel[0].costEur).toBeCloseTo(cost(['b', 'c']), 5);
+    expect(u.byModel[1].costEur).toBeCloseTo(cost(['a']), 5);
+    expect(u.byModel[2]).toMatchObject({ costEur: 0, unpricedRequests: 1 });
+    expect(u.byModel[0].tokens).toBe(2 * 13500);
+  });
+});

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import {
   OFFICIAL_USD_TO_EUR,
+  type ModelTotals,
   type Rate,
   type SessionSummary,
   type TaskUsage,
@@ -11,7 +12,7 @@ import {
   type UsageRecord,
   type UsageTool,
 } from '../../shared/usage';
-import { priceEvent, round6 } from '../pricing/RateTable';
+import { modelLabeler, priceEvent, round6 } from '../pricing/RateTable';
 import { JsonFileStore } from './JsonFileStore';
 
 const TOOLS: UsageTool[] = ['claude-code', 'copilot-cli'];
@@ -208,6 +209,31 @@ export class UsageStore extends EventEmitter<{ changed: [taskId: string] }> {
         costEur: round6(r.costUsd! * factor),
       }))
       .sort((a, b) => a.at.localeCompare(b.at));
+    const label = modelLabeler(this.rates());
+    const models = new Map<string, ModelTotals>();
+    for (const r of this.records(taskId)) {
+      if (!sessions.get(r.sessionId)!.billable) continue;
+      const name = label(r.model);
+      const key = `${r.tool}\u0000${name}`;
+      const m = models.get(key) ?? {
+        tool: r.tool,
+        model: r.model,
+        label: name,
+        costEur: 0,
+        tokens: 0,
+        requests: 0,
+        unpricedRequests: 0,
+      };
+      m.requests++;
+      m.tokens +=
+        r.inputTokens + r.outputTokens + r.cacheReadTokens + r.cacheWriteTokens;
+      if (r.costUsd === null) m.unpricedRequests++;
+      else m.costEur = round6(m.costEur + r.costUsd * factor);
+      models.set(key, m);
+    }
+    const byModel = [...models.values()].sort(
+      (a, b) => b.costEur - a.costEur || b.tokens - a.tokens,
+    );
     return {
       taskId,
       sessions: list,
@@ -220,6 +246,7 @@ export class UsageStore extends EventEmitter<{ changed: [taskId: string] }> {
       unpricedRequests: list.reduce((n, s) => n + s.unpricedRequests, 0),
       usdToEur: OFFICIAL_USD_TO_EUR,
       recent,
+      byModel,
     };
   }
 

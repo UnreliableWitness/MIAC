@@ -95,6 +95,34 @@ const usage: TaskUsage = {
     },
     'copilot-cli': { costUsd: 0, costEur: 0, sessions: 1, tokens: 1010 },
   },
+  byModel: [
+    {
+      tool: 'claude-code',
+      model: 'claude-opus-5-5',
+      label: 'Claude Opus 5.5',
+      costEur: 9.2,
+      tokens: 3_608_000,
+      requests: 3,
+      unpricedRequests: 0,
+    },
+    {
+      tool: 'copilot-cli',
+      model: 'mystery-1',
+      label: 'mystery-1',
+      costEur: 0,
+      tokens: 1010,
+      requests: 1,
+      unpricedRequests: 1,
+    },
+  ],
+};
+const twoModels: TaskUsage = {
+  ...usage,
+  billable: { ...usage.billable, costEur: 1234.56 },
+  byModel: [
+    { ...usage.byModel[0], label: 'Claude Sonnet 5.5', costEur: 1000 },
+    { ...usage.byModel[0], label: 'Claude Haiku 5.5', costEur: 234.56 },
+  ],
 };
 
 beforeEach(() => {
@@ -158,7 +186,7 @@ describe('UsagePanel', () => {
     expect(within(rows[1]).getByText('claude-opus-5-5')).toBeTruthy();
     expect(within(rows[1]).getByText(`${EURO}9.20`)).toBeTruthy();
     expect(within(rows[1]).getByText('3.9M')).toBeTruthy();
-    expect(screen.getByText('3.6M tokens')).toBeTruthy();
+    expect(screen.getByTestId('tokens-total')).toHaveTextContent('3.6M');
     expect(within(rows[2]).getByText('unpriced')).toBeTruthy();
     expect(
       screen.getByText(
@@ -285,11 +313,98 @@ describe('UsagePanel', () => {
     render(<UsagePanel taskId="gone" />);
     expect(screen.getByText('Task not found')).toBeTruthy();
   });
-  it('splits the billable ring by tool and shows the total', async () => {
+  it('splits the billable ring by model with a legend of name, euros and share', async () => {
+    installFakeApi({ 'usage:task': () => twoModels });
+    render(<UsagePanel taskId="t1" />);
+    const ring = await screen.findByRole('img', {
+      name: /Billable .*1234\.56/,
+    });
+    const segs = ring.querySelectorAll('[data-part="segment"]');
+    expect([...segs].map((x) => x.getAttribute('stroke'))).toEqual([
+      'var(--chart-sonnet)',
+      'var(--chart-haiku)',
+    ]);
+    expect([...segs].map((x) => x.getAttribute('data-fraction'))).toEqual([
+      '0.81',
+      '0.19',
+    ]);
+    expect(segs[0].querySelector('title')?.textContent).toMatch(
+      /Sonnet 5\.5 .*1000\.00/,
+    );
+    const legend = screen.getByRole('list', { name: 'Cost per model' });
+    const rows = within(legend).getAllByRole('listitem');
+    expect(rows.map((r) => r.textContent)).toEqual([
+      `Sonnet 5.5${EURO}1000.0081%`,
+      `Haiku 5.5${EURO}234.5619%`,
+    ]);
+    // The centre shows a short amount, sized down to stay inside the hole.
+    const value = ring.querySelector('[data-part="center-value"]')!;
+    expect(value.textContent).toBe(`${EURO}1,235`);
+    expect(Number(value.getAttribute('font-size'))).toBeLessThan(9);
+    expect(
+      ring.querySelector('[data-part="center-caption"]')?.textContent,
+    ).toBe('total');
+  });
+  it('shows a tiny share as <1%', async () => {
+    installFakeApi({
+      'usage:task': () => ({
+        ...twoModels,
+        byModel: [
+          { ...twoModels.byModel[0], costEur: 999 },
+          { ...twoModels.byModel[1], costEur: 1 },
+        ],
+      }),
+    });
+    render(<UsagePanel taskId="t1" />);
+    const legend = await screen.findByRole('list', { name: 'Cost per model' });
+    expect(within(legend).getAllByRole('listitem')[1]).toHaveTextContent('<1%');
+  });
+  it('lists an unpriced Copilot model without a share', async () => {
     installFakeApi({ 'usage:task': () => usage });
     render(<UsagePanel taskId="t1" />);
-    const ring = await screen.findByRole('img', { name: /Billable .*9\.20/ });
-    expect(ring.querySelectorAll('[data-part="segment"]')).toHaveLength(2);
+    const legend = await screen.findByRole('list', { name: 'Cost per model' });
+    const rows = within(legend).getAllByRole('listitem');
+    expect(rows.map((r) => r.textContent)).toEqual([
+      `Opus 5.5${EURO}9.20100%`,
+      'mystery-1 (Copilot)unpriced',
+    ]);
+    const ring = screen.getByRole('img', { name: /Billable/ });
+    expect(ring.querySelectorAll('[data-part="segment"]')).toHaveLength(1);
+  });
+  it('labels the hours under the 6 hour chart on bin edges and titles each bin', async () => {
+    const now = Date.parse('2026-10-14T10:07:00.000Z');
+    installFakeApi({
+      'usage:task': () => ({
+        ...usage,
+        recent: [
+          { at: '2026-10-14T09:20:00.000Z', tool: 'claude-code', costEur: 0.5 },
+        ],
+      }),
+    });
+    render(<UsagePanel taskId="t1" now={() => now} />);
+    await screen.findByRole('img', { name: /Cost per 15 minutes/ });
+    const bins = [...document.querySelectorAll('[data-part="bin"]')];
+    const starts = bins.map((b) => Number(b.getAttribute('data-start')));
+    const ticks = [...document.querySelectorAll('[data-part="tick"]')];
+    expect(ticks.length).toBeGreaterThanOrEqual(5);
+    const hhmm = (ms: number) =>
+      new Date(ms).toLocaleTimeString(undefined, {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    for (const tk of ticks) {
+      const at = Number(tk.getAttribute('data-at'));
+      expect(new Date(at).getMinutes()).toBe(0);
+      expect(tk.textContent).toBe(hhmm(at));
+      const edge = starts.indexOf(at);
+      const left = (tk as HTMLElement).style.left;
+      expect(left).toBe(`${(100 * (edge === -1 ? 24 : edge)) / 24}%`);
+    }
+    const used = bins.find((b) => b.getAttribute('title')?.includes(EURO));
+    expect(used?.getAttribute('title')).toBe(
+      `${hhmm(Date.parse('2026-10-14T09:15:00.000Z'))}${String.fromCharCode(0x2013)}${hhmm(Date.parse('2026-10-14T09:30:00.000Z'))} ${String.fromCharCode(0xb7)} ${EURO}0.50`,
+    );
+    expect(screen.getByText(/0\.50 in 6 h . 15 min bars/)).toBeInTheDocument();
   });
   it('marks a session with an event in the last 5 minutes as LIVE', async () => {
     const now = Date.parse('2026-10-14T10:03:00.000Z');

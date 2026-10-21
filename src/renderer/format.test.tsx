@@ -1,7 +1,29 @@
 import { describe, expect, it } from 'vitest';
-import { ago, compact, dateTime, duration, eur, sprintDates } from './format';
+import {
+  ago,
+  compact,
+  dateTime,
+  duration,
+  eur,
+  shortEur,
+  sprintDates,
+} from './format';
 
 describe('format', () => {
+  it('shortens euros for chart labels', () => {
+    const e = String.fromCharCode(0x20ac);
+    expect(
+      [0.5, 999.99, 999.996, 1234.56, 99_999.4, 123_456, -2].map(shortEur),
+    ).toEqual([
+      `${e}0.50`,
+      `${e}999.99`,
+      `${e}1,000`,
+      `${e}1,235`,
+      `${e}99,999`,
+      `${e}123k`,
+      `-${e}2.00`,
+    ]);
+  });
   it('formats euros, token counts and ages', () => {
     expect(eur(23.854)).toBe(`${String.fromCharCode(0x20ac)}23.85`);
     expect([compact(950), compact(412_000), compact(6_812_400)]).toEqual([

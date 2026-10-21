@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { BudgetView } from '../../../shared/budgetView';
 import { compact, eur } from '../../format';
 import { useBudget } from '../../hooks/useBudget';
+import { modelColor } from '../../modelColor';
 import { useStore } from '../../store';
 import { track } from '../../telemetry';
 import { Band } from './Band';
@@ -9,13 +10,7 @@ import { Band } from './Band';
 const INFO =
   "Estimated at Anthropic API list prices in EUR. Your company's invoice may differ. Claude models through Copilot aren't counted.";
 
-/** Works on raw ids and on labels ("Claude Opus 5.5"). */
-export function modelColor(model: string): string {
-  const m = model.toLowerCase();
-  for (const f of ['opus', 'sonnet', 'haiku', 'fable'] as const)
-    if (m.includes(f)) return `var(--chart-${f})`;
-  return 'var(--line-strong)';
-}
+export { modelColor };
 const PROVIDERS: Record<string, string> = {
   'github-copilot': 'GitHub Copilot',
   openai: 'OpenAI',

@@ -31,6 +31,7 @@ const usage = (
   taskId: 't',
   sessions,
   recent: [],
+  byModel: [],
   unpricedRequests: 0,
   usdToEur: 1,
   billable: { costUsd: 23.85, costEur: 23.854, tokens: 6812400 },
