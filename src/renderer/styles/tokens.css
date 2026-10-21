@@ -6,8 +6,12 @@
   --bg-card: #252423;
   /* The terminal ground, the same literal as TERMINAL_THEMES in terminalTheme.ts (xterm cannot read CSS variables). */
   --bg-terminal: #201f1e;
+  /* Side panes and toolbars next to a reading surface (the Changes file tree, #96); the page itself in dark. */
+  --bg-pane: #201f1e;
   --bg-hover: rgba(255, 255, 255, 0.04);
   --bg-selected: rgba(255, 255, 255, 0.08);
+  /* The selected row of a pane: in dark the same as --bg-selected. */
+  --bg-pane-selected: rgba(255, 255, 255, 0.08);
   --btn-hover: #2f2e2d;
   --line: rgba(255, 255, 255, 0.08);
   --line-strong: rgba(255, 255, 255, 0.16);
@@ -66,8 +70,12 @@
     --bg-card: #ffffff;
     /* A soft warm off-white, a step below the page, so a full screen of terminal does not glare (#93). */
     --bg-terminal: #f7f6f4;
+    /* The nav's grey, so the file tree and the Changes toolbar frame the diff instead of a wall of white (#96). */
+    --bg-pane: #f3f2f1;
     --bg-hover: rgba(0, 0, 0, 0.04);
     --bg-selected: rgba(0, 0, 0, 0.06);
+    /* ADO's soft blue selected row, clear of the grey hover on --bg-pane. */
+    --bg-pane-selected: #e8f1fb;
     --btn-hover: rgba(0, 0, 0, 0.06);
     --line: rgba(0, 0, 0, 0.08);
     --line-strong: rgba(0, 0, 0, 0.16);

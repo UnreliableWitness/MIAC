@@ -92,7 +92,9 @@ describe.each([
   ['light', LIGHT],
 ] as const)('%s tokens', (name, t) => {
   it.each(
-    TEXT.flatMap((fg) => ['--bg-page', '--bg-card'].map((bg) => [fg, bg])),
+    TEXT.flatMap((fg) =>
+      ['--bg-page', '--bg-card', '--bg-pane'].map((bg) => [fg, bg]),
+    ),
   )(`${name}: %s on %s is at least 4.5:1`, (fg, bg) =>
     expect(contrast(fg, bg, t)).toBeGreaterThanOrEqual(4.5),
   );
@@ -106,6 +108,30 @@ describe('button hover', () => {
     expect(DARK['--btn-hover']).toBe('#2f2e2d');
     expect(LIGHT['--btn-hover']).toBe('rgba(0, 0, 0, 0.06)');
   });
+});
+
+describe('panes (#96)', () => {
+  it('keep dark as it was: the page ground and the usual selected row', () => {
+    expect(DARK['--bg-pane']).toBe(DARK['--bg-page']);
+    expect(DARK['--bg-pane-selected']).toBe(DARK['--bg-selected']);
+  });
+  it('set the light file tree apart from the page and the diff', () => {
+    expect(LIGHT['--bg-pane']).not.toBe(LIGHT['--bg-page']);
+    expect(LIGHT['--bg-pane']).toBe(LIGHT['--bg-chrome']);
+  });
+  it.each(['dark', 'light'] as const)(
+    '%s: text on a selected pane row is at least 4.5:1',
+    (name) => {
+      const t = name === 'dark' ? DARK : LIGHT;
+      const sel = over(
+        parseColor(t['--bg-pane-selected']),
+        parseColor(t['--bg-pane']),
+      );
+      const withSel = { ...t, '--sel': `rgb(${sel.slice(0, 3).join(', ')})` };
+      for (const fg of TEXT)
+        expect(contrast(fg, '--sel', withSel), fg).toBeGreaterThanOrEqual(4.5);
+    },
+  );
 });
 
 describe('light block', () => {
