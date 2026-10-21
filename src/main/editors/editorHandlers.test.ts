@@ -14,6 +14,7 @@ afterAll(cleanupTempRepos);
 function setup() {
   const repo = makeRepo();
   const launch = vi.fn(async (_cmd: Command) => undefined);
+  const detect = vi.fn(async () => ({ vscode: 'code' }));
   const editors = new EditorService({
     platform: {
       editorCommand: (p) => ({ command: 'code', args: [p] }),
@@ -22,7 +23,7 @@ function setup() {
         args: [wt, '-g', `${f}:${l ?? 1}:1`],
       }),
     },
-    detect: async () => ({ vscode: 'code' }),
+    detect,
     scan: async () => ({ solutions: [], dotnet: false }),
     prefs: defaultEditorPrefs,
     savePrefs: async () => undefined,
@@ -34,6 +35,7 @@ function setup() {
   return {
     repo,
     launch,
+    detect,
     shown,
     h: createEditorHandlers({
       taskById: () => task,
@@ -56,6 +58,14 @@ describe('editor handlers', () => {
   it('lists options for the task’s home worktree', async () => {
     const { h } = setup();
     expect((await h['editor:options']('t1')).chosen).toBe('vscode');
+  });
+  it('looks for editors again when asked (the menu opening, #94)', async () => {
+    const { h, detect } = setup();
+    await h['editor:options']('t1');
+    await h['editor:options']('t1', undefined);
+    expect(detect).toHaveBeenCalledTimes(1);
+    await h['editor:options']('t1', undefined, true);
+    expect(detect).toHaveBeenCalledTimes(2);
   });
   it('opens a file inside the worktree at a line', async () => {
     const { h, launch, repo } = setup();
