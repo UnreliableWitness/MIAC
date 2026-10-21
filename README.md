@@ -23,6 +23,10 @@ Copilot and shell terminals, and an exact count of the AI cost and time the task
 
 </div>
 
+<p align="center">
+  <img src="docs/screenshots/task.png" alt="A Shellie task: Claude Code at work in the task's own worktree, next to the task list with the cost of each task" width="960" />
+</p>
+
 ---
 
 ## Why Shellie
@@ -55,6 +59,24 @@ flowchart LR
 4. **Review** the changes in a diff view, leave comments on lines and send them to an agent.
 5. **Finish**: Shellie pushes, opens a draft pull request linked to the work item, books the time and cleans up the
    worktree. Finished tasks keep their summary and can be reopened.
+
+## A look around
+
+<table>
+<tr>
+<td width="50%" valign="top"><img src="docs/screenshots/home.png" alt="Home: open tasks, pull requests, sprints and this week's stats" /><br /><b>Home</b>: your tasks, pull requests and sprints across organizations, with the week's cost and time.</td>
+<td width="50%" valign="top"><img src="docs/screenshots/sprint.png" alt="Sprint page in backlog order with time spent against estimate and Shellie status" /><br /><b>Sprint</b>: the current sprint in backlog order, time spent against the estimate, and Start on every row.</td>
+</tr>
+<tr>
+<td valign="top"><img src="docs/screenshots/changes.png" alt="Changes view with a diff of the task's work" /><br /><b>Changes</b>: everything the task changed, in the Monaco diff editor, with line comments for the agent.</td>
+<td valign="top"><img src="docs/screenshots/usage.png" alt="Usage tab with cost per model, tokens, time and the last six hours" /><br /><b>Usage</b>: cost per model, tokens, your time against the agents', and the last six hours.</td>
+</tr>
+<tr>
+<td colspan="2" valign="top"><img src="docs/screenshots/done.png" alt="Done page with duration, pull request, commits, cost and time booked" /><br /><b>Done</b>: what a finished task took: commits, the pull request, the AI cost and the time booked. Reopen brings it back.</td>
+</tr>
+</table>
+
+<sub>Screenshots show a demo project with demo usage data.</sub>
 
 ## Features
 
@@ -193,8 +215,13 @@ flowchart LR
   right task.
 - Prices come from a built-in table of official list prices and a fixed USD to EUR rate, so every teammate writes
   identical numbers.
-- Writing cost to Azure DevOps is off by default (**Settings → AI cost and invoicing**). Managers invoice from Azure DevOps queries on the
-  `Custom.AI*` fields.
+- Writing cost to Azure DevOps is off by default (**Settings → AI cost and invoicing**). Managers invoice from Azure
+  DevOps queries on the `Custom.AI*` fields.
+
+<p align="center"><img src="docs/screenshots/budget.png" alt="Claude budget band: spend this month against the budget, today's allowance, forecast and daily bars per model" width="820" /></p>
+
+The **Claude budget** on Home counts every Claude Code session on the machine, in Shellie or outside it (hatched), against a
+monthly budget, with what is left for today and a forecast for the month.
 
 ## Privacy
 
