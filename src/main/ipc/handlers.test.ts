@@ -1,6 +1,7 @@
 import {
   chmodSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -1236,6 +1237,37 @@ describe('handlers: reopen a finished task', () => {
     expect(await hx.h['tasks:reopen'](hx.t.id)).toEqual({ setup: true });
     return done;
   };
+
+  it('a folder an earlier cleanup left behind is replaced by the restored worktree (#91)', async () => {
+    const hx = await finished({ removeWorktree: true, deleteBranch: true });
+    const wt = hx.t.worktreePath;
+    // What a removal that git could not finish left on Windows (#87): files, no .git, no branch.
+    mkdirSync(wt, { recursive: true });
+    writeFileSync(path.join(wt, 'stray.txt'), 'left over');
+    await reopenSetup(hx);
+    const task = hx.store.state.tasks[0];
+    expect(task.status).toBe('ready');
+    expect(existsSync(path.join(wt, '.git'))).toBe(true);
+    expect(existsSync(path.join(wt, 'stray.txt'))).toBe(false);
+    expect(readFileSync(path.join(wt, 'feature.txt'), 'utf8')).toBe('a\n');
+    expect(git(wt, 'branch', '--show-current').trim()).toBe(task.branch);
+    await hx.terminals.killAllForTask(task.id);
+  });
+
+  it('a left-over folder stays when the branch cannot be restored (#91)', async () => {
+    const hx = await finished({ removeWorktree: true, deleteBranch: true });
+    const wt = hx.t.worktreePath;
+    mkdirSync(wt, { recursive: true });
+    writeFileSync(path.join(wt, 'stray.txt'), 'left over');
+    await hx.store.update((st) => {
+      st.tasks[0].summary = null;
+    });
+    await expect(hx.h['tasks:reopen'](hx.t.id)).rejects.toThrow(
+      /cannot be restored/,
+    );
+    expect(existsSync(path.join(wt, 'stray.txt'))).toBe(true);
+    expect(hx.store.state.tasks[0].status).toBe('done');
+  });
 
   it('Finish keeps the tabs it closed, so Reopen can bring them back', async () => {
     const hx = await finished({ removeWorktree: true, deleteBranch: false });

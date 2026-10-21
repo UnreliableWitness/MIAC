@@ -1800,23 +1800,38 @@ export function createHandlers(s: Services): Handlers {
           );
         // Per workspace still in the task: kept (folder there) or to be made again, and from where.
         const restores = new Map<string, { from: string | null }>();
+        // Folders an earlier cleanup could not finish (#87): no .git any more, so not a worktree.
+        const leftovers: { repoPath: string; path: string }[] = [];
         let via: string | null = null;
         for (const w of active) {
-          if (await pathExists(w.worktreePath)) {
+          const repoPath = () => s.repos.get(w.repoId).path;
+          if (
+            (await pathExists(w.worktreePath)) &&
+            !(await pathExists(path.join(w.worktreePath, '.git')))
+          )
+            leftovers.push({ repoPath: repoPath(), path: w.worktreePath });
+          else if (await pathExists(w.worktreePath)) {
             // A kept worktree is used as it is; the home's branch must still be there, as before #48.
             if (
               w.id === HOME_ID &&
-              !(await s.git.branchExists(s.repos.get(w.repoId).path, w.branch))
+              !(await s.git.branchExists(repoPath(), w.branch))
             )
               throw new Error(
                 `${w.worktreePath} exists but branch ${w.branch} is gone`,
               );
             continue;
           }
-          const source = await restoreSource(s.repos.get(w.repoId).path, w);
+          const source = await restoreSource(repoPath(), w);
           restores.set(w.id, { from: source.from });
           via ??= source.via;
         }
+        // Only once every branch can be restored: the leftovers go, so the worktrees can be made again.
+        for (const l of leftovers)
+          await s.git.worktreeRemove(l.repoPath, l.path, true).catch((e) => {
+            throw new Error(
+              `${l.path} is left over from an earlier cleanup and could not be deleted (${errorMessage(e)}). Delete it and reopen again.`,
+            );
+          });
         if (restores.size === 0) {
           // Every worktree was kept: back to ready with the tabs it had.
           const defs =
