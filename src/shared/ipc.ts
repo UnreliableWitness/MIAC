@@ -140,8 +140,9 @@ export type Channels = {
   'html:openExternal': { args: [taskId: string, path: string]; result: void };
   /** Installed editors; `refresh` looks again instead of using this launch's cached detection. */
   'editor:installed': { args: [refresh?: boolean]; result: EditorChoice[] };
+  /** `refresh` detects the installed editors again (the menu opening). */
   'editor:options': {
-    args: [taskId: string, workspaceId?: string];
+    args: [taskId: string, workspaceId?: string, refresh?: boolean];
     result: EditorOptions;
   };
   'editor:openFolder': {

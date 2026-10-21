@@ -56,6 +56,15 @@ describe('EditorService', () => {
     expect(detect).toHaveBeenCalledTimes(2);
   });
 
+  it('options can look for editors again, so one installed while Shellie runs shows up (#94)', async () => {
+    const { service, detect } = make();
+    await service.options('r1', '/wt');
+    await service.options('r1', '/wt');
+    expect(detect).toHaveBeenCalledTimes(1);
+    await service.options('r1', '/wt', true);
+    expect(detect).toHaveBeenCalledTimes(2);
+  });
+
   it('opens a .NET worktree’s solution in Visual Studio and reports it', async () => {
     const { service, launch, event } = make({
       solutions: ['App.sln'],

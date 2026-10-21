@@ -26,7 +26,7 @@ export type EditorServiceDeps = {
   event: (name: string, props?: TelemetryProps) => void;
 };
 
-/** Picks and starts the developer's editor for a worktree; detection is cached until `choices(true)`. */
+/** Picks and starts the developer's editor for a worktree; detection is cached until `choices(true)` or `options(…, true)`. */
 export class EditorService {
   private found: Promise<Installed> | null = null;
 
@@ -45,9 +45,14 @@ export class EditorService {
     }));
   }
 
-  async options(repoId: string, worktree: string): Promise<EditorOptions> {
+  /** `refresh` detects again (the menu opening), so an editor installed while Shellie runs shows up. */
+  async options(
+    repoId: string,
+    worktree: string,
+    refresh = false,
+  ): Promise<EditorOptions> {
     const [editors, project] = await Promise.all([
-      this.choices(),
+      this.choices(refresh),
       this.d
         .scan(worktree)
         .catch(() => ({ solutions: [] as string[], dotnet: false })),

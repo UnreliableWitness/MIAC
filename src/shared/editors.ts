@@ -36,7 +36,7 @@ export const defaultEditorPrefs = (): EditorPrefs => ({
 export type EditorOptions = {
   editors: EditorChoice[];
   chosen: EditorId | null;
-  /** Visual Studio solutions (`.sln`, `.slnx`) in the worktree root or one folder down, relative. */
+  /** Visual Studio solutions (`.sln`, `.slnx`) in the worktree root or up to two folders down, relative. */
   solutions: string[];
   solution: string | null;
 };
