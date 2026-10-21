@@ -35,26 +35,49 @@
 .up-billable h3 {
   align-self: flex-start;
 }
-.up-total {
-  position: absolute;
-  top: 98px;
-  font-size: 20px;
+.ring-value {
+  font-family: var(--font-code);
   font-weight: 600;
+  fill: var(--text);
 }
-.up-sub {
-  position: absolute;
-  top: 126px;
-  font-size: 11px;
-  color: var(--muted);
+.ring-caption {
+  font-family: var(--font-code);
+  fill: var(--muted);
 }
-.up-split {
-  display: flex;
-  justify-content: space-between;
+.ring circle[data-part='segment'] {
+  cursor: default;
+}
+.up-models {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   width: 100%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: 4px 8px;
+  align-items: baseline;
   font-size: 12px;
 }
-.up-split b {
+.up-models li {
+  display: contents;
+}
+.up-models .dot {
+  align-self: center;
+}
+.up-model-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.up-models b {
   font-weight: 600;
+  font-size: 12px;
+  text-align: right;
+}
+.up-share {
+  font-size: 11px;
+  min-width: 3ch;
+  text-align: right;
 }
 .up-mixrow {
   display: grid;
@@ -75,9 +98,77 @@
   border-radius: 2px;
   background: var(--chart-claude);
 }
+.up-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.up-chart {
+  display: flex;
+  flex-direction: column;
+}
+/* One grid column per bin with no gap, so bin edges sit at exact fractions and the hour labels line up. */
 .up-timeline {
-  width: 100%;
   height: 56px;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  align-items: end;
+  border-bottom: 1px solid var(--line-strong);
+}
+.up-bin {
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  padding: 0 1px;
+}
+.up-bin:hover {
+  background: var(--bg-hover);
+}
+.up-bin > span {
+  display: block;
+  width: 100%;
+  min-height: 2px;
+  border-radius: 2px 2px 0 0;
+}
+.up-bin.is-empty > span {
+  opacity: 0.6;
+}
+.up-axis {
+  position: relative;
+  height: 20px;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.up-axis span {
+  position: absolute;
+  top: 0;
+  padding-top: 6px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+.up-axis span::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  height: 4px;
+  border-left: 1px solid var(--line-strong);
+}
+.up-axis span.is-first {
+  transform: none;
+}
+.up-axis span.is-first::before {
+  left: 0;
+}
+.up-axis span.is-last {
+  transform: translateX(-100%);
+}
+.up-axis span.is-last::before {
+  left: auto;
+  right: 0;
 }
 .up-caption {
   font-size: 12px;
@@ -130,7 +221,7 @@
   font-weight: 600;
   margin-left: 6px;
 }
-rect.is-live {
+.up-bin.is-live > span {
   animation: pulse 1.6s ease-in-out infinite;
 }
 @keyframes pulse {
@@ -196,4 +287,80 @@ rect.is-live {
 details summary {
   cursor: pointer;
   color: var(--link);
+}
+/* Time card */
+.time-summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+.time-big {
+  font-size: 20px;
+  font-weight: 600;
+}
+.time-summary b {
+  font-weight: 600;
+}
+.time-stack {
+  display: flex;
+  height: 12px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--bg-selected);
+}
+.time-stack i {
+  display: block;
+  height: 100%;
+}
+.time-stack i + i {
+  border-left: 2px solid var(--bg-card);
+}
+.time-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.time-legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.time-legend b {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 12px;
+}
+.dot.is-rest {
+  background: var(--bg-selected);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+.time-agents {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  gap: 4px 12px;
+  align-items: center;
+  margin-top: 4px;
+}
+.time-agents-head {
+  grid-column: 1 / -1;
+}
+.time-agent {
+  display: contents;
+}
+.time-track {
+  height: 6px;
+  border-radius: 2px;
+  background: var(--bg-selected);
+  overflow: hidden;
+}
+.time-track i {
+  display: block;
+  height: 100%;
 }

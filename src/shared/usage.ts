@@ -110,6 +110,19 @@ export type ToolTotals = { costUsd: number; sessions: number; tokens: number };
 /** One billable, priced request from the last 6 hours, for the usage timeline. */
 export type RecentPoint = { at: string; tool: UsageTool; costEur: number };
 
+/** Billable usage of one model (by readable label) through one tool, for the Usage tab's ring. */
+export type ModelTotals = {
+  tool: UsageTool;
+  /** The first raw model id seen, such as `claude-sonnet-5-5`. */
+  model: string;
+  /** The rate table's readable name, such as "Claude Sonnet 5.5", else the normalized id. */
+  label: string;
+  costEur: number;
+  tokens: number;
+  requests: number;
+  unpricedRequests: number;
+};
+
 export type TaskUsage = {
   taskId: string;
   sessions: SessionSummary[];
@@ -118,6 +131,8 @@ export type TaskUsage = {
   unpricedRequests: number;
   usdToEur: number;
   recent: RecentPoint[];
+  /** Billable sessions per model, most expensive first. */
+  byModel: ModelTotals[];
 };
 
 export type ReceiverStatus = {

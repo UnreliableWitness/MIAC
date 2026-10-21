@@ -1,6 +1,16 @@
 export { formatDuration } from '../shared/time';
 export { eur } from '../shared/workItemUsage';
 
+/** A euro amount short enough for a chart label: cents under €1,000, whole euros up to €100k, then "€123k". */
+export const shortEur = (n: number): string => {
+  const e = String.fromCharCode(0x20ac);
+  const a = Math.abs(n);
+  if (a < 999.995) return `${n < 0 ? '-' : ''}${e}${a.toFixed(2)}`;
+  if (a < 99_999.5)
+    return `${n < 0 ? '-' : ''}${e}${Math.round(a).toLocaleString('en-US')}`;
+  return `${n < 0 ? '-' : ''}${e}${Math.round(a / 1000).toLocaleString('en-US')}k`;
+};
+
 export const compact = (n: number): string =>
   n >= 1_000_000
     ? `${(n / 1_000_000).toFixed(1)}M`

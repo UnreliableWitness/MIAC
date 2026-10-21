@@ -1,14 +1,23 @@
 import { useEffect, useState } from 'react';
-import type { FieldsStatus } from '../../shared/usage';
+import type { FieldsStatus, ModelTotals } from '../../shared/usage';
 import { AI_FIELDS } from '../../shared/usage';
-import { isLive, timeline, tokenMix, type Bin } from '../../shared/usageViews';
+import {
+  hourTicks,
+  isLive,
+  modelLegendName,
+  modelShares,
+  timeline,
+  tokenMix,
+  type Bin,
+} from '../../shared/usageViews';
 import { aiFieldValues, renderUsageComment } from '../../shared/workItemUsage';
 import { pushedBranches } from '../../shared/workspaces';
 import { api, tryInvoke } from '../api';
-import { ago, compact, eur } from '../format';
+import { ago, compact, eur, shortEur } from '../format';
 import { useClock } from '../hooks/useClock';
 import { useTaskUsage } from '../hooks/useTaskUsage';
 import { useWriteCostToAdo } from '../hooks/useWriteCostToAdo';
+import { usageModelColor } from '../modelColor';
 import { useStore } from '../store';
 import { TimePanel } from './TimePanel';
 import { RingGauge } from './ui';
@@ -29,38 +38,118 @@ const when = (iso: string) =>
     minute: '2-digit',
   });
 
+const clock = (ms: number) =>
+  new Date(ms).toLocaleTimeString(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+const DASH = String.fromCharCode(0x2013);
+
+function binTitle(b: Bin): string {
+  const range = `${clock(b.start)}${DASH}${clock(b.end)}`;
+  if (b.costEur === 0) return `${range} ${DOT} no usage`;
+  const both =
+    b.byTool['claude-code'] > 0 && b.byTool['copilot-cli'] > 0
+      ? ` (Claude ${eur(b.byTool['claude-code'])}, Copilot ${eur(b.byTool['copilot-cli'])})`
+      : '';
+  return `${range} ${DOT} ${eur(b.costEur)}${both}`;
+}
+
 function Timeline({ bins, live }: { bins: Bin[]; live: boolean }) {
   const maxBin = Math.max(0, ...bins.map((b) => b.costEur));
+  const ticks = hourTicks(bins);
   return (
-    <svg
-      role="img"
-      aria-label="Cost per 15 minutes, last 6 hours"
-      viewBox="0 0 240 56"
-      preserveAspectRatio="none"
-      className="up-timeline"
-    >
-      {bins.map((b, i) => {
-        const h = maxBin > 0 ? Math.max(2, (52 * b.costEur) / maxBin) : 2;
-        const fill =
-          b.dominant === 'claude-code'
-            ? 'var(--chart-claude)'
-            : b.dominant === 'copilot-cli'
-              ? 'var(--chart-copilot)'
-              : 'var(--line-strong)';
-        return (
-          <rect
-            key={b.start}
-            data-part="bin"
-            className={live && i === bins.length - 1 ? 'is-live' : undefined}
-            x={i * 10}
-            y={56 - h}
-            width={8}
-            height={h}
-            fill={fill}
-          />
-        );
-      })}
-    </svg>
+    <div className="up-chart">
+      <div
+        role="img"
+        aria-label="Cost per 15 minutes, last 6 hours"
+        className="up-timeline"
+      >
+        {bins.map((b, i) => {
+          const fill =
+            b.dominant === 'claude-code'
+              ? 'var(--chart-claude)'
+              : b.dominant === 'copilot-cli'
+                ? 'var(--chart-copilot)'
+                : 'var(--line-strong)';
+          const cls = [
+            'up-bin',
+            live && i === bins.length - 1 ? 'is-live' : '',
+            b.costEur > 0 ? '' : 'is-empty',
+          ]
+            .filter(Boolean)
+            .join(' ');
+          return (
+            <div
+              key={b.start}
+              data-part="bin"
+              data-start={b.start}
+              className={cls}
+              title={binTitle(b)}
+            >
+              <span
+                style={{
+                  height:
+                    maxBin > 0 && b.costEur > 0
+                      ? `${(100 * b.costEur) / maxBin}%`
+                      : undefined,
+                  background: fill,
+                }}
+              />
+            </div>
+          );
+        })}
+      </div>
+      <div className="up-axis" aria-hidden="true">
+        {ticks.map((t) => (
+          <span
+            key={t.at}
+            data-part="tick"
+            data-at={t.at}
+            className={
+              t.edge === 0
+                ? 'is-first'
+                : t.edge === bins.length
+                  ? 'is-last'
+                  : undefined
+            }
+            style={{ left: `${(100 * t.edge) / bins.length}%` }}
+          >
+            {clock(t.at)}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ModelLegend({ models }: { models: ModelTotals[] }) {
+  const shares = modelShares(models);
+  if (models.length === 0)
+    return <div className="small muted">No usage yet</div>;
+  return (
+    <ul className="up-models" aria-label="Cost per model">
+      {models.map((m, i) => (
+        <li key={`${m.tool}-${m.label}`} data-part="model">
+          <i className="dot" style={{ background: usageModelColor(m) }} />
+          <span className="up-model-name" title={m.label}>
+            {modelLegendName(m)}
+          </span>
+          <b className="mono">
+            {m.costEur === 0 && m.unpricedRequests > 0
+              ? 'unpriced'
+              : eur(m.costEur)}
+          </b>
+          <span className="mono muted up-share">
+            {shares[i] === 0
+              ? ''
+              : shares[i] < 0.005
+                ? '<1%'
+                : `${Math.round(shares[i] * 100)}%`}
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -137,8 +226,10 @@ export function UsagePanel({
 
   const t = now();
   const total = usage?.billable.costEur ?? 0;
-  const claude = usage?.byTool['claude-code'].costEur ?? 0;
-  const copilot = usage?.byTool['copilot-cli'].costEur ?? 0;
+  const models = usage?.byModel ?? [];
+  const priced = models.filter((m) => m.costEur > 0);
+  const bins = timeline(usage?.recent ?? [], t);
+  const windowEur = bins.reduce((n, b) => n + b.costEur, 0);
   const mix = usage ? tokenMix(usage) : null;
   const mixRows = mix
     ? [
@@ -159,36 +250,30 @@ export function UsagePanel({
           <RingGauge
             size={150}
             value={total}
-            max={Math.max(total, 0.0001)}
+            max={Math.max(
+              priced.reduce((n, m) => n + m.costEur, 0),
+              0.0001,
+            )}
             label={`Billable ${eur(total)}`}
-            segments={[
-              { value: claude, color: 'var(--chart-claude)' },
-              { value: copilot, color: 'var(--chart-copilot)' },
-            ]}
+            center={{
+              value: shortEur(total),
+              caption: 'total',
+            }}
+            segments={priced.map((m) => ({
+              value: m.costEur,
+              color: usageModelColor(m),
+              title: `${modelLegendName(m)} ${DOT} ${eur(m.costEur)}`,
+            }))}
           />
-          <div className="up-total mono">{eur(total)}</div>
-          <div className="up-sub mono">
-            {compact(usage?.billable.tokens ?? 0)} tokens
-          </div>
-          <div className="up-split">
-            <span>
-              <i
-                className="dot"
-                style={{ background: 'var(--chart-claude)' }}
-              />{' '}
-              Claude <b className="mono">{eur(claude)}</b>
-            </span>
-            <span>
-              <i
-                className="dot"
-                style={{ background: 'var(--chart-copilot)' }}
-              />{' '}
-              Copilot <b className="mono">{eur(copilot)}</b>
-            </span>
-          </div>
+          <ModelLegend models={models} />
         </div>
         <div className="card up-box">
-          <h3>Tokens</h3>
+          <div className="up-head">
+            <h3>Tokens</h3>
+            <span className="mono small muted" data-testid="tokens-total">
+              {compact(usage?.billable.tokens ?? 0)}
+            </span>
+          </div>
           {mixRows.map(([label, v]) => (
             <div key={label} className="up-mixrow">
               <span className="small muted">{label}</span>
@@ -206,8 +291,13 @@ export function UsagePanel({
       <div className="up-col up-main">
         <TimePanel taskId={taskId} />
         <div className="card up-box">
-          <h3>Last 6 hours</h3>
-          <Timeline bins={timeline(usage?.recent ?? [], t)} live={anyLive} />
+          <div className="up-head">
+            <h3>Last 6 hours</h3>
+            <span className="small muted">
+              {`${eur(windowEur)} in 6 h ${DOT} 15 min bars`}
+            </span>
+          </div>
+          <Timeline bins={bins} live={anyLive} />
         </div>
         {usage && usage.unpricedRequests > 0 && (
           <div className="check check-warn">{`${usage.unpricedRequests} ${usage.unpricedRequests === 1 ? 'request uses a model' : 'requests use models'} that ${usage.unpricedRequests === 1 ? 'is' : 'are'} not in Shellie's official price list yet, so ${usage.unpricedRequests === 1 ? 'it is' : 'they are'} not in the totals. A Shellie update will add ${usage.unpricedRequests === 1 ? 'it' : 'them'}.`}</div>

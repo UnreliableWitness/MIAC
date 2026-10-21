@@ -37,6 +37,37 @@ describe('TimePanel', () => {
     expect(screen.getByText('1h 40m')).toBeInTheDocument();
   });
 
+  it('draws the wall clock as one bar split into you, agents alone and the rest, with a legend and agent bars', async () => {
+    installFakeApi({ 'time:task': () => time });
+    render(<TimePanel taskId="t1" />);
+    const stack = await screen.findByTestId('time-stack');
+    const parts = [...stack.querySelectorAll('i')].map((i) => [
+      i.getAttribute('data-part'),
+      i.getAttribute('data-seconds'),
+      (i as HTMLElement).style.width,
+    ]);
+    expect(parts).toEqual([
+      ['you', '11400', '57%'],
+      ['agents', '600', '3%'],
+      ['rest', '8000', '40%'],
+    ]);
+    expect(screen.getByTestId('time-both')).toHaveTextContent('3h 20m');
+    expect(screen.getByTestId('time-wall')).toHaveTextContent(
+      'of 5h 33m wall clock (work hours)',
+    );
+    const legend = screen.getByRole('list', { name: 'Time legend' });
+    expect(legend).toHaveTextContent('You in Shellie 3h 10m');
+    expect(legend).toHaveTextContent('Agents alone 10m');
+    expect(legend).toHaveTextContent('Rest of the wall clock 2h 13m');
+    const claude = document.querySelector('[data-part="agent-claude-code"]')!;
+    expect(claude).toHaveTextContent('Claude Code');
+    expect(claude).toHaveTextContent('1h 40m');
+    expect(
+      (claude.querySelector('.time-track i') as HTMLElement).style.width,
+    ).toBe('30%');
+    expect(document.querySelector('[data-part="agent-opencode"]')).toBeNull();
+  });
+
   it('shows the booking and the estimate bar', async () => {
     installFakeApi({
       'time:task': () => ({

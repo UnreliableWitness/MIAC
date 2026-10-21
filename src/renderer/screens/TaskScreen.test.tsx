@@ -461,6 +461,7 @@ describe('TaskScreen', () => {
         taskId: id,
         sessions: [],
         recent: [],
+        byModel: [],
         unpricedRequests: 0,
         usdToEur: 0.92,
         billable: { costUsd: 25, costEur: 23, tokens: 1 },
