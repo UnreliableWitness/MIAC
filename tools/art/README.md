@@ -19,5 +19,5 @@ ls -l assets/art/<name>.jpg   # must be under 400 KB; if not, re-run with format
 Log each pick in `assets/ART.md`: the date, model, prompt, which candidate won and why, and the post-processing.
 Rejected candidates stay local.
 
-The app icon is the picked Gemini picture `assets/icon/shellie-art.jpg`, placed by the four `assets/icon/*.svg`;
+The app icon is not Gemini art: it is the vector clam drawn in the four `assets/icon/*.svg` (see `assets/ART.md`);
 `npm run icons` renders the PNGs, `.ico` and `.icns` from them.

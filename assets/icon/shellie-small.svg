@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <!-- Windows, 16-32 px: the same picture cropped closer to the shell, on a full-bleed tile. -->
-  <defs>
-    <clipPath id="tile"><rect x="0" y="0" width="512" height="512" rx="88"/></clipPath>
-  </defs>
-  <image href="shellie-art.jpg" x="-96.3" y="-96.3" width="704.7" height="704.7" clip-path="url(#tile)"/>
+  <!-- Windows, 16-32 px: the same clam with fewer facets, almost to the edge. -->
+  <polygon fill="#122f5c" points="508,209 497,323 421,421 301,476 169,474 60,416 4,316 58,193 154,90 211,48 279,64 409,118"/>
+  <polygon fill="#1f56a8" points="448,173 439,264 378,342 282,387 177,385 90,338 44,259 87,160 164,78 210,45 265,57 368,100"/>
+  <polygon fill="#a9d0f8" points="381,133 375,200 331,256 262,288 185,287 122,253 89,196 120,124 176,65 209,40 249,49 324,81"/>
+  <polygon fill="#f1f7ff" points="309,90 305,129 280,162 239,181 194,181 157,161 138,127 156,85 189,50 208,36 231,41 275,60"/>
 </svg>
