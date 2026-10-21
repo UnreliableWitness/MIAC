@@ -98,7 +98,8 @@ import type { UsageReceiver } from '../usage/UsageReceiver';
 import type { UsageStore } from '../usage/UsageStore';
 import { UsageSync } from '../usage/UsageSync';
 import { renderCostLine } from '../../shared/workItemUsage';
-import type { ThemeChoice } from '../../shared/theme';
+import type { ColorScheme, ThemeChoice } from '../../shared/theme';
+import { colorFgBg } from '../services/claudeTheme';
 import type { TimeBooking } from '../../shared/time';
 import { errorMessage } from '../../shared/errors';
 import { OFFICIAL_USD_TO_EUR } from '../../shared/usage';
@@ -143,6 +144,13 @@ export type Services = {
   /** Sees what is typed into a terminal (main estimates OpenCode agent time from it). */
   onTerminalInput?: (id: string, data: string) => void;
   settings: SettingsStore;
+  /** The colour scheme on screen (main: nativeTheme); absent in tests, where terminals get no COLORFGBG. */
+  colorScheme?: () => ColorScheme;
+  /**
+   * The settings file Claude Code tabs pass with --settings to pick a theme that suits the scheme on screen
+   * (main: claudeTheme.ts), null to leave the user's theme; absent in tests.
+   */
+  claudeThemeSettings?: () => string | null;
   /** Sets nativeTheme.themeSource (main); absent in tests that don't care. */
   applyTheme?: (theme: ThemeChoice) => void;
   appVersion: string;
@@ -624,17 +632,25 @@ export function createHandlers(s: Services): Handlers {
         // A folder removed by hand would make Claude refuse to start.
         .filter((w) => w.worktreePath !== cwd && existsSync(w.worktreePath))
         .flatMap((w) => ['--add-dir', w.worktreePath]);
+      const themeFile = s.claudeThemeSettings?.() ?? null;
+      const theme = themeFile ? ['--settings', themeFile] : [];
       if (resume && !def.sessionId)
-        return s.platform.claudeCommand(null, ['--continue', ...dirs]);
+        return s.platform.claudeCommand(null, [
+          '--continue',
+          ...dirs,
+          ...theme,
+        ]);
       if (resume && def.sessionId && sessionExists(def.sessionId))
         return s.platform.claudeCommand(null, [
           '--resume',
           def.sessionId,
           ...dirs,
+          ...theme,
         ]);
       return s.platform.claudeCommand(claudeContext(task), [
         ...(def.sessionId ? ['--session-id', def.sessionId] : []),
         ...dirs,
+        ...theme,
       ]);
     }
     if (def.kind === 'run' && def.setupCommands)
@@ -656,6 +672,7 @@ export function createHandlers(s: Services): Handlers {
       args: cmd.args,
       env: {
         ...telemetryEnv(task.id, s.settings.get().receiverPort, s.usageDir),
+        ...(s.colorScheme ? { COLORFGBG: colorFgBg(s.colorScheme()) } : {}),
         ...s.terminalEnv?.(def),
         ...cmd.env,
       },
@@ -2052,6 +2069,8 @@ export function createHandlers(s: Services): Handlers {
     },
     'terminals:buffer': async (id) => s.terminals.buffer(id),
     'terminals:isRunning': async (id) => s.terminals.isRunning(id),
+    'terminals:reportScheme': async (id, scheme) =>
+      s.terminals.reportScheme(id, scheme === 'dark' ? 'dark' : 'light'),
     'connections:list': async () => s.connections.list(),
     'connections:save': async (input) => {
       // Verify with a throwaway client before anything is written, so a bad token never lands on disk.

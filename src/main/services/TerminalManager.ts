@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import * as pty from 'node-pty';
+import type { ColorScheme } from '../../shared/theme';
 
 export type SpawnOptions = {
   id: string;
@@ -17,11 +18,34 @@ type Entry = {
   proc: pty.IPty;
   exited: boolean;
   buffer: string;
+  /** The program turned on colour scheme reports (DEC private mode 2031), so a scheme change is pushed to it. */
+  schemeReports: boolean;
+  /** The last characters of the output, so a mode switch split over two chunks is still seen. */
+  tail: string;
   /** Resolves when the process exits, also after the entry was replaced or forgotten. */
   exit: Promise<void>;
 };
 
 const BUFFER_LIMIT = 200_000;
+/** Longer than any `CSI ? … 2031 h` a program sends, so a split one is caught on the next chunk. */
+const TAIL = 64;
+/** DEC private mode set (h) or reset (l) with 2031 among its parameters. */
+// eslint-disable-next-line no-control-regex -- matching the escape character is the point
+const MODE_2031 = /\x1b\[\?(?:\d+;)*2031(?:;\d+)*([hl])/g;
+
+/**
+ * Whether colour scheme reports (mode 2031, Contour's dark/light notifications, used by Claude Code) are on after
+ * `text`, given whether they were on before: the last set or reset in it wins.
+ */
+export function schemeReportsAfter(on: boolean, text: string): boolean {
+  let last: string | undefined;
+  for (const m of text.matchAll(MODE_2031)) last = m[1];
+  return last === undefined ? on : last === 'h';
+}
+
+/** The report of a scheme change: CSI ? 997 ; 1 n for dark, 2 for light. */
+export const schemeReport = (s: ColorScheme): string =>
+  `\x1b[?997;${s === 'dark' ? 1 : 2}n`;
 /** How long kill waits for the exit before giving up (a process that ignores the kill must not block Finish). */
 const KILL_WAIT_MS = 3000;
 
@@ -52,6 +76,9 @@ export class TerminalManager extends EventEmitter<{
       if (v !== undefined) env[k] = v;
     Object.assign(env, options.env ?? {});
     env.TERM = 'xterm-256color';
+    // xterm.js draws 24-bit colour; without this, programs started from the Dock or Start menu (no COLORTERM in
+    // the environment) fall back to 256 colours, which bends Claude Code's theme colours (as VS Code sets it).
+    env.COLORTERM = 'truecolor';
     env.SHELLIE_TASK_ID = options.taskId;
     env.MIAC_TASK_ID = options.taskId; // for scripts written before the rename
     env.SHELLIE_TERMINAL_ID = options.id;
@@ -72,12 +99,23 @@ export class TerminalManager extends EventEmitter<{
     const exit = new Promise<void>((r) => {
       exitResolve = r;
     });
-    const entry: Entry = { options, proc, exited: false, buffer: '', exit };
+    const entry: Entry = {
+      options,
+      proc,
+      exited: false,
+      buffer: '',
+      schemeReports: false,
+      tail: '',
+      exit,
+    };
     this.entries.set(options.id, entry);
     proc.onData((data) => {
       if (this.entries.get(options.id) !== entry) return;
       // Trimmed lazily; buffer() returns only the last BUFFER_LIMIT characters.
       entry.buffer += data;
+      const seen = entry.tail + data;
+      entry.schemeReports = schemeReportsAfter(entry.schemeReports, seen);
+      entry.tail = seen.slice(-TAIL);
       if (entry.buffer.length > 2 * BUFFER_LIMIT)
         entry.buffer = entry.buffer.slice(-BUFFER_LIMIT);
       this.emit('data', options.id, data);
@@ -93,6 +131,15 @@ export class TerminalManager extends EventEmitter<{
   write(id: string, data: string): void {
     const e = this.get(id);
     if (!e.exited) e.proc.write(data);
+  }
+
+  /**
+   * Tells the program the colour scheme changed, when it asked for that (mode 2031). The renderer calls this after
+   * it re-coloured the terminal, so a program that then asks for the background (OSC 11) gets the new one.
+   */
+  reportScheme(id: string, scheme: ColorScheme): void {
+    const e = this.entries.get(id);
+    if (e && !e.exited && e.schemeReports) e.proc.write(schemeReport(scheme));
   }
 
   resize(id: string, cols: number, rows: number): void {

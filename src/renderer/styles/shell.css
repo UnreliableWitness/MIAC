@@ -604,6 +604,8 @@ button.projecttile:hover {
   position: absolute;
   inset: 0;
   padding: 8px 8px 8px 16px;
+  /* The padding in the terminal's own ground, so the terminal reads as one surface. */
+  background: var(--bg-terminal);
 }
 .termview[hidden] {
   display: none;
