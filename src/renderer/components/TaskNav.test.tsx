@@ -267,7 +267,7 @@ describe('TaskNav', () => {
   it('draws Done as a section header aligned with Tasks, with a chevron (#11)', async () => {
     installFakeApi();
     render(<TaskNav />);
-    const tasksHeader = screen.getByText('Tasks');
+    const tasksHeader = screen.getByText('Tasks').closest('.nav-section')!;
     const done = screen.getByRole('button', { name: 'Done (1)' });
     expect(done).toHaveClass('nav-section');
     expect(tasksHeader).toHaveClass('nav-section');
@@ -421,6 +421,68 @@ describe('TaskNav', () => {
     const row = screen.getByRole('button', { name: /48213/ });
     expect(row).toHaveTextContent('Checkout: save address');
     expect(row).not.toHaveTextContent('feature/48213-a');
+  });
+});
+
+describe('TaskNav task actions (#95)', () => {
+  beforeEach(() => {
+    installFakeApi({ 'usage:task': emptyUsage });
+    useStore.setState({ repos, tasks, connections: [], navCollapsed: false });
+  });
+
+  it('has New task at the Tasks header, marked current on its page', async () => {
+    useStore.setState({ screen: { kind: 'sprint' } });
+    render(<TaskNav />);
+    const head = screen.getByText('Tasks').closest('.nav-section')!;
+    const add = within(head as HTMLElement).getByRole('button', {
+      name: 'New task',
+    });
+    await userEvent.click(add);
+    expect(useStore.getState().screen).toEqual({ kind: 'new-task' });
+    expect(add).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('shows a primary Finish task under the current ready task only', async () => {
+    useStore.setState({ selectedTaskId: 'a', screen: { kind: 'task' } });
+    render(<TaskNav />);
+    const finish = screen.getAllByRole('button', { name: 'Finish task' });
+    expect(finish).toHaveLength(1);
+    expect(finish[0]).toHaveClass('btn-primary');
+    // Right after the task's own row.
+    const row = screen.getByRole('button', { name: /48213/ });
+    expect(row.nextElementSibling).toContainElement(finish[0]);
+    await userEvent.click(finish[0]);
+    expect(useStore.getState().screen).toEqual({ kind: 'finish', taskId: 'a' });
+    // On the Finish page itself it steps aside.
+    expect(screen.queryByRole('button', { name: 'Finish task' })).toBeNull();
+  });
+
+  it('has no Finish away from a task, and a disabled Finishing… while it runs', () => {
+    useStore.setState({ selectedTaskId: 'a', screen: { kind: 'sprint' } });
+    const { unmount } = render(<TaskNav />);
+    expect(screen.queryByRole('button', { name: 'Finish task' })).toBeNull();
+    unmount();
+    useStore.setState({
+      tasks: [{ ...tasks[0], status: 'finishing' }, ...tasks.slice(1)],
+      screen: { kind: 'finish', taskId: 'a' },
+    });
+    render(<TaskNav />);
+    expect(screen.getByRole('button', { name: 'Finishing…' })).toBeDisabled();
+  });
+
+  it('keeps New task and Finish task in the collapsed rail', async () => {
+    useStore.setState({
+      selectedTaskId: 'a',
+      screen: { kind: 'task' },
+      navCollapsed: true,
+    });
+    render(<TaskNav />);
+    await userEvent.click(screen.getByRole('button', { name: 'Finish task' }));
+    expect(useStore.getState().screen).toEqual({ kind: 'finish', taskId: 'a' });
+    const add = screen.getByRole('button', { name: 'New task' });
+    expect(add).toHaveAttribute('title', 'New task');
+    await userEvent.click(add);
+    expect(useStore.getState().screen).toEqual({ kind: 'new-task' });
   });
 });
 

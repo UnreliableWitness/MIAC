@@ -1,4 +1,4 @@
-import { Add20Regular, Settings20Regular } from '@fluentui/react-icons';
+import { Settings20Regular } from '@fluentui/react-icons';
 import { Fragment, type ReactNode, useState } from 'react';
 import type { TaskView } from '../../shared/types';
 import { api, tryInvoke } from '../api';
@@ -181,7 +181,7 @@ function Crumb({
   );
 }
 
-/** The 40 px header: logo and breadcrumb on the left, New task and Settings on the right. */
+/** The 40 px header: logo and breadcrumb on the left, Settings on the right; New task lives in the nav (#95). */
 export function HeaderBar() {
   const screen = useStore((s) => s.screen);
   const go = useStore((s) => s.go);
@@ -256,14 +256,6 @@ export function HeaderBar() {
         ))}
       </nav>
       <span className="spacer" />
-      <button
-        type="button"
-        className="btn btn-primary"
-        onClick={() => go({ kind: 'new-task' })}
-      >
-        <Add20Regular aria-hidden="true" />
-        New task
-      </button>
       <IconButton label="Settings" onClick={() => go({ kind: 'settings' })}>
         <Settings20Regular />
       </IconButton>
