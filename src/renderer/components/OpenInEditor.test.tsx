@@ -59,7 +59,7 @@ describe('OpenInEditor', () => {
     await openMenu();
     fireEvent.click(screen.getByRole('menuitem', { name: 'Open in VS Code' }));
     expect(sent(calls, 'editor:openFolder')).toEqual([
-      ['t1', 'w2', { solution: 'tools/B.sln' }],
+      ['t1', 'w2', { editorId: 'visualstudio', solution: 'tools/B.sln' }],
       ['t1', 'w2', { editorId: 'vscode' }],
     ]);
   });
@@ -100,5 +100,39 @@ describe('OpenInEditor', () => {
         'Open in Visual Studio',
       ),
     );
+  });
+
+  // #94: Visual Studio must be on offer whenever it is installed, also when VS Code is the choice.
+  it('lists every installed editor and Visual Studio’s solutions when VS Code is chosen', async () => {
+    const { calls } = installFakeApi(
+      options({ chosen: 'vscode', solutions: ['A.sln', 'src/Dxp/Dxp.sln'] }),
+    );
+    render(<OpenInEditor taskId="t1" />);
+    await openMenu();
+    expect(screen.getAllByRole('menuitem').map((m) => m.textContent)).toEqual([
+      'Open in VS Code',
+      'Open in Visual Studio',
+      'Open A.slnA.sln',
+      'Open Dxp.slnsrc/Dxp/Dxp.sln',
+    ]);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Open Dxp.sln' }));
+    expect(sent(calls, 'editor:openFolder')).toEqual([
+      [
+        't1',
+        undefined,
+        { editorId: 'visualstudio', solution: 'src/Dxp/Dxp.sln' },
+      ],
+    ]);
+  });
+
+  it('looks for editors again each time its menu opens (#94)', async () => {
+    const { calls } = installFakeApi(options());
+    render(<OpenInEditor taskId="t1" workspaceId="w2" />);
+    await openMenu();
+    await waitFor(() =>
+      expect(sent(calls, 'editor:options')).toContainEqual(['t1', 'w2', true]),
+    );
+    // The first load (no menu yet) uses the cached detection.
+    expect(sent(calls, 'editor:options')[0]).toEqual(['t1', 'w2', false]);
   });
 });

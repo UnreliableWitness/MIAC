@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
+import type { ColorScheme } from '../../shared/theme';
 import { api, tryInvoke } from '../api';
+import { currentColorScheme } from '../colorScheme';
 import { useStore } from '../store';
 import { attachClipboardKeys, isMac } from '../terminalClipboard';
 import { createLinkProvider } from '../terminalLinks';
@@ -49,7 +51,12 @@ export function TerminalView({
     t.loadAddon(f);
     attachClipboardKeys(t, isMac, navigator.clipboard);
     term.current = t;
-    const offScheme = followColorScheme(t);
+    // Programs that asked for scheme reports (Claude Code's auto theme) hear of the switch and ask for the new colours.
+    const report = (scheme: ColorScheme) =>
+      void api()
+        .invoke('terminals:reportScheme', terminalId, scheme)
+        .catch(() => undefined);
+    const offScheme = followColorScheme(t, report);
     const unregister = registerTerminal(terminalId, t);
     let live = true;
     let links: { dispose(): void } | null = null;
@@ -120,6 +127,9 @@ export function TerminalView({
       );
       observer.observe(el);
       sendSize.current();
+      // xterm answers colour queries only once open; the scheme may also have changed while this view was not
+      // mounted. Telling again is harmless.
+      report(currentColorScheme());
     });
 
     return () => {

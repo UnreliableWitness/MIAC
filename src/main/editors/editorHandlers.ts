@@ -30,9 +30,9 @@ export function createEditorHandlers(d: {
     existingWorkspace(d.taskById(taskId), workspaceId);
   return {
     'editor:installed': async (refresh) => d.editors.choices(Boolean(refresh)),
-    'editor:options': async (taskId, workspaceId) => {
+    'editor:options': async (taskId, workspaceId, refresh) => {
       const ws = worktree(taskId, workspaceId);
-      return d.editors.options(ws.repoId, ws.worktreePath);
+      return d.editors.options(ws.repoId, ws.worktreePath, Boolean(refresh));
     },
     'editor:openFolder': async (taskId, workspaceId, o) => {
       const ws = worktree(taskId, workspaceId);

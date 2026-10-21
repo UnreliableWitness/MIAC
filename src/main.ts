@@ -53,6 +53,11 @@ import {
 import { OpenCodeReader, openCodeDbPath } from './main/budget/openCode';
 import { createPlatform } from './main/platform';
 import { AdoRegistry } from './main/services/AdoRegistry';
+import {
+  claudeThemeFor,
+  claudeThemeSettingsFile,
+  readClaudeTheme,
+} from './main/services/claudeTheme';
 import { ConnectionStore } from './main/services/ConnectionStore';
 import { GitClient } from './main/services/GitClient';
 import { connectionIdForPath, createGitAuth } from './main/services/gitAuth';
@@ -599,6 +604,18 @@ async function boot(): Promise<void> {
       budget,
       applyTheme: (theme) => {
         nativeTheme.themeSource = theme;
+      },
+      colorScheme: scheme,
+      claudeThemeSettings: () => {
+        const theme = claudeThemeFor(readClaudeTheme(), scheme());
+        try {
+          return theme
+            ? claudeThemeSettingsFile(path.join(userData, 'claude'), theme)
+            : null;
+        } catch (e) {
+          console.error('[terminals] could not write the Claude theme file', e);
+          return null;
+        }
       },
       update: {
         pending: () => pendingUpdate,

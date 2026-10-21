@@ -4,7 +4,7 @@ import {
   followColorScheme,
   terminalOptions,
 } from './terminalSetup';
-import { TERMINAL_THEMES } from './terminalTheme';
+import { MIN_CONTRAST, TERMINAL_THEMES } from './terminalTheme';
 import { setTestColorScheme } from './testColorScheme';
 
 describe('terminalOptions', () => {
@@ -29,19 +29,29 @@ describe('terminalOptions', () => {
 
   it('starts a terminal in the scheme on screen', () => {
     expect(terminalOptions(null).theme).toBe(TERMINAL_THEMES.dark);
+    expect(terminalOptions(null).minimumContrastRatio).toBe(MIN_CONTRAST.dark);
     setTestColorScheme('light');
     expect(terminalOptions(null).theme).toBe(TERMINAL_THEMES.light);
+    expect(terminalOptions(null).minimumContrastRatio).toBe(MIN_CONTRAST.light);
   });
 });
 
 describe('followColorScheme', () => {
-  it('re-colours the terminal on a switch, until unsubscribed', () => {
+  it('re-colours the terminal on a switch, then reports it, until unsubscribed', () => {
     const t = { options: {} };
-    const off = followColorScheme(t);
+    const seen: unknown[] = [];
+    const off = followColorScheme(t, (s) => seen.push([s, { ...t.options }]));
     setTestColorScheme('light');
-    expect(t.options).toEqual({ theme: TERMINAL_THEMES.light });
+    const light = {
+      theme: TERMINAL_THEMES.light,
+      minimumContrastRatio: MIN_CONTRAST.light,
+    };
+    expect(t.options).toEqual(light);
+    // Reported after the re-colour, so a program asking for the background then gets the new one.
+    expect(seen).toEqual([['light', light]]);
     off();
     setTestColorScheme('dark');
-    expect(t.options).toEqual({ theme: TERMINAL_THEMES.light });
+    expect(t.options).toEqual(light);
+    expect(seen).toHaveLength(1);
   });
 });

@@ -13,8 +13,9 @@ import { PopupMenu } from './ui';
 const fileName = (p: string) => p.split(/[\\/]/).at(-1) ?? p;
 
 /**
- * Opens the worktree folder in Explorer or Finder (#73); the menu opens it in an editor instead (the chosen one
- * first) or one of Visual Studio's solutions.
+ * Opens the worktree folder in Explorer or Finder (#73); the menu opens it in any installed editor instead (the
+ * chosen one first; Visual Studio opens the solution, or the folder when there is none) or one of Visual Studio's
+ * solutions.
  */
 export function OpenInEditor({
   taskId,
@@ -41,7 +42,8 @@ export function OpenInEditor({
     if (!visible) return;
     let live = true;
     void api()
-      .invoke('editor:options', taskId, workspaceId)
+      // Opening the menu detects again, so an editor installed since shows up (#94).
+      .invoke('editor:options', taskId, workspaceId, opens > 0)
       .then((o) => {
         if (live) setOpts(o);
       })
@@ -74,8 +76,10 @@ export function OpenInEditor({
         ...(opts?.editors.filter((e) => e.id !== chosen) ?? []),
       ]
     : [];
+  // Visual Studio's solutions whenever it is installed, also when another editor is the choice (#94).
   const solutions =
-    chosen === 'visualstudio' && opts && opts.solutions.length > 1
+    opts?.editors.some((e) => e.id === 'visualstudio') &&
+    opts.solutions.length > 1
       ? opts.solutions
       : [];
   return (
@@ -132,7 +136,7 @@ export function OpenInEditor({
             role="menuitem"
             className="menu-item"
             aria-label={`Open ${fileName(s)}`}
-            onClick={() => open({ solution: s })}
+            onClick={() => open({ editorId: 'visualstudio', solution: s })}
           >
             <span className="menu-title">{`Open ${fileName(s)}`}</span>
             <span className="small muted mono">{s}</span>

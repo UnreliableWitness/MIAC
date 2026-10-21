@@ -4,6 +4,8 @@
   --bg-page: #201f1e;
   --bg-chrome: #1b1a19;
   --bg-card: #252423;
+  /* The terminal ground, the same literal as TERMINAL_THEMES in terminalTheme.ts (xterm cannot read CSS variables). */
+  --bg-terminal: #201f1e;
   --bg-hover: rgba(255, 255, 255, 0.04);
   --bg-selected: rgba(255, 255, 255, 0.08);
   --btn-hover: #2f2e2d;
@@ -62,6 +64,8 @@
     --bg-page: #faf9f8;
     --bg-chrome: #f3f2f1;
     --bg-card: #ffffff;
+    /* A soft warm off-white, a step below the page, so a full screen of terminal does not glare (#93). */
+    --bg-terminal: #f7f6f4;
     --bg-hover: rgba(0, 0, 0, 0.04);
     --bg-selected: rgba(0, 0, 0, 0.06);
     --btn-hover: rgba(0, 0, 0, 0.06);
