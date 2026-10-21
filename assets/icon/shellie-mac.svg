@@ -1,8 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <!-- macOS, 64 px and up: the conch on Apple's icon grid (824 of 1024, centred), with a soft shadow below
-       the tile like other Dock icons. -->
+  <!-- macOS, 64 px and up: the clam on a pale blue tile on Apple's icon grid (824 of 1024, centred),
+       with a soft shadow below the tile like other Dock icons. -->
   <defs>
-    <clipPath id="tile"><rect x="50" y="50" width="412" height="412" rx="92"/></clipPath>
     <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
       <feGaussianBlur in="SourceAlpha" stdDeviation="8"/>
       <feOffset dy="6"/>
@@ -10,6 +9,9 @@
       <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
   </defs>
-  <rect x="50" y="50" width="412" height="412" rx="92" fill="#0f1a2e" filter="url(#shadow)"/>
-  <image href="shellie-art.jpg" x="32.5" y="32.5" width="446.9" height="446.9" clip-path="url(#tile)"/>
+  <rect x="50" y="50" width="412" height="412" rx="92" fill="#dbeafb" filter="url(#shadow)"/>
+  <polygon fill="#122f5c" points="412,225 409,285 375,341 318,379 249,394 181,382 128,345 100,291 123,226 179,166 214,132 243,126 289,143 365,175"/>
+  <polygon fill="#1f56a8" points="375,202 372,251 345,295 300,326 244,338 190,328 147,299 125,256 143,204 188,156 217,128 239,123 276,137 337,162"/>
+  <polygon fill="#a9d0f8" points="334,178 332,213 312,245 279,268 239,276 199,269 169,248 153,216 166,179 198,144 219,124 235,121 262,130 306,149"/>
+  <polygon fill="#f1f7ff" points="289,151 288,172 276,191 257,204 233,209 210,205 192,192 183,174 190,152 210,131 222,120 231,118 247,123 273,134"/>
 </svg>

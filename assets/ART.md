@@ -63,6 +63,16 @@ Generated with `tools/art/generate.mjs` (see `tools/art/README.md`). Rejected ca
 
 ## App icon (assets/icon)
 
+Since 2026-10-21 the app icon is a vector clam, not a Gemini picture: the conch sat small inside its navy tile and its
+detail turned to mush at taskbar sizes, so next to other Windows icons it looked shrunken. In a brainstorm with mockups
+at real sizes the owner picked a faceted clam (hinge up, tilted 12°, four growth bands from near-white `#f1f7ff`
+through `#a9d0f8` and `#1f56a8` to a navy rim `#122f5c`) over conch, nautilus, cowrie and scallop shapes, asked for
+more contrast than the first pass, and picked a pale blue tile (`#dbeafb`) for macOS. No ribs or ears, to stay clear of
+the Shell oil scallop. On Windows the clam fills the square with no tile; the -small drawings have fewer facets.
+`assets/icon/shellie-art.jpg` is gone; the history below is kept for the record.
+
+### The Gemini conch (2026-10-18 to 2026-10-21)
+
 - Generated 2026-10-18 with `gemini-2.5-flash-image`, one candidate per subject (nautilus, scallop, prompt, hermit
   crab, conch; prompts in the "App icon" section of `tools/art/prompts.md`).
 - Pick: the owner chose the conch (`icon-conch-2026-10-18-08-09-11.png`, kept local): an upright faceted conch with a

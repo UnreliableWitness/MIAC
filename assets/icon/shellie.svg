@@ -1,7 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <!-- Windows, 48 px and up: the Gemini conch (assets/ART.md) on a near-full-bleed tile. -->
-  <defs>
-    <clipPath id="tile"><rect x="16" y="16" width="480" height="480" rx="72"/></clipPath>
-  </defs>
-  <image href="shellie-art.jpg" x="-4.3" y="-4.3" width="520.7" height="520.7" clip-path="url(#tile)"/>
+  <!-- Windows, 48 px and up: a faceted clam, hinge up, tilted slightly, filling the square with no tile.
+       Four growth bands from near-white at the hinge to a navy rim, so it holds on light and dark taskbars. -->
+  <polygon fill="#122f5c" points="496,208 491,301 439,386 352,446 245,469 140,450 59,393 16,310 51,210 137,118 192,65 235,56 307,82 423,131"/>
+  <polygon fill="#1f56a8" points="439,174 435,248 393,316 323,364 238,382 154,367 89,322 55,255 83,175 151,102 195,59 230,52 288,73 380,112"/>
+  <polygon fill="#a9d0f8" points="375,136 373,190 343,240 292,274 230,287 169,276 122,244 97,195 117,137 167,84 199,53 224,48 266,63 333,91"/>
+  <polygon fill="#f1f7ff" points="306,95 305,127 287,156 257,176 221,184 186,177 158,158 143,130 155,96 184,64 203,46 218,43 242,52 282,69"/>
 </svg>

@@ -1,7 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <!-- macOS, 16-32 px: the closer crop on Apple's icon grid, no shadow. -->
-  <defs>
-    <clipPath id="tile"><rect x="50" y="50" width="412" height="412" rx="92"/></clipPath>
-  </defs>
-  <image href="shellie-art.jpg" x="-27.5" y="-27.5" width="567.1" height="567.1" clip-path="url(#tile)"/>
+  <!-- macOS, 16-32 px: the clam larger on the tile, fewer facets, no shadow. -->
+  <rect x="50" y="50" width="412" height="412" rx="92" fill="#dbeafb"/>
+  <polygon fill="#122f5c" points="430,223 422,302 370,370 287,408 196,407 121,366 82,297 119,212 186,142 225,113 272,123 362,161"/>
+  <polygon fill="#1f56a8" points="388,199 382,262 341,316 274,346 201,345 141,313 110,258 140,190 193,133 224,110 262,119 334,149"/>
+  <polygon fill="#a9d0f8" points="343,171 338,217 308,256 260,278 207,278 163,254 141,214 162,165 201,124 223,107 251,113 303,135"/>
+  <polygon fill="#f1f7ff" points="293,142 290,168 272,191 244,204 213,204 188,190 174,167 187,138 209,114 223,104 239,108 269,120"/>
 </svg>

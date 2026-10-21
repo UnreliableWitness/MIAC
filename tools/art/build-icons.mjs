@@ -19,13 +19,7 @@ const root = path.resolve(
   '../..',
 );
 const dir = path.join(root, 'assets/icon');
-// The SVGs place the picked Gemini picture (shellie-art.jpg); resvg gets it inlined as a data URL.
-const art = `data:image/jpeg;base64,${readFileSync(path.join(dir, 'shellie-art.jpg')).toString('base64')}`;
-const read = (name) =>
-  readFileSync(path.join(dir, name), 'utf8').replace(
-    'href="shellie-art.jpg"',
-    `href="${art}"`,
-  );
+const read = (name) => readFileSync(path.join(dir, name), 'utf8');
 const windows = { big: read('shellie.svg'), small: read('shellie-small.svg') };
 const mac = {
   big: read('shellie-mac.svg'),
@@ -33,8 +27,8 @@ const mac = {
 };
 const SIZES = [16, 24, 32, 48, 64, 128, 256, 512, 1024];
 
-// Each SVG draws its platform's whole icon: Windows on a near-full-bleed tile, macOS on Apple's grid (a tile of
-// 824 of 1024, centred). 16-32 px use the -small drawings, cropped closer to the shell.
+// Each SVG draws its platform's whole icon: Windows the clam alone, filling the square, macOS the clam on Apple's
+// grid (a tile of 824 of 1024, centred). 16-32 px use the -small drawings, with fewer facets and the clam larger.
 const render = (set, size) =>
   Buffer.from(
     new Resvg(size <= 32 ? set.small : set.big, {
