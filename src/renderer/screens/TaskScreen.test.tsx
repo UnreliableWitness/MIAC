@@ -691,6 +691,32 @@ describe('tabs and focus', () => {
     );
   });
 
+  it('offers Finish task once: in the nav, in the rail, or in the tab row in Focus (#95)', async () => {
+    setup();
+    render(<Shell />);
+    await screen.findByTestId('term-c1');
+    const finish = () => screen.getAllByRole('button', { name: 'Finish task' });
+    const nav = () => screen.queryByRole('navigation', { name: 'Tasks' });
+    expect(finish()).toHaveLength(1);
+    expect(nav()).toContainElement(finish()[0]);
+    // Focus hides the nav, so the tab row takes Finish, as a primary button.
+    fireEvent.keyDown(window, FOCUS_KEYS);
+    expect(nav()).toBeNull();
+    expect(finish()).toHaveLength(1);
+    expect(finish()[0]).toHaveClass('btn-primary');
+    expect(
+      within(
+        screen.getByRole('tablist', { name: 'Terminals' }).parentElement!,
+      ).getByRole('button', { name: 'Finish task' }),
+    ).toBe(finish()[0]);
+    // Focus with the rail: the rail has it.
+    act(() => useStore.setState({ navCollapsed: true }));
+    expect(finish()).toHaveLength(1);
+    expect(nav()).toContainElement(finish()[0]);
+    await userEvent.click(finish()[0]);
+    expect(useStore.getState().screen).toEqual({ kind: 'finish', taskId: 'a' });
+  });
+
   it('shows a new-usage dot on the Usage tab until it is selected', async () => {
     const { emit } = setup();
     render(<Shell />);

@@ -1,5 +1,9 @@
 import {
+  Add16Regular,
+  Add20Regular,
   ArrowSprint20Regular,
+  CheckmarkCircle16Regular,
+  CheckmarkCircle20Regular,
   ChevronDown12Regular,
   ChevronRight12Regular,
   Document16Regular,
@@ -9,6 +13,7 @@ import {
   Settings20Regular,
 } from '@fluentui/react-icons';
 import {
+  Fragment,
   type KeyboardEvent,
   type ReactNode,
   useEffect,
@@ -137,6 +142,98 @@ function RailRow({ task }: { task: TaskView }) {
       <TypeIcon task={task} />
       {waiting && <AttentionDot entry={waiting} />}
     </button>
+  );
+}
+
+/** Whether the Finish action shows for a current task: ready, and not on its own Finish page already. */
+function useShowsFinish(task: TaskView) {
+  const current = useIsCurrent(task.id);
+  const onFinish = useStore((s) => s.screen.kind === 'finish');
+  return current && !onFinish && task.status === 'ready';
+}
+
+const FINISH_TITLE = 'Finish task: check changes, push, book time, clean up';
+
+/** The current task's primary action, right under its row (#95): one click opens the Finish page, which asks first. */
+function FinishAction({ task }: { task: TaskView }) {
+  const go = useStore((s) => s.go);
+  const shows = useShowsFinish(task);
+  const current = useIsCurrent(task.id);
+  if (current && task.status === 'finishing')
+    return (
+      <div className="nav-task-action">
+        <button type="button" className="btn btn-primary nav-finish" disabled>
+          Finishing…
+        </button>
+      </div>
+    );
+  if (!shows) return null;
+  return (
+    <div className="nav-task-action">
+      <button
+        type="button"
+        className="btn btn-primary nav-finish"
+        aria-label="Finish task"
+        title={FINISH_TITLE}
+        onClick={() => go({ kind: 'finish', taskId: task.id })}
+      >
+        <CheckmarkCircle16Regular aria-hidden="true" />
+        Finish task
+      </button>
+    </div>
+  );
+}
+
+/** The rail's Finish: a filled square under the current task's icon. */
+function RailFinish({ task }: { task: TaskView }) {
+  const go = useStore((s) => s.go);
+  if (!useShowsFinish(task)) return null;
+  return (
+    <button
+      type="button"
+      className="railrow rail-finish"
+      aria-label="Finish task"
+      title={FINISH_TITLE}
+      onClick={() => go({ kind: 'finish', taskId: task.id })}
+    >
+      <span className="rail-finish-mark">
+        <CheckmarkCircle20Regular aria-hidden="true" />
+      </span>
+    </button>
+  );
+}
+
+/** Tasks section header with New task on its right; in the rail a + icon heads the task icons. */
+function TasksHead({ rail }: { rail: boolean }) {
+  const go = useStore((s) => s.go);
+  const current = useStore((s) => s.screen.kind === 'new-task');
+  if (rail)
+    return (
+      <button
+        type="button"
+        className="railrow rail-new"
+        aria-label="New task"
+        title="New task"
+        aria-current={current ? 'true' : undefined}
+        onClick={() => go({ kind: 'new-task' })}
+      >
+        <Add20Regular aria-hidden="true" />
+      </button>
+    );
+  return (
+    <div className="nav-section nav-tasks-head">
+      <span className="spacer">Tasks</span>
+      <button
+        type="button"
+        className="nav-new"
+        title="New task from a work item or a blank one"
+        aria-current={current ? 'page' : undefined}
+        onClick={() => go({ kind: 'new-task' })}
+      >
+        <Add16Regular aria-hidden="true" />
+        New task
+      </button>
+    </div>
   );
 }
 
@@ -327,15 +424,21 @@ export function TaskNav() {
         onClick={() => go({ kind: 'sprint' })}
       />
       <div className="leftnav-scroll">
-        {!rail && <div className="nav-section">Tasks</div>}
+        <TasksHead rail={rail} />
         {open.map(({ repo, tasks: list }) => (
           <div key={repo.id} role="group" aria-label={repo.name}>
             {!rail && <div className="nav-subhead">{repo.name}</div>}
             {list.map((t) =>
               rail ? (
-                <RailRow key={t.id} task={t} />
+                <Fragment key={t.id}>
+                  <RailRow task={t} />
+                  <RailFinish task={t} />
+                </Fragment>
               ) : (
-                <Row key={t.id} task={t} />
+                <Fragment key={t.id}>
+                  <Row task={t} />
+                  <FinishAction task={t} />
+                </Fragment>
               ),
             )}
           </div>

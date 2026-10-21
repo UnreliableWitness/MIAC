@@ -168,11 +168,10 @@ describe('HeaderBar', () => {
     );
     expect(useStore.getState().screen).toEqual({ kind: 'home' });
   });
-  it('has New task and Settings actions', async () => {
+  it('has Settings, and New task no longer (it moved to the nav, #95)', async () => {
     installFakeApi();
     render(<HeaderBar />);
-    await userEvent.click(screen.getByRole('button', { name: 'New task' }));
-    expect(useStore.getState().screen).toEqual({ kind: 'new-task' });
+    expect(screen.queryByRole('button', { name: 'New task' })).toBeNull();
     await userEvent.click(screen.getByRole('button', { name: 'Settings' }));
     expect(useStore.getState().screen).toEqual({ kind: 'settings' });
   });

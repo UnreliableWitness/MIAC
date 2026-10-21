@@ -1,6 +1,7 @@
 import {
   Branch16Regular,
   BranchCompare16Regular,
+  CheckmarkCircle16Regular,
   Dismiss12Regular,
   Warning16Regular,
   DataPie16Regular,
@@ -171,6 +172,7 @@ export function TerminalTabs({
     visible && ready && active !== CHANGES_TAB,
   );
   const toggleFocus = useStore((s) => s.toggleFocus);
+  const navCollapsed = useStore((s) => s.navCollapsed);
   const views = useStore((s) => s.viewsByTask[task.id]) ?? NO_VIEWS;
   const closeView = useStore((s) => s.closeView);
   const docsUnseen = useUnseen(
@@ -390,14 +392,19 @@ export function TerminalTabs({
                 disabled={task.worktreeMissing}
                 visible={visible}
               />
-              <button
-                type="button"
-                className="btn btn-sm"
-                aria-label="Finish task"
-                onClick={() => go({ kind: 'finish', taskId: task.id })}
-              >
-                Finish
-              </button>
+              {/* Finish lives under the task in the nav (#95); only Focus without the rail has no nav. */}
+              {inFocus && !navCollapsed && (
+                <button
+                  type="button"
+                  className="btn btn-sm btn-primary"
+                  aria-label="Finish task"
+                  title="Finish task: check changes, push, book time, clean up"
+                  onClick={() => go({ kind: 'finish', taskId: task.id })}
+                >
+                  <CheckmarkCircle16Regular aria-hidden="true" />
+                  Finish
+                </button>
+              )}
               <TaskMenu task={task} />
               <IconButton
                 label={inFocus ? 'Exit focus' : 'Focus'}
