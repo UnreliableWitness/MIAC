@@ -50,7 +50,9 @@ This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 
 | `workspace.removed` | a joined worktree was removed from its task; none |
 | `terminal.opened` | kind (`claude`, `copilot`, `opencode`, `shell`, `run`); opened by setup or by hand |
 | `terminal.closed` | kind |
-| `terminal.restarted` | kind; after an app relaunch or not (a Claude Code restart resumes its session) |
+| `terminal.restarted` | kind; after an app relaunch or not (a Claude Code restart resumes its session); `withoutProjectConfig` when OpenCode was started again without the repo's config (#109) |
+| `terminal.failed` | an agent tab (`claude`, `copilot`, `opencode`) whose exit needed explaining (#109); `kind`; `reason` (`missing-cli`: the program is not installed or not on PATH, `invalid-config`: OpenCode refused its configuration, `crashed`: a non-zero exit within 30 s of the start, `spawn-failed`: the pty could not start it); `exitCode` (`none` for a spawn failure); measurement `runMs`. Never the terminal output or the config file's name |
+| `terminal.exitedEarly` | any other tab (`shell`, `run`) that exited non-zero within 30 s of its start; `kind`, `exitCode`; measurement `runMs` |
 | `usage.opened` | via the tab or the task strip |
 | `usage.synced` | ok; on finish or by hand |
 | `time.booked` | Finish booked time; `closest`: the measure the booked time is closest to (`measured`, `realistic`, `wallClock`), or `custom` when it is more than 5 minutes from all of them |
@@ -79,6 +81,7 @@ This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 
 - A failed boot (the splash or the "Shellie could not start" dialog).
 - Every IPC call that fails (error type, message, stack and the channel name such as `tasks:create`; never the arguments).
 - An unexpected setup failure.
+- A terminal whose program could not be spawned (`source: terminal`, the tab's kind; the message is scrubbed like every other).
 - Every warning or error notice shown in the app (`notice` event: level and message).
 - `process.gone`: a renderer or child process (GPU, utility) that crashed or was killed, with the reason and exit code.
 

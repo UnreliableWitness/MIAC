@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
+import type { RestartOptions } from '../../shared/ipc';
+import type { TerminalFailure } from '../../shared/terminalFailure';
 import type { ColorScheme } from '../../shared/theme';
 import { api, tryInvoke } from '../api';
 import { currentColorScheme } from '../colorScheme';
@@ -40,6 +42,8 @@ export function TerminalView({
   const sendSize = useRef<() => void>(() => undefined);
   const notify = useStore((s) => s.notify);
   const [exitCode, setExitCode] = useState<number | null>(null);
+  /** Why an agent tab stopped, when main could tell (#109). */
+  const [failure, setFailure] = useState<TerminalFailure | null>(null);
   /** Main has no process for this terminal: the app was relaunched (or updated) since it started. */
   const [gone, setGone] = useState(false);
 
@@ -84,12 +88,15 @@ export function TerminalView({
       else queued.push(e.data);
     });
     const offExit = api().on('terminal:exit', (e) => {
-      if (e.id === terminalId) setExitCode(e.exitCode);
+      if (e.id !== terminalId) return;
+      setExitCode(e.exitCode);
+      setFailure(e.failure ?? null);
     });
     const offReset = api().on('terminal:reset', (e) => {
       if (e.id !== terminalId) return;
       t.reset();
       setExitCode(null);
+      setFailure(null);
       sendSize.current();
     });
     void api()
@@ -114,8 +121,12 @@ export function TerminalView({
         replayed = true;
         return api().invoke('terminals:isRunning', terminalId);
       })
-      .then((running) => {
-        if (live && running === false) setExitCode((c) => c ?? -1);
+      .then(async (running) => {
+        if (!live || running !== false) return;
+        setExitCode((c) => c ?? -1);
+        // It exited before this view was mounted: show why, when main knows.
+        const f = await api().invoke('terminals:failure', terminalId);
+        if (live && f) setFailure((cur) => cur ?? f);
       })
       .catch(() => undefined);
     const onData = t.onData((data) => {
@@ -162,16 +173,23 @@ export function TerminalView({
     }
   }, [active]);
 
-  const restart = async () => {
+  const restart = async (options?: RestartOptions) => {
     // Reset first so a fast exit of the new process is not wiped afterwards.
     const previous = exitCode;
+    const previousFailure = failure;
     term.current?.reset();
     setExitCode(null);
+    setFailure(null);
     const ok = await tryInvoke(async () => {
-      await api().invoke('terminals:restart', terminalId);
+      await (options
+        ? api().invoke('terminals:restart', terminalId, options)
+        : api().invoke('terminals:restart', terminalId));
       return true;
     }, notify);
-    if (!ok) setExitCode((c) => c ?? previous);
+    if (!ok) {
+      setExitCode((c) => c ?? previous);
+      setFailure((f) => f ?? previousFailure);
+    }
   };
   useEffect(() => {
     if (!active || !gone || !autoStart) return;
@@ -187,13 +205,39 @@ export function TerminalView({
     <div className="termview" hidden={!active}>
       <div ref={host} className="termview-xterm" />
       {exitCode !== null && (
-        <div className="term-exit" role="status">
-          <span>
+        <div
+          className={failure ? 'term-exit term-exit-failed' : 'term-exit'}
+          role="status"
+        >
+          {failure && (
+            <div className="term-exit-why">
+              <strong>{failure.title}</strong>
+              {failure.detail && (
+                <code className="term-exit-detail">{failure.detail}</code>
+              )}
+              <span className="term-exit-hint">{failure.hint}</span>
+            </div>
+          )}
+          <span className="term-exit-code">
             {exitCode === -1 ? 'Process ended' : `Exited with code ${exitCode}`}
           </span>
-          <button type="button" className="btn btn-sm" onClick={restart}>
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={() => restart()}
+          >
             {resumes ? 'Resume session' : 'Restart'}
           </button>
+          {failure?.canSkipProjectConfig && (
+            <button
+              type="button"
+              className="btn btn-sm"
+              title="Starts OpenCode with OPENCODE_DISABLE_PROJECT_CONFIG=1: the repo's opencode.json and .opencode folder are skipped until the next Restart"
+              onClick={() => restart({ withoutProjectConfig: true })}
+            >
+              Start without project config
+            </button>
+          )}
           <button
             type="button"
             className="btn btn-sm btn-ghost"
