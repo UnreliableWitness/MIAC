@@ -1105,11 +1105,13 @@ describe('handlers: Claude Code sessions', () => {
   it('starts and resumes Claude Code with the theme settings file and every terminal with COLORFGBG', async () => {
     const { platform, calls } = recording();
     let scheme: 'light' | 'dark' = 'light';
+    const spawned: string[] = [];
     const hx = await harness(fakeCrypto(), {
       platform,
       claudeSessionExists: () => true,
       colorScheme: () => scheme,
       claudeThemeSettings: () => `/cfg/claude-theme-${scheme}.json`,
+      claudeSpawned: (id) => spawned.push(id),
     });
     const spawn = vi.spyOn(hx.terminals, 'spawn');
     const done = hx.setupDone();
@@ -1139,6 +1141,8 @@ describe('handlers: Claude Code sessions', () => {
       '/cfg/claude-theme-dark.json',
     ]);
     expect(spawn.mock.calls.at(-1)?.[0].env?.COLORFGBG).toBe('15;0');
+    // Only the Claude Code tab, at its start and its resume.
+    expect(spawned).toEqual([def!.id, def!.id]);
   });
 
   it('continues the latest conversation for a Claude Code tab without a session id', async () => {

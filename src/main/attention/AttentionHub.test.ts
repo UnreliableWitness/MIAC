@@ -21,6 +21,7 @@ let badge: number;
 let opened: [string, string][];
 let terms: Record<string, HubTerminal>;
 let writeThrows: boolean;
+let statuses: [string, string][];
 
 const hub = () =>
   new AttentionHub({
@@ -45,6 +46,7 @@ const hub = () =>
     },
     changed: () => undefined,
     open: (taskId, id) => opened.push([taskId, id]),
+    status: (id, state) => statuses.push([id, state]),
   });
 
 beforeEach(() => {
@@ -54,6 +56,7 @@ beforeEach(() => {
   badge = -1;
   opened = [];
   writeThrows = false;
+  statuses = [];
   terms = {
     c1: {
       taskId: 'T',
@@ -112,6 +115,17 @@ describe('AttentionHub', () => {
     h.data('c1', `${ESC}]7501;state=idle:app=claude-code${BEL}`);
     h.data('c1', BEL);
     expect(Object.keys(h.snapshot())).toEqual(['s1']);
+  });
+
+  it('passes each program status on', () => {
+    const h = hub();
+    h.data('c1', `${ESC}]7501;state=working:app=claude-code${BEL}`);
+    h.data('c1', `${ESC}]7501;state=bogus${BEL}`);
+    h.data('c1', `${ESC}]7501;state=idle:app=claude-code${BEL}`);
+    expect(statuses).toEqual([
+      ['c1', 'working'],
+      ['c1', 'idle'],
+    ]);
   });
 
   it('accepts receiver signals only for known terminals', () => {

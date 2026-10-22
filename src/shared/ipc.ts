@@ -342,6 +342,8 @@ export type Events = {
   setup: SetupEvent;
   'terminal:data': { id: string; data: string };
   'terminal:exit': { id: string; exitCode: number };
+  /** Main started the terminal again by itself (a Claude Code tab resumed in the new theme): clear and size it. */
+  'terminal:reset': { id: string };
   'tasks:changed': TaskView[];
   'repos:changed': Repo[];
   'connections:changed': Connection[];

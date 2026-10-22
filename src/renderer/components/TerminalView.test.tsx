@@ -94,6 +94,46 @@ describe('TerminalView after an app relaunch', () => {
   });
 });
 
+describe('TerminalView reset by main', () => {
+  it('clears the exit bar and sizes the new process (#105)', async () => {
+    const { calls, emit } = installFakeApi({
+      'terminals:buffer': () => '',
+      'terminals:isRunning': () => true,
+      'terminals:resize': () => undefined,
+    });
+    const width = vi
+      .spyOn(HTMLElement.prototype, 'clientWidth', 'get')
+      .mockReturnValue(800);
+    const height = vi
+      .spyOn(HTMLElement.prototype, 'clientHeight', 'get')
+      .mockReturnValue(600);
+    try {
+      render(<TerminalView terminalId="t1" taskId="a" active resumes />);
+      const resizes = () =>
+        calls.filter((c) => c.channel === 'terminals:resize').length;
+      // Let the sizing on open and on being shown settle.
+      await waitFor(() => expect(resizes()).toBeGreaterThan(0));
+      await new Promise((r) => setTimeout(r, 50));
+      const before = resizes();
+      emit('terminal:exit', { id: 't1', exitCode: 1 });
+      expect(
+        await screen.findByRole('button', { name: 'Resume session' }),
+      ).toBeInTheDocument();
+      emit('terminal:reset', { id: 't2' });
+      emit('terminal:reset', { id: 't1' });
+      await waitFor(() =>
+        expect(
+          screen.queryByRole('button', { name: 'Resume session' }),
+        ).not.toBeInTheDocument(),
+      );
+      expect(resizes()).toBe(before + 1);
+    } finally {
+      width.mockRestore();
+      height.mockRestore();
+    }
+  });
+});
+
 describe('TerminalView sizing', () => {
   const resizes = (calls: { channel: string }[]) =>
     calls.filter((c) => c.channel === 'terminals:resize').length;
