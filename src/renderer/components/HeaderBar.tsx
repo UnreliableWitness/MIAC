@@ -226,7 +226,9 @@ export function HeaderBar() {
             ? 'New task'
             : screen.kind === 'settings'
               ? 'Settings'
-              : null;
+              : screen.kind === 'connect'
+                ? 'Connect'
+                : null;
   if (page)
     crumbs.push(
       <Crumb key="page" current onClick={() => undefined}>

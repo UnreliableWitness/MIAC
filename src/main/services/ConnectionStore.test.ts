@@ -191,6 +191,58 @@ describe('ConnectionStore', () => {
     expect(again.list()[0].provider).toBe('github');
   });
 
+  it('stores the on-start options it was given, keeps them on a re-save without, and defaults old files', async () => {
+    const f = file();
+    const store = new ConnectionStore(f, fakeCrypto());
+    await store.load();
+    const options = {
+      moveToInProgress: false,
+      assignToMe: true,
+      stateOverrides: {},
+    };
+    const c = await store.save({
+      organizationUrl: 'https://dev.azure.com/o',
+      project: 'P',
+      pat: 'tok',
+      workItemOnStart: options,
+    });
+    expect(c.workItemOnStart).toEqual(options);
+    await store.save({
+      id: c.id,
+      organizationUrl: 'https://dev.azure.com/o',
+      project: 'P',
+      pat: 'tok2',
+    });
+    const again = new ConnectionStore(f, fakeCrypto());
+    await again.load();
+    expect(again.get(c.id).workItemOnStart).toEqual(options);
+    writeFileSync(
+      f,
+      JSON.stringify({
+        version: 1,
+        connections: [
+          {
+            id: 'c1',
+            name: 'o',
+            organizationUrl: 'https://dev.azure.com/o',
+            project: 'P',
+            user: null,
+            status: 'ok',
+            checkedAt: null,
+            tokenCiphertext: 'x',
+          },
+        ],
+      }),
+    );
+    const old = new ConnectionStore(f, fakeCrypto());
+    await old.load();
+    expect(old.get('c1').workItemOnStart).toEqual({
+      moveToInProgress: true,
+      assignToMe: true,
+      stateOverrides: {},
+    });
+  });
+
   it('updates an existing connection by id and resets its status', async () => {
     const store = new ConnectionStore(file(), fakeCrypto());
     await store.load();

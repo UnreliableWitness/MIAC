@@ -8,6 +8,7 @@ import { useAttention } from './hooks/useAttention';
 import { useTimeFocus } from './hooks/useTimeFocus';
 import { useShortcuts } from './hooks/useShortcuts';
 import { AddRepoScreen } from './screens/AddRepoScreen';
+import { ConnectScreen } from './screens/ConnectScreen';
 import { FinishScreen } from './screens/FinishScreen';
 import { NewTaskScreen } from './screens/NewTaskScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
@@ -40,6 +41,8 @@ function Page() {
       return <FinishScreen taskId={screen.taskId} />;
     case 'add-repo':
       return <AddRepoScreen key={screen.folder ?? ''} folder={screen.folder} />;
+    case 'connect':
+      return <ConnectScreen key={screen.connectionId ?? ''} />;
     case 'settings':
       return <SettingsScreen />;
   }

@@ -142,6 +142,11 @@ describe('SettingsScreen', () => {
           checkedAt: null,
           userUniqueName: null,
           provider: 'azure-devops' as const,
+          workItemOnStart: {
+            moveToInProgress: true,
+            assignToMe: true,
+            stateOverrides: {},
+          },
         },
       ],
     });
@@ -168,6 +173,11 @@ describe('SettingsScreen', () => {
       checkedAt: null,
       userUniqueName: null,
       provider: 'azure-devops' as const,
+      workItemOnStart: {
+        moveToInProgress: true,
+        assignToMe: true,
+        stateOverrides: {},
+      },
     };
     const linked: Repo = { ...webshop, connectionId: 'c1' };
     const types = [

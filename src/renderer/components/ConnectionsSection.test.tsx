@@ -16,6 +16,11 @@ const ok: Connection = {
   checkedAt: '2026-10-14T10:00:00.000Z',
   userUniqueName: null,
   provider: 'azure-devops' as const,
+  workItemOnStart: {
+    moveToInProgress: true,
+    assignToMe: true,
+    stateOverrides: {},
+  },
 };
 
 beforeEach(() =>
@@ -47,85 +52,130 @@ describe('ConnectionsSection', () => {
     render(<ConnectionsSection />);
     expect(screen.getByText('Connected as Dries Hoebeke')).toBeInTheDocument();
     expect(
-      screen.getByText(
-        `https://dev.azure.com/unreliablewitness ${String.fromCharCode(0xb7)} Shellie`,
-      ),
+      screen.getByText('https://dev.azure.com/unreliablewitness'),
     ).toBeInTheDocument();
+    expect(screen.getAllByText('Shellie')).toHaveLength(2);
     expect(
       screen.getByText('Token rejected, enter it again'),
     ).toBeInTheDocument();
   });
 
-  it('tells which token scopes are needed', async () => {
+  it('groups connections by organization, each group with Add a project', async () => {
+    installFakeApi();
+    useStore.setState({
+      connections: [
+        ok,
+        {
+          ...ok,
+          id: 'c2',
+          name: 'unreliablewitness/Webshop',
+          project: 'Webshop',
+        },
+        {
+          ...ok,
+          id: 'c3',
+          name: 'client',
+          organizationUrl: 'https://dev.azure.com/client',
+          project: 'Portal',
+        },
+      ],
+    });
+    const { container } = render(<ConnectionsSection />);
+    const groups = container.querySelectorAll('.conn-group');
+    expect(groups).toHaveLength(2);
+    expect(groups[0].querySelectorAll('.list-row')).toHaveLength(2);
+    expect(groups[1].querySelectorAll('.list-row')).toHaveLength(1);
+    expect(
+      screen.getAllByRole('button', { name: 'Add a project' }),
+    ).toHaveLength(2);
+    expect(
+      screen.getAllByRole('button', { name: 'Update token' }),
+    ).toHaveLength(2);
+    await userEvent.click(
+      screen.getAllByRole('button', { name: 'Add a project' })[1],
+    );
+    expect(useStore.getState().screen).toEqual({
+      kind: 'connect',
+      from: 'settings',
+      connectionId: 'c3',
+    });
+  });
+
+  it('shows the provider picker and opens the Connect page to add a connection', async () => {
     installFakeApi();
     render(<ConnectionsSection />);
+    expect(screen.getByRole('heading', { name: 'Connections' })).toBeTruthy();
+    expect(screen.getByRole('radio', { name: /Azure DevOps/ })).toBeChecked();
+    expect(screen.getByRole('radio', { name: /GitHub/ })).toBeDisabled();
     await userEvent.click(
       screen.getByRole('button', { name: /Add connection/ }),
     );
-    expect(
-      screen.getByText(/Work Items \(Read & write\) and Code \(Read & write\)/),
-    ).toBeInTheDocument();
+    expect(useStore.getState().screen).toEqual({
+      kind: 'connect',
+      from: 'settings',
+    });
   });
 
-  it('adds a connection and never echoes the token', async () => {
-    const { calls } = installFakeApi({
-      'connections:save': () => ok,
-      'connections:list': () => [ok],
-    });
+  it('saves No tracker from the picker', async () => {
+    const { calls } = installFakeApi({ 'settings:save': (x) => x });
     render(<ConnectionsSection />);
-    await userEvent.click(
-      screen.getByRole('button', { name: /Add connection/ }),
-    );
-    await userEvent.type(
-      screen.getByLabelText('Organization URL'),
-      'https://dev.azure.com/unreliablewitness/',
-    );
-    await userEvent.type(screen.getByLabelText('Project'), 'Shellie');
-    await userEvent.type(
-      screen.getByLabelText('Personal access token'),
-      'secret-pat',
-    );
-    expect(document.body.textContent).not.toContain('secret-pat');
-    expect(screen.getByLabelText('Personal access token')).toHaveAttribute(
-      'type',
-      'password',
-    );
-    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await userEvent.click(screen.getByRole('radio', { name: /No tracker/ }));
     await waitFor(() =>
       expect(
-        calls.find((c) => c.channel === 'connections:save')?.args[0],
-      ).toEqual({
-        organizationUrl: 'https://dev.azure.com/unreliablewitness/',
-        project: 'Shellie',
-        pat: 'secret-pat',
-      }),
+        calls.find((c) => c.channel === 'settings:save')?.args[0],
+      ).toMatchObject({ onboarding: { tracker: 'none' } }),
     );
-    await waitFor(() => expect(useStore.getState().connections).toEqual([ok]));
-    expect(
-      screen.queryByLabelText('Personal access token'),
-    ).not.toBeInTheDocument();
-    expect(document.body.textContent).not.toContain('secret-pat');
+    expect(screen.getByRole('radio', { name: /No tracker/ })).toBeChecked();
+    expect(screen.queryByRole('button', { name: /Add connection/ })).toBeNull();
   });
 
-  it('keeps the form open with the message when saving fails', async () => {
-    installFakeApi({
-      'connections:save': () => {
-        throw new Error('Azure DevOps rejected the token');
-      },
+  it('updates the token of every connection of the organization with the same token', async () => {
+    const webshop = {
+      ...ok,
+      id: 'c2',
+      name: 'unreliablewitness/Webshop',
+      project: 'Webshop',
+    };
+    useStore.setState({ connections: [ok, webshop] });
+    const { calls } = installFakeApi({
+      'connections:save': (input) => (input.id === 'c1' ? ok : webshop),
+      'connections:list': () => [ok, webshop],
     });
     render(<ConnectionsSection />);
-    await userEvent.click(
-      screen.getByRole('button', { name: /Add connection/ }),
-    );
+    await userEvent.click(screen.getByRole('button', { name: 'Update token' }));
+    expect(screen.getByText(/Project and Team \(Read\)/)).toBeTruthy();
     await userEvent.type(
-      screen.getByLabelText('Organization URL'),
-      'dev.azure.com/o',
+      screen.getByLabelText('New personal access token'),
+      'fresh-pat',
     );
-    await userEvent.type(screen.getByLabelText('Project'), 'P');
-    await userEvent.type(screen.getByLabelText('Personal access token'), 'x');
-    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
-    expect(await screen.findByText(/rejected the token/)).toBeInTheDocument();
-    expect(screen.getByLabelText('Personal access token')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Save token' }));
+    await waitFor(() =>
+      expect(
+        calls
+          .filter((c) => c.channel === 'connections:save')
+          .map((c) => c.args[0]),
+      ).toEqual([
+        {
+          id: 'c1',
+          name: 'unreliablewitness',
+          organizationUrl: 'https://dev.azure.com/unreliablewitness',
+          project: 'Shellie',
+          pat: 'fresh-pat',
+        },
+        {
+          id: 'c2',
+          name: 'unreliablewitness/Webshop',
+          organizationUrl: 'https://dev.azure.com/unreliablewitness',
+          project: 'Webshop',
+          pat: 'fresh-pat',
+        },
+      ]),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByLabelText('New personal access token'),
+      ).not.toBeInTheDocument(),
+    );
   });
 
   it('verifies and removes', async () => {
@@ -172,31 +222,6 @@ describe('ConnectionsSection', () => {
         ),
       ).toBe(true),
     );
-  });
-
-  it('redacts the token from a save error', async () => {
-    installFakeApi({
-      'connections:save': () => {
-        throw new Error('bad token secret-pat here');
-      },
-    });
-    render(<ConnectionsSection />);
-    await userEvent.click(
-      screen.getByRole('button', { name: /Add connection/ }),
-    );
-    await userEvent.type(
-      screen.getByLabelText('Organization URL'),
-      'dev.azure.com/o',
-    );
-    await userEvent.type(screen.getByLabelText('Project'), 'P');
-    await userEvent.type(
-      screen.getByLabelText('Personal access token'),
-      'secret-pat',
-    );
-    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
-    const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('***');
-    expect(document.body.textContent).not.toContain('secret-pat');
   });
 
   it('removes an unused connection without a confirm row', async () => {
@@ -275,12 +300,22 @@ describe('ConnectionsSection', () => {
   it('opens the token form of the connection Settings was opened at', () => {
     installFakeApi();
     useStore.setState({
-      connections: [ok, { ...ok, id: 'c2', name: 'client' }],
+      connections: [
+        ok,
+        {
+          ...ok,
+          id: 'c2',
+          name: 'client',
+          organizationUrl: 'https://dev.azure.com/client',
+        },
+      ],
       screen: { kind: 'settings', section: 'conn-c2' },
     });
     const { container } = render(<ConnectionsSection />);
     const forms = container.querySelectorAll('.conn-form');
     expect(forms).toHaveLength(1);
-    expect(container.querySelector('#conn-c2 + .conn-form')).not.toBeNull();
+    expect(
+      container.querySelector('#conn-c2')?.closest('.conn-group'),
+    ).toContainElement(forms[0] as HTMLElement);
   });
 });

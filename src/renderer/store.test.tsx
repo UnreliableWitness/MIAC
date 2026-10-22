@@ -219,6 +219,11 @@ describe('activeConnection', () => {
     checkedAt: null,
     userUniqueName: null,
     provider: 'azure-devops' as const,
+    workItemOnStart: {
+      moveToInProgress: true,
+      assignToMe: true,
+      stateOverrides: {},
+    },
   });
   const repo = (id: string, connectionId: string | null) => ({
     id,

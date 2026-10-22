@@ -20,4 +20,5 @@ export interface Tracker {
   repositoryId: AdoClient['repositoryId'];
   findActivePullRequest: AdoClient['findActivePullRequest'];
   createPullRequest: AdoClient['createPullRequest'];
+  pullRequest: AdoClient['pullRequest'];
 }

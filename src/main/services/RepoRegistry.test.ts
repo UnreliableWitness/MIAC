@@ -281,6 +281,21 @@ describe('RepoRegistry.add options', () => {
     expect(reg.list()).toHaveLength(0);
   });
 
+  it('starts with the on-start options it is given', async () => {
+    const reg = await registry();
+    const options = {
+      moveToInProgress: false,
+      assignToMe: false,
+      stateOverrides: {},
+    };
+    const added = await reg.add(makeRepo('onstart'), {
+      connectionId: 'c1',
+      workItemOnStart: options,
+    });
+    expect(added.workItemOnStart).toEqual(options);
+    expect(reg.list()[0].workItemOnStart).toEqual(options);
+  });
+
   it('keeps a given base branch across refresh when there is no file', async () => {
     const reg = await registry();
     const repo = makeRepo('nofile');

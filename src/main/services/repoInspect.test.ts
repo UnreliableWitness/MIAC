@@ -92,6 +92,11 @@ const conn = (over: Partial<Connection> = {}): Connection => ({
   checkedAt: null,
   userUniqueName: null,
   provider: 'azure-devops',
+  workItemOnStart: {
+    moveToInProgress: true,
+    assignToMe: true,
+    stateOverrides: {},
+  },
   ...over,
 });
 

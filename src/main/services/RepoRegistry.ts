@@ -16,6 +16,8 @@ export type AddRepoOptions = {
   writeConfig?: string;
   baseBranch?: string;
   connectionId?: string | null;
+  /** The linked connection's on-start options; the repo default without one. */
+  workItemOnStart?: StartSettings;
 };
 
 export class RepoRegistry {
@@ -68,6 +70,9 @@ export class RepoRegistry {
       path: top,
       connectionId: options.connectionId ?? null,
       baseBranch: options.baseBranch,
+      workItemOnStart: options.workItemOnStart
+        ? StartSettingsSchema.parse(options.workItemOnStart)
+        : undefined,
     });
     if (options.baseBranch) repo.baseBranch = options.baseBranch;
     // Re-check inside the update: a concurrent add may have registered the same path while we awaited.

@@ -860,3 +860,120 @@
 .add-repo-actions .grow {
   flex: 1;
 }
+
+/* Tracker picker (Connect page, Settings > Connections) */
+.provider-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.provider-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  cursor: pointer;
+}
+.provider-card.selected {
+  border-color: var(--accent);
+}
+.provider-card.disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.provider-card input {
+  margin-top: 3px;
+}
+.provider-card-text {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+}
+.provider-card-text .small {
+  flex-basis: 100%;
+}
+.pill-soon {
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--bg-selected);
+  border-radius: 10px;
+  padding: 0 8px;
+}
+
+/* Connect page */
+.connect {
+  max-width: 1000px;
+}
+.connect-form {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 12px 16px;
+  align-items: center;
+  padding: 16px;
+}
+.connect-field {
+  display: flex;
+  gap: 8px;
+}
+.connect-field .field {
+  flex: 1;
+  min-width: 0;
+}
+.connect-form p {
+  margin: 6px 0 0;
+}
+.connect-error {
+  grid-column: 1 / -1;
+  color: var(--red);
+}
+.connect-signed {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.connect-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+}
+.connect-warn {
+  background: var(--warn-bg);
+  color: var(--warn);
+  border-radius: var(--radius-card);
+  padding: 8px 12px;
+}
+.connect-none {
+  padding: 12px 16px;
+  margin: 0;
+}
+
+/* Settings > Connections: one group per organization */
+.conn-group {
+  border-bottom: 1px solid var(--line);
+}
+.conn-group:last-child {
+  border-bottom: none;
+}
+.conn-group-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--bg-hover);
+  border-bottom: 1px solid var(--line);
+}
+.conn-group-head .grow {
+  flex: 1 1 240px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}

@@ -2292,6 +2292,179 @@ describe('handlers: connections', () => {
   });
 });
 
+describe('handlers: connections:probe and connections:saveMany', () => {
+  const authFor = (pat: string) =>
+    `Basic ${Buffer.from(`:${pat}`).toString('base64')}`;
+  const routeOrg = (server: AdoServer, org = 'uw') => {
+    server.route('GET', `/${org}/_apis/connectionData`, {
+      body: {
+        authenticatedUser: {
+          providerDisplayName: 'Dries Hoebeke',
+          properties: { Account: { $value: 'dries@example.com' } },
+        },
+      },
+    });
+    server.route('GET', `/${org}/_apis/projects`, {
+      body: {
+        value: [
+          { id: 'p1', name: 'Shellie' },
+          { id: 'p2', name: 'Webshop' },
+          { id: 'p3', name: 'Infra' },
+        ],
+      },
+    });
+  };
+  const onStart = {
+    moveToInProgress: false,
+    assignToMe: true,
+    stateOverrides: {},
+  };
+
+  it('probe returns the user and the projects for a new token', async () => {
+    const { h, server } = await harness();
+    routeOrg(server);
+    expect(
+      await h['connections:probe']({
+        organizationUrl: `${server.url}/uw/`,
+        pat: ' secret-pat ',
+      }),
+    ).toEqual({
+      user: 'Dries Hoebeke',
+      uniqueName: 'dries@example.com',
+      projects: [
+        { id: 'p1', name: 'Shellie' },
+        { id: 'p2', name: 'Webshop' },
+        { id: 'p3', name: 'Infra' },
+      ],
+      canListProjects: true,
+    });
+    expect(server.requests.every((r) => r.auth === authFor('secret-pat'))).toBe(
+      true,
+    );
+    expect(await h['connections:list']()).toEqual([]);
+  });
+
+  it('probe signs in but cannot list projects on a 403 for projects alone', async () => {
+    const { h, server } = await harness();
+    routeOrg(server);
+    server.route('GET', '/uw/_apis/projects', { status: 403, body: {} });
+    expect(
+      await h['connections:probe']({
+        organizationUrl: `${server.url}/uw`,
+        pat: 'p',
+      }),
+    ).toMatchObject({
+      user: 'Dries Hoebeke',
+      projects: [],
+      canListProjects: false,
+    });
+  });
+
+  it('probe reports a refused token with its status only, never the URL or token', async () => {
+    const events: [string, unknown][] = [];
+    const { h, server } = await harness(fakeCrypto(), {
+      telemetry: {
+        ...NoopTelemetry,
+        event: (name, props) => events.push([name, props]),
+      },
+    });
+    server.route('GET', '/uw/_apis/connectionData', { status: 401, body: {} });
+    await expect(
+      h['connections:probe']({
+        organizationUrl: `${server.url}/uw`,
+        pat: 'bad',
+      }),
+    ).rejects.toThrow(/rejected the token/);
+    expect(events).toContainEqual(['connection.probeFailed', { status: 401 }]);
+  });
+
+  it("probe reuses a connection's stored token and organization when given its id", async () => {
+    const { h, server } = await harness();
+    routeHealthyOrg(server, 'uw');
+    routeOrg(server);
+    const c = await h['connections:save']({
+      organizationUrl: `${server.url}/uw`,
+      project: 'Shellie',
+      pat: 'stored-pat',
+    });
+    server.requests.length = 0;
+    const result = await h['connections:probe']({
+      organizationUrl: 'https://dev.azure.com/elsewhere',
+      connectionId: c.id,
+    });
+    expect(result.projects).toHaveLength(3);
+    expect(server.requests.length).toBeGreaterThan(0);
+    expect(server.requests.every((r) => r.auth === authFor('stored-pat'))).toBe(
+      true,
+    );
+  });
+
+  it('saveMany saves one connection per new project with the on-start options and skips existing ones', async () => {
+    const { h, server } = await harness();
+    routeOrg(server);
+    for (const p of ['Shellie', 'Webshop', 'Infra'])
+      server.route('GET', `/uw/_apis/projects/${p}`, { body: { name: p } });
+    const first = await h['connections:saveMany']({
+      organizationUrl: `${server.url}/uw`,
+      pat: 'secret-pat',
+      projects: ['Shellie', 'Webshop'],
+      workItemOnStart: onStart,
+      provider: 'azure-devops',
+    });
+    expect(first.map((c) => c.name)).toEqual(['uw/Shellie', 'uw/Webshop']);
+    expect(first[0]).toMatchObject({
+      project: 'Shellie',
+      status: 'ok',
+      user: 'Dries Hoebeke',
+      userUniqueName: 'dries@example.com',
+      provider: 'azure-devops',
+      workItemOnStart: onStart,
+    });
+    server.requests.length = 0;
+    const again = await h['connections:saveMany']({
+      organizationUrl: `${server.url}/uw`,
+      connectionId: first[0].id,
+      projects: ['Shellie', 'Infra'],
+      workItemOnStart: onStart,
+      provider: 'azure-devops',
+    });
+    expect(again.map((c) => c.name)).toEqual(['uw/Infra']);
+    expect(server.requests.every((r) => r.auth === authFor('secret-pat'))).toBe(
+      true,
+    );
+    expect((await h['connections:list']()).map((c) => c.project)).toEqual([
+      'Shellie',
+      'Webshop',
+      'Infra',
+    ]);
+  });
+
+  it("repos:add copies the linked connection's on-start options into the repo", async () => {
+    const { h, server } = await harness();
+    routeOrg(server);
+    server.route('GET', '/uw/_apis/projects/Shellie', {
+      body: { name: 'Shellie' },
+    });
+    const [c] = await h['connections:saveMany']({
+      organizationUrl: `${server.url}/uw`,
+      pat: 'p',
+      projects: ['Shellie'],
+      workItemOnStart: onStart,
+      provider: 'azure-devops',
+    });
+    const repo = await h['repos:add'](makeRepo('onstart'), {
+      connectionId: c.id,
+    });
+    expect(repo.workItemOnStart).toEqual(onStart);
+    const unlinked = await h['repos:add'](makeRepo('onstart-none'));
+    expect(unlinked.workItemOnStart).toEqual({
+      moveToInProgress: true,
+      assignToMe: true,
+      stateOverrides: {},
+    });
+  });
+});
+
 describe('handlers: connection robustness', () => {
   it('validates before any network call', async () => {
     const { h, server } = await harness();

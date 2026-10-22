@@ -19,6 +19,7 @@ const table: [keyof Tracker, keyof AdoClient, unknown[]][] = [
   ['repositoryId', 'repositoryId', ['P', 'repo']],
   ['findActivePullRequest', 'findActivePullRequest', ['P', 'r', 'b']],
   ['createPullRequest', 'createPullRequest', ['P', 'r', { title: 't' }]],
+  ['pullRequest', 'pullRequest', ['P', 'r', 7]],
 ];
 
 describe('AzureDevOpsTracker', () => {

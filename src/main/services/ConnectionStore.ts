@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   ConnectionsFileSchema,
+  StartSettingsSchema,
   type Connection,
   type ConnectionInput,
   type ConnectionStatus,
@@ -159,6 +160,9 @@ export class ConnectionStore {
       checkedAt: null,
       userUniqueName: null,
       provider: input.provider ?? existing?.provider ?? 'azure-devops',
+      workItemOnStart: StartSettingsSchema.parse(
+        input.workItemOnStart ?? existing?.workItemOnStart ?? {},
+      ),
       tokenCiphertext,
     };
     await this.update((f) => {
@@ -234,5 +238,6 @@ function strip(c: Stored): Connection {
     checkedAt: c.checkedAt,
     userUniqueName: c.userUniqueName,
     provider: c.provider,
+    workItemOnStart: c.workItemOnStart,
   };
 }

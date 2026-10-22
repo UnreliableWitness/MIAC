@@ -1,4 +1,5 @@
 import type { ColorScheme } from './theme';
+import type { TrackerProvider } from './trackers';
 import type {
   Connection,
   ConnectionInput,
@@ -83,6 +84,33 @@ export type Channels = {
   'connections:save': { args: [input: ConnectionInput]; result: Connection };
   'connections:remove': { args: [id: string]; result: void };
   'connections:verify': { args: [id: string]; result: Connection };
+  /** Signs in with a new token (`pat`) or a connection's stored one (`connectionId`, its own organization) and lists the projects; saves nothing. */
+  'connections:probe': {
+    args: [
+      input: { organizationUrl: string; pat?: string; connectionId?: string },
+    ];
+    result: {
+      user: string;
+      uniqueName: string | null;
+      projects: { id: string; name: string }[];
+      /** False when the token signs in but is refused the project list (no Project and Team: Read). */
+      canListProjects: boolean;
+    };
+  };
+  /** One `connections:save` per project (named `<org>/<project>`), skipping projects the organization already has a connection for. */
+  'connections:saveMany': {
+    args: [
+      input: {
+        organizationUrl: string;
+        pat?: string;
+        connectionId?: string;
+        projects: string[];
+        workItemOnStart: StartSettings;
+        provider: TrackerProvider;
+      },
+    ];
+    result: Connection[];
+  };
   'repos:setConnection': {
     args: [repoId: string, connectionId: string | null];
     result: Repo;

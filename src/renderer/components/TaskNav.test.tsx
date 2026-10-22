@@ -228,6 +228,11 @@ describe('TaskNav', () => {
           checkedAt: null,
           userUniqueName: null,
           provider: 'azure-devops' as const,
+          workItemOnStart: {
+            moveToInProgress: true,
+            assignToMe: true,
+            stateOverrides: {},
+          },
         },
       ],
     });
@@ -308,6 +313,11 @@ describe('TaskNav', () => {
       checkedAt: null,
       userUniqueName: null,
       provider: 'azure-devops' as const,
+      workItemOnStart: {
+        moveToInProgress: true,
+        assignToMe: true,
+        stateOverrides: {},
+      },
     });
     useStore.setState({
       connections: [conn('c1', 'Shellie'), conn('c2', 'DXP')],
@@ -340,6 +350,11 @@ describe('TaskNav', () => {
       checkedAt: null,
       userUniqueName: null,
       provider: 'azure-devops' as const,
+      workItemOnStart: {
+        moveToInProgress: true,
+        assignToMe: true,
+        stateOverrides: {},
+      },
     });
     useStore.setState({
       connections: [conn('c1', 'Shellie'), conn('c2', 'DXP')],

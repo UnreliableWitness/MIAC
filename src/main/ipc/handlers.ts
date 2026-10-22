@@ -11,6 +11,7 @@ import {
 import { WorkspaceDetector } from '../workspaces/WorkspaceDetector';
 import type {
   Connection,
+  ConnectionInput,
   FinishOptions,
   FinishRowResult,
   ShellieConfig,
@@ -72,6 +73,7 @@ import { OFFICIAL_RATES, OFFICIAL_RATES_AS_OF } from '../pricing/officialRates';
 import { AdoClient, AdoError } from '../services/AdoClient';
 import type { TrackerRegistry } from '../trackers/TrackerRegistry';
 import {
+  organizationSlug,
   TokenUnavailableError,
   type ConnectionStore,
 } from '../services/ConnectionStore';
@@ -336,6 +338,31 @@ export function createHandlers(s: Services): Handlers {
     );
     connectionsChanged();
     return updated;
+  };
+
+  const saveConnection = async (
+    input: ConnectionInput,
+  ): Promise<Connection> => {
+    // Verify with a throwaway client before anything is written, so a bad token never lands on disk.
+    s.connections.assertCanSave(input);
+    const organizationUrl = s.connections.normalizeUrl(input.organizationUrl);
+    const probe = new AdoClient(organizationUrl, async () => input.pat.trim());
+    const { user, uniqueName } = await probe.verify(input.project.trim());
+    const saved = await s.connections.save(input);
+    s.trackers.invalidate(saved.id);
+    dropTypes(saved.id);
+    // The unique name is what "assign to me" writes on start; without it a new connection never assigns.
+    const verified = await s.connections.setStatus(
+      saved.id,
+      'ok',
+      user,
+      uniqueName,
+    );
+    connectionsChanged();
+    tel.event('connection.saved', {
+      connections: s.connections.list().length,
+    });
+    return verified;
   };
 
   const allowedExternal = (url: string): boolean => {
@@ -1634,7 +1661,14 @@ export function createHandlers(s: Services): Handlers {
       return r;
     },
     'repos:add': async (folder, options) => {
-      const repo = await s.repos.add(folder, options);
+      const linked = options?.connectionId
+        ? s.connections.list().find((c) => c.id === options.connectionId)
+        : undefined;
+      // A new repo starts with its connection's on-start options; Settings stays the place to change them.
+      const repo = await s.repos.add(folder, {
+        ...options,
+        workItemOnStart: linked?.workItemOnStart,
+      });
       reposChanged();
       tel.event('repo.added', {
         repos: s.repos.list().length,
@@ -2119,29 +2153,69 @@ export function createHandlers(s: Services): Handlers {
     'terminals:reportScheme': async (id, scheme) =>
       s.terminals.reportScheme(id, scheme === 'dark' ? 'dark' : 'light'),
     'connections:list': async () => s.connections.list(),
-    'connections:save': async (input) => {
-      // Verify with a throwaway client before anything is written, so a bad token never lands on disk.
-      s.connections.assertCanSave(input);
-      const organizationUrl = s.connections.normalizeUrl(input.organizationUrl);
-      const probe = new AdoClient(organizationUrl, async () =>
-        input.pat.trim(),
+    'connections:save': saveConnection,
+    'connections:probe': async (input) => {
+      // A stored token only ever goes to its own organization, whatever URL came with it.
+      const organizationUrl = input.connectionId
+        ? s.connections.get(input.connectionId).organizationUrl
+        : s.connections.normalizeUrl(input.organizationUrl);
+      const pat = input.connectionId
+        ? await s.connections.token(input.connectionId)
+        : (input.pat ?? '').trim();
+      if (!pat) throw new Error('Enter a personal access token');
+      const client = new AdoClient(organizationUrl, async () => pat);
+      try {
+        const who = await client.whoAmI();
+        let projects: { id: string; name: string }[] = [];
+        let canListProjects = true;
+        try {
+          projects = await client.projects();
+        } catch (e) {
+          if (
+            !(e instanceof AdoError && (e.status === 401 || e.status === 403))
+          )
+            throw e;
+          canListProjects = false;
+        }
+        return { ...who, projects, canListProjects };
+      } catch (e) {
+        tel.event('connection.probeFailed', {
+          status: e instanceof AdoError ? (e.status ?? 0) : 0,
+        });
+        throw e;
+      }
+    },
+    'connections:saveMany': async (input) => {
+      const organizationUrl = input.connectionId
+        ? s.connections.get(input.connectionId).organizationUrl
+        : s.connections.normalizeUrl(input.organizationUrl);
+      const pat = input.connectionId
+        ? await s.connections.token(input.connectionId)
+        : (input.pat ?? '');
+      const org = organizationSlug(organizationUrl);
+      const known = new Set(
+        s.connections
+          .list()
+          .filter((c) => c.organizationUrl === organizationUrl)
+          .map((c) => c.project.toLowerCase()),
       );
-      const { user, uniqueName } = await probe.verify(input.project.trim());
-      const saved = await s.connections.save(input);
-      s.trackers.invalidate(saved.id);
-      dropTypes(saved.id);
-      // The unique name is what "assign to me" writes on start; without it a new connection never assigns.
-      const verified = await s.connections.setStatus(
-        saved.id,
-        'ok',
-        user,
-        uniqueName,
-      );
-      connectionsChanged();
-      tel.event('connection.saved', {
-        connections: s.connections.list().length,
-      });
-      return verified;
+      const saved: Connection[] = [];
+      for (const raw of input.projects) {
+        const project = raw.trim();
+        if (!project || known.has(project.toLowerCase())) continue;
+        known.add(project.toLowerCase());
+        saved.push(
+          await saveConnection({
+            name: `${org}/${project}`,
+            organizationUrl,
+            project,
+            pat,
+            provider: input.provider,
+            workItemOnStart: input.workItemOnStart,
+          }),
+        );
+      }
+      return saved;
     },
     'connections:remove': async (id) => {
       s.connections.get(id);
@@ -2221,7 +2295,7 @@ export function createHandlers(s: Services): Handlers {
       if (!connectionId) return pr;
       try {
         const raw = await s.trackers
-          .client(connectionId)
+          .tracker(connectionId)
           .pullRequest(pr.project, pr.repositoryId, pr.id);
         const next = { ...pr, status: raw.status, isDraft: raw.isDraft };
         await patchWorkspace(taskId, w.id, { pullRequest: next });

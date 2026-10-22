@@ -29,4 +29,5 @@ export class AzureDevOpsTracker implements Tracker {
     this.client.findActivePullRequest(...a);
   createPullRequest: Tracker['createPullRequest'] = (...a) =>
     this.client.createPullRequest(...a);
+  pullRequest: Tracker['pullRequest'] = (...a) => this.client.pullRequest(...a);
 }

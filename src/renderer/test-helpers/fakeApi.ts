@@ -165,6 +165,13 @@ const defaults: FakeHandlers = {
   }),
   'workItems:types': () => [],
   'connections:list': () => [],
+  'connections:probe': () => ({
+    user: 'Dries Hoebeke',
+    uniqueName: null,
+    projects: [],
+    canListProjects: true,
+  }),
+  'connections:saveMany': () => [],
   'tasks:list': () => [],
   'tasks:scanWorkspaces': () => [],
   'tasks:setupState': () => null,

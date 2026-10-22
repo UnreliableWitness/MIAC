@@ -398,7 +398,7 @@ export function SettingsScreen() {
             Repositories
           </a>
           <a href="#editor">Editor</a>
-          <a href="#ado">Azure DevOps</a>
+          <a href="#ado">Connections</a>
           <a href="#cost">AI cost and invoicing</a>
           <a href="#time">Time tracking</a>
           <a href="#claude-budget">Claude budget</a>
