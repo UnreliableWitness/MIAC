@@ -117,6 +117,19 @@ const defaults: FakeHandlers = {
       shell: true,
     },
   }),
+  'agents:detect': () => ({
+    checkedAt: '2026-10-22T10:00:00.000Z',
+    agents: {
+      claude: {
+        found: true,
+        version: '2.1.307',
+        path: '/usr/local/bin/claude',
+      },
+      copilot: { found: false, version: null, path: null },
+      opencode: { found: false, version: null, path: null },
+    },
+    shell: { label: 'zsh' },
+  }),
   'editor:options': () => ({
     editors: [{ id: 'vscode', label: 'VS Code' }],
     chosen: 'vscode',

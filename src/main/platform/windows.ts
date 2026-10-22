@@ -137,6 +137,8 @@ export function windowsPlatform(
         context === null ? flags : [...flags, '--append-system-prompt'],
         context,
       ),
+    probeCommand: (name) =>
+      ps(`(Get-Command ${name} -ErrorAction Stop).Source; & ${name} --version`),
     copilotCommand: () => tool('copilot', []),
     opencodeCommand: () => tool('opencode', []),
     editorCommand: (p) => vscode([p]),

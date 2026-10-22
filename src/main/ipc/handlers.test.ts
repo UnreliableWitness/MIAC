@@ -279,6 +279,25 @@ describe('handlers: attention', () => {
   });
 });
 
+describe('handlers: agents', () => {
+  it('detects once per launch and again with force', async () => {
+    let runs = 0;
+    const { h } = await harness(undefined, {
+      runProbe: async () => {
+        runs += 1;
+        return { code: 1, stdout: '' };
+      },
+    });
+    const first = await h['agents:detect']();
+    expect(first.agents.claude.found).toBe(false);
+    expect(runs).toBe(3);
+    expect(await h['agents:detect']()).toBe(first);
+    expect(runs).toBe(3);
+    await h['agents:detect'](true);
+    expect(runs).toBe(6);
+  });
+});
+
 describe('handlers: repos', () => {
   it('lists, picks and removes repos', async () => {
     const { h, added } = await harness();

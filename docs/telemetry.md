@@ -48,6 +48,7 @@ This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 
 | `migration.miac` | first start after the rename from MIAC copied its data folder, or gave up after the third failed attempt; `result` (`ok`, `failed`); `tokens` (`migrated`, `partial`, `refused`, `none`; `none` when the copy gave up); `copied` (number of top-level entries), `ms` |
 | `workspace.joined` | a worktree of another repo joined a task; `source` (`log`: found in a Claude session log, `branch`: found by the task branch, `manual`: added by hand) |
 | `workspace.removed` | a joined worktree was removed from its task; none |
+| `agents.detected` | the agent CLI check ran; `claude`, `copilot`, `opencode` (true when found; never versions or paths) |
 | `terminal.opened` | kind (`claude`, `copilot`, `opencode`, `shell`, `run`); opened by setup or by hand |
 | `terminal.closed` | kind |
 | `terminal.restarted` | kind; after an app relaunch or not (a Claude Code restart resumes its session) |

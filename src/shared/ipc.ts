@@ -35,6 +35,7 @@ import type {
   SyncResult,
   TaskUsage,
 } from './usage';
+import type { AgentsDetected } from './agents';
 import type { EditorChoice, EditorId, EditorOptions } from './editors';
 import type { RendererTelemetry } from './telemetry';
 import type { TitleBarKind } from './titleBar';
@@ -59,6 +60,8 @@ export type Channels = {
   'repos:remove': { args: [id: string]; result: void };
   'repos:refresh': { args: [id: string]; result: Repo };
   'repos:pickFolder': { args: []; result: string | null };
+  /** The agent CLIs on this machine; cached per launch unless `force`. */
+  'agents:detect': { args: [force?: boolean]; result: AgentsDetected };
   'repos:config': {
     args: [repoId: string];
     result: { config: ShellieConfig; worktreeRoot: string };

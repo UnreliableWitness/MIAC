@@ -44,6 +44,12 @@ import { HomeService } from '../home/HomeService';
 import { homeStats } from '../home/homeStats';
 import { DocsWatcher } from '../docs/DocsWatcher';
 import { GitDirWatcher } from '../review/GitDirWatcher';
+import type { AgentsDetected } from '../../shared/agents';
+import {
+  detectAgents,
+  runProbe,
+  type ProbeRunner,
+} from '../services/agentDetector';
 import { createEditorHandlers } from '../editors/editorHandlers';
 import {
   detectEditors,
@@ -133,6 +139,8 @@ export type Services = {
   loadConfig: (repoPath: string) => Promise<ShellieConfig>;
   pickFolder: () => Promise<string | null>;
   launch: (cmd: Command) => Promise<void>;
+  /** Runs an agent probe with a timeout; defaults to `execFile` (tests inject a fake). */
+  runProbe?: ProbeRunner;
   /** Editor detection and launch; handlers build one from platform, settings and launch when absent (tests). */
   editors?: EditorService;
   broadcast: <K extends keyof Events>(event: K, payload: Events[K]) => void;
@@ -243,6 +251,7 @@ export async function pruneDanglingConnectionLinks(
 
 export function createHandlers(s: Services): Handlers {
   const tel = s.telemetry ?? NoopTelemetry;
+  let agentsCache: AgentsDetected | null = null;
   const sessionExists = s.claudeSessionExists ?? claudeSessionExists;
   const hasSessionsIn = s.claudeHasSessionsIn ?? claudeHasSessionsIn;
   const connectionsChanged = () =>
@@ -1624,6 +1633,17 @@ export function createHandlers(s: Services): Handlers {
       return repo;
     },
     'repos:pickFolder': () => s.pickFolder(),
+    'agents:detect': async (force) => {
+      if (!force && agentsCache) return agentsCache;
+      const result = await detectAgents(s.platform, s.runProbe ?? runProbe);
+      agentsCache = result;
+      tel.event('agents.detected', {
+        claude: result.agents.claude.found,
+        copilot: result.agents.copilot.found,
+        opencode: result.agents.opencode.found,
+      });
+      return result;
+    },
     'repos:config': async (repoId) => {
       const repo = s.repos.get(repoId);
       return {
