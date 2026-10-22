@@ -107,8 +107,13 @@ import { TITLE_BAR_HEIGHT, titleBarKind } from './shared/titleBar';
 import { errorMessage } from './shared/errors';
 import { HtmlViews, serveView, VIEW_SCHEME } from './main/htmlView';
 import { migrateOnboarding } from './main/onboardingMigration';
+import { userDataOverride } from './main/paths';
 
 if (started) app.quit();
+
+// Dev only: SHELLIE_USER_DATA points the app at a separate data folder (a fresh profile); set before anything reads it.
+const userDataDir = userDataOverride(process.env);
+if (userDataDir) app.setPath('userData', userDataDir);
 
 // HTML files opened in a tab load from shellie-view: (registered before ready, as Electron requires).
 // Not CORS-enabled and no CSP bypass: the pages run in a sandboxed iframe with an opaque origin.
@@ -279,17 +284,20 @@ async function boot(): Promise<void> {
   const userData = app.getPath('userData');
   // First on purpose: before settings load and before any window, copy MIAC's data folder.
   const migrationStart = performance.now();
-  const migration = await migrateDataFolder({
-    from: path.join(app.getPath('appData'), 'miac'),
-    to: userData,
-    platform: process.platform,
-  }).catch((err) => {
-    console.error(
-      'Data migration from MIAC failed; it runs again on the next start.',
-      err,
-    );
-    return null;
-  });
+  // A SHELLIE_USER_DATA profile stays fresh: no copy of MIAC's data into it.
+  const migration = userDataDir
+    ? null
+    : await migrateDataFolder({
+        from: path.join(app.getPath('appData'), 'miac'),
+        to: userData,
+        platform: process.platform,
+      }).catch((err) => {
+        console.error(
+          'Data migration from MIAC failed; it runs again on the next start.',
+          err,
+        );
+        return null;
+      });
   const migrationMs = performance.now() - migrationStart;
   const settings = new SettingsStore(path.join(userData, 'settings.json'));
   const settingsLoaded = await settings.load();
