@@ -50,6 +50,8 @@ function open(
     previous: null,
     notices: [],
     connections,
+    repos: [],
+    settings: null,
   });
 }
 const callsOf = (
@@ -144,7 +146,7 @@ describe('ConnectScreen', () => {
     );
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
     await waitFor(() =>
-      expect(useStore.getState().screen).toEqual({ kind: 'home' }),
+      expect(useStore.getState().screen).toEqual({ kind: 'get-started' }),
     );
     expect(
       (callsOf(calls, 'connections:saveMany')[0] as { projects: string[] })
@@ -205,7 +207,7 @@ describe('ConnectScreen', () => {
     );
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
     await waitFor(() =>
-      expect(useStore.getState().screen).toEqual({ kind: 'home' }),
+      expect(useStore.getState().screen).toEqual({ kind: 'get-started' }),
     );
     expect(callsOf(calls, 'connections:saveMany')).toEqual([
       {
@@ -228,7 +230,8 @@ describe('ConnectScreen', () => {
     });
   });
 
-  it('No tracker: Continue saves the choice and goes on', async () => {
+  it('No tracker: Continue saves the choice and goes Home when the steps are done', async () => {
+    useStore.setState({ repos: [{ id: 'r1' } as never] });
     const { calls, tracked } = installFakeApi({
       'settings:save': (s: AppSettings) => s,
     });
@@ -321,11 +324,11 @@ describe('ConnectScreen', () => {
     expect(document.body.textContent).not.toContain('secret-pat');
   });
 
-  it('Skip for now goes home and reports skipped', async () => {
+  it('Skip for now returns to Get started and reports skipped', async () => {
     const { tracked } = installFakeApi();
     render(<ConnectScreen />);
     await userEvent.click(screen.getByRole('button', { name: 'Skip for now' }));
-    expect(useStore.getState().screen).toEqual({ kind: 'home' });
+    expect(useStore.getState().screen).toEqual({ kind: 'get-started' });
     expect(tracked).toContainEqual({
       type: 'event',
       name: 'onboarding.step',

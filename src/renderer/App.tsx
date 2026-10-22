@@ -8,8 +8,10 @@ import { useAttention } from './hooks/useAttention';
 import { useTimeFocus } from './hooks/useTimeFocus';
 import { useShortcuts } from './hooks/useShortcuts';
 import { AddRepoScreen } from './screens/AddRepoScreen';
+import { AgentsScreen } from './screens/AgentsScreen';
 import { ConnectScreen } from './screens/ConnectScreen';
 import { FinishScreen } from './screens/FinishScreen';
+import { GetStartedScreen } from './screens/GetStartedScreen';
 import { NewTaskScreen } from './screens/NewTaskScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { HomeScreen } from './screens/HomeScreen';
@@ -24,6 +26,10 @@ function Page() {
   switch (screen.kind) {
     case 'home':
       return <HomeScreen />;
+    case 'get-started':
+      return <GetStartedScreen />;
+    case 'agents':
+      return <AgentsScreen />;
     case 'sprint':
       return <SprintScreen />;
     case 'task':

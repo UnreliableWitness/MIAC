@@ -977,3 +977,113 @@
   flex-direction: column;
   gap: 2px;
 }
+
+/* Get started (first run) and its Home band */
+.get-started {
+  display: grid;
+  grid-template-columns: minmax(0, 600px) minmax(0, 360px);
+  gap: 24px;
+  align-items: start;
+  max-width: 1000px;
+}
+.get-started h1 {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+.get-started-main {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.get-started-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.get-started-art {
+  aspect-ratio: 3 / 2;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--bg-card);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.get-started-art img:not(.mindmark) {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.get-started-gets {
+  padding: 12px 16px;
+}
+.get-started-gets ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+.step-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.step-cards.in-band {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+.step-cards.in-band .step-card {
+  flex: 1 1 220px;
+}
+.step-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+}
+.step-card.is-current {
+  border-color: var(--accent);
+}
+.step-card h3 {
+  margin: 0;
+}
+.step-card p {
+  margin: 2px 0 0;
+}
+.step-card-body {
+  flex: 1;
+  min-width: 0;
+}
+.step-mark {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  border: 1px solid var(--line-strong);
+  color: var(--muted);
+}
+.step-mark.is-done {
+  border: 0;
+  background: var(--green-bg);
+  color: var(--green);
+}
+.step-mark.is-current {
+  border: 0;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.get-started-band .section-head {
+  justify-content: space-between;
+}
+@media (max-width: 900px) {
+  .get-started {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

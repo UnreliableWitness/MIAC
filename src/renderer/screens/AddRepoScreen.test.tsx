@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { RepoInspection } from '../../shared/repoInspection';
+import { defaultSettings } from '../../shared/usage';
 import { useStore } from '../store';
 import { installFakeApi } from '../test-helpers/fakeApi';
 import { AddRepoScreen } from './AddRepoScreen';
@@ -33,6 +34,7 @@ function open(from: 'settings' | 'get-started', folder = '/src/webshop') {
     screen: { kind: 'add-repo', from, folder },
     previous: null,
     notices: [],
+    settings: null,
   });
 }
 const addCall = (calls: { channel: string; args: unknown[] }[]) =>
@@ -287,7 +289,7 @@ describe('AddRepoScreen', () => {
     });
   });
 
-  it('from get started: strip with Repository current, Add goes to Home', async () => {
+  it('from get started: strip with Repository current, Add returns to Get started while steps are left', async () => {
     open('get-started');
     installFakeApi({
       'repos:inspect': () => inspection,
@@ -299,6 +301,29 @@ describe('AddRepoScreen', () => {
     expect(strip.querySelector('[aria-current="step"]')?.textContent).toContain(
       'Repository',
     );
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Add repository' }),
+    );
+    await waitFor(() =>
+      expect(useStore.getState().screen).toEqual({ kind: 'get-started' }),
+    );
+  });
+
+  it('from get started with the other steps done, Add goes to Home', async () => {
+    open('get-started');
+    const s = defaultSettings();
+    useStore.setState({
+      settings: {
+        ...s,
+        onboarding: { ...s.onboarding, agentsCheckedAt: 'x', tracker: 'none' },
+      },
+    });
+    installFakeApi({
+      'repos:inspect': () => inspection,
+      'repos:add': () => ({}) as never,
+    });
+    render(<AddRepoScreen folder="/src/webshop" />);
+    await screen.findByText('Linked to project Shellie');
     await userEvent.click(
       screen.getByRole('button', { name: 'Add repository' }),
     );

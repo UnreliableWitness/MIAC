@@ -4,6 +4,7 @@ import type { RepoInspection } from '../../shared/repoInspection';
 import { ShellieYmlSchema } from '../../shared/shellieYml';
 import { api, ipcErrorMessage, tryInvoke } from '../api';
 import { PageHeader, StepStrip } from '../components/ui';
+import { afterStep, stepsFrom } from '../onboardingState';
 import { useStore } from '../store';
 import { track } from '../telemetry';
 
@@ -177,7 +178,7 @@ export function AddRepoScreen({ folder: initial }: { folder?: string }) {
       .catch(() => undefined);
     if (onboarding) {
       track('onboarding.step', { step: 'repository', outcome: 'continued' });
-      go({ kind: 'home' });
+      go(afterStep(stepsFrom({ ...useStore.getState(), repos: [added] })));
     } else go({ kind: 'settings', section: 'repos' });
   };
 

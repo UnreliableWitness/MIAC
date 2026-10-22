@@ -302,6 +302,28 @@ describe('SettingsScreen', () => {
     });
   });
 
+  it('About has a Get started link that brings the page back', async () => {
+    const { defaultSettings } = await import('../../shared/usage');
+    const dismissed = defaultSettings();
+    dismissed.onboarding.dismissedAt = '2026-10-01T00:00:00.000Z';
+    dismissed.onboarding.agentsCheckedAt = '2026-10-01T00:00:00.000Z';
+    const { calls } = installFakeApi({
+      'settings:get': () => dismissed,
+      'settings:save': (next) => next,
+    });
+    render(<SettingsScreen />);
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Get started' }),
+    );
+    await waitFor(() =>
+      expect(useStore.getState().screen).toEqual({ kind: 'get-started' }),
+    );
+    expect(
+      (calls.find((c) => c.channel === 'settings:save')?.args[0] as AppSettings)
+        .onboarding.dismissedAt,
+    ).toBeNull();
+  });
+
   it('turns anonymous usage and error data off', async () => {
     const { calls } = installFakeApi({ 'settings:save': (next) => next });
     render(<SettingsScreen />);

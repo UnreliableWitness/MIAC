@@ -312,6 +312,19 @@ function AppearanceSection() {
 
 function AboutSection() {
   const [version, setVersion] = useState('');
+  const go = useStore((s) => s.go);
+  const notify = useStore((s) => s.notify);
+
+  const getStarted = async () => {
+    const saved = await tryInvoke(
+      () =>
+        saveSettings((f) => ({
+          onboarding: { ...f.onboarding, dismissedAt: null },
+        })),
+      notify,
+    );
+    if (saved) go({ kind: 'get-started' });
+  };
 
   useEffect(() => {
     let live = true;
@@ -342,6 +355,13 @@ function AboutSection() {
             General Systems Vehicle (accounting division)
           </div>
           {version && <div className="mono small muted">v{version}</div>}
+          <button
+            type="button"
+            className="link"
+            onClick={() => void getStarted()}
+          >
+            Get started
+          </button>
         </div>
       </div>
     </section>

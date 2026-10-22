@@ -106,6 +106,7 @@ import { schemeOf } from './shared/theme';
 import { TITLE_BAR_HEIGHT, titleBarKind } from './shared/titleBar';
 import { errorMessage } from './shared/errors';
 import { HtmlViews, serveView, VIEW_SCHEME } from './main/htmlView';
+import { migrateOnboarding } from './main/onboardingMigration';
 
 if (started) app.quit();
 
@@ -391,6 +392,16 @@ async function boot(): Promise<void> {
       store.load(),
       connections.load(),
     ]);
+    // Installs that already have repositories skip the first-run page and keep their tabs.
+    const migrated = migrateOnboarding(
+      settings.get(),
+      store.state.repos.length,
+      new Date().toISOString(),
+    );
+    if (migrated)
+      await settings
+        .save(migrated)
+        .catch((err) => console.error('Onboarding migration failed', err));
     const recovered = await recoverInterruptedTasks(store);
     // Fetch and push to Azure Repos sign in with the connection's token, not a credential helper that may not start.
     const git = new GitClient(undefined, {

@@ -6,6 +6,7 @@ import {
   type ProviderChoice,
 } from '../components/ProviderPicker';
 import { PageHeader, StepStrip } from '../components/ui';
+import { afterStep, stepsFrom } from '../onboardingState';
 import { useStore } from '../store';
 import { track } from '../telemetry';
 
@@ -133,7 +134,7 @@ export function ConnectScreen() {
 
   const leave = () =>
     onboarding
-      ? go({ kind: 'home' })
+      ? go(afterStep(stepsFrom(useStore.getState())))
       : go({ kind: 'settings', section: 'ado' });
 
   const goBack = () => {
