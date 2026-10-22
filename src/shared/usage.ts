@@ -57,6 +57,8 @@ const OnboardingSchema = z.object({
   dismissedAt: z.string().nullable().default(null),
   agentsCheckedAt: z.string().nullable().default(null),
   tracker: z.literal('none').nullable().default(null),
+  /** Set on the first start of the version with the first-run page, so its migration for existing installs runs once. */
+  migrated: z.boolean().default(false),
 });
 
 export const AppSettingsSchema = z.object({
@@ -95,6 +97,7 @@ export const AppSettingsSchema = z.object({
     dismissedAt: null,
     agentsCheckedAt: null,
     tracker: null,
+    migrated: false,
   }),
   /** Auto-update (packaged Windows builds). No UI yet: set false in settings.json to turn it off. */
   autoUpdate: z.boolean().optional(),

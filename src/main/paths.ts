@@ -33,8 +33,15 @@ export function isInside(
   return t.startsWith(r.endsWith(p.sep) ? r : r + p.sep);
 }
 
-/** Dev only: `SHELLIE_USER_DATA=<absolute path>` runs the app on a separate data folder (a fresh profile). */
-export function userDataOverride(env: NodeJS.ProcessEnv): string | null {
+/**
+ * Dev only: `SHELLIE_USER_DATA=<absolute path>` runs the app on a separate data folder (a fresh profile). A packaged
+ * build ignores it, so a stray variable never hides a user's data.
+ */
+export function userDataOverride(
+  env: NodeJS.ProcessEnv,
+  packaged: boolean,
+): string | null {
+  if (packaged) return null;
   const dir = env.SHELLIE_USER_DATA?.trim();
   return dir && path.isAbsolute(dir) ? dir : null;
 }

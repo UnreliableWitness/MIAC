@@ -6,7 +6,7 @@ import {
   type ProviderChoice,
 } from '../components/ProviderPicker';
 import { PageHeader, StepStrip } from '../components/ui';
-import { afterStep, stepsFrom } from '../onboardingState';
+import { nextStep, stepsFrom } from '../onboardingState';
 import { useStore } from '../store';
 import { track } from '../telemetry';
 
@@ -134,7 +134,7 @@ export function ConnectScreen() {
 
   const leave = () =>
     onboarding
-      ? go(afterStep(stepsFrom(useStore.getState())))
+      ? go(nextStep(stepsFrom(useStore.getState()), 'connect'))
       : go({ kind: 'settings', section: 'ado' });
 
   const goBack = () => {
@@ -237,11 +237,11 @@ export function ConnectScreen() {
 
   return (
     <div className="page">
+      {onboarding && <StepStrip current="connect" />}
+      <PageHeader
+        title={existing ? 'Add a project' : 'Where do your work items live?'}
+      />
       <div className="page-body connect">
-        {onboarding && <StepStrip current="connect" />}
-        <PageHeader
-          title={existing ? 'Add a project' : 'Where do your work items live?'}
-        />
         <p className="muted">
           {existing
             ? `Projects of ${existing.organizationUrl}, with the token you already saved.`

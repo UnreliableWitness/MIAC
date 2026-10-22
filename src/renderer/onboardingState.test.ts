@@ -1,16 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { defaultSettings } from '../shared/usage';
-import {
-  afterStep,
-  firstScreen,
-  nextStep,
-  onboardingSteps,
-} from './onboardingState';
+import { firstScreen, nextStep, onboardingSteps } from './onboardingState';
 
 const onboarding = (
   o: Partial<ReturnType<typeof defaultSettings>['onboarding']> = {},
 ) => ({
-  onboarding: { dismissedAt: null, agentsCheckedAt: null, tracker: null, ...o },
+  onboarding: {
+    dismissedAt: null,
+    agentsCheckedAt: null,
+    tracker: null,
+    migrated: false,
+    ...o,
+  },
 });
 const connection = { id: 'c1' };
 const repo = { id: 'r1' };
@@ -96,13 +97,6 @@ describe('after a step page', () => {
     expect(nextStep(steps({}), 'agents')).toEqual({
       kind: 'connect',
       from: 'get-started',
-    });
-  });
-
-  it('a finished step returns to Get started while steps are left, else Home', () => {
-    expect(afterStep(steps({}, 1))).toEqual({ kind: 'get-started' });
-    expect(afterStep(steps({ agentsCheckedAt: 'x' }, 1, 1))).toEqual({
-      kind: 'home',
     });
   });
 });

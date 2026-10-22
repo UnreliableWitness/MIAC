@@ -40,6 +40,14 @@ const conn: Connection = {
   },
 };
 
+const agentsDone = {
+  onboarding: {
+    dismissedAt: null,
+    agentsCheckedAt: '2026-10-22T09:00:00.000Z',
+    tracker: null,
+  },
+} as AppSettings;
+
 function open(
   from: 'settings' | 'get-started',
   connectionId?: string,
@@ -145,8 +153,12 @@ describe('ConnectScreen', () => {
       'Shellie',
     );
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    // Agents is still to do, so Continue goes there rather than back to Get started.
     await waitFor(() =>
-      expect(useStore.getState().screen).toEqual({ kind: 'get-started' }),
+      expect(useStore.getState().screen).toEqual({
+        kind: 'agents',
+        from: 'get-started',
+      }),
     );
     expect(
       (callsOf(calls, 'connections:saveMany')[0] as { projects: string[] })
@@ -186,7 +198,8 @@ describe('ConnectScreen', () => {
     expect(useStore.getState().screen.kind).toBe('connect');
   });
 
-  it('saves the ticked projects with the on-start options and goes on', async () => {
+  it('saves the ticked projects with the on-start options and goes on to Add a repository', async () => {
+    useStore.setState({ settings: agentsDone });
     const { calls, tracked } = installFakeApi({
       'connections:probe': () => three,
       'connections:saveMany': () => [conn],
@@ -207,7 +220,10 @@ describe('ConnectScreen', () => {
     );
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
     await waitFor(() =>
-      expect(useStore.getState().screen).toEqual({ kind: 'get-started' }),
+      expect(useStore.getState().screen).toEqual({
+        kind: 'add-repo',
+        from: 'get-started',
+      }),
     );
     expect(callsOf(calls, 'connections:saveMany')).toEqual([
       {
@@ -253,6 +269,13 @@ describe('ConnectScreen', () => {
       name: 'onboarding.step',
       props: { step: 'connect', outcome: 'continued' },
     });
+  });
+
+  it('renders the page header outside the padded page body, as Settings does', () => {
+    installFakeApi();
+    const { container } = render(<ConnectScreen />);
+    expect(container.querySelector('.page > .pagehead')).toBeTruthy();
+    expect(container.querySelector('.page-body .pagehead')).toBeNull();
   });
 
   it('shows GitHub as coming soon and not selectable', () => {
@@ -324,11 +347,15 @@ describe('ConnectScreen', () => {
     expect(document.body.textContent).not.toContain('secret-pat');
   });
 
-  it('Skip for now returns to Get started and reports skipped', async () => {
+  it('Skip for now goes on to the next unfinished step and reports skipped', async () => {
+    useStore.setState({ settings: agentsDone });
     const { tracked } = installFakeApi();
     render(<ConnectScreen />);
     await userEvent.click(screen.getByRole('button', { name: 'Skip for now' }));
-    expect(useStore.getState().screen).toEqual({ kind: 'get-started' });
+    expect(useStore.getState().screen).toEqual({
+      kind: 'add-repo',
+      from: 'get-started',
+    });
     expect(tracked).toContainEqual({
       type: 'event',
       name: 'onboarding.step',

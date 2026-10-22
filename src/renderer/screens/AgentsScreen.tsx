@@ -27,9 +27,9 @@ export function AgentsScreen() {
 
   return (
     <div className="page">
+      {onboarding && <StepStrip current="agents" />}
+      <PageHeader title="Agents" />
       <div className="page-body add-repo">
-        {onboarding && <StepStrip current="agents" />}
-        <PageHeader title="Agents" />
         <AgentsSection embedded />
         <div className="add-repo-actions">
           <button type="button" className="btn" onClick={goBack}>

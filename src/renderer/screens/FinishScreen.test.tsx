@@ -486,7 +486,12 @@ describe('FinishScreen AI usage', () => {
         },
         sendTelemetry: true,
         editor: { default: null, repos: {} },
-        onboarding: { dismissedAt: null, agentsCheckedAt: null, tracker: null },
+        onboarding: {
+          dismissedAt: null,
+          agentsCheckedAt: null,
+          tracker: null,
+          migrated: false,
+        },
         defaultTerminals: {
           claude: true,
           copilot: false,

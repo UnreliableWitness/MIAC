@@ -4,7 +4,7 @@ import type { RepoInspection } from '../../shared/repoInspection';
 import { ShellieYmlSchema } from '../../shared/shellieYml';
 import { api, ipcErrorMessage, tryInvoke } from '../api';
 import { PageHeader, StepStrip } from '../components/ui';
-import { afterStep, stepsFrom } from '../onboardingState';
+import { nextStep, stepsFrom } from '../onboardingState';
 import { useStore } from '../store';
 import { track } from '../telemetry';
 
@@ -178,15 +178,20 @@ export function AddRepoScreen({ folder: initial }: { folder?: string }) {
       .catch(() => undefined);
     if (onboarding) {
       track('onboarding.step', { step: 'repository', outcome: 'continued' });
-      go(afterStep(stepsFrom({ ...useStore.getState(), repos: [added] })));
+      go(
+        nextStep(
+          stepsFrom({ ...useStore.getState(), repos: [added] }),
+          'repository',
+        ),
+      );
     } else go({ kind: 'settings', section: 'repos' });
   };
 
   return (
     <div className="page">
+      {onboarding && <StepStrip current="repository" />}
+      <PageHeader title="Add a repository" />
       <div className="page-body add-repo">
-        {onboarding && <StepStrip current="repository" />}
-        <PageHeader title="Add a repository" />
         <p className="muted">
           Shellie reads the folder and proposes how tasks in it start.
         </p>
@@ -312,6 +317,12 @@ export function AddRepoScreen({ folder: initial }: { folder?: string }) {
                 </span>
               </span>
             </label>
+            {!write && (
+              <p className="small muted">
+                Shellie then uses its built-in defaults (npm ci when there is a
+                package-lock.json); the proposal above is not kept.
+              </p>
+            )}
           </fieldset>
         )}
         <div className="add-repo-actions">

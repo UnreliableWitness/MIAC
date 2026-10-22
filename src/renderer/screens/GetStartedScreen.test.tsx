@@ -23,6 +23,7 @@ const settings = (
     dismissedAt: null,
     agentsCheckedAt: '2026-10-22T09:00:00.000Z',
     tracker: null,
+    migrated: false,
     ...onboarding,
   },
 });
@@ -87,13 +88,22 @@ describe('Get started page', () => {
     ).not.toHaveClass('btn-primary');
   });
 
-  it('a fresh install has Agents current with its button primary', () => {
+  it('a fresh install has Agents current with an Open button, naming the found agents and the tabs it will tick', async () => {
     open(settings({ agentsCheckedAt: null }));
-    installFakeApi({ 'agents:detect': () => detected });
+    const { calls } = installFakeApi({ 'agents:detect': () => detected });
     render(<Shell />);
     expect(
-      within(card('1 · Agents')).getByRole('button', { name: 'Change' }),
+      within(card('1 · Agents')).getByRole('button', { name: 'Open' }),
     ).toHaveClass('btn-primary');
+    expect(
+      await within(card('1 · Agents')).findByText(
+        'Found Claude Code 2.1.307 and OpenCode 1.19.3 on this machine. New tasks open Claude Code and a shell.',
+      ),
+    ).toBeTruthy();
+    // The cached detection: the page never forces a fresh probe.
+    expect(
+      calls.filter((c) => c.channel === 'agents:detect').map((c) => c.args),
+    ).toEqual([[false]]);
   });
 
   it('Skip for now saves dismissedAt and goes Home', async () => {

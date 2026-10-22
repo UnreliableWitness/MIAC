@@ -14,12 +14,19 @@ describe('worktreeRoot', () => {
 describe('userDataOverride', () => {
   it('returns an absolute SHELLIE_USER_DATA', () => {
     const dir = path.resolve('/tmp/shellie-profile');
-    expect(userDataOverride({ SHELLIE_USER_DATA: dir })).toBe(dir);
+    expect(userDataOverride({ SHELLIE_USER_DATA: dir }, false)).toBe(dir);
   });
 
   it('is null when unset, blank or relative', () => {
-    expect(userDataOverride({})).toBeNull();
-    expect(userDataOverride({ SHELLIE_USER_DATA: '  ' })).toBeNull();
-    expect(userDataOverride({ SHELLIE_USER_DATA: 'profile' })).toBeNull();
+    expect(userDataOverride({}, false)).toBeNull();
+    expect(userDataOverride({ SHELLIE_USER_DATA: '  ' }, false)).toBeNull();
+    expect(
+      userDataOverride({ SHELLIE_USER_DATA: 'profile' }, false),
+    ).toBeNull();
+  });
+
+  it('is ignored in a packaged build', () => {
+    const dir = path.resolve('/tmp/shellie-profile');
+    expect(userDataOverride({ SHELLIE_USER_DATA: dir }, true)).toBeNull();
   });
 });

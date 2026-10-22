@@ -313,6 +313,15 @@ describe('handlers: repos', () => {
     await h['repos:remove'](added.id);
     expect(await h['repos:list']()).toEqual([]);
   });
+
+  it('repos:config gives a repo kept in Shellie only the base branch it was added with', async () => {
+    const { h } = await harness();
+    const repo = await h['repos:add'](makeRepo('kept-in-shellie'), {
+      baseBranch: 'develop',
+    });
+    const cfg = await h['repos:config'](repo.id);
+    expect(cfg.config).toMatchObject({ found: false, base: 'develop' });
+  });
 });
 
 describe('handlers: repos:add / repos:inspect telemetry', () => {
@@ -326,7 +335,7 @@ describe('handlers: repos:add / repos:inspect telemetry', () => {
     });
     const repo = makeRepo('fresh');
     const inspected = await h['repos:inspect'](repo);
-    expect(inspected.proposal).toContain('base: main');
+    expect(inspected.proposal).toContain('base: "main"');
     expect(events).toContainEqual([
       'repo.inspected',
       {
@@ -2411,7 +2420,11 @@ describe('handlers: connections:probe and connections:saveMany', () => {
       workItemOnStart: onStart,
       provider: 'azure-devops',
     });
-    expect(first.map((c) => c.name)).toEqual(['uw/Shellie', 'uw/Webshop']);
+    // The name is the organization; every screen shows the project next to it.
+    expect(first.map((c) => [c.name, c.project])).toEqual([
+      ['uw', 'Shellie'],
+      ['uw', 'Webshop'],
+    ]);
     expect(first[0]).toMatchObject({
       project: 'Shellie',
       status: 'ok',
@@ -2428,7 +2441,7 @@ describe('handlers: connections:probe and connections:saveMany', () => {
       workItemOnStart: onStart,
       provider: 'azure-devops',
     });
-    expect(again.map((c) => c.name)).toEqual(['uw/Infra']);
+    expect(again.map((c) => [c.name, c.project])).toEqual([['uw', 'Infra']]);
     expect(server.requests.every((r) => r.auth === authFor('secret-pat'))).toBe(
       true,
     );

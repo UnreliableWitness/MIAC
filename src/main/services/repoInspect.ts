@@ -18,9 +18,15 @@ export function proposeConfig(
   facts: Omit<RepoFacts, 'existing'> & { existing?: string | null },
   baseBranch: string,
 ): string {
-  const lines = [`base: ${baseBranch}`, `branch: "${DEFAULT_BRANCH_TEMPLATE}"`];
+  // Quoted, so a branch named `null` or `1.0` and a file name with `#` or `: ` stay strings.
+  const lines = [
+    `base: ${JSON.stringify(baseBranch)}`,
+    `branch: "${DEFAULT_BRANCH_TEMPLATE}"`,
+  ];
   if (facts.envFiles.length > 0)
-    lines.push(`copy: [${facts.envFiles.join(', ')}]`);
+    lines.push(
+      `copy: [${facts.envFiles.map((f) => JSON.stringify(f)).join(', ')}]`,
+    );
   const setup: string[] = [];
   if (facts.lockfile) setup.push(INSTALL[facts.lockfile]);
   if (facts.dotnet.length > 0) setup.push('dotnet restore');
@@ -102,7 +108,8 @@ export async function inspectRepo(
   } catch {
     // missing folder
   }
-  if (!top) throw new Error(`${folder} is not a git repository`);
+  // No folder in the message: every IPC rejection is reported to telemetry, and the page shows the folder.
+  if (!top) throw new Error('Not a git repository');
 
   const url = await git.remoteUrl(top, 'origin');
   let remote: RepoInspection['remote'] = null;

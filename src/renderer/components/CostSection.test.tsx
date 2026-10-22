@@ -37,7 +37,12 @@ const settings = {
   },
   sendTelemetry: true,
   editor: { default: null, repos: {} },
-  onboarding: { dismissedAt: null, agentsCheckedAt: null, tracker: null },
+  onboarding: {
+    dismissedAt: null,
+    agentsCheckedAt: null,
+    tracker: null,
+    migrated: false,
+  },
   defaultTerminals: {
     claude: true,
     copilot: false,
@@ -129,7 +134,12 @@ describe('CostSection', () => {
       },
       sendTelemetry: true,
       editor: { default: null, repos: {} },
-      onboarding: { dismissedAt: null, agentsCheckedAt: null, tracker: null },
+      onboarding: {
+        dismissedAt: null,
+        agentsCheckedAt: null,
+        tracker: null,
+        migrated: false,
+      },
       defaultTerminals: {
         claude: true,
         copilot: false,

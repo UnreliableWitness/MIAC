@@ -73,7 +73,6 @@ import { OFFICIAL_RATES, OFFICIAL_RATES_AS_OF } from '../pricing/officialRates';
 import { AdoClient, AdoError } from '../services/AdoClient';
 import type { TrackerRegistry } from '../trackers/TrackerRegistry';
 import {
-  organizationSlug,
   TokenUnavailableError,
   type ConnectionStore,
 } from '../services/ConnectionStore';
@@ -1707,8 +1706,10 @@ export function createHandlers(s: Services): Handlers {
     },
     'repos:config': async (repoId) => {
       const repo = s.repos.get(repoId);
+      const config = await s.loadConfig(repo.path);
       return {
-        config: await s.loadConfig(repo.path),
+        // A repo kept in Shellie only (no file) starts from the base branch it was added with, not the built-in `main`.
+        config: config.found ? config : { ...config, base: repo.baseBranch },
         worktreeRoot: worktreeRoot(repo.path),
       };
     },
@@ -2199,7 +2200,6 @@ export function createHandlers(s: Services): Handlers {
       const pat = input.connectionId
         ? await s.connections.token(input.connectionId)
         : (input.pat ?? '');
-      const org = organizationSlug(organizationUrl);
       const known = new Set(
         s.connections
           .list()
@@ -2213,7 +2213,6 @@ export function createHandlers(s: Services): Handlers {
         known.add(project.toLowerCase());
         saved.push(
           await saveConnection({
-            name: `${org}/${project}`,
             organizationUrl,
             project,
             pat,

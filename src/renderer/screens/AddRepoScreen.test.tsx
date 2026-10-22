@@ -169,6 +169,11 @@ describe('AddRepoScreen', () => {
     expect(
       screen.queryByRole('textbox', { name: 'Proposed .shellie.yml' }),
     ).toBeNull();
+    expect(
+      screen.getByText(
+        'Shellie then uses its built-in defaults (npm ci when there is a package-lock.json); the proposal above is not kept.',
+      ),
+    ).toBeTruthy();
   });
 
   it('keeps the defaults in Shellie only without writeConfig', async () => {
@@ -248,13 +253,13 @@ describe('AddRepoScreen', () => {
   it('shows the error for a folder that is not a git repository', async () => {
     installFakeApi({
       'repos:inspect': () => {
-        throw new Error('/tmp/x is not a git repository');
+        throw new Error('Not a git repository');
       },
     });
     render(<AddRepoScreen folder="/tmp/x" />);
-    expect(
-      await screen.findByText('/tmp/x is not a git repository'),
-    ).toBeTruthy();
+    expect(await screen.findByText('Not a git repository')).toBeTruthy();
+    // The error names no folder (it reaches telemetry); the page shows the folder itself.
+    expect(screen.getByDisplayValue('/tmp/x')).toBeTruthy();
     expect(
       (
         screen.getByRole('button', {
@@ -289,8 +294,16 @@ describe('AddRepoScreen', () => {
     });
   });
 
-  it('from get started: strip with Repository current, Add returns to Get started while steps are left', async () => {
+  it('from get started: strip with Repository current, Add goes on to Connect while it is still to do', async () => {
     open('get-started');
+    const s = defaultSettings();
+    useStore.setState({
+      connections: [],
+      settings: {
+        ...s,
+        onboarding: { ...s.onboarding, agentsCheckedAt: 'x', tracker: null },
+      },
+    });
     installFakeApi({
       'repos:inspect': () => inspection,
       'repos:add': () => ({}) as never,
@@ -305,7 +318,10 @@ describe('AddRepoScreen', () => {
       screen.getByRole('button', { name: 'Add repository' }),
     );
     await waitFor(() =>
-      expect(useStore.getState().screen).toEqual({ kind: 'get-started' }),
+      expect(useStore.getState().screen).toEqual({
+        kind: 'connect',
+        from: 'get-started',
+      }),
     );
   });
 

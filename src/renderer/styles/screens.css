@@ -735,7 +735,11 @@
   font-weight: 600;
 }
 
-/* Add repository, first-run step strip */
+/* Add repository, first-run step strip; on the step pages it sits above the page header, outside the body. */
+.page > .step-strip {
+  flex: none;
+  padding: 16px 32px 0;
+}
 .step-strip {
   list-style: none;
   margin: 0;
@@ -978,8 +982,8 @@
   gap: 2px;
 }
 
-/* Get started (first run) and its Home band */
-.get-started {
+/* Get started (first run) and its Home band. `.page-body` is a flex column, so the grid needs the extra class. */
+.page-body.get-started {
   display: grid;
   grid-template-columns: minmax(0, 600px) minmax(0, 360px);
   gap: 24px;
@@ -1083,7 +1087,7 @@
   justify-content: space-between;
 }
 @media (max-width: 900px) {
-  .get-started {
+  .page-body.get-started {
     grid-template-columns: minmax(0, 1fr);
   }
 }

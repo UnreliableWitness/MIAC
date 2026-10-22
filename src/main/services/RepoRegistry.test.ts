@@ -305,4 +305,12 @@ describe('RepoRegistry.add options', () => {
     writeFileSync(path.join(repo, '.shellie.yml'), 'base: release\n');
     expect((await reg.refresh(added.id)).baseBranch).toBe('release');
   });
+
+  it("a .shellie.yml's base wins over the inspected base branch", async () => {
+    const reg = await registry();
+    const repo = makeRepo('withfile');
+    writeFileSync(path.join(repo, '.shellie.yml'), 'base: release\n');
+    const added = await reg.add(repo, { baseBranch: 'develop' });
+    expect(added).toMatchObject({ baseBranch: 'release', configFound: true });
+  });
 });

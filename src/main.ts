@@ -111,8 +111,9 @@ import { userDataOverride } from './main/paths';
 
 if (started) app.quit();
 
-// Dev only: SHELLIE_USER_DATA points the app at a separate data folder (a fresh profile); set before anything reads it.
-const userDataDir = userDataOverride(process.env);
+// Dev only (ignored when packaged): SHELLIE_USER_DATA points the app at a separate data folder (a fresh profile);
+// set before anything reads it.
+const userDataDir = userDataOverride(process.env, app.isPackaged);
 if (userDataDir) app.setPath('userData', userDataDir);
 
 // HTML files opened in a tab load from shellie-view: (registered before ready, as Electron requires).
@@ -400,7 +401,7 @@ async function boot(): Promise<void> {
       store.load(),
       connections.load(),
     ]);
-    // Installs that already have repositories skip the first-run page and keep their tabs.
+    // Once per install: installs that already have repositories skip the first-run page and keep their tabs.
     const migrated = migrateOnboarding(
       settings.get(),
       store.state.repos.length,

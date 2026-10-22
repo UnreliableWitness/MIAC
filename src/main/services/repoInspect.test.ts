@@ -39,9 +39,9 @@ describe('proposeConfig', () => {
     );
     expect(text).toBe(
       [
-        'base: main',
+        'base: "main"',
         'branch: "{type}/{id}-{slug}"',
-        'copy: [.env, .env.local]',
+        'copy: [".env", ".env.local"]',
         'setup:',
         '  - npm ci',
         'run:',
@@ -63,7 +63,7 @@ describe('proposeConfig', () => {
       },
       'develop',
     );
-    expect(text).toContain('base: develop');
+    expect(text).toContain('base: "develop"');
     expect(text).toContain(
       'setup:\n  - pnpm install --frozen-lockfile\n  - dotnet restore\n',
     );
@@ -75,9 +75,19 @@ describe('proposeConfig', () => {
     );
   });
 
+  it('quotes the base branch and env file names, so YAML reads them as strings', () => {
+    const text = proposeConfig(
+      { ...none, envFiles: ['.env #local', '.env.local'] },
+      'null',
+    );
+    const parsed = ShellieYmlSchema.parse(parseYaml(text));
+    expect(parsed.base).toBe('null');
+    expect(parsed.copy).toEqual(['.env #local', '.env.local']);
+  });
+
   it('leaves out copy, setup and run when nothing was found', () => {
     expect(proposeConfig(none, 'main')).toBe(
-      'base: main\nbranch: "{type}/{id}-{slug}"\n',
+      'base: "main"\nbranch: "{type}/{id}-{slug}"\n',
     );
   });
 });
@@ -157,9 +167,9 @@ describe('inspectRepo', () => {
     const dir = realpathSync.native(
       mkdtempSync(path.join(os.tmpdir(), 'shellie-plain-')),
     );
-    await expect(inspectRepo(dir, deps)).rejects.toThrow(
-      'not a git repository',
-    );
+    // The message names no folder: IPC rejections reach telemetry, and the page shows the folder itself.
+    const err = await inspectRepo(dir, deps).catch((e: Error) => e);
+    expect((err as Error).message).toBe('Not a git repository');
   });
 
   it('reports an existing .shellie.yml and proposes nothing', async () => {
@@ -193,7 +203,7 @@ describe('inspectRepo', () => {
       envFiles: ['.env', '.env.local'],
       existing: null,
     });
-    expect(r.proposal).toContain('copy: [.env, .env.local]');
+    expect(r.proposal).toContain('copy: [".env", ".env.local"]');
     expect(r.proposal).toContain('dotnet restore');
   });
 

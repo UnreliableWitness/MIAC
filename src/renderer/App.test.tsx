@@ -170,6 +170,7 @@ describe('first page', () => {
     dismissedAt: null,
     agentsCheckedAt: null,
     tracker: null,
+    migrated: false,
   };
   const withOnboarding = (onboarding: typeof fresh) => async () => {
     const { defaultSettings } = await import('../shared/usage');
@@ -230,7 +231,7 @@ describe('first page', () => {
     expect(within(connect).getByLabelText('Done')).toBeInTheDocument();
     const agents = screen.getByRole('region', { name: '1 · Agents' });
     expect(within(agents).queryByLabelText('Done')).toBeNull();
-    expect(within(agents).getByRole('button', { name: 'Change' })).toHaveClass(
+    expect(within(agents).getByRole('button', { name: 'Open' })).toHaveClass(
       'btn-primary',
     );
   });

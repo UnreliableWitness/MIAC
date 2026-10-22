@@ -61,13 +61,13 @@ export function nextStep(steps: OnboardingSteps, left: OnboardingStep): Screen {
   }
 }
 
-/** Where Connect and Add a repository go when done from Get started: back to it while steps are left, else Home. */
-export function afterStep(steps: OnboardingSteps): Screen {
-  return steps.current ? { kind: 'get-started' } : { kind: 'home' };
-}
-
 const NOT_LOADED: Pick<AppSettings, 'onboarding'> = {
-  onboarding: { dismissedAt: null, agentsCheckedAt: null, tracker: null },
+  onboarding: {
+    dismissedAt: null,
+    agentsCheckedAt: null,
+    tracker: null,
+    migrated: false,
+  },
 };
 
 /** The steps from the store's state; settings not loaded yet count as a fresh install. */

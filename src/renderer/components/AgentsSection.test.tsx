@@ -16,7 +16,12 @@ const settingsWith = (
   'settings:get': () => ({
     ...defaultSettings(),
     defaultTerminals: terminals as DefaultTerminals,
-    onboarding: { dismissedAt: null, agentsCheckedAt: checked, tracker: null },
+    onboarding: {
+      dismissedAt: null,
+      agentsCheckedAt: checked,
+      tracker: null,
+      migrated: false,
+    },
   }),
   'settings:save': (s: AppSettings) => s,
 });
@@ -65,6 +70,7 @@ describe('AgentsSection', () => {
           dismissedAt: null,
           agentsCheckedAt: expect.stringMatching(/^\d{4}-\d\d-\d\dT/),
           tracker: null,
+          migrated: false,
         },
       }),
     );

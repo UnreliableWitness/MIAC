@@ -74,7 +74,6 @@ export class RepoRegistry {
         ? StartSettingsSchema.parse(options.workItemOnStart)
         : undefined,
     });
-    if (options.baseBranch) repo.baseBranch = options.baseBranch;
     // Re-check inside the update: a concurrent add may have registered the same path while we awaited.
     await this.store.update((s) => {
       if (s.repos.some((r) => samePath(r.path, top))) {

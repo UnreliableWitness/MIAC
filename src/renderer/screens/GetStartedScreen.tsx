@@ -6,6 +6,7 @@ import {
 } from '../../shared/agents';
 import type { DefaultTerminals } from '../../shared/terminals';
 import { api, saveSettings, tryInvoke } from '../api';
+import { pretick } from '../agentsPretick';
 import { MindMark } from '../components/ui';
 import type { OnboardingStep } from '../components/ui/StepStrip';
 import { stepsFrom } from '../onboardingState';
@@ -75,7 +76,7 @@ const TITLES: Record<OnboardingStep, string> = {
   repository: '3 · Add a repository',
 };
 const BUTTONS: Record<OnboardingStep, string> = {
-  agents: 'Change',
+  agents: 'Open',
   connect: 'Connect',
   repository: 'Add folder…',
 };
@@ -90,8 +91,9 @@ export function StepCards({ band }: { band?: boolean }) {
   const [detected, setDetected] = useState<AgentsDetected | null>(null);
   const agentsDone = steps.agents === 'done';
 
+  // The cached detection, also before Agents is done: card 1 then names what was found and the tabs it will tick.
   useEffect(() => {
-    if (band || !agentsDone) return;
+    if (band) return;
     let live = true;
     api()
       .invoke('agents:detect', false)
@@ -102,12 +104,14 @@ export function StepCards({ band }: { band?: boolean }) {
     return () => {
       live = false;
     };
-  }, [band, agentsDone]);
+  }, [band]);
 
   const text: Record<OnboardingStep, React.ReactNode> = {
     agents: agentsDone
       ? agentsLine(detected, settings?.defaultTerminals)
-      : 'See which agent CLIs are installed and pick the tabs a new task opens.',
+      : detected
+        ? agentsLine(detected, pretick(detected))
+        : 'See which agent CLIs are installed and pick the tabs a new task opens.',
     connect:
       steps.connect === 'done' && connections.length
         ? `Connected to ${list(connections.map((c) => `${c.name}/${c.project}`))}.`
@@ -159,7 +163,7 @@ export function StepCards({ band }: { band?: boolean }) {
               className={current ? 'btn btn-primary' : 'btn'}
               onClick={() => void actions[k]()}
             >
-              {BUTTONS[k]}
+              {k === 'agents' && agentsDone ? 'Change' : BUTTONS[k]}
             </button>
           </section>
         );
