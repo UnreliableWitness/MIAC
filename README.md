@@ -154,6 +154,13 @@ Shellie follows the system's light or dark theme, and so do its terminals and Cl
 
 ## Getting started
 
+### First run
+
+On a fresh install Shellie opens a **Get started** page with three steps: check which agents (Claude Code, Copilot CLI,
+OpenCode) are on this machine and pick the terminals new tasks open, connect Azure DevOps (organization, token,
+projects), and add your first repository. Every step can be skipped and finished later from Settings; **Skip for
+now** hides the page, and a Get started band on Home brings it back.
+
 ### Install
 
 | Platform | How |
@@ -168,7 +175,7 @@ Shellie follows the system's light or dark theme, and so do its terminals and Cl
 ### Connect Azure DevOps
 
 1. Create a personal access token with **Work Items (Read & write)** and **Code (Read & write)**.
-2. In Shellie, open **Settings → Azure DevOps** and add a connection with your organization URL and the token. Tokens
+2. In Shellie, open **Settings → Connections** and add a connection with your organization URL and the token. Tokens
    are encrypted with the operating system's secure storage and never leave your machine except to Azure DevOps.
 3. Add a repo under **Settings → Repositories** and link it to the connection.
 4. Open the Sprint page and press **Start** on a work item.
