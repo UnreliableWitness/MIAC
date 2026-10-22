@@ -2,6 +2,7 @@ import type {
   AttentionEntry,
   AttentionSignal,
   AttentionSnapshot,
+  AttentionState,
   AttentionView,
 } from '../../shared/attention';
 import type { TerminalDef } from '../../shared/types';
@@ -28,6 +29,8 @@ type HubDeps = {
   setBadgeCount: (n: number) => void;
   changed: (snapshot: AttentionSnapshot) => void;
   open: (taskId: string, terminalId: string) => void;
+  /** A program's own status report (OSC 7501), for whoever else needs to know it is busy. */
+  status?: (terminalId: string, state: AttentionState) => void;
 };
 
 /** The notification text for a terminal's tab label and what it waits for. */
@@ -90,7 +93,10 @@ export class AttentionHub {
       } else if (ev.type === 'status') {
         this.reporting.add(terminalId);
         const s = programStatusSignal(ev.fields);
-        if (s) this.tracker.signal(terminalId, s);
+        if (s) {
+          this.d.status?.(terminalId, s.state);
+          this.tracker.signal(terminalId, s);
+        }
       } else this.bell(terminalId);
     }
   }

@@ -6,6 +6,7 @@ import {
   claudeThemeFor,
   claudeThemeSettingsFile,
   colorFgBg,
+  fixedScheme,
   readClaudeTheme,
 } from './claudeTheme';
 
@@ -24,6 +25,15 @@ describe('claudeThemeFor', () => {
 
   it('leaves a custom theme alone', () => {
     expect(claudeThemeFor('custom:solar', 'light')).toBeNull();
+  });
+});
+
+describe('fixedScheme', () => {
+  it('names the scheme of a -daltonized or -ansi variant, nothing for auto or a theme left alone', () => {
+    expect(fixedScheme('light-daltonized')).toBe('light');
+    expect(fixedScheme('dark-ansi')).toBe('dark');
+    expect(fixedScheme('auto')).toBeNull();
+    expect(fixedScheme(null)).toBeNull();
   });
 });
 

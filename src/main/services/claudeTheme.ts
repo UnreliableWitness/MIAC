@@ -9,7 +9,8 @@ import type { ColorScheme } from '../../shared/theme';
  * Claude Code tabs pass a theme through `--settings`. `auto` asks the terminal's background (OSC 11, which xterm
  * answers from the current theme), falls back to COLORFGBG, and asks again when the terminal reports a scheme change
  * (CSI ? 997 ; 1|2 n, see TerminalManager), so it follows Shellie live. Colour-blind and ANSI-only choices have no
- * auto variant, so they get the variant for the scheme on screen at launch; a custom theme is left alone.
+ * auto variant, so they get the variant for the scheme on screen at launch, and ClaudeRetheme resumes the tab in the
+ * other variant after a switch (#105); a custom theme is left alone.
  * Checked against claude 2.1.303 (2026-10-21).
  */
 export function claudeThemeFor(
@@ -22,6 +23,16 @@ export function claudeThemeFor(
     if (family) return `${scheme}-${family}`;
   }
   return 'auto';
+}
+
+/**
+ * The scheme a theme from claudeThemeFor is fixed to: a -daltonized or -ansi variant, which Claude Code neither
+ * switches by itself nor reloads from `--settings` while it runs (checked against claude 2.1.307), so the tab has to
+ * start again after a scheme change (#105, ClaudeRetheme). Null for `auto` and for a theme left alone.
+ */
+export function fixedScheme(theme: string | null): ColorScheme | null {
+  const s = theme && /^(dark|light)-/.exec(theme)?.[1];
+  return s === 'dark' || s === 'light' ? s : null;
 }
 
 const readTheme = (file: string): unknown => {

@@ -151,6 +151,8 @@ export type Services = {
    * (main: claudeTheme.ts), null to leave the user's theme; absent in tests.
    */
   claudeThemeSettings?: () => string | null;
+  /** A Claude Code tab was started (or resumed) with the theme claudeThemeSettings gave. */
+  claudeSpawned?: (terminalId: string) => void;
   /** Sets nativeTheme.themeSource (main); absent in tests that don't care. */
   applyTheme?: (theme: ThemeChoice) => void;
   appVersion: string;
@@ -677,6 +679,7 @@ export function createHandlers(s: Services): Handlers {
         ...cmd.env,
       },
     });
+    if (def.kind === 'claude') s.claudeSpawned?.(def.id);
   };
 
   const initialTerminals = (task: Task): TerminalDef[] => {

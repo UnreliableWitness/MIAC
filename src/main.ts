@@ -55,6 +55,7 @@ import { createPlatform } from './main/platform';
 import { AdoRegistry } from './main/services/AdoRegistry';
 import {
   claudeThemeFor,
+  fixedScheme,
   claudeThemeSettingsFile,
   readClaudeTheme,
 } from './main/services/claudeTheme';
@@ -67,6 +68,7 @@ import { taskWorkspaces } from './shared/workspaces';
 import { migrateTaskFolders } from './main/migrate/taskFolders';
 import { SetupRunner, ensureExcluded } from './main/services/SetupRunner';
 import { TaskStore } from './main/services/TaskStore';
+import { ClaudeRetheme } from './main/services/ClaudeRetheme';
 import { TerminalManager } from './main/services/TerminalManager';
 import { CopilotFileTailer } from './main/usage/CopilotFileTailer';
 import { ActivityTracker } from './main/time/ActivityTracker';
@@ -499,6 +501,19 @@ async function boot(): Promise<void> {
     time.on('changed', (taskId) => broadcast('time:changed', { taskId }));
     const taskTitle = (t: Task) =>
       t.workItem ? `${t.workItem.id} ${t.workItem.title}` : t.name;
+    // Claude Code tabs with a colour-blind or ANSI-only theme start again in the new variant after a scheme change.
+    const retheme = new ClaudeRetheme({
+      now: Date.now,
+      scheme,
+      alive: (id) => terminals.isRunning(id),
+      // Told once the new process exists (its output comes in a later tick), so the view clears and sizes it.
+      restart: (id) =>
+        void handlers['terminals:restart'](id).then(
+          () => broadcast('terminal:reset', { id }),
+          (err) =>
+            console.error('[terminals] could not resume Claude Code', err),
+        ),
+    });
     const attention = new AttentionHub({
       now: Date.now,
       write: (id, data) => terminals.write(id, data),
@@ -529,6 +544,7 @@ async function boot(): Promise<void> {
       },
       setBadgeCount: (n) => app.setBadgeCount(n),
       changed: (snapshot) => broadcast('attention:changed', snapshot),
+      status: (id, state) => retheme.status(id, state),
       open: (taskId, terminalId) => {
         const w = mainWindow;
         if (!w || w.isDestroyed()) return;
@@ -617,6 +633,11 @@ async function boot(): Promise<void> {
           return null;
         }
       },
+      claudeSpawned: (id) =>
+        retheme.spawned(
+          id,
+          fixedScheme(claudeThemeFor(readClaudeTheme(), scheme())),
+        ),
       update: {
         pending: () => pendingUpdate,
         install: () => updates?.install() ?? false,
@@ -629,7 +650,10 @@ async function boot(): Promise<void> {
       usage,
       time,
       tracker,
-      onTerminalInput: (id, data) => agentTimer.input(id, data),
+      onTerminalInput: (id, data) => {
+        agentTimer.input(id, data);
+        retheme.input(id, data);
+      },
       settings,
       receiver,
       copilot,
@@ -724,6 +748,10 @@ async function boot(): Promise<void> {
     terminals.on('exit', (id) => agentTimer.close(id));
     terminals.on('data', (id, data) => attention.data(id, data));
     terminals.on('exit', (id) => attention.exit(id));
+    terminals.on('data', (id) => retheme.output(id));
+    terminals.on('exit', (id) => retheme.exit(id));
+    nativeTheme.on('updated', () => retheme.tick());
+    const retick = setInterval(() => retheme.tick(), 1000);
     const timeTick = setInterval(() => {
       tracker.tick();
       agentTimer.tick();
@@ -736,6 +764,7 @@ async function boot(): Promise<void> {
     stopTime = () => {
       clearInterval(timeTick);
       clearInterval(timeFlush);
+      clearInterval(retick);
       // Closes the open intervals at now; will-quit waits for their writes.
       tracker.setFocused(false);
       for (const id of terminals.ids()) agentTimer.close(id);

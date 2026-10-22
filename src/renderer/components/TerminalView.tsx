@@ -86,6 +86,12 @@ export function TerminalView({
     const offExit = api().on('terminal:exit', (e) => {
       if (e.id === terminalId) setExitCode(e.exitCode);
     });
+    const offReset = api().on('terminal:reset', (e) => {
+      if (e.id !== terminalId) return;
+      t.reset();
+      setExitCode(null);
+      sendSize.current();
+    });
     void api()
       .invoke('terminals:buffer', terminalId)
       .catch(() => {
@@ -139,6 +145,7 @@ export function TerminalView({
       links?.dispose();
       offData();
       offExit();
+      offReset();
       unregister();
       offScheme();
       t.dispose();
