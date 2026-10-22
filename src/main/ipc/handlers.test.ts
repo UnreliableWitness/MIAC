@@ -315,6 +315,47 @@ describe('handlers: repos', () => {
   });
 });
 
+describe('handlers: repos:add / repos:inspect telemetry', () => {
+  it('reports wroteConfig and the inspected facts without paths', async () => {
+    const events: [string, unknown][] = [];
+    const { h } = await harness(fakeCrypto(), {
+      telemetry: {
+        ...NoopTelemetry,
+        event: (name, props) => events.push([name, props]),
+      },
+    });
+    const repo = makeRepo('fresh');
+    const inspected = await h['repos:inspect'](repo);
+    expect(inspected.proposal).toContain('base: main');
+    expect(events).toContainEqual([
+      'repo.inspected',
+      {
+        remote: 'none',
+        linked: false,
+        lockfile: 'none',
+        dotnet: false,
+        devScript: false,
+        apm: false,
+        existingConfig: false,
+      },
+    ]);
+    const added = await h['repos:add'](repo, {
+      writeConfig: inspected.proposal ?? undefined,
+    });
+    expect(added.configFound).toBe(true);
+    expect(events).toContainEqual([
+      'repo.added',
+      { repos: 2, wroteConfig: true },
+    ]);
+    const other = makeRepo('plain');
+    await h['repos:add'](other);
+    expect(events).toContainEqual([
+      'repo.added',
+      { repos: 3, wroteConfig: false },
+    ]);
+  });
+});
+
 describe('handlers: workspaces', () => {
   it('scans, joins, removes and marks repos, broadcasting each change', async () => {
     const { h, setupDone, input, broadcasts } = await harness();

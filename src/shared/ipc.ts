@@ -36,6 +36,7 @@ import type {
   TaskUsage,
 } from './usage';
 import type { AgentsDetected } from './agents';
+import type { RepoInspection } from './repoInspection';
 import type { EditorChoice, EditorId, EditorOptions } from './editors';
 import type { RendererTelemetry } from './telemetry';
 import type { TitleBarKind } from './titleBar';
@@ -56,7 +57,19 @@ import type {
 /** Request/response channels. `args` is the tuple the renderer passes; `result` is what main resolves. */
 export type Channels = {
   'repos:list': { args: []; result: Repo[] };
-  'repos:add': { args: [folder: string]; result: Repo };
+  /** What Shellie finds in a folder and the `.shellie.yml` it would write; throws when it is not a git repository. */
+  'repos:inspect': { args: [folder: string]; result: RepoInspection };
+  'repos:add': {
+    args: [
+      folder: string,
+      options?: {
+        writeConfig?: string;
+        baseBranch?: string;
+        connectionId?: string | null;
+      },
+    ];
+    result: Repo;
+  };
   'repos:remove': { args: [id: string]; result: void };
   'repos:refresh': { args: [id: string]; result: Repo };
   'repos:pickFolder': { args: []; result: string | null };

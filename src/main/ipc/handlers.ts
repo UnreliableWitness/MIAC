@@ -85,6 +85,7 @@ import {
 } from '../services/azureRepos';
 import { GitAuthError, type GitClient } from '../services/GitClient';
 import type { RepoRegistry } from '../services/RepoRegistry';
+import { inspectRepo } from '../services/repoInspect';
 import {
   planSteps,
   type ExtraRestore,
@@ -1616,10 +1617,29 @@ export function createHandlers(s: Services): Handlers {
       tracker: s.tracker,
     }),
     'repos:list': async () => s.repos.list(),
-    'repos:add': async (folder) => {
-      const repo = await s.repos.add(folder);
+    'repos:inspect': async (folder) => {
+      const r = await inspectRepo(folder, {
+        git: s.git,
+        connections: s.connections.list(),
+      });
+      tel.event('repo.inspected', {
+        remote: r.remote?.provider ?? 'none',
+        linked: r.remote?.connectionId != null,
+        lockfile: r.facts.lockfile ?? 'none',
+        dotnet: r.facts.dotnet.length > 0,
+        devScript: r.facts.devScript !== null,
+        apm: r.facts.apm,
+        existingConfig: r.facts.existing !== null,
+      });
+      return r;
+    },
+    'repos:add': async (folder, options) => {
+      const repo = await s.repos.add(folder, options);
       reposChanged();
-      tel.event('repo.added', { repos: s.repos.list().length });
+      tel.event('repo.added', {
+        repos: s.repos.list().length,
+        wroteConfig: options?.writeConfig !== undefined,
+      });
       return repo;
     },
     'repos:remove': async (id) => {

@@ -22,7 +22,7 @@ const listOrString = z.union([
   z.array(z.string()),
 ]);
 
-const ShellieYmlSchema = z.strictObject({
+export const ShellieYmlSchema = z.strictObject({
   base: z.string().default('main'),
   branch: z.string().default(DEFAULT_BRANCH_TEMPLATE),
   copy: listOrString.default([]),
