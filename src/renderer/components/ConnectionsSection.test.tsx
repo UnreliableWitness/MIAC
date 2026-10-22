@@ -15,6 +15,7 @@ const ok: Connection = {
   status: 'ok',
   checkedAt: '2026-10-14T10:00:00.000Z',
   userUniqueName: null,
+  provider: 'azure-devops' as const,
 };
 
 beforeEach(() =>

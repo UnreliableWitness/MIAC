@@ -218,6 +218,7 @@ describe('activeConnection', () => {
     status: 'ok' as const,
     checkedAt: null,
     userUniqueName: null,
+    provider: 'azure-devops' as const,
   });
   const repo = (id: string, connectionId: string | null) => ({
     id,

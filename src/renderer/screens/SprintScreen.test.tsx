@@ -25,6 +25,7 @@ const connection: Connection = {
   status: 'ok',
   checkedAt: null,
   userUniqueName: null,
+  provider: 'azure-devops' as const,
 };
 const repo: Repo = {
   id: 'r1',

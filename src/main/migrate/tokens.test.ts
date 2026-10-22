@@ -56,6 +56,7 @@ const conn = (id: string, cipher: Buffer): Stored => ({
   status: 'ok',
   checkedAt: null,
   userUniqueName: null,
+  provider: 'azure-devops' as const,
   tokenCiphertext: cipher.toString('base64'),
 });
 

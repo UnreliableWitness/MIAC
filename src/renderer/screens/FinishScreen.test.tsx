@@ -638,6 +638,7 @@ describe('FinishScreen push that cannot sign in', () => {
     status: 'ok' as const,
     checkedAt: null,
     userUniqueName: null,
+    provider: 'azure-devops' as const,
   };
 
   it('says to update the token and opens Settings at the connection', async () => {

@@ -18,6 +18,7 @@ export const connection: Connection = {
   status: 'ok',
   checkedAt: null,
   userUniqueName: null,
+  provider: 'azure-devops' as const,
 };
 
 export const snapshot = (over: Partial<HomeSnapshot> = {}): HomeSnapshot => ({

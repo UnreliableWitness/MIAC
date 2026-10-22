@@ -1,3 +1,4 @@
+import { TrackerProviderSchema, type TrackerProvider } from './trackers';
 import { z } from 'zod';
 import { TimeBookingSchema } from './time';
 import type { GitAuthHint } from './gitAuth';
@@ -350,6 +351,7 @@ export const ConnectionSchema = z.object({
   status: ConnectionStatusSchema,
   checkedAt: z.string().nullable(),
   userUniqueName: z.string().nullable().default(null),
+  provider: TrackerProviderSchema.default('azure-devops'),
 });
 export type Connection = z.infer<typeof ConnectionSchema>;
 
@@ -368,6 +370,7 @@ export type ConnectionInput = {
   organizationUrl: string;
   project: string;
   pat: string;
+  provider?: TrackerProvider;
 };
 
 export type Iteration = { path: string; name: string };

@@ -227,6 +227,7 @@ describe('TaskNav', () => {
           status: 'unauthorized',
           checkedAt: null,
           userUniqueName: null,
+          provider: 'azure-devops' as const,
         },
       ],
     });
@@ -306,6 +307,7 @@ describe('TaskNav', () => {
       status: 'ok' as const,
       checkedAt: null,
       userUniqueName: null,
+      provider: 'azure-devops' as const,
     });
     useStore.setState({
       connections: [conn('c1', 'Shellie'), conn('c2', 'DXP')],
@@ -337,6 +339,7 @@ describe('TaskNav', () => {
       status: 'ok' as const,
       checkedAt: null,
       userUniqueName: null,
+      provider: 'azure-devops' as const,
     });
     useStore.setState({
       connections: [conn('c1', 'Shellie'), conn('c2', 'DXP')],

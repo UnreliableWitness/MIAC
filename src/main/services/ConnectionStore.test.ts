@@ -151,6 +151,46 @@ describe('ConnectionStore', () => {
     expect(store.get('c1').userUniqueName).toBeNull();
   });
 
+  it('reads a connections file saved before providers existed as Azure DevOps', async () => {
+    const f = file();
+    writeFileSync(
+      f,
+      JSON.stringify({
+        version: 1,
+        connections: [
+          {
+            id: 'c1',
+            name: 'o',
+            organizationUrl: 'https://dev.azure.com/o',
+            project: 'P',
+            user: 'Dries',
+            status: 'ok',
+            checkedAt: null,
+            tokenCiphertext: 'x',
+          },
+        ],
+      }),
+    );
+    const store = new ConnectionStore(f, fakeCrypto());
+    await store.load();
+    expect(store.list()[0].provider).toBe('azure-devops');
+  });
+
+  it('keeps the provider it saved', async () => {
+    const f = file();
+    const store = new ConnectionStore(f, fakeCrypto());
+    await store.load();
+    await store.save({
+      organizationUrl: 'https://dev.azure.com/o',
+      project: 'P',
+      pat: 'tok',
+      provider: 'github',
+    });
+    const again = new ConnectionStore(f, fakeCrypto());
+    await again.load();
+    expect(again.list()[0].provider).toBe('github');
+  });
+
   it('updates an existing connection by id and resets its status', async () => {
     const store = new ConnectionStore(file(), fakeCrypto());
     await store.load();

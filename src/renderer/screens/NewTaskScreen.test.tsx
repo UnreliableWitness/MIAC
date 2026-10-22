@@ -243,6 +243,7 @@ describe('NewTaskScreen', () => {
           status: 'ok',
           checkedAt: null,
           userUniqueName: null,
+          provider: 'azure-devops' as const,
         },
       ],
     });
@@ -313,6 +314,7 @@ describe('NewTaskScreen', () => {
           status: 'ok',
           checkedAt: null,
           userUniqueName: null,
+          provider: 'azure-devops' as const,
         },
       ],
     });
@@ -349,6 +351,7 @@ describe('NewTaskScreen', () => {
     status: 'ok' as const,
     checkedAt: null,
     userUniqueName: null,
+    provider: 'azure-devops' as const,
   };
   const pickerApi = {
     'repos:config': () => config,

@@ -169,6 +169,7 @@ describe('SettingsScreen', () => {
           status: 'ok',
           checkedAt: null,
           userUniqueName: null,
+          provider: 'azure-devops' as const,
         },
       ],
     });
@@ -194,6 +195,7 @@ describe('SettingsScreen', () => {
       status: 'ok' as const,
       checkedAt: null,
       userUniqueName: null,
+      provider: 'azure-devops' as const,
     };
     const linked: Repo = { ...webshop, connectionId: 'c1' };
     const types = [
