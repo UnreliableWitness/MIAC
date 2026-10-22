@@ -350,7 +350,7 @@ function AboutSection() {
 
 export function SettingsScreen() {
   const repos = useStore((s) => s.repos);
-  const setRepos = useStore((s) => s.setRepos);
+  const go = useStore((s) => s.go);
   const notify = useStore((s) => s.notify);
   const section = useStore((s) =>
     s.screen.kind === 'settings' ? s.screen.section : undefined,
@@ -386,11 +386,7 @@ export function SettingsScreen() {
       notify,
     );
     if (!folder) return;
-    const added = await tryInvoke(
-      () => api().invoke('repos:add', folder),
-      notify,
-    );
-    if (added) setRepos(await api().invoke('repos:list'));
+    go({ kind: 'add-repo', from: 'settings', folder });
   };
 
   return (

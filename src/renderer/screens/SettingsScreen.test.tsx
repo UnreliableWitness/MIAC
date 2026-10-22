@@ -85,48 +85,20 @@ describe('SettingsScreen', () => {
     );
   });
 
-  it('adds a folder through the native picker', async () => {
-    const picked: Repo = {
-      ...webshop,
-      id: 'r9',
-      name: 'picked',
-      path: '/src/picked',
-    };
+  it('opens the Add repository page with the picked folder', async () => {
     const { calls } = installFakeApi({
       'repos:pickFolder': () => '/src/picked',
-      'repos:add': () => picked,
-      'repos:list': () => [picked],
     });
     render(<SettingsScreen />);
     await userEvent.click(screen.getByRole('button', { name: ADD_FOLDER }));
     await waitFor(() =>
-      expect(
-        calls
-          .map((c) => c.channel)
-          .filter((c) => c.startsWith('repos:'))
-          .slice(0, 2),
-      ).toEqual(['repos:pickFolder', 'repos:add']),
+      expect(useStore.getState().screen).toEqual({
+        kind: 'add-repo',
+        from: 'settings',
+        folder: '/src/picked',
+      }),
     );
-    expect(calls.find((c) => c.channel === 'repos:add')?.args).toEqual([
-      '/src/picked',
-    ]);
-    expect(useStore.getState().repos.map((r) => r.name)).toEqual(['picked']);
-  });
-
-  it('shows an error notice when adding fails', async () => {
-    installFakeApi({
-      'repos:pickFolder': () => '/nope',
-      'repos:add': () => {
-        throw new Error('/nope is not a git repository');
-      },
-    });
-    render(<SettingsScreen />);
-    await userEvent.click(screen.getByRole('button', { name: ADD_FOLDER }));
-    await waitFor(() =>
-      expect(useStore.getState().notices[0]?.message).toBe(
-        '/nope is not a git repository',
-      ),
-    );
+    expect(calls.some((c) => c.channel === 'repos:add')).toBe(false);
   });
 
   it('shows the effective config for a repo', async () => {

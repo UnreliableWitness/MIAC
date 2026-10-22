@@ -734,3 +734,129 @@
   color: var(--text);
   font-weight: 600;
 }
+
+/* Add repository, first-run step strip */
+.step-strip {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+.step-strip .step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.step-strip .step.current {
+  color: var(--text);
+  font-weight: 600;
+}
+.step-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  background: var(--bg-selected);
+}
+.step.done .step-dot {
+  background: var(--green-bg);
+  color: var(--green);
+}
+.step.current .step-dot {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.add-repo {
+  max-width: 1000px;
+}
+.add-repo-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 420px);
+  gap: 16px;
+  align-items: start;
+}
+.add-repo-left,
+.add-repo-choice {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.add-repo-choice {
+  border: 0;
+  margin: 0;
+}
+.repo-fact {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+.repo-fact-value {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  overflow-wrap: anywhere;
+}
+.repo-facts h3 {
+  margin: 8px 0;
+}
+.chip-code {
+  font-family: var(--font-code);
+  background: var(--bg-selected);
+  border-radius: var(--radius);
+  padding: 0 4px;
+}
+.pill-ok {
+  color: var(--green);
+  background: var(--green-bg);
+  border-radius: 10px;
+  padding: 2px 8px;
+}
+.add-repo-right {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.add-repo-code,
+.add-repo-yml {
+  font-family: var(--font-code);
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  padding: 12px;
+  margin: 0;
+  min-height: 180px;
+  white-space: pre-wrap;
+  height: auto;
+}
+.add-repo-yml {
+  color: var(--text);
+  resize: vertical;
+}
+.add-repo-error {
+  color: var(--red);
+  margin: 0;
+}
+.add-repo-note {
+  background: var(--warn-bg);
+  border-radius: var(--radius-card);
+  padding: 12px;
+  margin: 0;
+}
+.add-repo-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.add-repo-actions .grow {
+  flex: 1;
+}

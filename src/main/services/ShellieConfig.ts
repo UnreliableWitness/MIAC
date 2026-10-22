@@ -4,8 +4,12 @@ import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
 import type { ShellieConfig } from '../../shared/types';
 import { pathExists } from '../fsRetry';
+import {
+  DEFAULT_BRANCH_TEMPLATE,
+  ShellieYmlSchema,
+} from '../../shared/shellieYml';
 
-export const DEFAULT_BRANCH_TEMPLATE = '{type}/{id}-{slug}';
+export { DEFAULT_BRANCH_TEMPLATE, ShellieYmlSchema };
 
 export class ShellieConfigError extends Error {
   constructor(
@@ -16,21 +20,6 @@ export class ShellieConfigError extends Error {
     this.name = 'ShellieConfigError';
   }
 }
-
-const listOrString = z.union([
-  z.string().transform((s) => [s]),
-  z.array(z.string()),
-]);
-
-export const ShellieYmlSchema = z.strictObject({
-  base: z.string().default('main'),
-  branch: z.string().default(DEFAULT_BRANCH_TEMPLATE),
-  copy: listOrString.default([]),
-  setup: listOrString.optional(),
-  run: z.record(z.string(), z.string()).default({}),
-  apm: z.union([z.literal(false), listOrString]).optional(),
-  review: z.strictObject({ collapse: listOrString.default([]) }).optional(),
-});
 
 /** `.shellie.yml`, else the pre-rename `.miac.yml`, else null. */
 export async function configFileFor(repoPath: string): Promise<string | null> {

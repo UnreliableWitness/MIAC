@@ -62,6 +62,8 @@ export type Screen =
   | { kind: 'new-task'; workItem?: WorkItemRef; repoId?: string }
   | { kind: 'setup'; taskId: string }
   | { kind: 'finish'; taskId: string }
+  /** `folder` is a folder already picked, inspected when the page opens. */
+  | { kind: 'add-repo'; from: 'settings' | 'get-started'; folder?: string }
   /** `section` is the id of a settings section to scroll to on open. */
   | { kind: 'settings'; section?: string };
 
@@ -149,7 +151,7 @@ function showTab(
 }
 
 /** Pages that are a step, not a place: Back never returns to them. */
-const TRANSIENT = new Set<Screen['kind']>(['new-task', 'finish']);
+const TRANSIENT = new Set<Screen['kind']>(['new-task', 'finish', 'add-repo']);
 
 export const useStore = create<Store>((set, get) => ({
   screen: { kind: 'home' },
