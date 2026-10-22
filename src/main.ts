@@ -52,7 +52,7 @@ import {
 } from './main/budget/claudeTranscripts';
 import { OpenCodeReader, openCodeDbPath } from './main/budget/openCode';
 import { createPlatform } from './main/platform';
-import { AdoRegistry } from './main/services/AdoRegistry';
+import { TrackerRegistry } from './main/trackers/TrackerRegistry';
 import {
   claudeThemeFor,
   fixedScheme,
@@ -663,7 +663,7 @@ async function boot(): Promise<void> {
       },
       finishFlushMs: 2500,
       connections,
-      ado: new AdoRegistry(connections, timedFetch(telemetry)),
+      trackers: new TrackerRegistry(connections, timedFetch(telemetry)),
       telemetry,
       rememberSensitive: (values) => {
         for (const v of values) learned.add(v);

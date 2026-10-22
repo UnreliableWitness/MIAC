@@ -64,7 +64,7 @@ import type { TimeStore } from '../time/TimeStore';
 import type { Command, Platform } from '../platform/Platform';
 import { OFFICIAL_RATES, OFFICIAL_RATES_AS_OF } from '../pricing/officialRates';
 import { AdoClient, AdoError } from '../services/AdoClient';
-import type { AdoRegistry } from '../services/AdoRegistry';
+import type { TrackerRegistry } from '../trackers/TrackerRegistry';
 import {
   TokenUnavailableError,
   type ConnectionStore,
@@ -114,7 +114,7 @@ export type Services = {
   platform: Platform;
   repos: RepoRegistry;
   connections: ConnectionStore;
-  ado: AdoRegistry;
+  trackers: TrackerRegistry;
   openExternal: (url: string) => Promise<void>;
   /** Shows a file in Finder or Explorer (main uses shell.showItemInFolder). */
   revealFile?: (absPath: string) => void;
@@ -297,7 +297,7 @@ export function createHandlers(s: Services): Handlers {
     new HomeService({
       file: path.join(s.usageDir, 'home.json'),
       connections: () => s.connections.list(),
-      client: (id) => s.ado.client(id),
+      client: (id) => s.trackers.client(id),
       withConnection,
       onBuilt: (snapshot, info) => {
         s.broadcast('home:updated', snapshot);
@@ -316,7 +316,7 @@ export function createHandlers(s: Services): Handlers {
   ): Promise<Connection> => {
     const c = s.connections.get(connectionId);
     const { user, uniqueName } = await withConnection(connectionId, () =>
-      s.ado.client(connectionId).verify(c.project),
+      s.trackers.tracker(connectionId).probe(c.project),
     );
     const updated = await s.connections.setStatus(
       connectionId,
@@ -465,7 +465,7 @@ export function createHandlers(s: Services): Handlers {
     task: taskById,
     tasks: () => s.store.state.tasks,
     target: adoTarget,
-    client: (connectionId) => s.ado.client(connectionId),
+    client: (connectionId) => s.trackers.client(connectionId),
     run: withConnection,
     usage: (taskId) => s.usage.summarize(taskId),
     changedSince: (iso) => s.usage.changedSince(iso),
@@ -492,9 +492,9 @@ export function createHandlers(s: Services): Handlers {
       };
       try {
         const hours = await withConnection(target.connectionId, async () => {
-          const client = s.ado.client(target.connectionId);
+          const client = s.trackers.tracker(target.connectionId);
           const id = Number(workItem.id);
-          const current = await client.workItemEstimate(id);
+          const current = await client.itemEstimate(id);
           const type = (current.type || workItem.type).toLowerCase();
           const fieldsOf = async (refresh: boolean) =>
             (
@@ -512,7 +512,7 @@ export function createHandlers(s: Services): Handlers {
             current,
             fields: fields ?? [],
           });
-          if (plan) await client.updateWorkItemFields(id, plan.patch);
+          if (plan) await client.updateItemFields(id, plan.patch);
           return plan?.hours ?? booking.writtenHours;
         });
         await patchBooking({ writtenHours: hours, syncError: null });
@@ -577,9 +577,9 @@ export function createHandlers(s: Services): Handlers {
     if (!task.workItem || !target) return;
     try {
       const e = await withConnection(target.connectionId, () =>
-        s.ado
-          .client(target.connectionId)
-          .workItemEstimate(Number(task.workItem!.id)),
+        s.trackers
+          .tracker(target.connectionId)
+          .itemEstimate(Number(task.workItem!.id)),
       );
       if (e.originalEstimate === null && e.remainingWork !== null)
         await s.time.recordBaseline(
@@ -969,9 +969,9 @@ export function createHandlers(s: Services): Handlers {
             const connection = s.connections.get(
               taskConnectionId(task, [repo])!,
             );
-            const client = s.ado.client(connection.id);
+            const client = s.trackers.tracker(connection.id);
             const id = Number(task.workItem!.id);
-            const current = await client.workItemForStart(id);
+            const current = await client.itemForStart(id);
             const states = await client.typeStates(
               connection.project,
               current.type,
@@ -989,7 +989,7 @@ export function createHandlers(s: Services): Handlers {
               user,
             );
             if (plan.state || plan.assignTo)
-              await client.updateWorkItem(id, {
+              await client.updateItem(id, {
                 ...(plan.state ? { state: plan.state } : {}),
                 ...(plan.assignTo ? { assignedTo: plan.assignTo } : {}),
               });
@@ -1220,7 +1220,7 @@ export function createHandlers(s: Services): Handlers {
     const connection = c.connection;
     const { project, repo: repoName } = c.availability.target;
     summary = await pushIfNeeded(w, summary);
-    const client = s.ado.client(connection.id);
+    const client = s.trackers.tracker(connection.id);
     const repositoryId = await client.repositoryId(project, repoName);
     const existing = await client.findActivePullRequest(
       project,
@@ -1925,7 +1925,7 @@ export function createHandlers(s: Services): Handlers {
                 pushed: true,
                 upstream: `origin/${task.branch}`,
               };
-            const client = s.ado.client(connection.id);
+            const client = s.trackers.tracker(connection.id);
             const repositoryId = await client.repositoryId(project, repoName);
             const existing = await client.findActivePullRequest(
               project,
@@ -2088,7 +2088,7 @@ export function createHandlers(s: Services): Handlers {
       );
       const { user, uniqueName } = await probe.verify(input.project.trim());
       const saved = await s.connections.save(input);
-      s.ado.invalidate(saved.id);
+      s.trackers.invalidate(saved.id);
       dropTypes(saved.id);
       // The unique name is what "assign to me" writes on start; without it a new connection never assigns.
       const verified = await s.connections.setStatus(
@@ -2108,7 +2108,7 @@ export function createHandlers(s: Services): Handlers {
       for (const r of s.repos.list())
         if (r.connectionId === id) await s.repos.setConnection(r.id, null);
       await s.connections.remove(id);
-      s.ado.invalidate(id);
+      s.trackers.invalidate(id);
       dropTypes(id);
       connectionsChanged();
       reposChanged();
@@ -2180,7 +2180,7 @@ export function createHandlers(s: Services): Handlers {
         taskConnectionId(task, s.repos.list());
       if (!connectionId) return pr;
       try {
-        const raw = await s.ado
+        const raw = await s.trackers
           .client(connectionId)
           .pullRequest(pr.project, pr.repositoryId, pr.id);
         const next = { ...pr, status: raw.status, isDraft: raw.isDraft };
@@ -2193,7 +2193,7 @@ export function createHandlers(s: Services): Handlers {
     'workItems:currentIteration': async (connectionId) => {
       const c = s.connections.get(connectionId);
       return withConnection(connectionId, () =>
-        s.ado.client(connectionId).currentIteration(c.project),
+        s.trackers.tracker(connectionId).currentIteration(c.project),
       );
     },
     'workItems:search': async (connectionId, search) => {
@@ -2203,13 +2203,13 @@ export function createHandlers(s: Services): Handlers {
         hasText: search.text.trim().length > 0,
       });
       return withConnection(connectionId, async () => {
-        const client = s.ado.client(connectionId);
+        const client = s.trackers.tracker(connectionId);
         const iteration =
           search.scope === 'sprint'
             ? await client.currentIteration(c.project)
             : null;
         if (search.scope === 'sprint' && !iteration) return [];
-        return client.searchWorkItems({
+        return client.searchItems({
           project: c.project,
           scope: search.scope,
           text: search.text,
@@ -2220,16 +2220,16 @@ export function createHandlers(s: Services): Handlers {
     'workItems:sprint': async (connectionId) => {
       const c = s.connections.get(connectionId);
       return withConnection(connectionId, () =>
-        s.ado.client(connectionId).sprint(c.project),
+        s.trackers.tracker(connectionId).iteration(c.project),
       );
     },
     'workItems:types': async (connectionId) => {
       const c = s.connections.get(connectionId);
       let hit = typesCache.get(connectionId);
       if (!hit) {
-        const client = s.ado.client(connectionId);
+        const client = s.trackers.tracker(connectionId);
         hit = withConnection(connectionId, () =>
-          client.workItemTypes(c.project),
+          client.itemTypes(c.project),
         ).then((types) =>
           Promise.all(
             types.map(async ({ iconUrl, ...t }) => ({
@@ -2250,7 +2250,7 @@ export function createHandlers(s: Services): Handlers {
       const n = Number(id);
       if (!Number.isInteger(n) || n < 1) return null;
       const [item] = await withConnection(connectionId, () =>
-        s.ado.client(connectionId).workItems(c.project, [n]),
+        s.trackers.tracker(connectionId).items(c.project, [n]),
       );
       return item ?? null;
     },

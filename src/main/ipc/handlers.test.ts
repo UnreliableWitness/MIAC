@@ -12,7 +12,7 @@ import path from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { Events } from '../../shared/ipc';
 import type { CreateTaskInput, SetupEvent, Task } from '../../shared/types';
-import { AdoRegistry } from '../services/AdoRegistry';
+import { TrackerRegistry } from '../trackers/TrackerRegistry';
 import { ConnectionStore, type TokenCrypto } from '../services/ConnectionStore';
 import { fakeCrypto } from '../test-helpers/fakeCrypto';
 import { startAdoServer, type AdoServer } from '../test-helpers/adoServer';
@@ -151,7 +151,7 @@ async function harness(
     terminals,
     repos: new RepoRegistry(store, git),
     connections,
-    ado: new AdoRegistry(connections),
+    trackers: new TrackerRegistry(connections),
     openExternal: async (url) => {
       opened.push(url);
     },
@@ -2938,7 +2938,7 @@ describe('handlers: work item on start', () => {
     });
     await hx.connections.setStatus(c.id, 'ok', 'Dries Hoebeke', 'me@x.com');
     await hx.h['repos:setConnection'](hx.added.id, c.id);
-    const client = hx.services.ado.client(c.id);
+    const client = hx.services.trackers.client(c.id);
     vi.spyOn(client, 'workItemForStart').mockResolvedValue({
       type: 'Task',
       state: 'To Do',
@@ -3072,7 +3072,7 @@ describe('handlers: finish with a pull request', () => {
     });
     await hx.h['repos:setConnection'](hx.added.id, c.id);
     vi.spyOn(hx.services.git, 'remoteUrl').mockResolvedValue(remote);
-    const client = hx.services.ado.client(c.id);
+    const client = hx.services.trackers.client(c.id);
     const repositoryId = vi
       .spyOn(client, 'repositoryId')
       .mockResolvedValue('repo-1');
@@ -3367,7 +3367,7 @@ describe('handlers: finish with a pull request', () => {
       isDraft: false,
     });
     const taskClient = vi.spyOn(
-      hx.services.ado.client(other.id),
+      hx.services.trackers.client(other.id),
       'pullRequest',
     );
     await hx.h['tasks:prStatus'](hx.t.id, 'x1');
@@ -3414,7 +3414,7 @@ describe('handlers: task-level connection', () => {
   it('refreshes the PR status through the task connection', async () => {
     const hx = await harness();
     const { t } = await linkedTask(hx);
-    const client = hx.services.ado.client(t.connectionId!);
+    const client = hx.services.trackers.client(t.connectionId!);
     const refresh = vi.spyOn(client, 'pullRequest').mockResolvedValue({
       pullRequestId: 7,
       status: 'completed',
@@ -3510,10 +3510,10 @@ describe('handlers: finish every workspace of a task', () => {
     const created: { connectionId: string; repo: string; args: unknown }[] = [];
     const clients = new Map<
       string,
-      ReturnType<typeof hx.services.ado.client>
+      ReturnType<typeof hx.services.trackers.client>
     >();
     for (const id of new Set([c.id, ...repos.map((r) => r.connectionId)])) {
-      const client = hx.services.ado.client(id);
+      const client = hx.services.trackers.client(id);
       clients.set(id, client);
       vi.spyOn(client, 'repositoryId').mockImplementation(
         async (_p, name) => `id-${name}`,
