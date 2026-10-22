@@ -295,6 +295,7 @@ describe('UsagePanel', () => {
         },
         sendTelemetry: true,
         editor: { default: null, repos: {} },
+        onboarding: { dismissedAt: null, agentsCheckedAt: null, tracker: null },
         defaultTerminals: {
           claude: true,
           copilot: false,

@@ -53,6 +53,12 @@ export type Rate = z.infer<typeof RateSchema>;
 /** Built-in exchange rate used for every EUR amount, so all teammates on the same Shellie version write identical numbers. Changes only with an app update. */
 export const OFFICIAL_USD_TO_EUR = 0.92;
 
+const OnboardingSchema = z.object({
+  dismissedAt: z.string().nullable().default(null),
+  agentsCheckedAt: z.string().nullable().default(null),
+  tracker: z.literal('none').nullable().default(null),
+});
+
 export const AppSettingsSchema = z.object({
   version: z.literal(1),
   receiverPort: z.number().int().min(1024).max(65535),
@@ -84,6 +90,12 @@ export const AppSettingsSchema = z.object({
   editor: EditorPrefsSchema.default(defaultEditorPrefs()),
   /** The tabs Start opens and New task pre-ticks (Settings > Terminals and agents). */
   defaultTerminals: DefaultTerminalsSchema.default(defaultTerminals()),
+  /** First-run state: dismissed Get started, the one-time agent pre-tick, a chosen "no tracker". */
+  onboarding: OnboardingSchema.default({
+    dismissedAt: null,
+    agentsCheckedAt: null,
+    tracker: null,
+  }),
   /** Auto-update (packaged Windows builds). No UI yet: set false in settings.json to turn it off. */
   autoUpdate: z.boolean().optional(),
 });

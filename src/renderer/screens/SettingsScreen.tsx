@@ -11,7 +11,7 @@ import { api, saveSettings, tryInvoke } from '../api';
 import { ConnectionsSection } from '../components/ConnectionsSection';
 import { CostSection } from '../components/CostSection';
 import { EditorSection } from '../components/EditorSection';
-import { TerminalsSection } from '../components/TerminalsSection';
+import { AgentsSection } from '../components/AgentsSection';
 import { TimeSection } from '../components/TimeSection';
 import { BudgetSection } from '../components/BudgetSection';
 import { MindMark, PageHeader } from '../components/ui';
@@ -407,7 +407,7 @@ export function SettingsScreen() {
           <a href="#time">Time tracking</a>
           <a href="#claude-budget">Claude budget</a>
           <a href="#appearance">Appearance</a>
-          <a href="#terminals">Terminals and agents</a>
+          <a href="#terminals">Agents and terminals</a>
         </nav>
         <main className="settings-main">
           <section id="repos" className="section">
@@ -437,7 +437,7 @@ export function SettingsScreen() {
           <CostSection />
           <TimeSection />
           <BudgetSection />
-          <TerminalsSection />
+          <AgentsSection />
           <AppearanceSection />
           <AboutSection />
         </main>

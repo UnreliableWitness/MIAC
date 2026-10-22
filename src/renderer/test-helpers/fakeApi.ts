@@ -110,6 +110,11 @@ const defaults: FakeHandlers = {
     },
     sendTelemetry: true,
     editor: { default: null, repos: {} },
+    onboarding: {
+      dismissedAt: null,
+      agentsCheckedAt: '2026-10-22T09:00:00.000Z',
+      tracker: null,
+    },
     defaultTerminals: {
       claude: true,
       copilot: false,
