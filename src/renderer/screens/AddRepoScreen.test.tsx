@@ -111,10 +111,62 @@ describe('AddRepoScreen', () => {
     fireEvent.change(
       screen.getByRole('textbox', { name: 'Proposed .shellie.yml' }),
       {
+        target: { value: 'base: develop\n' },
+      },
+    );
+    expect(screen.queryByRole('alert')).toBeNull();
+    fireEvent.change(
+      screen.getByRole('textbox', { name: 'Proposed .shellie.yml' }),
+      {
         target: { value: 'bogus: 1\n' },
       },
     );
-    expect(screen.getByRole('alert')).toBeTruthy();
+    expect(screen.getByRole('alert').textContent).toMatch(/bogus/);
+  });
+
+  it('ignores an inspect that resolves after a later one', async () => {
+    let first!: (v: RepoInspection) => void;
+    const second = { ...inspection, folder: '/src/two', baseBranch: 'two' };
+    let n = 0;
+    installFakeApi({
+      'repos:pickFolder': () => '/src/pick',
+      'repos:inspect': () =>
+        ++n === 1
+          ? new Promise<RepoInspection>((r) => (first = r))
+          : Promise.resolve(second),
+    });
+    render(<AddRepoScreen folder="/src/one" />);
+    await userEvent.click(screen.getByRole('button', { name: /Browse/ }));
+    expect(await screen.findByText('two')).toBeTruthy();
+    first({ ...inspection, folder: '/src/one', baseBranch: 'one' });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(screen.getByText('two')).toBeTruthy();
+    expect(screen.queryByText('one')).toBeNull();
+  });
+
+  it('disables Add as soon as the typed folder differs from the inspected one', async () => {
+    installFakeApi({ 'repos:inspect': () => inspection });
+    render(<AddRepoScreen folder="/src/webshop" />);
+    await screen.findByText('Linked to project Shellie');
+    await userEvent.type(screen.getByLabelText('Folder'), 'x');
+    expect(
+      (
+        screen.getByRole('button', {
+          name: 'Add repository',
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+  });
+
+  it('closes the editor when keeping the defaults in Shellie only', async () => {
+    installFakeApi({ 'repos:inspect': () => inspection });
+    render(<AddRepoScreen folder="/src/webshop" />);
+    await screen.findByText('Linked to project Shellie');
+    await userEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    await userEvent.click(screen.getByRole('radio', { name: /Keep these/ }));
+    expect(
+      screen.queryByRole('textbox', { name: 'Proposed .shellie.yml' }),
+    ).toBeNull();
   });
 
   it('keeps the defaults in Shellie only without writeConfig', async () => {

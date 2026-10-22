@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { parse as parseYaml } from 'yaml';
 import type { RepoInspection } from '../../shared/repoInspection';
 import { ShellieYmlSchema } from '../../shared/shellieYml';
@@ -113,17 +113,20 @@ export function AddRepoScreen({ folder: initial }: { folder?: string }) {
   const [write, setWrite] = useState(true);
   const [busy, setBusy] = useState(false);
 
+  const latest = useRef(0);
   const inspect = async (path: string) => {
+    const id = ++latest.current;
     setFolder(path);
     setFound(null);
     setError(null);
     setEditing(false);
     try {
       const result = await api().invoke('repos:inspect', path);
+      if (id !== latest.current) return;
       setFound(result);
       setText(result.proposal ?? '');
     } catch (e) {
-      setError(ipcErrorMessage(e));
+      if (id === latest.current) setError(ipcErrorMessage(e));
     }
   };
 
@@ -196,13 +199,20 @@ export function AddRepoScreen({ folder: initial }: { folder?: string }) {
                 id="add-repo-folder"
                 className="field"
                 value={folder}
-                onChange={(e) => setFolder(e.target.value)}
+                onChange={(e) => {
+                  setFolder(e.target.value);
+                  if (e.target.value !== found?.folder) {
+                    latest.current++;
+                    setFound(null);
+                    setError(null);
+                    setEditing(false);
+                  }
+                }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && folder) void inspect(folder);
                 }}
                 onBlur={() => {
-                  if (folder && folder !== found?.folder && folder !== initial)
-                    void inspect(folder);
+                  if (folder && folder !== found?.folder) void inspect(folder);
                 }}
               />
               <button type="button" className="btn" onClick={browse}>
@@ -289,7 +299,10 @@ export function AddRepoScreen({ folder: initial }: { folder?: string }) {
                 type="radio"
                 name="add-repo-write"
                 checked={!write}
-                onChange={() => setWrite(false)}
+                onChange={() => {
+                  setWrite(false);
+                  setEditing(false);
+                }}
               />
               <span>
                 <strong>Keep these defaults in Shellie only</strong>{' '}
