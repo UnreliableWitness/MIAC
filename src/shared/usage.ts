@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { BudgetSettingsSchema, defaultBudgetSettings } from './budget';
 import { defaultEditorPrefs, EditorPrefsSchema } from './editors';
+import { defaultTerminals, DefaultTerminalsSchema } from './terminals';
 import { THEMES } from './theme';
 import { WorkHoursSchema } from './time';
 
@@ -81,6 +82,8 @@ export const AppSettingsSchema = z.object({
   sendTelemetry: z.boolean().default(true),
   /** Which editor Open in editor uses, globally and per repo. */
   editor: EditorPrefsSchema.default(defaultEditorPrefs()),
+  /** The tabs Start opens and New task pre-ticks (Settings > Terminals and agents). */
+  defaultTerminals: DefaultTerminalsSchema.default(defaultTerminals()),
   /** Auto-update (packaged Windows builds). No UI yet: set false in settings.json to turn it off. */
   autoUpdate: z.boolean().optional(),
 });

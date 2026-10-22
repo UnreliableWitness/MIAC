@@ -693,6 +693,8 @@ export function createHandlers(s: Services): Handlers {
       });
     if (task.setup.openCopilot)
       defs.push({ id: randomUUID(), kind: 'copilot', label: 'Copilot CLI' });
+    if (task.setup.openOpencode)
+      defs.push({ id: randomUUID(), kind: 'opencode', label: 'OpenCode' });
     if (task.setup.openShell)
       defs.push({
         id: randomUUID(),
@@ -1676,6 +1678,7 @@ export function createHandlers(s: Services): Handlers {
           startClaude: input.startClaude,
           openShell: input.openShell,
           openCopilot: input.openCopilot ?? false,
+          openOpencode: input.openOpencode ?? false,
         },
         terminals: [],
         createdAt,
@@ -1714,6 +1717,7 @@ export function createHandlers(s: Services): Handlers {
         startClaude: input.startClaude,
         openShell: input.openShell,
         openCopilot: input.openCopilot ?? false,
+        openOpencode: input.openOpencode ?? false,
         commands: input.commands.length,
       });
       await tasksChanged();

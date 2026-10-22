@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { renderBranch, taskSlug } from '../../shared/naming';
+import { setupTabsFrom } from '../../shared/terminals';
 import type {
   ShellieConfig,
   WorkItemRef,
@@ -59,9 +60,25 @@ export function NewTaskScreen({
   const [editedBranch, setEditedBranch] = useState<string | null>(null);
   const [copy, setCopy] = useState(true);
   const [commands, setCommands] = useState<Record<string, boolean>>({});
+  // The tabs to open, pre-ticked from Settings > Terminals and agents once they load.
   const [startClaude, setStartClaude] = useState(true);
   const [openShell, setOpenShell] = useState(true);
   const [openCopilot, setOpenCopilot] = useState(false);
+  const [openOpencode, setOpenOpencode] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void tryInvoke(() => api().invoke('settings:get'), notify).then((s) => {
+      if (!live || !s) return;
+      const tabs = setupTabsFrom(s.defaultTerminals);
+      setStartClaude(tabs.startClaude);
+      setOpenShell(tabs.openShell);
+      setOpenCopilot(tabs.openCopilot);
+      setOpenOpencode(tabs.openOpencode);
+    });
+    return () => {
+      live = false;
+    };
+  }, [notify]);
   const [busy, setBusy] = useState(false);
 
   const repo = repos.find((r) => r.id === repoId) ?? null;
@@ -172,6 +189,7 @@ export function NewTaskScreen({
           startClaude,
           openShell,
           openCopilot,
+          openOpencode,
         }),
       notify,
     );
@@ -377,6 +395,14 @@ export function NewTaskScreen({
                 onChange={(e) => setOpenCopilot(e.target.checked)}
               />
               Start Copilot CLI with the task
+            </label>
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={openOpencode}
+                onChange={(e) => setOpenOpencode(e.target.checked)}
+              />
+              Start OpenCode with the task
             </label>
           </fieldset>
           <div className="actions">

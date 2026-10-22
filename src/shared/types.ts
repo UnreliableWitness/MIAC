@@ -43,6 +43,8 @@ export const TaskSetupSchema = z.object({
   startClaude: z.boolean(),
   openShell: z.boolean(),
   openCopilot: z.boolean().default(false),
+  /** Open an OpenCode tab when the task is ready. Absent on tasks from before the choice existed. */
+  openOpencode: z.boolean().optional(),
 });
 
 /** What a finished task did, captured from git just before its worktree is removed. */
@@ -202,6 +204,7 @@ export type CreateTaskInput = {
   startClaude: boolean;
   openShell: boolean;
   openCopilot?: boolean;
+  openOpencode?: boolean;
 };
 
 /**

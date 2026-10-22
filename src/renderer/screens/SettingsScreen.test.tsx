@@ -377,6 +377,12 @@ describe('SettingsScreen', () => {
       },
       sendTelemetry: true,
       editor: { default: null, repos: {} },
+      defaultTerminals: {
+        claude: true,
+        copilot: false,
+        opencode: false,
+        shell: true,
+      },
     };
     const { calls } = installFakeApi({
       'settings:get': () => stored,
@@ -419,6 +425,12 @@ describe('SettingsScreen', () => {
       },
       sendTelemetry: true,
       editor: { default: null, repos: {} },
+      defaultTerminals: {
+        claude: true,
+        copilot: false,
+        opencode: false,
+        shell: true,
+      },
     });
   });
 
@@ -441,6 +453,12 @@ describe('SettingsScreen', () => {
       },
       sendTelemetry: true,
       editor: { default: null, repos: {} },
+      defaultTerminals: {
+        claude: true,
+        copilot: false,
+        opencode: false,
+        shell: true,
+      },
     };
     const { calls } = installFakeApi({
       'settings:get': () => stored,
@@ -484,6 +502,12 @@ describe('SettingsScreen', () => {
       },
       sendTelemetry: true,
       editor: { default: null, repos: {} },
+      defaultTerminals: {
+        claude: true,
+        copilot: false,
+        opencode: false,
+        shell: true,
+      },
     });
   });
 

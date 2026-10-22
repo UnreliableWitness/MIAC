@@ -494,6 +494,23 @@ describe('handlers: create task', () => {
     await terminals.killAllForTask(task.id);
   });
 
+  it('installs apm packages for OpenCode when setup opens an OpenCode tab', async () => {
+    const { h, terminals, setupDone, input, repo } = await harness();
+    commitFile(repo, 'apm.yml', 'name: webshop\n');
+    const finished = setupDone();
+    const task = await h['tasks:create'](
+      input({ startClaude: false, openOpencode: true, openShell: false }),
+    );
+    expect((await finished).ok).toBe(true);
+    const state = await h['tasks:setupState'](task.id);
+    expect(state?.steps.find((s) => s.def.kind === 'apm')).toMatchObject({
+      def: { detail: 'apm install --target opencode' },
+      status: 'done',
+    });
+    expect(task.setup.openOpencode).toBe(true);
+    await terminals.killAllForTask(task.id);
+  });
+
   it('has no apm step without apm.yml or with apm: false', async () => {
     const { h, terminals, setupDone, input, repo } = await harness();
     const first = setupDone();
@@ -2540,6 +2557,33 @@ describe('handlers: usage', () => {
       async () =>
         expect(await hx.h['terminals:buffer'](def!.id)).toContain(
           'copilot-started',
+        ),
+      { timeout: 10_000 },
+    );
+    hx.terminals.killAllForTask(t.id);
+  });
+
+  it('opens an OpenCode tab at setup when asked', async () => {
+    const base = testPlatform();
+    const platform = {
+      ...base,
+      opencodeCommand: () =>
+        base.shellCommand(`${echoCmd('opencode-started')}; ${sleepCmd(5)}`),
+    };
+    const hx = await harness(fakeCrypto(), { platform });
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](
+      hx.input({ openShell: false, openOpencode: true }),
+    );
+    await done;
+    const def = hx.store.state.tasks[0].terminals.find(
+      (x) => x.kind === 'opencode',
+    );
+    expect(def?.label).toBe('OpenCode');
+    await vi.waitFor(
+      async () =>
+        expect(await hx.h['terminals:buffer'](def!.id)).toContain(
+          'opencode-started',
         ),
       { timeout: 10_000 },
     );

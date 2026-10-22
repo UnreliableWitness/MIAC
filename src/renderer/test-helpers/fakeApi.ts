@@ -110,6 +110,12 @@ const defaults: FakeHandlers = {
     },
     sendTelemetry: true,
     editor: { default: null, repos: {} },
+    defaultTerminals: {
+      claude: true,
+      copilot: false,
+      opencode: false,
+      shell: true,
+    },
   }),
   'editor:options': () => ({
     editors: [{ id: 'vscode', label: 'VS Code' }],
