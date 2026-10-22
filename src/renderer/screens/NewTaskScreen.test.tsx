@@ -2,6 +2,7 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Repo } from '../../shared/types';
+import { defaultSettings } from '../../shared/usage';
 import { useStore } from '../store';
 import { installFakeApi } from '../test-helpers/fakeApi';
 import { NewTaskScreen } from './NewTaskScreen';
@@ -129,6 +130,7 @@ describe('NewTaskScreen', () => {
       startClaude: true,
       openShell: false,
       openCopilot: false,
+      openOpencode: false,
     });
   });
 
@@ -148,6 +150,41 @@ describe('NewTaskScreen', () => {
       expect(
         calls.find((c) => c.channel === 'tasks:create')?.args[0],
       ).toMatchObject({ openCopilot: true }),
+    );
+  });
+
+  it('pre-ticks the tabs chosen in Settings and can start OpenCode', async () => {
+    const { calls } = installFakeApi({
+      'repos:config': () => config,
+      'settings:get': () => ({
+        ...defaultSettings(),
+        defaultTerminals: {
+          claude: false,
+          copilot: false,
+          opencode: true,
+          shell: true,
+        },
+      }),
+      'tasks:create': () => ({ id: 't1' }) as never,
+    });
+    render(<NewTaskScreen />);
+    await userEvent.type(screen.getByLabelText('Work item id'), '48231');
+    await userEvent.type(screen.getByLabelText('Title'), 'Delivery date');
+    const opencode = screen.getByLabelText('Start OpenCode with the task');
+    await waitFor(() => expect(opencode).toBeChecked());
+    expect(
+      screen.getByLabelText(/Open Claude Code with the task loaded/),
+    ).not.toBeChecked();
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    await waitFor(() =>
+      expect(
+        calls.find((c) => c.channel === 'tasks:create')?.args[0],
+      ).toMatchObject({
+        startClaude: false,
+        openShell: true,
+        openCopilot: false,
+        openOpencode: true,
+      }),
     );
   });
 

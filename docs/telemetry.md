@@ -35,7 +35,7 @@ This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 
 | `budget.alert` | a Claude budget alert fired (main); `kind` (`at80`, `forecastOver`, `at100`) |
 | `update.ready` | an update finished downloading (Windows); none |
 | `update.restart`, `update.later` | the choice on the update notice; none |
-| `task.created` | has a work item; copy files, start Claude, open shell, open Copilot (booleans); number of setup commands |
+| `task.created` | has a work item; copy files, start Claude, open shell, open Copilot, open OpenCode (booleans); number of setup commands |
 | `task.finished` | remove worktree, delete branch, close terminals, sync usage, has a work item (booleans); task age in hours, number of workspaces finished, pull requests asked for and workspaces dropped |
 | `workitem.startUpdated` | setup moved the work item to In Progress (`moved`), assigned it (`assigned`), or the update failed (`failed`) |
 | `pr.created` | Finish created a draft pull request; none |

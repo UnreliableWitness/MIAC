@@ -74,6 +74,12 @@ describe('SettingsStore', () => {
       },
       sendTelemetry: true,
       editor: { default: null, repos: {} },
+      defaultTerminals: {
+        claude: true,
+        copilot: false,
+        opencode: false,
+        shell: true,
+      },
     });
     await s.save({ ...s.get(), hourlySync: true });
     expect(JSON.parse(readFileSync(f, 'utf8'))).toEqual({
@@ -94,6 +100,12 @@ describe('SettingsStore', () => {
       },
       sendTelemetry: true,
       editor: { default: null, repos: {} },
+      defaultTerminals: {
+        claude: true,
+        copilot: false,
+        opencode: false,
+        shell: true,
+      },
     });
   });
   it('rejects invalid values', async () => {

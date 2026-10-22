@@ -1,0 +1,47 @@
+import { describe, expect, it, vi } from 'vitest';
+import { defaultSettings } from '../shared/usage';
+import { startTaskFor } from './startTask';
+import { installFakeApi } from './test-helpers/fakeApi';
+
+const config = {
+  worktreeRoot: '/w',
+  config: {
+    base: 'main',
+    branch: '{type}/{id}-{slug}',
+    copy: [],
+    setup: ['npm ci'],
+    run: {},
+    found: true,
+  },
+};
+
+describe('startTaskFor', () => {
+  it('opens the tabs chosen in Settings', async () => {
+    const { calls } = installFakeApi({
+      'repos:config': () => config,
+      'settings:get': () => ({
+        ...defaultSettings(),
+        defaultTerminals: {
+          claude: false,
+          copilot: false,
+          opencode: true,
+          shell: false,
+        },
+      }),
+      'tasks:create': () => ({ id: 't1' }) as never,
+    });
+    await startTaskFor(
+      'r1',
+      { id: '5', type: 'Task', title: 'Store the address', url: null },
+      vi.fn(),
+    );
+    expect(
+      calls.find((c) => c.channel === 'tasks:create')?.args[0],
+    ).toMatchObject({
+      startClaude: false,
+      openShell: false,
+      openCopilot: false,
+      openOpencode: true,
+    });
+  });
+});

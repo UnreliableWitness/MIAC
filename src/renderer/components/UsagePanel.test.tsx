@@ -294,6 +294,12 @@ describe('UsagePanel', () => {
         },
         sendTelemetry: true,
         editor: { default: null, repos: {} },
+        defaultTerminals: {
+          claude: true,
+          copilot: false,
+          opencode: false,
+          shell: true,
+        },
       }),
     });
     render(<UsagePanel taskId="t1" />);

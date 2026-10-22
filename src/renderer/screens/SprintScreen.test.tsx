@@ -362,6 +362,7 @@ describe('Sprint page', () => {
       startClaude: true,
       openShell: true,
       openCopilot: false,
+      openOpencode: false,
     });
   });
 

@@ -37,6 +37,12 @@ const settings = {
   },
   sendTelemetry: true,
   editor: { default: null, repos: {} },
+  defaultTerminals: {
+    claude: true,
+    copilot: false,
+    opencode: false,
+    shell: true,
+  },
 };
 
 beforeEach(() => {
@@ -116,6 +122,12 @@ describe('CostSection', () => {
       },
       sendTelemetry: true,
       editor: { default: null, repos: {} },
+      defaultTerminals: {
+        claude: true,
+        copilot: false,
+        opencode: false,
+        shell: true,
+      },
     });
   });
   it('shows the receiver status and Copilot counters', async () => {
