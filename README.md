@@ -158,8 +158,7 @@ Shellie follows the system's light or dark theme, and so do its terminals and Cl
 
 On a fresh install Shellie opens a **Get started** page with three steps: check which agents (Claude Code, Copilot CLI,
 OpenCode) are on this machine and pick the terminals new tasks open, connect Azure DevOps (organization, token,
-projects), and add your first repository. Every step can be skipped and finished later from Settings; **Skip for
-now** hides the page, and a Get started band on Home brings it back.
+projects), and add your first repository. Every step can be skipped and finished later from Settings; **Skip for now** hides the page; the unfinished steps stay in Settings, and Settings › About › Get started opens the page again. Until you skip, a Get started band on Home lists the steps you haven't finished.
 
 ### Install
 
