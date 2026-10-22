@@ -362,6 +362,13 @@ export function createHandlers(s: Services): Handlers {
     tel.event('connection.saved', {
       connections: s.connections.list().length,
     });
+    // A tracker after all: the earlier No-tracker choice no longer holds.
+    const current = s.settings.get();
+    if (current.onboarding.tracker === 'none')
+      await s.settings.save({
+        ...current,
+        onboarding: { ...current.onboarding, tracker: null },
+      });
     return verified;
   };
 

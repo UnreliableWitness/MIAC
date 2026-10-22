@@ -129,6 +129,61 @@ describe('ConnectScreen', () => {
     ).toBeTruthy();
   });
 
+  it('saves a typed project when the token cannot list projects', async () => {
+    const { calls } = installFakeApi({
+      'connections:probe': () =>
+        probe({ projects: [], canListProjects: false }),
+      'connections:saveMany': () => [conn],
+      'connections:list': () => [conn],
+    });
+    render(<ConnectScreen />);
+    await signIn();
+    await userEvent.type(
+      await screen.findByRole('textbox', { name: 'Project name' }),
+      'Shellie',
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    await waitFor(() =>
+      expect(useStore.getState().screen).toEqual({ kind: 'home' }),
+    );
+    expect(
+      (callsOf(calls, 'connections:saveMany')[0] as { projects: string[] })
+        .projects,
+    ).toEqual(['Shellie']);
+  });
+
+  it('marks the projects of an organization that is typed again as connected, and stays when nothing new was saved', async () => {
+    open('get-started', undefined, [conn]);
+    installFakeApi({
+      'connections:probe': () => probe(),
+      'connections:saveMany': () => [],
+    });
+    render(<ConnectScreen />);
+    await signIn();
+    const shellie = await screen.findByRole('checkbox', { name: /Shellie/ });
+    expect(shellie).toBeChecked();
+    expect(shellie).toBeDisabled();
+    expect(screen.getByText('(added)')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled();
+  });
+
+  it('stays with a notice when every ticked project was already connected', async () => {
+    installFakeApi({
+      'connections:probe': () => probe(),
+      'connections:saveMany': () => [],
+    });
+    render(<ConnectScreen />);
+    await signIn();
+    await screen.findByText('Signed in as Dries Hoebeke');
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    await waitFor(() =>
+      expect(useStore.getState().notices.map((n) => n.message)).toContain(
+        'Every ticked project is already connected',
+      ),
+    );
+    expect(useStore.getState().screen.kind).toBe('connect');
+  });
+
   it('saves the ticked projects with the on-start options and goes on', async () => {
     const { calls, tracked } = installFakeApi({
       'connections:probe': () => three,
@@ -212,7 +267,7 @@ describe('ConnectScreen', () => {
     open('settings', 'c1', [conn]);
     const { calls } = installFakeApi({
       'connections:probe': () => three,
-      'connections:saveMany': () => [],
+      'connections:saveMany': () => [{ ...conn, id: 'c3', project: 'Infra' }],
       'connections:list': () => [conn],
     });
     render(<ConnectScreen />);

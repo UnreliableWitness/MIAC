@@ -17,8 +17,8 @@ const SCOPES = [
   'Project and Team (Read)',
 ];
 
-/** The organization's personal access tokens page, from whatever URL was typed; null until it reads as one. */
-export function tokensPageUrl(input: string): string | null {
+/** The organization URL Shellie stores (`https://dev.azure.com/<org>` or the visualstudio.com origin) from whatever was typed; null until it reads as one. */
+function organizationOf(input: string): string | null {
   let text = input.trim();
   if (!text) return null;
   if (!/^https?:\/\//i.test(text)) text = `https://${text}`;
@@ -26,12 +26,18 @@ export function tokensPageUrl(input: string): string | null {
     const url = new URL(text);
     if (url.hostname.toLowerCase() === 'dev.azure.com') {
       const org = url.pathname.split('/').filter(Boolean)[0];
-      return org ? `https://dev.azure.com/${org}/_usersSettings/tokens` : null;
+      return org ? `https://dev.azure.com/${org}` : null;
     }
-    return `${url.origin}/_usersSettings/tokens`;
+    return url.origin;
   } catch {
     return null;
   }
+}
+
+/** The organization's personal access tokens page; null until the URL reads as an organization. */
+export function tokensPageUrl(input: string): string | null {
+  const org = organizationOf(input);
+  return org ? `${org}/_usersSettings/tokens` : null;
 }
 
 /** First-run step 2 and Settings' way to add a connection: pick a tracker, test a token, pick projects. */
@@ -64,13 +70,14 @@ export function ConnectScreen() {
   const [assign, setAssign] = useState(true);
   const [busy, setBusy] = useState(false);
 
-  /** Projects this organization already has a connection for (only when adding to one). */
+  /** Projects this organization already has a connection for, also when its URL is typed again. */
+  const organization = (
+    existing?.organizationUrl ?? organizationOf(organizationUrl)
+  )?.toLowerCase();
   const added = new Set(
-    existing
-      ? connections
-          .filter((c) => c.organizationUrl === existing.organizationUrl)
-          .map((c) => c.project.toLowerCase())
-      : [],
+    connections
+      .filter((c) => c.organizationUrl.toLowerCase() === organization)
+      .map((c) => c.project.toLowerCase()),
   );
 
   const redact = (message: string) =>
@@ -162,8 +169,9 @@ export function ConnectScreen() {
         return;
       }
       setError(null);
+      let saved;
       try {
-        await api().invoke('connections:saveMany', {
+        saved = await api().invoke('connections:saveMany', {
           organizationUrl,
           ...(connectionId ? { connectionId } : { pat }),
           projects,
@@ -176,6 +184,10 @@ export function ConnectScreen() {
         });
       } catch (e) {
         setError(redact(ipcErrorMessage(e)));
+        return;
+      }
+      if (saved.length === 0) {
+        notify('info', 'Every ticked project is already connected');
         return;
       }
       const list = await tryInvoke(

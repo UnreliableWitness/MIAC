@@ -2439,6 +2439,47 @@ describe('handlers: connections:probe and connections:saveMany', () => {
     ]);
   });
 
+  it('clears a No-tracker choice once a connection is saved, and keeps it when nothing was saved', async () => {
+    const { h, server, settings } = await harness();
+    routeOrg(server);
+    server.route('GET', '/uw/_apis/projects/Shellie', {
+      body: { name: 'Shellie' },
+    });
+    const none = {
+      ...settings.get(),
+      onboarding: { ...settings.get().onboarding, tracker: 'none' as const },
+    };
+    await settings.save(none);
+    expect(
+      await h['connections:saveMany']({
+        organizationUrl: `${server.url}/uw`,
+        pat: 'p',
+        projects: [],
+        workItemOnStart: onStart,
+        provider: 'azure-devops',
+      }),
+    ).toEqual([]);
+    expect(settings.get().onboarding.tracker).toBe('none');
+    await h['connections:saveMany']({
+      organizationUrl: `${server.url}/uw`,
+      pat: 'p',
+      projects: ['Shellie'],
+      workItemOnStart: onStart,
+      provider: 'azure-devops',
+    });
+    expect(settings.get().onboarding.tracker).toBeNull();
+    expect(settings.get().onboarding.agentsCheckedAt).toBe(
+      none.onboarding.agentsCheckedAt,
+    );
+    await settings.save(none);
+    await h['connections:save']({
+      organizationUrl: `${server.url}/uw`,
+      project: 'Shellie',
+      pat: 'p',
+    });
+    expect(settings.get().onboarding.tracker).toBeNull();
+  });
+
   it("repos:add copies the linked connection's on-start options into the repo", async () => {
     const { h, server } = await harness();
     routeOrg(server);
