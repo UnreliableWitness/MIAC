@@ -24,6 +24,8 @@ type Entry = {
   tail: string;
   /** Resolves when the process exits, also after the entry was replaced or forgotten. */
   exit: Promise<void>;
+  startedAt: number;
+  exitedAt?: number;
 };
 
 const BUFFER_LIMIT = 200_000;
@@ -62,10 +64,12 @@ export class TerminalManager extends EventEmitter<{
 }> {
   private readonly entries = new Map<string, Entry>();
   private readonly killWaitMs: number;
+  private readonly now: () => number;
 
-  constructor(o: { killWaitMs?: number } = {}) {
+  constructor(o: { killWaitMs?: number; now?: () => number } = {}) {
     super();
     this.killWaitMs = o.killWaitMs ?? KILL_WAIT_MS;
+    this.now = o.now ?? Date.now;
   }
 
   spawn(options: SpawnOptions): void {
@@ -107,6 +111,7 @@ export class TerminalManager extends EventEmitter<{
       schemeReports: false,
       tail: '',
       exit,
+      startedAt: this.now(),
     };
     this.entries.set(options.id, entry);
     proc.onData((data) => {
@@ -124,6 +129,7 @@ export class TerminalManager extends EventEmitter<{
       exitResolve();
       if (this.entries.get(options.id) !== entry) return;
       entry.exited = true;
+      entry.exitedAt = this.now();
       this.emit('exit', options.id, normaliseExitCode(exitCode));
     });
   }
@@ -204,6 +210,12 @@ export class TerminalManager extends EventEmitter<{
   isRunning(id: string): boolean {
     const e = this.entries.get(id);
     return Boolean(e && !e.exited);
+  }
+
+  /** How long the terminal's process ran: until its exit, or until now while it runs; 0 for an unknown one. */
+  runMs(id: string): number {
+    const e = this.entries.get(id);
+    return e ? (e.exitedAt ?? this.now()) - e.startedAt : 0;
   }
 
   buffer(id: string): string {

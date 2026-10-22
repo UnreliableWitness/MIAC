@@ -100,6 +100,7 @@ import { UsageSync } from '../usage/UsageSync';
 import { renderCostLine } from '../../shared/workItemUsage';
 import type { ColorScheme, ThemeChoice } from '../../shared/theme';
 import { colorFgBg } from '../services/claudeTheme';
+import type { TerminalFailures } from '../services/TerminalFailures';
 import type { TimeBooking } from '../../shared/time';
 import { errorMessage } from '../../shared/errors';
 import { OFFICIAL_USD_TO_EUR } from '../../shared/usage';
@@ -153,6 +154,8 @@ export type Services = {
   claudeThemeSettings?: () => string | null;
   /** A Claude Code tab was started (or resumed) with the theme claudeThemeSettings gave. */
   claudeSpawned?: (terminalId: string) => void;
+  /** Explains and logs agent tabs that fail to start (#109); absent in tests that don't care. */
+  terminalFailures?: Pick<TerminalFailures, 'get' | 'clear' | 'spawnFailed'>;
   /** Sets nativeTheme.themeSource (main); absent in tests that don't care. */
   applyTheme?: (theme: ThemeChoice) => void;
   appVersion: string;
@@ -664,21 +667,33 @@ export function createHandlers(s: Services): Handlers {
     return s.platform.interactiveShell();
   };
 
-  const spawnTerminal = (task: Task, def: TerminalDef, resume = false) => {
-    const cmd = terminalCommand(task, def, resume);
-    s.terminals.spawn({
-      id: def.id,
-      taskId: task.id,
-      cwd: terminalWorkspace(task, def).worktreePath,
-      command: cmd.command,
-      args: cmd.args,
-      env: {
-        ...telemetryEnv(task.id, s.settings.get().receiverPort, s.usageDir),
-        ...(s.colorScheme ? { COLORFGBG: colorFgBg(s.colorScheme()) } : {}),
-        ...s.terminalEnv?.(def),
-        ...cmd.env,
-      },
-    });
+  const spawnTerminal = (
+    task: Task,
+    def: TerminalDef,
+    resume = false,
+    extraEnv: Record<string, string> = {},
+  ) => {
+    s.terminalFailures?.clear(def.id);
+    try {
+      const cmd = terminalCommand(task, def, resume);
+      s.terminals.spawn({
+        id: def.id,
+        taskId: task.id,
+        cwd: terminalWorkspace(task, def).worktreePath,
+        command: cmd.command,
+        args: cmd.args,
+        env: {
+          ...telemetryEnv(task.id, s.settings.get().receiverPort, s.usageDir),
+          ...(s.colorScheme ? { COLORFGBG: colorFgBg(s.colorScheme()) } : {}),
+          ...s.terminalEnv?.(def),
+          ...cmd.env,
+          ...extraEnv,
+        },
+      });
+    } catch (e) {
+      s.terminalFailures?.spawnFailed(def.id, def.kind, e);
+      throw e;
+    }
     if (def.kind === 'claude') s.claudeSpawned?.(def.id);
   };
 
@@ -2050,14 +2065,16 @@ export function createHandlers(s: Services): Handlers {
         );
       if (def) tel.event('terminal.closed', { kind: def.kind });
     },
-    'terminals:restart': async (id) => {
+    'terminals:restart': async (id, options = {}) => {
       const owner = s.store.state.tasks.find((t) =>
         t.terminals.some((x) => x.id === id),
       );
       const def = owner?.terminals.find((x) => x.id === id);
       const known = s.terminals.has(id);
-      // Claude Code resumes its conversation instead of starting a new one.
-      if (known && def?.kind !== 'claude') {
+      // Claude Code resumes its conversation instead of starting a new one. OpenCode gets its env built again, so
+      // a start without the project config (#109) lasts until the next Restart only.
+      if (known && def?.kind !== 'claude' && def?.kind !== 'opencode') {
+        s.terminalFailures?.clear(id);
         s.terminals.restart(id);
         return;
       }
@@ -2068,12 +2085,21 @@ export function createHandlers(s: Services): Handlers {
           `Cannot restart a terminal of a task that is ${owner.status}`,
         );
       await s.terminals.kill(id);
-      spawnTerminal(owner, def, def.kind === 'claude');
+      const skipConfig =
+        def.kind === 'opencode' && options.withoutProjectConfig === true;
+      spawnTerminal(
+        owner,
+        def,
+        def.kind === 'claude',
+        skipConfig ? { OPENCODE_DISABLE_PROJECT_CONFIG: '1' } : {},
+      );
       tel.event('terminal.restarted', {
         kind: def.kind,
         afterRelaunch: !known,
+        ...(skipConfig ? { withoutProjectConfig: true } : {}),
       });
     },
+    'terminals:failure': async (id) => s.terminalFailures?.get(id) ?? null,
     'terminals:buffer': async (id) => s.terminals.buffer(id),
     'terminals:isRunning': async (id) => s.terminals.isRunning(id),
     'terminals:reportScheme': async (id, scheme) =>
