@@ -84,13 +84,24 @@ export function AgentsSection({ embedded }: { embedded?: boolean }) {
       .writeText(text)
       .catch(() => notify('error', 'Could not copy to the clipboard.'));
 
-  const body = tabs && detected && (
+  const foundAndTicked = (id: AgentId) =>
+    !!tabs?.[id] && !!detected?.agents[id].found;
+  const defaultAgent = (['claude', 'opencode', 'copilot'] as const).find(
+    foundAndTicked,
+  );
+
+  const body = tabs && (
     <>
       <div className="small muted" style={{ marginBottom: 6 }}>
         Shellie looked for the command-line tools on this machine. Ticked ones
         open as tabs when a task starts; any tab can be added later from a
         task&rsquo;s + menu.
       </div>
+      {!detected && (
+        <div className="small muted" style={{ marginBottom: 6 }}>
+          Could not check which agents are installed.
+        </div>
+      )}
       <table className="agents-table" style={{ width: '100%' }}>
         <thead>
           <tr className="small muted" style={{ textAlign: 'left' }}>
@@ -103,7 +114,7 @@ export function AgentsSection({ embedded }: { embedded?: boolean }) {
         </thead>
         <tbody>
           {AGENT_IDS.map((id) => {
-            const probe = detected.agents[id];
+            const probe = detected?.agents[id];
             return (
               <tr key={id}>
                 <td>
@@ -129,13 +140,15 @@ export function AgentsSection({ embedded }: { embedded?: boolean }) {
                   {AGENT_LABELS[id]}
                 </td>
                 <td>
-                  {probe.found
-                    ? `Found${probe.version ? ` · ${probe.version}` : ''}`
-                    : 'Not found'}
+                  {!probe
+                    ? 'Not checked'
+                    : probe.found
+                      ? `Found${probe.version ? ` · ${probe.version}` : ''}`
+                      : 'Not found'}
                 </td>
                 <td className="small muted">{COST[id]}</td>
                 <td className="small">
-                  {!probe.found && (
+                  {probe && !probe.found && (
                     <>
                       <code>{INSTALL_COMMANDS[id]}</code>{' '}
                       <button
@@ -147,7 +160,7 @@ export function AgentsSection({ embedded }: { embedded?: boolean }) {
                       </button>
                     </>
                   )}
-                  {probe.found && id === 'claude' && tabs.claude && (
+                  {id === defaultAgent && (
                     <span className="muted">Default agent</span>
                   )}
                   {id === 'opencode' && (
@@ -169,23 +182,24 @@ export function AgentsSection({ embedded }: { embedded?: boolean }) {
               />
             </td>
             <td>A shell</td>
-            <td>{detected.shell.label}</td>
+            <td>{detected?.shell.label ?? 'Not checked'}</td>
             <td className="small muted">&mdash;</td>
             <td />
           </tr>
         </tbody>
       </table>
-      {AGENT_IDS.every((id) => !detected.agents[id].found) && (
+      {detected && AGENT_IDS.every((id) => !detected.agents[id].found) && (
         <div className="small muted" style={{ marginTop: 6 }}>
           No agent CLI found. Shellie works with a shell; install one and Check
           again.
         </div>
       )}
-      {AGENT_IDS.filter((id) => tabs[id]).length > 1 && (
+      {AGENT_IDS.filter(foundAndTicked).length > 1 && (
         <div className="small" style={{ marginTop: 8 }}>
           <strong>Both found, both ticked?</strong> A task then opens two agent
-          tabs. Most people keep one. Untick the one you do not use; Shellie
-          installs agent packages (<code>apm</code>) only for the ticked ones.
+          tabs. Most people keep one. Untick Claude Code if OpenCode is your
+          agent; Shellie installs agent packages (<code>apm</code>) only for the
+          ticked ones.
         </div>
       )}
       <div style={{ marginTop: 8 }}>

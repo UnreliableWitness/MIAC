@@ -114,16 +114,22 @@ describe('AgentsSection', () => {
   });
 
   it('shows the info card only when two agents are ticked', async () => {
-    installFakeApi(
-      settingsWith('2026-10-22T09:00:00.000Z', {
+    const f = { found: true, version: '1', path: '/x' };
+    installFakeApi({
+      ...settingsWith('2026-10-22T09:00:00.000Z', {
         claude: true,
         copilot: false,
         opencode: false,
         shell: true,
       }),
-    );
+      'agents:detect': () => ({
+        checkedAt: 'x',
+        agents: { claude: f, copilot: { ...f, found: false }, opencode: f },
+        shell: { label: 'zsh' },
+      }),
+    });
     render(<AgentsSection />);
-    await screen.findByText('Found · 2.1.307');
+    await screen.findAllByText(/^Found/);
     expect(screen.queryByText(/Both found/)).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('checkbox', { name: /OpenCode/ }));
     expect(await screen.findByText(/Most people keep one/)).toBeInTheDocument();
@@ -169,5 +175,50 @@ describe('AgentsSection', () => {
         calls.filter((c) => c.channel === 'agents:detect').at(-1)?.args[0],
       ).toBe(true),
     );
+  });
+
+  it('keeps the section usable when detection fails', async () => {
+    const { calls } = installFakeApi({
+      ...settingsWith('2026-10-22T09:00:00.000Z', {
+        claude: true,
+        copilot: false,
+        opencode: false,
+        shell: true,
+      }),
+      'agents:detect': () => {
+        throw new Error('boom');
+      },
+    });
+    render(<AgentsSection />);
+    expect(
+      await screen.findByText('Could not check which agents are installed.'),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Check again' }));
+    await waitFor(() =>
+      expect(
+        calls.filter((c) => c.channel === 'agents:detect').at(-1)?.args[0],
+      ).toBe(true),
+    );
+  });
+
+  it('labels a ticked, found OpenCode as the default agent', async () => {
+    const found = { found: true, version: '1.19.3', path: '/x' };
+    const none = { found: false, version: null, path: null };
+    installFakeApi({
+      ...settingsWith('2026-10-22T09:00:00.000Z', {
+        claude: false,
+        copilot: false,
+        opencode: true,
+        shell: true,
+      }),
+      'agents:detect': () => ({
+        checkedAt: 'x',
+        agents: { claude: none, copilot: none, opencode: found },
+        shell: { label: 'zsh' },
+      }),
+    });
+    render(<AgentsSection />);
+    const row = (await screen.findByText('OpenCode')).closest('tr');
+    expect(row).toHaveTextContent('Default agent');
   });
 });
