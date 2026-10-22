@@ -70,6 +70,7 @@ import { SetupRunner, ensureExcluded } from './main/services/SetupRunner';
 import { TaskStore } from './main/services/TaskStore';
 import { ClaudeRetheme } from './main/services/ClaudeRetheme';
 import { TerminalManager } from './main/services/TerminalManager';
+import { TerminalFailures } from './main/services/TerminalFailures';
 import { CopilotFileTailer } from './main/usage/CopilotFileTailer';
 import { ActivityTracker } from './main/time/ActivityTracker';
 import { TerminalAgentTimer } from './main/time/TerminalAgentTimer';
@@ -163,6 +164,8 @@ let splashWin: BrowserWindow | null = null;
 /** True until the main window is revealed (stays true after a boot failure). */
 let booting = true;
 const terminals = new TerminalManager();
+/** How long after a terminal's exit its output is read for a diagnosis (late ConPTY output, #109). */
+const EXIT_SETTLE_MS = 150;
 const DOT = String.fromCharCode(0xb7);
 let stopUsage: () => void = () => {};
 /** Ends the time tracking timers and closes the open intervals (on quit). */
@@ -636,7 +639,23 @@ async function boot(): Promise<void> {
     });
     stopBudget = () => budget.stop();
     protocol.handle(VIEW_SCHEME, (req) => serveView(htmlViews, req.url));
+    // Agent tabs that stop right after starting (a missing CLI, an invalid OpenCode config) say why (#109).
+    const terminalFailures = new TerminalFailures({
+      buffer: (id) => terminals.buffer(id),
+      runMs: (id) => terminals.runMs(id),
+      kindOf: (id) => {
+        for (const t of store.state.tasks)
+          for (const d of t.terminals) if (d.id === id) return d.kind;
+        return undefined;
+      },
+      // Read at each call: telemetry is replaced once its client is set up.
+      telemetry: {
+        event: (...a) => telemetry.event(...a),
+        exception: (...a) => telemetry.exception(...a),
+      },
+    });
     const handlers = createHandlers({
+      terminalFailures,
       budget,
       applyTheme: (theme) => {
         nativeTheme.themeSource = theme;
@@ -760,8 +779,17 @@ async function boot(): Promise<void> {
     terminals.on('data', (id, data) =>
       broadcast('terminal:data', { id, data }),
     );
+    // A moment after the exit, so output that arrives just after it (ConPTY) is in the buffer that is diagnosed.
     terminals.on('exit', (id, exitCode) =>
-      broadcast('terminal:exit', { id, exitCode }),
+      setTimeout(() => {
+        if (terminals.isRunning(id)) return; // restarted meanwhile
+        const failure = terminalFailures.exit(id, exitCode);
+        broadcast('terminal:exit', {
+          id,
+          exitCode,
+          ...(failure ? { failure } : {}),
+        });
+      }, EXIT_SETTLE_MS),
     );
     terminals.on('exit', () => void copilot.poll());
     terminals.on('data', (id) => agentTimer.output(id));

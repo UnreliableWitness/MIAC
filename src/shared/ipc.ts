@@ -1,5 +1,8 @@
 import type { ColorScheme } from './theme';
 import type { TrackerProvider } from './trackers';
+import type { TerminalFailure } from './terminalFailure';
+
+export type RestartOptions = { withoutProjectConfig?: boolean };
 import type {
   Connection,
   ConnectionInput,
@@ -327,7 +330,13 @@ export type Channels = {
     result: void;
   };
   'terminals:kill': { args: [id: string]; result: void };
-  'terminals:restart': { args: [id: string]; result: void };
+  /** `withoutProjectConfig`: OpenCode starts without the repo's own config (#109). */
+  'terminals:restart': {
+    args: [id: string, options?: RestartOptions];
+    result: void;
+  };
+  /** Why an agent tab stopped, when its exit needs explaining (#109); null otherwise. */
+  'terminals:failure': { args: [id: string]; result: TerminalFailure | null };
   'terminals:buffer': { args: [id: string]; result: string };
   'terminals:isRunning': { args: [id: string]; result: boolean };
   /** The renderer re-coloured this terminal; programs that asked (mode 2031) are told the scheme changed. */
@@ -385,7 +394,7 @@ export type Channels = {
 export type Events = {
   setup: SetupEvent;
   'terminal:data': { id: string; data: string };
-  'terminal:exit': { id: string; exitCode: number };
+  'terminal:exit': { id: string; exitCode: number; failure?: TerminalFailure };
   /** Main started the terminal again by itself (a Claude Code tab resumed in the new theme): clear and size it. */
   'terminal:reset': { id: string };
   'tasks:changed': TaskView[];

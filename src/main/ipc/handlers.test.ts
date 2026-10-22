@@ -13,6 +13,11 @@ import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { Events } from '../../shared/ipc';
 import type { CreateTaskInput, SetupEvent, Task } from '../../shared/types';
 import { TrackerRegistry } from '../trackers/TrackerRegistry';
+import {
+  spawnFailure,
+  type TerminalFailure,
+  type TerminalKind,
+} from '../../shared/terminalFailure';
 import { ConnectionStore, type TokenCrypto } from '../services/ConnectionStore';
 import { fakeCrypto } from '../test-helpers/fakeCrypto';
 import { startAdoServer, type AdoServer } from '../test-helpers/adoServer';
@@ -1315,6 +1320,89 @@ describe('handlers: terminals opened from the + menu', () => {
       'shell',
     ]);
     await hx.terminals.killAllForTask(t.id);
+  });
+});
+
+describe('handlers: agent tabs that fail to start (#109)', () => {
+  const failures = () => {
+    const cleared: string[] = [];
+    const spawnFailed: { id: string; kind: string }[] = [];
+    const kept = new Map<string, TerminalFailure>();
+    const service = {
+      get: (id: string) => kept.get(id) ?? null,
+      clear: (id: string) => {
+        cleared.push(id);
+        kept.delete(id);
+      },
+      spawnFailed: (id: string, kind: TerminalKind, e: unknown) => {
+        spawnFailed.push({ id, kind });
+        const f = spawnFailure(kind, String(e));
+        kept.set(id, f);
+        return f;
+      },
+    };
+    return { service, cleared, spawnFailed, kept };
+  };
+
+  it('restarts OpenCode without the project config when asked, and with it again on a plain Restart', async () => {
+    const base = testPlatform();
+    const platform = {
+      ...base,
+      opencodeCommand: () =>
+        base.runCommand(`${echoCmd('opencode-started')}; ${sleepCmd(5)}`),
+    };
+    const f = failures();
+    const hx = await harness(fakeCrypto(), {
+      platform,
+      terminalFailures: f.service,
+    });
+    const spawn = vi.spyOn(hx.terminals, 'spawn');
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](
+      hx.input({ openShell: false, openOpencode: true }),
+    );
+    await done;
+    const def = hx.store.state.tasks[0].terminals.find(
+      (x) => x.kind === 'opencode',
+    )!;
+    f.kept.set(def.id, {
+      reason: 'invalid-config',
+      title: 'x',
+      hint: 'y',
+      canSkipProjectConfig: true,
+    });
+    expect((await hx.h['terminals:failure'](def.id))?.reason).toBe(
+      'invalid-config',
+    );
+    await hx.h['terminals:restart'](def.id, { withoutProjectConfig: true });
+    expect(
+      spawn.mock.calls.at(-1)?.[0].env?.OPENCODE_DISABLE_PROJECT_CONFIG,
+    ).toBe('1');
+    expect(f.cleared).toContain(def.id);
+    expect(await hx.h['terminals:failure'](def.id)).toBeNull();
+    expect(await hx.h['terminals:isRunning'](def.id)).toBe(true);
+    await hx.h['terminals:restart'](def.id);
+    expect(
+      spawn.mock.calls.at(-1)?.[0].env?.OPENCODE_DISABLE_PROJECT_CONFIG,
+    ).toBeUndefined();
+    await hx.terminals.killAllForTask(t.id);
+  });
+
+  it('records a tab whose program cannot be spawned', async () => {
+    const f = failures();
+    const hx = await harness(fakeCrypto(), { terminalFailures: f.service });
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](hx.input({ openShell: false }));
+    await done;
+    vi.spyOn(hx.terminals, 'spawn').mockImplementationOnce(() => {
+      throw new Error('posix_spawnp failed.');
+    });
+    await expect(
+      hx.h['terminals:open'](t.id, { kind: 'copilot', label: 'Copilot CLI' }),
+    ).rejects.toThrow(/posix_spawnp/);
+    expect(f.spawnFailed).toEqual([
+      { id: expect.any(String), kind: 'copilot' },
+    ]);
   });
 });
 

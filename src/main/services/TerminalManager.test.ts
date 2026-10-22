@@ -19,7 +19,7 @@ import {
 const sh = (cmd: string) => testPlatform().runCommand(cmd);
 
 const managers: TerminalManager[] = [];
-const create = (o?: { killWaitMs?: number }) => {
+const create = (o?: { killWaitMs?: number; now?: () => number }) => {
   const m = new TerminalManager(o);
   managers.push(m);
   return m;
@@ -423,4 +423,20 @@ describe('colour scheme reports (mode 2031)', () => {
       expect(m.buffer('off')).not.toContain('997');
     },
   );
+});
+
+describe('TerminalManager run time', () => {
+  it('tells how long a terminal ran until it exited (#109)', async () => {
+    let now = 1_000;
+    const m = create({ now: () => now });
+    const exited = waitFor(m, 't1');
+    m.spawn({ id: 't1', taskId: 'task', cwd: os.tmpdir(), ...sh(failCmd(3)) });
+    now = 1_250;
+    expect(m.runMs('t1')).toBe(250);
+    expect(await exited).toBe(3);
+    now = 9_000;
+    // Frozen at the exit: the time it ran, not the time since it started.
+    expect(m.runMs('t1')).toBe(250);
+    expect(m.runMs('unknown')).toBe(0);
+  });
 });

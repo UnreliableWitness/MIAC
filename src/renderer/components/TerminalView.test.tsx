@@ -169,3 +169,68 @@ describe('TerminalView sizing', () => {
     }
   });
 });
+
+describe('TerminalView when an agent fails to start (#109)', () => {
+  const invalidConfig = {
+    reason: 'invalid-config' as const,
+    title: 'OpenCode could not read its configuration',
+    detail: 'Expected object | undefined, got "Read, Glob" tools',
+    file: 'C:\\repo\\.opencode\\agents\\wiki.md',
+    hint: 'Fix or remove wiki.md, then Restart.',
+    canSkipProjectConfig: true,
+  };
+
+  it('says what happened and offers to start OpenCode without the project config', async () => {
+    const { calls, emit } = installFakeApi({
+      'terminals:buffer': () => '',
+      'terminals:isRunning': () => true,
+      'terminals:restart': () => undefined,
+    });
+    render(<TerminalView terminalId="t1" taskId="a" active />);
+    await waitFor(() =>
+      expect(calls.some((c) => c.channel === 'terminals:isRunning')).toBe(true),
+    );
+    emit('terminal:exit', { id: 't1', exitCode: 1, failure: invalidConfig });
+    expect(
+      await screen.findByText('OpenCode could not read its configuration'),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/got "Read, Glob" tools/)).toBeInTheDocument();
+    expect(screen.getByText(/Fix or remove wiki\.md/)).toBeInTheDocument();
+    expect(screen.getByText(/Exited with code 1/)).toBeInTheDocument();
+    screen
+      .getByRole('button', { name: 'Start without project config' })
+      .click();
+    await waitFor(() =>
+      expect(
+        calls
+          .filter((c) => c.channel === 'terminals:restart')
+          .map((c) => c.args),
+      ).toEqual([['t1', { withoutProjectConfig: true }]]),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByText('OpenCode could not read its configuration'),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
+  it('shows the failure of a tab that exited before the view was shown', async () => {
+    installFakeApi({
+      'terminals:buffer': () => 'zsh:1: command not found: opencode',
+      'terminals:isRunning': () => false,
+      'terminals:failure': () => ({
+        reason: 'missing-cli',
+        title: 'OpenCode is not installed or not on PATH',
+        hint: 'Install OpenCode, then Restart.',
+      }),
+    });
+    render(<TerminalView terminalId="t1" taskId="a" active />);
+    expect(
+      await screen.findByText('OpenCode is not installed or not on PATH'),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Start without project config' }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Restart' })).toBeInTheDocument();
+  });
+});
