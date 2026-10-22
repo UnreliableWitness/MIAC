@@ -317,6 +317,31 @@ describe('GitClient', () => {
     });
   });
 
+  it('gives the branch log with bodies, the stat and the diff without lock files', async () => {
+    const repo = makeRepo();
+    const wt = path.join(path.dirname(repo), 'wt-changes');
+    const baseSha = await client.worktreeAdd(repo, {
+      branch: 'feature/changes',
+      path: wt,
+      baseRef: 'main',
+    });
+    commitFile(repo, 'later.txt', 'later\n');
+    writeFileSync(path.join(wt, 'a.txt'), 'one\n');
+    writeFileSync(path.join(wt, 'package-lock.json'), '{"lock":true}\n');
+    git(wt, 'add', '-A');
+    git(wt, 'commit', '-q', '-m', 'Add a', '-m', 'Because b needs it.');
+    const c = await client.branchChanges(wt, { baseRef: 'main', baseSha });
+    expect(c).not.toBeNull();
+    expect(c!.log).toMatch(/^- [0-9a-f]{7,} Add a\n\s+Because b needs it\./);
+    expect(c!.stat).toContain('a.txt');
+    expect(c!.diff).toContain('+one');
+    expect(c!.diff).not.toContain('package-lock.json');
+    expect(c!.diff).not.toContain('later');
+    expect(
+      await client.branchChanges(wt, { baseRef: 'nope', baseSha: null }),
+    ).toBeNull();
+  });
+
   it('worktreeAdd returns the commit the branch starts from', async () => {
     const repo = makeRepo();
     const wt = path.join(path.dirname(repo), 'wt-sha');
