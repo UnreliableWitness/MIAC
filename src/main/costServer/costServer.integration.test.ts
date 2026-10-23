@@ -18,11 +18,13 @@ function startServer(port = 0) {
   const stored = new Map<string, unknown>();
   const bodies: string[] = [];
   let posts = 0;
+  let attempts = 0;
   const server = http.createServer((req, res) => {
     const json = (status: number, body: unknown) => {
       res.writeHead(status, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(body));
     };
+    if (req.method === 'POST') attempts++;
     if (req.headers.authorization !== `Bearer ${KEY}`)
       return json(401, { error: 'key' });
     if (req.method === 'GET' && req.url?.startsWith('/api/v1/hello'))
@@ -58,6 +60,7 @@ function startServer(port = 0) {
     stored: Map<string, unknown>;
     bodies: string[];
     posts: () => number;
+    attempts: () => number;
     close: () => Promise<void>;
   }>((resolve) =>
     server.listen(port, '127.0.0.1', () =>
@@ -66,6 +69,7 @@ function startServer(port = 0) {
         stored,
         bodies,
         posts: () => posts,
+        attempts: () => attempts,
         close: () => new Promise((r) => server.close(() => r())),
       }),
     ),
@@ -144,13 +148,9 @@ async function setup(key = KEY, port = 0) {
   return { server, ledger, cs, sender };
 }
 
-const settle = async (sender: CostSender, ms: number) => {
+const settle = async (ms: number) => {
   await vi.advanceTimersByTimeAsync(ms);
-  // Real I/O: wait until the pass has ended.
-  await vi.waitFor(async () => {
-    await vi.advanceTimersByTimeAsync(0);
-    expect(sender.status().waiting).toBeGreaterThanOrEqual(0);
-  });
+  await vi.advanceTimersByTimeAsync(0);
 };
 
 describe('cost server end to end', () => {
@@ -158,7 +158,7 @@ describe('cost server end to end', () => {
     const { server, ledger, cs, sender } = await setup();
     await ledger.upsert(Array.from({ length: 5 }, (_, i) => rec(i)));
     await sender.onConnected();
-    await settle(sender, 5_000);
+    await settle(5_000);
     await vi.waitFor(() => expect(server.stored.size).toBe(5));
     expect(ledger.dirty(100)).toEqual([]);
     expect(server.posts()).toBe(1);
@@ -178,7 +178,7 @@ describe('cost server end to end', () => {
     const first = await setup();
     await first.ledger.upsert([rec(1), rec(2)]);
     await first.sender.onConnected();
-    await settle(first.sender, 5_000);
+    await settle(5_000);
     await vi.waitFor(() => expect(first.server.stored.size).toBe(2));
     const { port } = first.server;
     await first.server.close();
@@ -218,10 +218,14 @@ describe('cost server end to end', () => {
       await vi.advanceTimersByTimeAsync(0);
       expect(sender.status().error).toBe('The server refused the key');
     });
-    await vi.advanceTimersByTimeAsync(60 * 60_000);
+    // The refused key was tried once (hello); records were never posted.
+    expect(server.attempts()).toBe(0);
+    const helloFailed = sender.status().error;
     sender.kick();
-    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    await vi.advanceTimersByTimeAsync(3 * 60 * 60_000);
+    expect(server.attempts()).toBe(0);
     expect(server.posts()).toBe(0);
+    expect(sender.status().error).toBe(helloFailed);
     expect(ledger.dirty(10)).toHaveLength(1);
     sender.stop();
   });
