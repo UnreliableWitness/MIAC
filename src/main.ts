@@ -707,7 +707,10 @@ async function boot(): Promise<void> {
       platform,
       terminals,
       repos,
-      runner: new SetupRunner(git, platform),
+      // Copied env files leave out every name stored for the repo, in any environment.
+      runner: new SetupRunner(git, platform, (repoId) => [
+        ...new Set(secrets.list({ repoId }).map((v) => v.name)),
+      ]),
       loadConfig: loadShellieConfig,
       pickFolder: async () => {
         const r = await dialog.showOpenDialog({

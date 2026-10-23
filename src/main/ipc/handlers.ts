@@ -4,6 +4,13 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { SecretScope } from '../../shared/secrets';
 import { DiscoveryHold, discoverSecrets } from '../secrets/discover';
+import {
+  givenToFor,
+  launchProfileArgs,
+  secretsEnv,
+  testCommandFor,
+  withLaunchProfile,
+} from '../secrets/inject';
 import { SecretStore } from '../secrets/SecretStore';
 import type { Events, Handlers, PendingUpdate } from '../../shared/ipc';
 import { claudeContext, renderTaskMd, taskSlug } from '../../shared/naming';
@@ -697,22 +704,88 @@ export function createHandlers(s: Services): Handlers {
     return s.platform.interactiveShell();
   };
 
-  const spawnTerminal = (
+  /**
+   * A non-agent tab's secrets for the task environment, from its own repo's store, and a `dotnet run` command with
+   * the environment's launch profile. Nothing while that repo has no stored secrets, so tabs start as before.
+   */
+  const tabSecrets = async (
+    task: Task,
+    def: TerminalDef,
+  ): Promise<{ env: Record<string, string>; def: TerminalDef }> => {
+    const ws = terminalWorkspace(task, def);
+    if (
+      givenToFor(def, null) === null ||
+      s.secrets.list({ repoId: ws.repoId }).length === 0
+    )
+      return { env: {}, def };
+    const command =
+      def.kind === 'run' && !def.setupCommands ? def.command : undefined;
+    const repoPath =
+      s.repos.list().find((r) => r.id === ws.repoId)?.path ?? ws.worktreePath;
+    // An unreadable .shellie.yml only means the tab is not known as the tests tab.
+    const testCommand = command
+      ? await s
+          .loadConfig(repoPath)
+          .then((c) => testCommandFor(ws.worktreePath, c))
+          .catch(() => null)
+      : null;
+    return {
+      env: secretsEnv(
+        s.secrets.valuesFor(ws.repoId, task.environment),
+        givenToFor(def, testCommand),
+        task.environment,
+      ),
+      def: command
+        ? {
+            ...def,
+            command: withLaunchProfile(
+              command,
+              launchProfileArgs(command, ws.worktreePath, task.environment),
+            ),
+          }
+        : def,
+    };
+  };
+
+  type TabSecrets = Awaited<ReturnType<typeof tabSecrets>>;
+
+  /** The tab's secrets; a failure to read them is the tab's start failure. */
+  const prepareTab = async (task: Task, def: TerminalDef) => {
+    s.terminalFailures?.clear(def.id);
+    try {
+      return await tabSecrets(task, def);
+    } catch (e) {
+      s.terminalFailures?.spawnFailed(def.id, def.kind, e);
+      throw e;
+    }
+  };
+
+  const spawnTerminal = async (
     task: Task,
     def: TerminalDef,
     resume = false,
     extraEnv: Record<string, string> = {},
+  ) => startTerminal(task, def, await prepareTab(task, def), resume, extraEnv);
+
+  /** Spawns at once (no await), so a caller holding a task claim keeps it only for the spawn itself. */
+  const startTerminal = (
+    task: Task,
+    def: TerminalDef,
+    secrets: TabSecrets,
+    resume = false,
+    extraEnv: Record<string, string> = {},
   ) => {
-    s.terminalFailures?.clear(def.id);
     try {
-      const cmd = terminalCommand(task, def, resume);
+      const cmd = terminalCommand(task, secrets.def, resume);
       s.terminals.spawn({
         id: def.id,
         taskId: task.id,
         cwd: terminalWorkspace(task, def).worktreePath,
         command: cmd.command,
         args: cmd.args,
+        // Values go in as environment variables, never through a shell line, so they arrive as stored.
         env: {
+          ...secrets.env,
           ...telemetryEnv(task.id, s.settings.get().receiverPort, s.usageDir),
           ...(s.colorScheme ? { COLORFGBG: colorFgBg(s.colorScheme()) } : {}),
           ...s.terminalEnv?.(def),
@@ -794,11 +867,11 @@ export function createHandlers(s: Services): Handlers {
   };
 
   /** Starts a reopened task's tabs: Claude resumes, the rest start as before; running ones are left alone. */
-  const startRestored = (task: Task, defs: TerminalDef[]) => {
+  const startRestored = async (task: Task, defs: TerminalDef[]) => {
     for (const def of defs) {
       if (s.terminals.isRunning(def.id)) continue;
       if (s.terminals.has(def.id)) void s.terminals.kill(def.id);
-      spawnTerminal({ ...task, terminals: defs }, def, true);
+      await spawnTerminal({ ...task, terminals: defs }, def, true);
       tel.event('terminal.opened', { kind: def.kind, initial: true });
     }
   };
@@ -830,6 +903,7 @@ export function createHandlers(s: Services): Handlers {
       const config = await s.loadConfig(repo.path);
       out.push({
         workspaceId: w.id,
+        repoId: repo.id,
         repoName: repo.name,
         repoPath: repo.path,
         worktreePath: w.worktreePath,
@@ -894,6 +968,7 @@ export function createHandlers(s: Services): Handlers {
       (await pathExists(path.join(repo.path, 'apm.yml')));
     return {
       taskId: task.id,
+      repoId: repo.id,
       repoPath: repo.path,
       worktreePath: task.worktreePath,
       branch: task.branch,
@@ -993,9 +1068,9 @@ export function createHandlers(s: Services): Handlers {
           const setupTab = commands.length > 0 ? [setupTerminal(commands)] : [];
           if (isReopening(task)) {
             const restored = restoredTerminals(task);
-            startRestored(task, restored);
+            await startRestored(task, restored);
             for (const def of setupTab) {
-              spawnTerminal({ ...task, terminals: restored }, def);
+              await spawnTerminal({ ...task, terminals: restored }, def);
               tel.event('terminal.opened', { kind: def.kind, initial: true });
             }
             await updateTerminals(taskId, () => [...restored, ...setupTab]);
@@ -1003,7 +1078,7 @@ export function createHandlers(s: Services): Handlers {
           }
           const defs = [...initialTerminals(task), ...setupTab];
           for (const def of defs) {
-            spawnTerminal({ ...task, terminals: defs }, def);
+            await spawnTerminal({ ...task, terminals: defs }, def);
             tel.event('terminal.opened', { kind: def.kind, initial: true });
           }
           await updateTerminals(taskId, (list) => [...list, ...defs]);
@@ -1760,6 +1835,8 @@ export function createHandlers(s: Services): Handlers {
         homeDropped: false,
         connectionId: repo.connectionId,
         mainCheckoutEdits: [],
+        environment: input.environment ?? s.secrets.repoDefault(repo.id),
+        environmentUntil: null,
         openPeriods: [{ start: createdAt, end: null }],
         time: null,
       };
@@ -1999,7 +2076,7 @@ export function createHandlers(s: Services): Handlers {
             closedTerminals: [],
             openPeriods: withOpenPeriod(task),
           });
-          startRestored(taskById(taskId), defs);
+          await startRestored(taskById(taskId), defs);
           tel.event('task.reopened', { from: 'folder' });
           return { setup: false };
         }
@@ -2145,17 +2222,17 @@ export function createHandlers(s: Services): Handlers {
     },
 
     'terminals:open': async (taskId, def) => {
+      const full: TerminalDef = {
+        id: randomUUID(),
+        ...def,
+        // A shell tab is named after the platform's shell (PowerShell, zsh), like the one setup opens.
+        ...(def.kind === 'shell' ? { label: s.platform.shellLabel } : {}),
+        ...(def.kind === 'claude' ? { sessionId: randomUUID() } : {}),
+      };
+      const secrets = await prepareTab(taskById(taskId), full);
       claim(taskId, ['ready'], 'open a terminal in');
-      let full: TerminalDef;
       try {
-        full = {
-          id: randomUUID(),
-          ...def,
-          // A shell tab is named after the platform's shell (PowerShell, zsh), like the one setup opens.
-          ...(def.kind === 'shell' ? { label: s.platform.shellLabel } : {}),
-          ...(def.kind === 'claude' ? { sessionId: randomUUID() } : {}),
-        };
-        spawnTerminal(taskById(taskId), full);
+        startTerminal(taskById(taskId), full, secrets);
       } finally {
         release(taskId);
       }
@@ -2203,7 +2280,7 @@ export function createHandlers(s: Services): Handlers {
       await s.terminals.kill(id);
       const skipConfig =
         def.kind === 'opencode' && options.withoutProjectConfig === true;
-      spawnTerminal(
+      await spawnTerminal(
         owner,
         def,
         def.kind === 'claude',

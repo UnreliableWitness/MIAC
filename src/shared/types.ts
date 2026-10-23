@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import { TimeBookingSchema } from './time';
 import type { GitAuthHint } from './gitAuth';
+import { ENVIRONMENTS, type Environment } from './secrets';
+
+export const EnvironmentSchema = z.enum(ENVIRONMENTS);
 
 /** Work item type names come from the project's process (Agile, Scrum, Basic, custom); any string is valid. */
 export type WorkItemType = string;
@@ -143,6 +146,10 @@ export const TaskSchema = z.object({
     .default([]),
   /** What was booked at Finish; null while open and for tasks finished before time tracking. */
   time: TimeBookingSchema.nullable().default(null),
+  /** Which environment's secrets the task's tabs get; tasks from before secrets are on Development. */
+  environment: EnvironmentSchema.default('development'),
+  /** When a Production task falls back to Development (ISO instant); null otherwise. */
+  environmentUntil: z.string().nullable().default(null),
 });
 export type Task = z.infer<typeof TaskSchema>;
 
@@ -205,6 +212,8 @@ export type CreateTaskInput = {
   openShell: boolean;
   openCopilot?: boolean;
   openOpencode?: boolean;
+  /** Absent: the repo's default environment. */
+  environment?: Environment;
 };
 
 /**

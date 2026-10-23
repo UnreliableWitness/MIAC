@@ -34,6 +34,7 @@ import { NoopTelemetry, type Telemetry } from '../telemetry/AppInsightsClient';
 import { TerminalManager } from '../services/TerminalManager';
 import { DocsWatcher } from '../docs/DocsWatcher';
 import { TimeStore } from '../time/TimeStore';
+import { telemetryEnv } from '../usage/telemetryEnv';
 import type { WorkspaceDetector } from '../workspaces/WorkspaceDetector';
 import {
   addOrigin,
@@ -1640,6 +1641,8 @@ describe('handlers: reopen a finished task', () => {
       homeDropped: false,
       connectionId: null,
       mainCheckoutEdits: [],
+      environment: 'development',
+      environmentUntil: null,
       finishedAt: null,
       baseSha: hx.t.baseSha ?? hx.store.state.tasks[0].baseSha,
     });
@@ -1725,6 +1728,8 @@ describe('handlers: reopen a finished task', () => {
       homeDropped: false,
       connectionId: null,
       mainCheckoutEdits: [],
+      environment: 'development',
+      environmentUntil: null,
     });
     expect(
       hx.store.state.tasks[0].openPeriods.every((p) => p.end !== null),
@@ -2118,6 +2123,8 @@ describe('recoverInterruptedTasks', () => {
       homeDropped: false,
       connectionId: null,
       mainCheckoutEdits: [],
+      environment: 'development',
+      environmentUntil: null,
     };
     await store.update((s) => {
       s.tasks.push(
@@ -4677,5 +4684,229 @@ describe('handlers: secrets', () => {
     );
     await h['secrets:delete'](saved.id);
     expect(services.secrets.list()).toEqual([]);
+  });
+});
+
+describe('handlers: secrets in tabs', () => {
+  const ODD = 'a=b "q" \'s\' #h\nline2 $HOME `x` %PATH%';
+  const stubbed = () => {
+    const base = testPlatform();
+    const ran: string[] = [];
+    const quick = () => base.runCommand(echoCmd('agent'));
+    return {
+      ran,
+      platform: {
+        ...base,
+        claudeCommand: quick,
+        copilotCommand: quick,
+        opencodeCommand: quick,
+        runCommand: (c: string) => {
+          ran.push(c);
+          return base.runCommand(echoCmd('run'));
+        },
+      },
+    };
+  };
+  const NAMES = [
+    'DB',
+    'SETUP_ONLY',
+    'MINE',
+    'ODD',
+    'ASPNETCORE_ENVIRONMENT',
+    'DOTNET_ENVIRONMENT',
+    'NODE_ENV',
+  ];
+
+  async function scenario(environment?: 'development' | 'uat' | 'test') {
+    const { platform, ran } = stubbed();
+    const hx = await harness(fakeCrypto(), { platform });
+    const repoScope = { repoId: hx.added.id };
+    await hx.services.secrets.save({
+      scope: repoScope,
+      name: 'DB',
+      givenTo: ['setup', 'run', 'tests'],
+      values: {
+        development: { value: 'dev-db' },
+        uat: { value: 'uat-db' },
+      },
+    });
+    await hx.services.secrets.save({
+      scope: repoScope,
+      name: 'SETUP_ONLY',
+      givenTo: ['setup'],
+      values: { development: { value: 'setup-only' } },
+    });
+    await hx.services.secrets.save({
+      scope: 'all',
+      name: 'MINE',
+      givenTo: ['shell'],
+      values: { development: { value: 'mine' }, uat: { value: 'mine' } },
+    });
+    await hx.services.secrets.save({
+      scope: repoScope,
+      name: 'ODD',
+      givenTo: ['run'],
+      values: { development: { value: ODD } },
+    });
+    const spawn = vi.spyOn(hx.terminals, 'spawn');
+    const done = hx.setupDone();
+    const task = await hx.h['tasks:create'](
+      hx.input({
+        startClaude: true,
+        openCopilot: true,
+        openOpencode: true,
+        openShell: true,
+        commands: [echoCmd('setup')],
+        ...(environment ? { environment } : {}),
+      }),
+    );
+    await done;
+    const envOf = (id: string) =>
+      spawn.mock.calls.filter((c) => c[0].id === id).at(-1)![0].env ?? {};
+    const tabs = () => hx.store.state.tasks[0].terminals;
+    return { hx, task, envOf, tabs, ran };
+  }
+
+  it('gives agent tabs no secrets and other tabs only theirs, for the task environment', async () => {
+    const { hx, task, envOf, tabs } = await scenario();
+    expect(task.environment).toBe('development');
+    for (const t of tabs().filter((x) =>
+      ['claude', 'copilot', 'opencode'].includes(x.kind),
+    ))
+      for (const n of NAMES) expect(envOf(t.id)[n]).toBeUndefined();
+    const shell = tabs().find((x) => x.kind === 'shell')!;
+    expect(envOf(shell.id).MINE).toBe('mine');
+    expect(envOf(shell.id).DB).toBeUndefined();
+    const setup = tabs().find((x) => x.setupCommands)!;
+    expect(envOf(setup.id)).toMatchObject({
+      DB: 'dev-db',
+      SETUP_ONLY: 'setup-only',
+    });
+    const dev = await hx.h['terminals:open'](task.id, {
+      kind: 'run',
+      label: 'dev',
+      command: 'npm run dev',
+    });
+    expect(envOf(dev.id)).toMatchObject({
+      DB: 'dev-db',
+      ODD,
+      ASPNETCORE_ENVIRONMENT: 'Development',
+      NODE_ENV: 'development',
+    });
+    expect(envOf(dev.id).SETUP_ONLY).toBeUndefined();
+    expect(envOf(dev.id).MINE).toBeUndefined();
+    await hx.terminals.killAllForTask(task.id);
+  });
+
+  it('uses the values and framework names of the task environment', async () => {
+    const { hx, task, envOf } = await scenario('uat');
+    expect(hx.store.state.tasks[0].environment).toBe('uat');
+    expect(hx.store.state.tasks[0].environmentUntil).toBeNull();
+    const dev = await hx.h['terminals:open'](task.id, {
+      kind: 'run',
+      label: 'dev',
+      command: 'npm run dev',
+    });
+    expect(envOf(dev.id).DB).toBe('uat-db');
+    // No UAT value: left unset, not empty.
+    expect('ODD' in envOf(dev.id)).toBe(false);
+    expect(envOf(dev.id).ASPNETCORE_ENVIRONMENT).toBe('Uat');
+    expect(envOf(dev.id).NODE_ENV).toBeUndefined();
+    await hx.terminals.killAllForTask(task.id);
+  });
+
+  it('gives a run tab of the test command the tests values', async () => {
+    const { hx, task, envOf } = await scenario();
+    await hx.services.secrets.save({
+      scope: { repoId: hx.added.id },
+      name: 'TEST_ONLY',
+      givenTo: ['tests'],
+      values: { development: { value: 't' } },
+    });
+    writeFileSync(
+      path.join(task.worktreePath, 'package.json'),
+      JSON.stringify({ scripts: { test: 'vitest' } }),
+    );
+    const tests = await hx.h['terminals:open'](task.id, {
+      kind: 'run',
+      label: 'test',
+      command: 'npm test',
+    });
+    const dev = await hx.h['terminals:open'](task.id, {
+      kind: 'run',
+      label: 'dev',
+      command: 'npm run dev',
+    });
+    expect(envOf(tests.id).TEST_ONLY).toBe('t');
+    expect(envOf(tests.id).ODD).toBeUndefined();
+    expect(envOf(dev.id).TEST_ONLY).toBeUndefined();
+    await hx.terminals.killAllForTask(task.id);
+  });
+
+  it('runs dotnet run with the launch profile of the task environment', async () => {
+    const { hx, task, ran } = await scenario('uat');
+    mkdirSync(path.join(task.worktreePath, 'Api', 'Properties'), {
+      recursive: true,
+    });
+    writeFileSync(
+      path.join(task.worktreePath, 'Api', 'Properties', 'launchSettings.json'),
+      JSON.stringify({
+        profiles: { Acc: { commandName: 'Project' }, http: {} },
+      }),
+    );
+    await hx.h['terminals:open'](task.id, {
+      kind: 'run',
+      label: 'api',
+      command: 'dotnet run',
+    });
+    expect(ran.at(-1)).toBe('dotnet run --launch-profile Acc');
+    await hx.terminals.killAllForTask(task.id);
+  });
+
+  it('leaves every tab env, command and copied file as today with an empty store', async () => {
+    const { platform, ran } = stubbed();
+    const hx = await harness(fakeCrypto(), { platform });
+    const spawn = vi.spyOn(hx.terminals, 'spawn');
+    const done = hx.setupDone();
+    const task = await hx.h['tasks:create'](
+      hx.input({
+        startClaude: true,
+        openShell: true,
+        commands: [echoCmd('setup')],
+        environment: 'uat',
+      }),
+    );
+    await done;
+    mkdirSync(path.join(task.worktreePath, 'Properties'), { recursive: true });
+    writeFileSync(
+      path.join(task.worktreePath, 'Properties', 'launchSettings.json'),
+      JSON.stringify({ profiles: { Acc: { commandName: 'Project' } } }),
+    );
+    await hx.h['terminals:open'](task.id, {
+      kind: 'run',
+      label: 'api',
+      command: 'dotnet run',
+    });
+    const today = telemetryEnv(
+      task.id,
+      hx.settings.get().receiverPort,
+      hx.usageDir,
+    );
+    const shellEnv = platform.interactiveShell().env ?? {};
+    for (const [opts] of spawn.mock.calls) {
+      const def = hx.store.state.tasks[0].terminals.find(
+        (t) => t.id === opts.id,
+      );
+      expect(opts.env).toEqual({
+        ...today,
+        ...(def?.kind === 'shell' ? shellEnv : {}),
+      });
+    }
+    expect(spawn.mock.calls).toHaveLength(4);
+    expect(ran).toEqual(['dotnet run']);
+    expect(readFileSync(path.join(task.worktreePath, '.env'), 'utf8')).toBe(
+      'X=1',
+    );
+    await hx.terminals.killAllForTask(task.id);
   });
 });

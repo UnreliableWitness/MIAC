@@ -48,6 +48,8 @@ const task: TaskView = {
   homeDropped: false,
   connectionId: null,
   mainCheckoutEdits: [],
+  environment: 'development',
+  environmentUntil: null,
   worktreeMissing: false,
 };
 const summary: TaskSummary = {

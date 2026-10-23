@@ -8,9 +8,12 @@ import type { Command, Platform } from '../platform/Platform';
 import { GitAuthError, type GitClient } from './GitClient';
 import { nodeModulesMatch } from './nodeModules';
 import { errorMessage } from '../../shared/errors';
+import { strippableKind, stripKeys } from '../secrets/inject';
 
 export type SetupPlan = {
   taskId: string;
+  /** Whose stored secret names are stripped from copied env files; absent strips nothing. */
+  repoId?: string;
   repoPath: string;
   worktreePath: string;
   branch: string;
@@ -36,6 +39,7 @@ export type SetupPlan = {
 
 export type ExtraRestore = {
   workspaceId: string;
+  repoId?: string;
   repoName: string;
   repoPath: string;
   worktreePath: string;
@@ -193,6 +197,28 @@ export async function ensureExcluded(
 
 const excludeLocks = new Map<string, Promise<void>>();
 
+/** Rewrites copied env and JSON files (a file, or those in a copied folder) without the stored secret names. */
+async function stripCopied(
+  target: string,
+  names: string[],
+  log: (l: string) => void,
+): Promise<void> {
+  const stat = await fs.lstat(target);
+  if (stat.isDirectory()) {
+    for (const e of await fs.readdir(target, { withFileTypes: true }))
+      if (e.name !== 'node_modules' && e.name !== '.git')
+        await stripCopied(path.join(target, e.name), names, log);
+    return;
+  }
+  const kind = stat.isFile() ? strippableKind(target) : null;
+  if (!kind) return;
+  const text = await fs.readFile(target, 'utf8');
+  const stripped = stripKeys(text, kind, names);
+  if (stripped === text) return;
+  await fs.writeFile(target, stripped, 'utf8');
+  log(`left stored secrets out of ${path.basename(target)}`);
+}
+
 function insideDir(base: string, rel: string): string | null {
   const target = path.resolve(base, rel);
   return isInside(base, target) ? target : null;
@@ -202,6 +228,8 @@ export class SetupRunner {
   constructor(
     private readonly git: GitClient,
     private readonly platform: Platform,
+    /** The secret names stored for a repo (its own and All, any environment), kept out of copied env files. */
+    private readonly strippedNames: (repoId: string) => string[] = () => [],
   ) {}
 
   async run(
@@ -388,10 +416,11 @@ export class SetupRunner {
   }
 
   private async copyFiles(
-    w: { repoPath: string; worktreePath: string },
+    w: { repoId?: string; repoPath: string; worktreePath: string },
     copy: string[],
     log: (l: string) => void,
   ): Promise<void> {
+    const names = w.repoId ? this.strippedNames(w.repoId) : [];
     for (const rel of copy) {
       const src = insideDir(w.repoPath, rel);
       const dest = insideDir(w.worktreePath, rel);
@@ -407,6 +436,7 @@ export class SetupRunner {
         recursive: true,
       });
       log(`copied ${rel}`);
+      if (names.length > 0) await stripCopied(dest, names, log);
     }
   }
 

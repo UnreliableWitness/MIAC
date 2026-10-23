@@ -128,6 +128,8 @@ const task = (over: Partial<TaskView>): TaskView => ({
   homeDropped: false,
   connectionId: null,
   mainCheckoutEdits: [],
+  environment: 'development',
+  environmentUntil: null,
   ...over,
 });
 
