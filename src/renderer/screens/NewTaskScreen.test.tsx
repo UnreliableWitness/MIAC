@@ -131,7 +131,59 @@ describe('NewTaskScreen', () => {
       openShell: false,
       openCopilot: false,
       openOpencode: false,
+      environment: 'development',
     });
+  });
+
+  it('offers the four environments with the repo default selected', async () => {
+    const { calls } = installFakeApi({
+      'repos:config': () => config,
+      'secrets:repoDefault': () => 'test',
+    });
+    render(<NewTaskScreen />);
+    const select = screen.getByLabelText('Environment');
+    await waitFor(() => expect(select).toHaveValue('test'));
+    expect(
+      [...(select as HTMLSelectElement).options].map((o) => o.textContent),
+    ).toEqual(['Development', 'Test', 'UAT', 'Production']);
+    expect(calls).toContainEqual({
+      channel: 'secrets:repoDefault',
+      args: ['r1'],
+    });
+  });
+
+  it('asks before creating a task on Production, and sends the confirm', async () => {
+    const { calls } = installFakeApi({
+      'repos:config': () => config,
+      'tasks:create': () => ({ id: 't1' }) as never,
+    });
+    render(<NewTaskScreen />);
+    await userEvent.type(screen.getByLabelText('Work item id'), '48231');
+    await userEvent.type(screen.getByLabelText('Title'), 'Delivery date');
+    await waitFor(() =>
+      expect(screen.getByLabelText('Environment')).toHaveValue('development'),
+    );
+    await userEvent.selectOptions(
+      screen.getByLabelText('Environment'),
+      'production',
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    const confirm = screen.getByRole('alertdialog', {
+      name: 'Start 48231 on Production?',
+    });
+    expect(confirm).toHaveTextContent('60 minutes');
+    expect(calls.some((c) => c.channel === 'tasks:create')).toBe(false);
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Use Production for 60 min' }),
+    );
+    await waitFor(() =>
+      expect(calls.find((c) => c.channel === 'tasks:create')?.args[0]).toEqual(
+        expect.objectContaining({
+          environment: 'production',
+          environmentConfirmed: true,
+        }),
+      ),
+    );
   });
 
   it('starts Copilot CLI with the task when ticked', async () => {

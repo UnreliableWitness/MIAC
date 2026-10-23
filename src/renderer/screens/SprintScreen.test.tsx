@@ -365,6 +365,7 @@ describe('Sprint page', () => {
       openShell: true,
       openCopilot: false,
       openOpencode: false,
+      environment: 'development',
     });
   });
 

@@ -6,7 +6,14 @@ import type {
   WorkItemRef,
   WorkItemType,
 } from '../../shared/types';
+import {
+  ENVIRONMENT_LABEL,
+  ENVIRONMENTS,
+  type Environment,
+  isGuarded,
+} from '../../shared/secrets';
 import { api, tryInvoke } from '../api';
+import { EnvironmentConfirm } from '../components/secrets/EnvironmentChip';
 import { PageHeader, Pivots, WorkItemTypeIcon } from '../components/ui';
 import { WorkItemPicker } from '../components/WorkItemPicker';
 import { useEscape } from '../hooks/useEscape';
@@ -65,10 +72,16 @@ export function NewTaskScreen({
   const [openShell, setOpenShell] = useState(true);
   const [openCopilot, setOpenCopilot] = useState(false);
   const [openOpencode, setOpenOpencode] = useState(false);
+  // The repo's default once it loads; UAT and Production ask before the task is created.
+  const [environment, setEnvironment] = useState<Environment>('development');
+  const [asking, setAsking] = useState(false);
+  const [askKeys, setAskKeys] = useState<string[] | null>(null);
+  const [productionMinutes, setProductionMinutes] = useState(60);
   useEffect(() => {
     let live = true;
     void tryInvoke(() => api().invoke('settings:get'), notify).then((s) => {
       if (!live || !s) return;
+      setProductionMinutes(s.secrets.productionMinutes);
       const tabs = setupTabsFrom(s.defaultTerminals);
       setStartClaude(tabs.startClaude);
       setOpenShell(tabs.openShell);
@@ -113,6 +126,14 @@ export function NewTaskScreen({
     setCopy(true);
     setCommands({});
     setEditedBranch(null);
+    setEnvironment('development');
+    setAsking(false);
+    void tryInvoke(
+      () => api().invoke('secrets:repoDefault', repoId),
+      notify,
+    ).then((env) => {
+      if (live && env) setEnvironment(isGuarded(env) ? 'development' : env);
+    });
     void tryInvoke(() => api().invoke('repos:config', repoId), notify).then(
       (result) => {
         if (!live || !result) return;
@@ -171,9 +192,24 @@ export function NewTaskScreen({
         ? Boolean(id.trim() && title.trim())
         : Boolean(name.trim());
 
-  const create = async () => {
+  const create = async (confirmed = false) => {
     if (busy) return;
     if (!repo) return notify('error', 'Add a repository in Settings first');
+    if (isGuarded(environment) && !confirmed) {
+      setAsking(true);
+      setAskKeys(null);
+      const env = environment;
+      void tryInvoke(() => api().invoke('secrets:list', repo.id), notify).then(
+        (list) => {
+          if (list)
+            setAskKeys([
+              ...new Set(list.filter((v) => v.values[env]).map((v) => v.name)),
+            ]);
+        },
+      );
+      return;
+    }
+    setAsking(false);
     setBusy(true);
     const task = await tryInvoke(
       () =>
@@ -190,6 +226,8 @@ export function NewTaskScreen({
           openShell,
           openCopilot,
           openOpencode,
+          environment,
+          ...(confirmed ? { environmentConfirmed: true } : {}),
         }),
       notify,
     );
@@ -328,6 +366,22 @@ export function NewTaskScreen({
             <span className="mono small" style={{ overflowWrap: 'anywhere' }}>
               {folder}
             </span>
+            <label htmlFor="nt-env">Environment</label>
+            <select
+              id="nt-env"
+              className="field"
+              value={environment}
+              onChange={(e) => {
+                setEnvironment(e.target.value as Environment);
+                setAsking(false);
+              }}
+            >
+              {ENVIRONMENTS.map((e) => (
+                <option key={e} value={e}>
+                  {ENVIRONMENT_LABEL[e]}
+                </option>
+              ))}
+            </select>
           </div>
           <fieldset className="group">
             <legend>Setup from .shellie.yml</legend>
@@ -405,6 +459,23 @@ export function NewTaskScreen({
               Start OpenCode with the task
             </label>
           </fieldset>
+          {asking && isGuarded(environment) && (
+            <EnvironmentConfirm
+              title={`Start ${(workItem?.id || label.trim() || 'this task').trim()} on ${ENVIRONMENT_LABEL[environment]}?`}
+              env={environment as 'uat' | 'production'}
+              tabs={[
+                ...((config?.config.setup ?? []).some((c) => commands[c])
+                  ? ['Setup']
+                  : []),
+                ...(openShell ? ['your shell'] : []),
+              ]}
+              keys={askKeys}
+              minutes={productionMinutes}
+              busy={busy}
+              onCancel={() => setAsking(false)}
+              onConfirm={() => void create(true)}
+            />
+          )}
           <div className="actions">
             <button type="button" className="btn" onClick={back}>
               Cancel
@@ -415,7 +486,7 @@ export function NewTaskScreen({
               disabled={
                 busy || !repo || !config || !baseRef || !branch || !canCreate
               }
-              onClick={create}
+              onClick={() => void create()}
             >
               Create task
             </button>

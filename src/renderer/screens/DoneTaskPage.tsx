@@ -5,6 +5,8 @@ import { taskWorkspaces, type WorkspaceView } from '../../shared/workspaces';
 import { api, tryInvoke } from '../api';
 import { TaskTypeIcon } from '../components/TaskTypeIcon';
 import { PageHeader, StateDot } from '../components/ui';
+import { envTextClass } from '../components/secrets/environment';
+import { ENVIRONMENT_LABEL } from '../../shared/secrets';
 import { UsagePanel } from '../components/UsagePanel';
 import { dateTime, duration, eur } from '../format';
 import { useLiveWorkItem } from '../hooks/useLiveWorkItem';
@@ -286,6 +288,14 @@ export function DoneTaskPage({ task }: { task: TaskView }) {
             {task.finishedAt ? dateTime(task.finishedAt) : 'Unknown'}
           </Fact>
           {!multi && <WorkspaceFacts taskId={task.id} w={workspaces[0]} />}
+          {task.finishedEnvironment &&
+            task.finishedEnvironment !== 'development' && (
+              <Fact label="Environment">
+                <span className={envTextClass(task.finishedEnvironment)}>
+                  {ENVIRONMENT_LABEL[task.finishedEnvironment]}
+                </span>
+              </Fact>
+            )}
           <Fact label="AI cost">
             {usage ? (
               <>

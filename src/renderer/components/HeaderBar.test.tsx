@@ -134,6 +134,21 @@ describe('HeaderBar', () => {
     await userEvent.click(screen.getByRole('button', { name: 'DXP' }));
     expect(useStore.getState().screen).toEqual({ kind: 'sprint' });
   });
+  it('names the task environment after the task, coloured for UAT and Production', () => {
+    installFakeApi();
+    useStore.setState({
+      tasks: [{ ...task, environment: 'production' }],
+    });
+    const { rerender } = render(<HeaderBar />);
+    expect(crumbs().at(-1)).toBe('Production');
+    expect(screen.getByText('Production')).toHaveClass(
+      'crumb-env',
+      'crumb-env-production',
+    );
+    useStore.setState({ tasks: [{ ...task, environment: 'development' }] });
+    rerender(<HeaderBar />);
+    expect(crumbs()).not.toContain('Development');
+  });
   it('names the page for Sprint, Settings, Setup, Finish and New task', () => {
     installFakeApi();
     const { rerender } = render(<HeaderBar />);
