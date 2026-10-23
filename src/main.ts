@@ -750,6 +750,7 @@ async function boot(): Promise<void> {
       version: app.getVersion(),
       toUsage: (e) => ingest([e]),
       changed: () => sender.kick(),
+      telemetry: (event, props) => telemetry.event(event, props),
     });
     stopLedger = () => {
       ledger.stop();

@@ -76,6 +76,7 @@ function setup(
     claude?: BudgetRecord[][];
     openCode?: BudgetRecord[][];
     usage?: UsageRecord[];
+    now?: () => Date;
   } = {},
 ) {
   const state = {
@@ -100,6 +101,7 @@ function setup(
   }));
   const toUsage = vi.fn();
   const changed = vi.fn();
+  const telemetry = vi.fn();
   const store = new LedgerStore(dir);
   const svc = new LedgerService({
     store,
@@ -113,6 +115,8 @@ function setup(
     version: '9.9.0',
     toUsage,
     changed,
+    telemetry,
+    now: o.now,
   });
   const upsert = vi.spyOn(store, 'upsert');
   return {
@@ -123,6 +127,7 @@ function setup(
     openCodeRead,
     toUsage,
     changed,
+    telemetry,
     upsert,
   };
 }
@@ -379,5 +384,33 @@ describe('LedgerService', () => {
     for (let k = 1; k < reads.length; k++)
       expect(log.slice(reads[k - 1], reads[k])).toContain('yield');
     expect(s.store.all()).toHaveLength(2500);
+  });
+
+  it('reports record counts once a day, no amounts', async () => {
+    let day = new Date(2026, 9, 12, 10);
+    const s = setup({
+      claude: [
+        [rec(), rec({ id: 'cc:m2' })],
+        [rec({ id: 'cc:m3' })],
+        [rec({ id: 'cc:m4' })],
+      ],
+      openCode: [
+        [rec({ id: 'oc:o1', tool: 'opencode', provider: 'github-copilot' })],
+      ],
+      now: () => day,
+    });
+    await s.svc.pass();
+    await s.svc.pass();
+    expect(s.telemetry).toHaveBeenCalledTimes(1);
+    const [name, props] = s.telemetry.mock.calls[0]!;
+    expect(name).toBe('ledger.records');
+    expect(Object.keys(props).sort()).toEqual(
+      ['claudeCode', 'copilotCli', 'none', 'opencode', 'repo', 'task'].sort(),
+    );
+    expect(props).toMatchObject({ claudeCode: 2, opencode: 1, copilotCli: 0 });
+    expect(Object.values(props).every((v) => typeof v === 'number')).toBe(true);
+    day = new Date(2026, 9, 13, 9);
+    await s.svc.pass();
+    expect(s.telemetry).toHaveBeenCalledTimes(2);
   });
 });

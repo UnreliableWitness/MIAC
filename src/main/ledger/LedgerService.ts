@@ -28,6 +28,9 @@ export type LedgerServiceDeps = {
   /** OpenCode requests attributed to a task, for the Usage tab (the usage store dedupes by id). */
   toUsage: (e: UsageEvent) => void;
   changed: () => void;
+  /** Counts only, never amounts. */
+  telemetry?: (event: string, props: Record<string, number>) => void;
+  now?: () => Date;
 };
 
 type Cursors = { claude: Record<string, FileCursor>; openCode: number };
@@ -79,6 +82,7 @@ export class LedgerService {
   private lastKey: string | null = null;
   private readonly sentToUsage = new Set<string>();
   private firstPass = true;
+  private reportedDay: string | null = null;
 
   constructor(private readonly d: LedgerServiceDeps) {}
 
@@ -309,9 +313,34 @@ export class LedgerService {
         fast: r.fast,
       });
     }
+    this.report();
     this.lastKey = ctx.key;
     this.firstPass = false;
     if (changed.length > 0) this.d.changed();
+  }
+
+  /** `ledger.records`: how many records of each tool and attribution level, at most once per local day. */
+  private report() {
+    if (!this.d.telemetry) return;
+    const d = this.d.now?.() ?? new Date();
+    const day = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+    if (day === this.reportedDay) return;
+    this.reportedDay = day;
+    const n = {
+      claudeCode: 0,
+      opencode: 0,
+      copilotCli: 0,
+      task: 0,
+      repo: 0,
+      none: 0,
+    };
+    for (const r of this.d.store.all()) {
+      if (r.tool === 'claude-code') n.claudeCode++;
+      else if (r.tool === 'opencode') n.opencode++;
+      else if (r.tool === 'copilot-cli') n.copilotCli++;
+      n[r.attribution.level]++;
+    }
+    this.d.telemetry('ledger.records', n);
   }
 
   start(intervalMs = 30_000) {
