@@ -26,7 +26,7 @@ function make(ids: string[], connection: typeof conn | null = conn) {
     resetSent: vi.fn(async () => sent.clear()),
   };
   const server = {
-    get: vi.fn(() => connection),
+    get: vi.fn((): typeof conn | null => connection),
     budgets: null as typeof budgets | null,
     setBudgets: vi.fn(async () => {}),
   };
@@ -136,6 +136,45 @@ describe('CostSender', () => {
     expect(t.ledger.resetSent).toHaveBeenCalled();
     expect(t.sent.size).toBe(2);
     expect(t.send).toHaveBeenCalledTimes(1);
+    expect(t.hello).toHaveBeenCalledTimes(1);
+    t.sender.stop();
+  });
+
+  it('says hello on the first pass after start, once per pass', async () => {
+    const t = make(['cc:1']);
+    t.server.budgets = budgets;
+    t.sender.start();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(t.hello).toHaveBeenCalledTimes(1);
+    expect(t.server.setBudgets).toHaveBeenCalledWith(budgets);
+    t.sender.kick();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(t.hello).toHaveBeenCalledTimes(1);
+    t.sender.stop();
+  });
+
+  it('sends records again to a new server when it changes mid-send', async () => {
+    const t = make(['cc:1', 'cc:2']);
+    let release: () => void = () => {};
+    t.send.mockImplementationOnce(
+      (_c, rs) =>
+        new Promise<number>((resolve) => {
+          release = () => resolve(rs.length);
+        }),
+    );
+    t.sender.start();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(t.send).toHaveBeenCalledTimes(1);
+    const next = { ...conn, url: 'https://new.example' };
+    t.server.get.mockReturnValue(next);
+    await t.sender.onConnected();
+    release();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.sent.size).toBe(0);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(t.send).toHaveBeenCalledTimes(2);
+    expect(t.send.mock.calls[1]![0]).toEqual(next);
+    expect(t.sent).toEqual(new Set(['cc:1', 'cc:2']));
     t.sender.stop();
   });
 

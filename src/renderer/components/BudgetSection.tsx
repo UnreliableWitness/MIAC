@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { type BudgetSettings, type Vendor, VENDORS } from '../../shared/budget';
 import { api, saveSettings, tryInvoke } from '../api';
 import { useStore } from '../store';
+import { useCostServerStatus } from './CostServerSection';
 
 type Draft = {
   monthlyEur: string;
@@ -27,12 +28,18 @@ const toDraft = (b: BudgetSettings): Draft => ({
 
 /** Settings: the monthly Claude and Copilot budgets, their reset days and which warnings to show. */
 export function BudgetSection({
-  managed = { claude: false, copilot: false },
+  managed: managedProp,
 }: {
-  /** A budget set by the cost server: its amount and start day are read-only. */
+  /** A budget set by the cost server: its amount and start day are read-only. Default: from the cost server status. */
   managed?: Record<Vendor, boolean>;
 }) {
   const notify = useStore((s) => s.notify);
+  const [server] = useCostServerStatus();
+  const tiers = server?.budgets ?? null;
+  const managed = managedProp ?? {
+    claude: Boolean(tiers?.claude),
+    copilot: Boolean(tiers?.copilot),
+  };
   const [drafts, setDrafts] = useState<Drafts | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -115,8 +122,17 @@ export function BudgetSection({
         {drafts && (
           <>
             {VENDORS.map((vendor) => {
-              const d = drafts[vendor];
               const locked = managed[vendor];
+              const tier = tiers?.[vendor];
+              // A managed budget shows the server's amount and start day, not the local ones.
+              const d =
+                locked && tier
+                  ? {
+                      ...drafts[vendor],
+                      monthlyEur: String(tier.monthlyEur),
+                      monthStartDay: String(tier.monthStartDay),
+                    }
+                  : drafts[vendor];
               return (
                 <div
                   key={vendor}

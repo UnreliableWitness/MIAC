@@ -100,4 +100,39 @@ describe('BudgetSection', () => {
       });
     });
   });
+
+  it('shows the cost server tier read-only', async () => {
+    installFakeApi({
+      'costServer:status': () => ({
+        connected: true,
+        url: 'https://cost.example',
+        email: 'a@b.c',
+        lastSentAt: null,
+        waiting: 0,
+        error: null,
+        budgets: {
+          claude: { monthlyEur: 250, monthStartDay: 15 },
+          copilot: null,
+        },
+      }),
+    });
+    render(<BudgetSection />);
+    const claude = within(
+      await screen.findByRole('group', { name: 'Claude budget' }),
+    );
+    const eur = claude.getByLabelText('Monthly budget (€)') as HTMLInputElement;
+    await waitFor(() => expect(eur.value).toBe('250'));
+    expect(eur.disabled).toBe(true);
+    expect(
+      (claude.getByLabelText('Month starts on day') as HTMLInputElement).value,
+    ).toBe('15');
+    expect(claude.getByText('Set by your cost server')).toBeTruthy();
+    const copilot = within(
+      screen.getByRole('group', { name: 'Copilot budget' }),
+    );
+    expect(
+      (copilot.getByLabelText('Monthly budget (€)') as HTMLInputElement)
+        .disabled,
+    ).toBe(false);
+  });
 });

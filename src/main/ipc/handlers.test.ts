@@ -34,6 +34,8 @@ import { RepoRegistry } from '../services/RepoRegistry';
 import { SetupRunner } from '../services/SetupRunner';
 import { TaskStore } from '../services/TaskStore';
 import { NoopTelemetry, type Telemetry } from '../telemetry/AppInsightsClient';
+import { CostServerError } from '../costServer/client';
+import { CostServerStore } from '../costServer/CostServerStore';
 import { TerminalManager } from '../services/TerminalManager';
 import { DocsWatcher } from '../docs/DocsWatcher';
 import { TimeStore } from '../time/TimeStore';
@@ -264,6 +266,114 @@ async function harness(
     usageDir,
   };
 }
+
+describe('handlers: cost server', () => {
+  const budgets = {
+    claude: { monthlyEur: 200, monthStartDay: 1 },
+    copilot: null,
+  };
+  async function costServer(hello: () => Promise<unknown>) {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'shellie-cost-'));
+    connDirs.push(dir);
+    const store = new CostServerStore(
+      path.join(dir, 'cost-server.json'),
+      fakeCrypto(),
+    );
+    await store.load();
+    const sender = {
+      onConnected: vi.fn(async () => {}),
+      onDisconnected: vi.fn(),
+      status: () => {
+        const c = store.get();
+        return {
+          connected: c !== null,
+          url: c?.url ?? null,
+          email: c?.email ?? null,
+          lastSentAt: null,
+          waiting: 0,
+          error: null,
+          budgets: store.budgets,
+        };
+      },
+    };
+    const helloFn = vi.fn(hello);
+    const hx = await harness(undefined, {
+      costServer: { store, sender, hello: helloFn as never },
+    });
+    return { hx, store, sender, hello: helloFn };
+  }
+  const conn = {
+    url: 'https://cost.example',
+    email: 'dev@example.com',
+    key: 'sk-company',
+  };
+
+  it('connect saves only after hello succeeds', async () => {
+    const failing = await costServer(() =>
+      Promise.reject(new CostServerError('auth', 401)),
+    );
+    const refused = await failing.hx.h['costServer:connect'](conn);
+    expect(refused.error).toBe('The server refused the key.');
+    expect(refused.connected).toBe(false);
+    expect(failing.store.get()).toBeNull();
+    expect(failing.sender.onConnected).not.toHaveBeenCalled();
+
+    const cs = await costServer(async () => ({
+      email: conn.email,
+      budgets,
+    }));
+    const st = await cs.hx.h['costServer:connect'](conn);
+    expect(cs.hello).toHaveBeenCalledWith(conn);
+    expect(cs.store.get()).toEqual(conn);
+    expect(cs.store.budgets).toEqual(budgets);
+    expect(cs.sender.onConnected).toHaveBeenCalledTimes(1);
+    expect(st).toMatchObject({
+      connected: true,
+      email: conn.email,
+      error: null,
+    });
+    expect(JSON.stringify(st)).not.toContain(conn.key);
+    expect(cs.hx.broadcasts.map((b) => b.event)).toContain(
+      'costServer:changed',
+    );
+    expect(await cs.hx.h['costServer:status']()).toMatchObject({
+      connected: true,
+    });
+  });
+
+  it('connect refuses plain http to a remote host', async () => {
+    const cs = await costServer(async () => ({ email: conn.email, budgets }));
+    const st = await cs.hx.h['costServer:connect']({
+      ...conn,
+      url: 'http://cost.example',
+    });
+    expect(st.error).toBe('Use an https:// address.');
+    expect(cs.hello).not.toHaveBeenCalled();
+    expect(cs.store.get()).toBeNull();
+    const net = await costServer(() =>
+      Promise.reject(new CostServerError('network')),
+    );
+    expect((await net.hx.h['costServer:connect'](conn)).error).toBe(
+      "Can't reach the server.",
+    );
+    const other = await costServer(() =>
+      Promise.reject(new CostServerError('rejected', 404)),
+    );
+    expect((await other.hx.h['costServer:connect'](conn)).error).toBe(
+      "That address isn't a Shellie cost server.",
+    );
+  });
+
+  it('disconnect clears the key and stops sending', async () => {
+    const cs = await costServer(async () => ({ email: conn.email, budgets }));
+    await cs.hx.h['costServer:connect'](conn);
+    const st = await cs.hx.h['costServer:disconnect']();
+    expect(cs.store.get()).toBeNull();
+    expect(cs.store.budgets).toBeNull();
+    expect(cs.sender.onDisconnected).toHaveBeenCalledTimes(1);
+    expect(st.connected).toBe(false);
+  });
+});
 
 describe('handlers: attention', () => {
   it('attention handlers pass the view to main and return the snapshot', async () => {

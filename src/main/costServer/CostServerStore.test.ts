@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { fakeCrypto } from '../test-helpers/fakeCrypto';
 import { CostServerStore } from './CostServerStore';
 
@@ -47,5 +47,24 @@ describe('CostServerStore', () => {
     expect(store.budgets).toEqual(b);
     await store.clear();
     expect(store.budgets).toBeNull();
+  });
+
+  it('tells when the budgets change, not when the same answer comes again', async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'shellie-cost-server-'));
+    const changed = vi.fn();
+    const store = new CostServerStore(
+      path.join(dir, 'cost-server.json'),
+      fakeCrypto(),
+      changed,
+    );
+    await store.load();
+    const b = { claude: { monthlyEur: 100, monthStartDay: 1 }, copilot: null };
+    await store.setBudgets(b);
+    await store.setBudgets({ ...b });
+    expect(changed).toHaveBeenCalledTimes(1);
+    await store.clear();
+    expect(changed).toHaveBeenCalledTimes(2);
+    await store.clear();
+    expect(changed).toHaveBeenCalledTimes(2);
   });
 });

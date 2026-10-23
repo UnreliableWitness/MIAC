@@ -45,6 +45,12 @@ export class CostSender {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private helloTimer: ReturnType<typeof setInterval> | null = null;
   private running: Promise<void> | null = null;
+  /** A pass was asked for while one ran: it runs again when that one ends. */
+  private rerun = false;
+  /** Bumped by onConnected/onDisconnected: a pass (or hello) of an older connection stops and marks nothing sent. */
+  private gen = 0;
+  /** The next pass says hello first (after start() and onConnected()). */
+  private helloDue = false;
   private started = false;
   private backoffMs = 0;
   private inBackoff = false;
@@ -59,6 +65,7 @@ export class CostSender {
   start() {
     if (this.started) return;
     this.started = true;
+    this.helloDue = true;
     this.schedule(FIRST_RUN_MS);
     this.helloTimer = setInterval(() => void this.hello(), HELLO_EVERY_MS);
   }
@@ -78,12 +85,13 @@ export class CostSender {
 
   /** New server or key: everything is sent again. */
   async onConnected() {
+    this.gen++;
+    this.helloDue = true;
     this.blockedOn = null;
     this.inBackoff = false;
     this.backoffMs = 0;
     this.error = null;
     await this.d.ledger.resetSent();
-    void this.hello();
     if (!this.started) this.started = true;
     if (!this.helloTimer)
       this.helloTimer = setInterval(() => void this.hello(), HELLO_EVERY_MS);
@@ -91,6 +99,8 @@ export class CostSender {
   }
 
   onDisconnected() {
+    this.gen++;
+    this.helloDue = false;
     this.blockedOn = null;
     this.inBackoff = false;
     this.backoffMs = 0;
@@ -127,10 +137,18 @@ export class CostSender {
   }
 
   private run(): Promise<void> {
-    this.running ??= this.work()
+    if (this.running) {
+      this.rerun = true;
+      return this.running;
+    }
+    this.running = this.work()
       .catch((err) => console.warn('[costServer] send pass failed', err))
       .finally(() => {
         this.running = null;
+        if (this.rerun) {
+          this.rerun = false;
+          void this.run();
+        }
       });
     return this.running;
   }
@@ -138,12 +156,14 @@ export class CostSender {
   private async hello() {
     const c = this.d.server.get();
     if (!c || this.blockedOn === sig(c)) return;
+    const gen = this.gen;
     try {
       const r = await (this.d.hello ?? helloImpl)(c);
+      if (gen !== this.gen) return;
       await this.d.server.setBudgets(r.budgets);
       this.emit();
     } catch (err) {
-      this.fail(err, c);
+      if (gen === this.gen) this.fail(err, c);
     }
   }
 
@@ -184,12 +204,18 @@ export class CostSender {
       this.blockedOn = null;
     }
     this.inBackoff = false;
-    if (this.d.server.budgets === null) await this.hello();
-    if (this.blockedOn) return;
+    const gen = this.gen;
+    if (this.helloDue || this.d.server.budgets === null) {
+      this.helloDue = false;
+      await this.hello();
+    }
+    if (this.blockedOn || gen !== this.gen) return;
     const send = this.d.send ?? sendImpl;
     const skipped = new Set<string>();
     let failure: CostServerError | null = null;
     for (;;) {
+      // The connection changed: what this pass holds belongs to the old one, and onConnected() scheduled a new pass.
+      if (gen !== this.gen) return;
       const batch = this.d.ledger
         .dirty(BATCH + skipped.size)
         .filter((r) => !skipped.has(r.id))
@@ -197,12 +223,15 @@ export class CostSender {
       if (batch.length === 0) break;
       try {
         await send(c, batch);
+        if (gen !== this.gen) return;
         await this.d.ledger.markSent(batch);
         this.lastSentAt = (this.d.now?.() ?? new Date()).toISOString();
       } catch (err) {
+        if (gen !== this.gen) return;
         const e = err instanceof CostServerError ? err : null;
         if (e?.kind === 'rejected' && batch.length > 1) {
-          failure = await this.oneByOne(c, batch, skipped, send);
+          failure = await this.oneByOne(c, batch, skipped, send, gen);
+          if (gen !== this.gen) return;
           if (failure) break;
           continue;
         }
@@ -243,13 +272,17 @@ export class CostSender {
     batch: CostRecord[],
     skipped: Set<string>,
     send: typeof sendImpl,
+    gen: number,
   ): Promise<CostServerError | null> {
     for (const r of batch) {
+      if (gen !== this.gen) return null;
       try {
         await send(c, [r]);
+        if (gen !== this.gen) return null;
         await this.d.ledger.markSent([r]);
         this.lastSentAt = (this.d.now?.() ?? new Date()).toISOString();
       } catch (err) {
+        if (gen !== this.gen) return null;
         if (err instanceof CostServerError && err.kind === 'rejected') {
           console.warn('[costServer] record rejected', r.id);
           skipped.add(r.id);

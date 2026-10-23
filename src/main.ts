@@ -48,6 +48,7 @@ import {
 } from './main/migrate/tokens';
 import { budgetMonth, VENDORS, type Vendor } from './shared/budget';
 import { BudgetService, inShellieFor } from './main/budget/BudgetService';
+import { effectiveBudget } from './main/budget/serverBudgets';
 import { BudgetStore } from './main/budget/BudgetStore';
 import { budgetRecordsFromUsage } from './main/budget/usageRecords';
 import {
@@ -651,10 +652,28 @@ async function boot(): Promise<void> {
       () => OFFICIAL_RATES,
     );
     await budgetStore.load();
+    // The cost server's address, key and last `hello` answer; a changed answer moves the budgets.
+    const costServer = new CostServerStore(
+      path.join(userData, 'cost-server.json'),
+      {
+        available: () => safeStorage.isEncryptionAvailable(),
+        encrypt: (plain) => safeStorage.encryptString(plain),
+        decrypt: (cipher) => safeStorage.decryptString(cipher),
+      },
+      () => {
+        void budget.pass().catch(() => undefined);
+        broadcast('budget:changed', {});
+      },
+    );
+    await costServer.load();
+    // With a cost server, its tier for the developer sets each budget's amount and start day.
     const budgetSettings = (v: Vendor) =>
-      v === 'claude'
-        ? settings.get().claudeBudget
-        : settings.get().copilotBudget;
+      effectiveBudget(
+        v === 'claude'
+          ? settings.get().claudeBudget
+          : settings.get().copilotBudget,
+        costServer.budgets?.[v] ?? null,
+      );
     // First reads go back to the start of the earlier of the two budgets' previous months.
     const budgetSince = Math.min(
       ...VENDORS.map((v) =>
@@ -706,21 +725,11 @@ async function boot(): Promise<void> {
     // The cost ledger: every AI request priced and attributed to a task, a repo or nothing. Its readers
     // have no `since`, so the first run backfills all the transcripts and OpenCode still have.
     const ledgerStore = new LedgerStore(path.join(usageDir, 'ledger'));
-    const costServer = new CostServerStore(
-      path.join(userData, 'cost-server.json'),
-      {
-        available: () => safeStorage.isEncryptionAvailable(),
-        encrypt: (plain) => safeStorage.encryptString(plain),
-        decrypt: (cipher) => safeStorage.decryptString(cipher),
-      },
-    );
-    await costServer.load();
     // Sends the ledger's dirty records to the cost server in the background (nothing without a connection).
     const sender = new CostSender({
       ledger: ledgerStore,
       server: costServer,
-      // Settings (Task 9) adds `costServer:changed`; until then the status goes nowhere.
-      status: () => {},
+      status: (st) => broadcast('costServer:changed', st),
       notice: (message) => broadcast('notice', { level: 'warn', message }),
       telemetry: (event, props) => telemetry.event(event, props),
     });
@@ -736,8 +745,8 @@ async function boot(): Promise<void> {
           connections.list(),
         ),
       isBillable: (taskId, sessionId) => usage.isBillable(taskId, sessionId),
-      // The cost server's developer email comes with its settings (Task 9).
-      developer: () => null,
+      // The email saved in Settings › Cost server; null when not connected.
+      developer: () => costServer.get()?.email ?? null,
       version: app.getVersion(),
       toUsage: (e) => ingest([e]),
       changed: () => sender.kick(),
@@ -765,6 +774,7 @@ async function boot(): Promise<void> {
     const handlers = createHandlers({
       terminalFailures,
       budget,
+      costServer: { store: costServer, sender },
       applyTheme: (theme) => {
         nativeTheme.themeSource = theme;
       },

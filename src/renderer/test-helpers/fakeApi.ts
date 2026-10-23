@@ -61,6 +61,15 @@ const defaults: FakeHandlers = {
     alertsDue: [],
   }),
   'home:get': () => null,
+  'costServer:status': () => ({
+    connected: false,
+    url: null,
+    email: null,
+    lastSentAt: null,
+    waiting: 0,
+    error: null,
+    budgets: null,
+  }),
   // Finish asks for a PR description when a PR is ticked; tests that care give their own.
   'tasks:prSummary': () => ({ text: null, error: 'not in tests' }),
   'home:refresh': () => ({

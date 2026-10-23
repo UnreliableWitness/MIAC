@@ -95,6 +95,13 @@ import {
 import { pathExists } from '../fsRetry';
 import { worktreeRoot } from '../paths';
 import type { BudgetService } from '../budget/BudgetService';
+import {
+  CostServerError,
+  hello as costServerHello,
+} from '../costServer/client';
+import type { CostSender } from '../costServer/CostSender';
+import type { CostServerStore } from '../costServer/CostServerStore';
+import { type CostServerStatus, validServerUrl } from '../../shared/costServer';
 import { HomeService } from '../home/HomeService';
 import { homeStats } from '../home/homeStats';
 import { DocsWatcher } from '../docs/DocsWatcher';
@@ -255,6 +262,13 @@ export type Services = {
   /** Home's snapshot builder; handlers build one in usageDir when absent (tests). */
   home?: HomeService;
   budget?: BudgetService;
+  /** Settings › Cost server: the saved connection and the background sender; absent in tests that don't care. */
+  costServer?: {
+    store: Pick<CostServerStore, 'get' | 'set' | 'clear' | 'setBudgets'>;
+    sender: Pick<CostSender, 'onConnected' | 'onDisconnected' | 'status'>;
+    /** Defaults to the real client's `hello`. */
+    hello?: typeof costServerHello;
+  };
   /**
    * Registers the retry of finished tasks' leftover worktree folders (#115): main runs it shortly after launch and
    * every few minutes; tests capture it.
@@ -353,6 +367,14 @@ const taskRepoIds = (t: Task): string[] => [
 
 /** Keys (repo:branch, repo:worktree) of tasks being created right now, across handler bundles. */
 const creating = new Set<string>();
+
+/** What Settings › Cost server says when `hello` fails. */
+const COST_SERVER_ERRORS: Record<CostServerError['kind'], string> = {
+  network: "Can't reach the server.",
+  auth: 'The server refused the key.',
+  rejected: "That address isn't a Shellie cost server.",
+  server: 'The server had a problem. Try again later.',
+};
 
 /** Clears connection links that point at connections which no longer exist. Returns how many were cleared. */
 export async function pruneDanglingConnectionLinks(
@@ -910,6 +932,16 @@ export function createHandlers(s: Services): Handlers {
     ...s.receiver.status,
     copilot: s.copilot.stats,
   });
+  const costServerStatus = (): CostServerStatus =>
+    s.costServer?.sender.status() ?? {
+      connected: false,
+      url: null,
+      email: null,
+      lastSentAt: null,
+      waiting: 0,
+      error: null,
+      budgets: null,
+    };
 
   /** Applies a change to the stored terminal list of a task (never from a stale snapshot). */
   const updateTerminals = async (
@@ -3675,6 +3707,53 @@ export function createHandlers(s: Services): Handlers {
     'budget:get': async (vendor, monthOffset) => {
       if (!s.budget) throw new Error('Budget is not available');
       return s.budget.view(vendor, monthOffset);
+    },
+    'costServer:status': async () => costServerStatus(),
+    'costServer:connect': async (c) => {
+      const cs = s.costServer;
+      if (!cs) throw new Error('The cost server is not available');
+      const conn = {
+        url: c.url.trim(),
+        email: c.email.trim(),
+        key: c.key.trim(),
+      };
+      const failed = (error: string): CostServerStatus => ({
+        ...cs.sender.status(),
+        error,
+      });
+      // The client does not check the address, and the key must never go to plain http elsewhere.
+      if (!validServerUrl(conn.url)) return failed('Use an https:// address.');
+      if (!conn.email) return failed('Enter your email.');
+      if (!conn.key) return failed('Enter the company key.');
+      let answer: Awaited<ReturnType<typeof costServerHello>>;
+      try {
+        answer = await (cs.hello ?? costServerHello)(conn);
+      } catch (err) {
+        const kind = err instanceof CostServerError ? err.kind : 'network';
+        tel.event('costServer.connectFailed', { kind });
+        return failed(COST_SERVER_ERRORS[kind]);
+      }
+      try {
+        await cs.store.set(conn);
+      } catch (err) {
+        return failed(err instanceof Error ? err.message : String(err));
+      }
+      await cs.store.setBudgets(answer.budgets);
+      await cs.sender.onConnected();
+      tel.event('costServer.connected');
+      const st = costServerStatus();
+      s.broadcast('costServer:changed', st);
+      return st;
+    },
+    'costServer:disconnect': async () => {
+      const cs = s.costServer;
+      if (!cs) throw new Error('The cost server is not available');
+      await cs.store.clear();
+      cs.sender.onDisconnected();
+      tel.event('costServer.disconnected');
+      const st = costServerStatus();
+      s.broadcast('costServer:changed', st);
+      return st;
     },
     'home:get': () => home.get(),
     'home:refresh': () => home.refresh(),

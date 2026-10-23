@@ -34,6 +34,8 @@ export class CostServerStore {
   constructor(
     file: string,
     private readonly crypto: TokenCrypto,
+    /** The cached budgets changed (a new `hello` answer, or a disconnect). */
+    private readonly budgetsChanged: () => void = () => {},
   ) {
     this.store = new JsonFileStore(file, FileSchema, empty);
   }
@@ -66,10 +68,12 @@ export class CostServerStore {
   }
 
   async clear(): Promise<void> {
+    const had = this.store.value.budgets !== null;
     await this.store.update((f) => {
       f.connection = null;
       f.budgets = null;
     });
+    if (had) this.budgetsChanged();
   }
 
   /** The last `hello` answer. */
@@ -78,8 +82,10 @@ export class CostServerStore {
   }
 
   async setBudgets(b: ServerBudgets | null): Promise<void> {
+    const same = JSON.stringify(this.store.value.budgets) === JSON.stringify(b);
     await this.store.update((f) => {
       f.budgets = b;
     });
+    if (!same) this.budgetsChanged();
   }
 }
