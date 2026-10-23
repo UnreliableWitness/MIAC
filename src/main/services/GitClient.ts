@@ -71,6 +71,15 @@ const REMOVE_WAITS = [50, 100, 200, 400, 800, 1600, 1850];
 
 /** A Done page lists at most this many commits; `commitCount` has the full number. */
 const MAX_SUMMARY_COMMITS = 50;
+/** Generated files a PR description gains nothing from. */
+const LOCK_FILES = [
+  'package-lock.json',
+  'yarn.lock',
+  'pnpm-lock.yaml',
+  'packages.lock.json',
+  'Cargo.lock',
+  'poetry.lock',
+];
 
 /** `origin/main` -> origin and main when `origin` is one of `remotes`; null for anything else. */
 export function splitRemoteRef(
@@ -522,6 +531,39 @@ export class GitClient {
       }
     }
     return this.mergeBase(worktree, o.baseRef, 'HEAD');
+  }
+
+  /**
+   * What the branch did since its base, as text for a PR description (#111): its log with commit bodies (the newest
+   * 50), the diff stat and the diff, without lock files. Null when the base cannot be found.
+   */
+  async branchChanges(
+    worktree: string,
+    o: { baseRef: string; baseSha: string | null },
+  ): Promise<{ log: string; stat: string; diff: string } | null> {
+    const base = await this.resolveBase(worktree, o).catch(() => null);
+    if (!base) return null;
+    const range = `${base}..HEAD`;
+    const [log, stat, diff] = await Promise.all([
+      this.run(worktree, [
+        'log',
+        `--max-count=${MAX_SUMMARY_COMMITS}`,
+        '--format=- %h %s%n%w(0,2,2)%b',
+        range,
+      ]),
+      this.run(worktree, ['diff', '--no-color', '--stat=120', range]),
+      this.run(worktree, [
+        'diff',
+        '--no-color',
+        '--no-ext-diff',
+        '-U2',
+        range,
+        '--',
+        '.',
+        ...LOCK_FILES.map((f) => `:(exclude,glob)**/${f}`),
+      ]),
+    ]);
+    return { log: log.replace(/\n{2,}/g, '\n').trim(), stat, diff };
   }
 
   /**

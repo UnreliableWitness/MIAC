@@ -40,13 +40,23 @@ export function claudeSessionExists(
   sessionId: string,
   projectsDir: string = claudeProjectsDir(),
 ): boolean {
+  return claudeSessionFile(sessionId, projectsDir) !== null;
+}
+
+/** The transcript of a session id in any folder under projects/, or null when Claude Code saved none. */
+export function claudeSessionFile(
+  sessionId: string,
+  projectsDir: string = claudeProjectsDir(),
+): string | null {
   let folders: string[];
   try {
     folders = readdirSync(projectsDir);
   } catch {
-    return false;
+    return null;
   }
-  return folders.some((f) =>
-    existsSync(path.join(projectsDir, f, `${sessionId}.jsonl`)),
-  );
+  for (const f of folders) {
+    const file = path.join(projectsDir, f, `${sessionId}.jsonl`);
+    if (existsSync(file)) return file;
+  }
+  return null;
 }

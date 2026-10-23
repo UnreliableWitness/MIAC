@@ -40,6 +40,7 @@ This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 
 | `workitem.startUpdated` | setup moved the work item to In Progress (`moved`), assigned it (`assigned`), or the update failed (`failed`) |
 | `pr.created` | Finish created a draft pull request; none |
 | `pr.linked` | Finish linked an existing active pull request instead of creating one; none |
+| `pr.summary` | Finish asked Claude Code to write a PR's "what changed and why" (#111); `ok`; `reason` when it failed (`no-base`: the branch's start is unknown, `no-agent`: Claude Code is not installed, `timeout`, `empty`, `failed`); `style`: the repo has a `.shellie-pr.md`; measurements `ms` and, when written, `chars`. Never the text, the prompt or the diff |
 | `pr.failed` | Finish stopped because the push or pull request failed; `kind` (`git`, or the Azure DevOps error kind: `unauthorized`, `not-found`, `unreachable`, `http`) |
 | `setup.finished` | ok; retry; kind of the failed step (`fetch`, `worktree`, `copy`, `task-file`, `command`, `terminals`); duration; step count |
 | `setup.retried`, `setup.cancelled` | none |

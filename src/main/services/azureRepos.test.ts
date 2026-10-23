@@ -161,6 +161,42 @@ describe('prDescription', () => {
     expect(text).toMatch(/…and \d+ more commits/);
     expect(text.endsWith('· recorded by Shellie')).toBe(true);
   });
+  it('puts the written summary between the heading and the commits', () => {
+    expect(
+      prDescription({
+        ...base,
+        summary: '## What changed\nThe fix.\n\n## Why\nIt was broken.\n',
+      }),
+    ).toBe(
+      'Bug 42: Fix it\n\n## What changed\nThe fix.\n\n## Why\nIt was broken.\n\n## Commits\n- abc1234 First\n- def5678 Second\n\nAI cost for this task: €1.00 (Claude €1.00, Copilot €0.00) · recorded by Shellie',
+    );
+  });
+  it('ignores a blank summary', () => {
+    expect(prDescription({ ...base, summary: '  \n' })).toBe(
+      prDescription(base),
+    );
+  });
+  it('drops commits before cutting the summary, then cuts the summary', () => {
+    const commits = Array.from({ length: 300 }, (_, i) => ({
+      sha: `s${String(i).padStart(6, '0')}`,
+      subject: 'x'.repeat(40),
+    }));
+    const summary = 'y'.repeat(2500);
+    const text = prDescription({
+      ...base,
+      commits,
+      commitCount: 300,
+      summary,
+    });
+    expect(text.length).toBeLessThanOrEqual(4000);
+    expect(text).toContain(summary);
+    expect(text).toMatch(/…and \d+ more commits/);
+    const huge = prDescription({ ...base, summary: 'z'.repeat(5000) });
+    expect(huge.length).toBeLessThanOrEqual(4000);
+    expect(huge.startsWith('Bug 42: Fix it\n\nzzz')).toBe(true);
+    expect(huge).toContain('…');
+    expect(huge.endsWith('· recorded by Shellie')).toBe(true);
+  });
   it('omits the commits section when there are none', () => {
     expect(prDescription({ ...base, commits: [], commitCount: 0 })).toBe(
       'Bug 42: Fix it\n\nAI cost for this task: €1.00 (Claude €1.00, Copilot €0.00) · recorded by Shellie',
