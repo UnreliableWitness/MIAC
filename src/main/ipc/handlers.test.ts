@@ -5981,7 +5981,10 @@ describe('handlers: environment per task', () => {
       await vi.waitFor(() =>
         expect(e.stored().environment).toBe('development'),
       );
-      await e.hx.h['tasks:setEnvironment'](e.task.id, 'production', true);
+      // The expiry's respawn may still hold the task on a slow machine; switch once it lets go.
+      await vi.waitFor(() =>
+        e.hx.h['tasks:setEnvironment'](e.task.id, 'production', true),
+      );
       await e.hx.h['tasks:finish'](e.task.id, {
         closeTerminals: false,
         removeWorktree: false,
