@@ -212,9 +212,10 @@ export async function importSecrets(
     [...byName]
       .filter(([, values]) => env === null || values[env] !== undefined)
       .map(([name]) => name);
+  // Without git's list a tracked file cannot be told apart, so no file is rewritten at all.
   const tracked = await trackedFiles(deps.git, deps.repoPath);
   let worktreesRewritten = 0;
-  if (req.rewriteWorktreeCopies && byName.size > 0)
+  if (tracked && req.rewriteWorktreeCopies && byName.size > 0)
     for (const w of await deps.worktrees()) {
       let changed = false;
       for (const rel of w.copy) {
@@ -227,7 +228,7 @@ export async function importSecrets(
     }
 
   const filesChanged: string[] = [];
-  for (const file of req.removeFromMainCheckout) {
+  for (const file of tracked ? req.removeFromMainCheckout : []) {
     // Only the keys whose value in this file is the one imported, so a value left behind is never lost.
     const imported = held.filter(
       (f) =>
@@ -236,7 +237,7 @@ export async function importSecrets(
           (v) => v.value === f.value,
         ),
     );
-    if (imported.length === 0 || tracked.has(file)) continue;
+    if (imported.length === 0 || tracked?.has(file)) continue;
     const target = path.resolve(deps.repoPath, file);
     if (!isInside(deps.repoPath, target)) continue;
     const st = await fs.lstat(target).catch(() => null);
@@ -259,12 +260,12 @@ export async function importSecrets(
 async function trackedFiles(
   git: GitClient,
   repoPath: string,
-): Promise<Set<string>> {
+): Promise<Set<string> | null> {
   try {
     const out = await git.run(repoPath, ['ls-files', '-z']);
     return new Set(out.split('\0').filter(Boolean));
   } catch {
-    return new Set();
+    return null;
   }
 }
 

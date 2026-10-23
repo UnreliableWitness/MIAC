@@ -494,6 +494,43 @@ describe('importSecrets', () => {
     expect(readFileSync(path.join(repo, '.env'), 'utf8')).toBe('PORT=5001\n');
   });
 
+  it('rewrites no file when git cannot say which files are tracked, still saving the values', async () => {
+    const { store, repo, hold, key } = await setup();
+    writeFileSync(path.join(repo, '.env'), 'STRIPE_KEY=sk_test_x\nPORT=5001\n');
+    const failing = {
+      run: async () => {
+        throw new Error('git failed');
+      },
+    } as unknown as GitClient;
+    const result = await importSecrets(
+      {
+        repoId: 'r1',
+        picks: [
+          {
+            name: 'STRIPE_KEY',
+            env: 'development',
+            key: key('STRIPE_KEY', 'development'),
+          },
+        ],
+        rewriteWorktreeCopies: true,
+        removeFromMainCheckout: ['.env'],
+      },
+      {
+        hold,
+        store,
+        git: failing,
+        repoPath: repo,
+        worktrees: () => [{ worktreePath: repo, copy: ['.env'] }],
+      },
+    );
+    expect(result.filesChanged).toEqual([]);
+    expect(result.worktreesRewritten).toBe(0);
+    expect(readFileSync(path.join(repo, '.env'), 'utf8')).toBe(
+      'STRIPE_KEY=sk_test_x\nPORT=5001\n',
+    );
+    expect(store.list().map((s) => s.name)).toEqual(['STRIPE_KEY']);
+  });
+
   it('does not remove a key whose value in the file is not the one imported', async () => {
     const { store, repo, git } = await setup();
     const hold = new DiscoveryHold();
