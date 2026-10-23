@@ -4039,6 +4039,48 @@ describe('handlers: finish with a pull request', () => {
       ]);
     });
 
+    it('denies Claude the secret files and masks stored values in the prompt and the text', async () => {
+      const deny: string[][] = [];
+      const hx = await prHarness(undefined, undefined, {
+        claudeThemeSettings: (d) => {
+          deny.push(d ?? []);
+          return '/settings/claude-deny.json';
+        },
+      });
+      const value = 'sk_live_abcdefghijkl0b3d';
+      await hx.services.secrets.save({
+        scope: { repoId: hx.added.id },
+        name: 'STRIPE_KEY',
+        givenTo: ['run'],
+        values: { development: { value } },
+      });
+      commitFile(
+        hx.t.worktreePath,
+        'feature.txt',
+        `key=${value}\n`,
+        'Add the feature',
+      );
+      writeFileSync(
+        path.join(hx.t.worktreePath, '.env'),
+        `STRIPE_KEY=${value}\n`,
+      );
+      let call: { args: string[]; input: string } | null = null;
+      hx.services.runAgent = async (cmd, o) => {
+        call = { args: cmd.args, input: o.input };
+        return result(`## What changed\n- Uses ${value}`);
+      };
+      const r = await hx.h['tasks:prSummary'](hx.t.id);
+      expect(call!.input).not.toContain(value);
+      expect(call!.input).toContain('[STRIPE_KEY]');
+      expect(r.text).not.toContain(value);
+      expect(r.text).toContain('[STRIPE_KEY]');
+      // Quoted for the platform's shell: only the order is checked.
+      expect(call!.args.join(' ')).toMatch(
+        /--settings\W+\/settings\/claude-deny\.json/,
+      );
+      expect(deny.at(-1)).toContain('Read(./.env)');
+    });
+
     it("adds the repo's style file to the prompt", async () => {
       const hx = await prHarness();
       commitFile(
@@ -5791,6 +5833,7 @@ describe('handlers: environment per task', () => {
   async function envScenario(
     over: Partial<CreateTaskInput> = {},
     extra: Partial<Services> = {},
+    dbGivenTo: ('run' | 'shell')[] = ['run', 'shell'],
   ) {
     const base = testPlatform();
     const long = () => base.runCommand(sleepCmd(30));
@@ -5823,7 +5866,7 @@ describe('handlers: environment per task', () => {
     await hx.services.secrets.save({
       scope: { repoId: hx.added.id },
       name: 'DB',
-      givenTo: ['run', 'shell'],
+      givenTo: dbGivenTo,
       values: {
         development: { value: 'dev-db' },
         uat: { value: 'uat-db' },
@@ -5898,6 +5941,42 @@ describe('handlers: environment per task', () => {
     for (const id of ids) expect(forget).toHaveBeenCalledWith(id);
     forget.mockRestore();
     dropTask.mockRestore();
+  });
+
+  describe('when your shell gets no secret', () => {
+    it('a switch, an expiry and Finish leave the shell running', async () => {
+      const e = await envScenario({}, {}, ['run']);
+      const shell = e.shellId();
+      await e.hx.h['tasks:setEnvironment'](e.task.id, 'production', true);
+      expect(e.spawnedIds()).toEqual([e.dev.id]);
+      expect(e.killedIds()).not.toContain(shell);
+      const info = await e.hx.h['tasks:environmentInfo'](e.task.id);
+      expect(info.tabs.map((t) => t.id)).toEqual([e.dev.id]);
+      e.clock.now = T0 + 61 * 60_000;
+      for (const tick of e.ticks) tick();
+      await vi.waitFor(() =>
+        expect(e.stored().environment).toBe('development'),
+      );
+      await e.hx.h['tasks:setEnvironment'](e.task.id, 'production', true);
+      await e.hx.h['tasks:finish'](e.task.id, {
+        closeTerminals: false,
+        removeWorktree: false,
+        deleteBranch: false,
+        syncUsage: false,
+      });
+      expect(e.killedIds()).not.toContain(shell);
+      expect(e.spawnedIds()).not.toContain(shell);
+      expect(e.hx.terminals.isRunning(shell)).toBe(true);
+      await e.hx.terminals.killAllForTask(e.task.id);
+    });
+
+    it('a tab holds secrets only when a stored secret is given to it', async () => {
+      const e = await envScenario({}, {}, ['run']);
+      await e.hx.h['tasks:setEnvironment'](e.task.id, 'uat', true);
+      const info = await e.hx.h['tasks:environmentInfo'](e.task.id);
+      expect(info.tabs.map((t) => t.kind)).toEqual(['run']);
+      await e.hx.terminals.killAllForTask(e.task.id);
+    });
   });
 
   it('refuses UAT and Production without a confirm and changes nothing', async () => {

@@ -1,5 +1,4 @@
 import type { Environment } from '../../../shared/secrets';
-import type { TerminalDef } from '../../../shared/types';
 
 /** The text colour of an environment's name: amber for UAT, red for Production, plain otherwise. */
 export const envTextClass = (env: Environment): string | undefined =>
@@ -12,12 +11,6 @@ export function tabNames(tabs: { kind: string; label: string }[]): string[] {
   ];
   return tabs.some((t) => t.kind === 'shell') ? [...runs, 'your shell'] : runs;
 }
-
-/** The task's tabs that can hold secrets: not agents, not the Setup tab (which never runs again by itself). */
-export const secretTabs = (defs: TerminalDef[]): TerminalDef[] =>
-  defs.filter(
-    (d) => (d.kind === 'shell' || d.kind === 'run') && !d.setupCommands,
-  );
 
 /** "a", "a and b", "a, b and c". */
 export function joinAnd(names: string[]): string {

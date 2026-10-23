@@ -22,6 +22,28 @@ export function givenToFor(
   return 'run';
 }
 
+/**
+ * Whether a tab holds secrets: a stored secret with a value is given to its "given to" (a run tab may be the
+ * tests tab, so Tests counts for it too). The framework's environment name alone does not count, so a tab that
+ * gets nothing is never stopped or restarted for a switch, an expiry or Finish.
+ */
+export function holdsSecrets(
+  def: TerminalDef,
+  secrets: {
+    givenTo: GivenTo[];
+    values: Partial<Record<Environment, unknown>>;
+  }[],
+): boolean {
+  const given = givenToFor(def, null);
+  if (given === null) return false;
+  const wanted: GivenTo[] = given === 'run' ? ['run', 'tests'] : [given];
+  return secrets.some(
+    (v) =>
+      Object.values(v.values).some(Boolean) &&
+      v.givenTo.some((g) => wanted.includes(g)),
+  );
+}
+
 const FRAMEWORK_NAME: Record<Environment, string> = {
   development: 'Development',
   test: 'Test',
@@ -174,19 +196,22 @@ export function withLaunchProfile(command: string, args: string[]): string {
   return command.replace(DOTNET_RUN, (m) => `${m} ${quoted.join(' ')}`);
 }
 
+/** How a file is stripped: `.env` lines, JSON keys, or Azure Functions' `local.settings.json` (Values unprefixed). */
+export type StripKind = 'dotenv' | 'json' | 'localSettings';
+
 /**
  * How a copied file is stripped of stored keys, by its repo-relative path; null leaves it alone. JSON only for
  * settings files and files under a `secrets/` folder, so other copied JSON is never rewritten.
  */
-export function strippableKind(file: string): 'dotenv' | 'json' | null {
+export function strippableKind(file: string): StripKind | null {
   const parts = file.toLowerCase().split(/[\\/]/);
   const base = parts.at(-1)!;
   if (base.startsWith('.shellie-tmp-')) return null;
   if (base === '.env' || base.startsWith('.env.') || base.endsWith('.env'))
     return 'dotenv';
   if (!base.endsWith('.json')) return null;
+  if (base === 'local.settings.json') return 'localSettings';
   return /^appsettings\b.*\.json$/.test(base) ||
-    base === 'local.settings.json' ||
     base.endsWith('.secrets.json') ||
     parts.slice(0, -1).includes('secrets')
     ? 'json'
@@ -202,12 +227,14 @@ const DOTENV_LINE = /^\s*(?:export\s+)?([^\s=#]+)\s*=\s?(.*)$/;
  */
 export function stripKeys(
   text: string,
-  kind: 'dotenv' | 'json',
+  kind: StripKind,
   names: string[],
 ): string {
   if (names.length === 0) return text;
   const set = new Set(names);
-  return kind === 'dotenv' ? stripDotenv(text, set) : stripJson(text, set);
+  return kind === 'dotenv'
+    ? stripDotenv(text, set)
+    : stripJson(text, set, kind === 'localSettings');
 }
 
 function stripDotenv(text: string, names: Set<string>): string {
@@ -254,7 +281,12 @@ function closing(body: string, q: string): number {
   return -1;
 }
 
-function stripJson(text: string, names: Set<string>): string {
+/** `localSettings`: discovery names a `Values` key without the `Values__` prefix, so `Values` is a root too. */
+function stripJson(
+  text: string,
+  names: Set<string>,
+  localSettings: boolean,
+): string {
   let json: unknown;
   try {
     json = JSON.parse(text.replace(/^\uFEFF/, ''));
@@ -265,7 +297,12 @@ function stripJson(text: string, names: Set<string>): string {
       return text;
     }
   }
-  if (!removeKeys(json, '', names)) return text;
+  const values =
+    localSettings && json !== null && typeof json === 'object'
+      ? (json as Record<string, unknown>).Values
+      : undefined;
+  const fromValues = removeKeys(values, '', names);
+  if (!removeKeys(json, '', names) && !fromValues) return text;
   const eol = text.includes('\r\n') ? '\r\n' : '\n';
   const out = JSON.stringify(json, null, 2).replace(/\n/g, eol);
   return (

@@ -77,6 +77,8 @@ export function NewTaskScreen({
   const [environment, setEnvironment] = useState<Environment>('development');
   const [asking, setAsking] = useState(false);
   const [askKeys, setAskKeys] = useState<string[] | null>(null);
+  /** The tabs the confirm names: only those a stored value for the environment goes into. */
+  const [askTabs, setAskTabs] = useState<string[]>([]);
   const [productionMinutes, setProductionMinutes] = useState<number | null>(
     null,
   );
@@ -207,6 +209,7 @@ export function NewTaskScreen({
     if (isGuarded(environment) && !confirmed) {
       setAsking(true);
       setAskKeys(null);
+      setAskTabs([]);
       const env = environment;
       // Only names that reach a tab setup opens, as the task bar's confirm lists them.
       const given = new Set<GivenTo>([
@@ -215,16 +218,17 @@ export function NewTaskScreen({
       ]);
       void tryInvoke(() => api().invoke('secrets:list', repo.id), notify).then(
         (list) => {
-          if (list)
-            setAskKeys([
-              ...new Set(
-                list
-                  .filter(
-                    (v) => v.values[env] && v.givenTo.some((g) => given.has(g)),
-                  )
-                  .map((v) => v.name),
-              ),
-            ]);
+          if (!list) return;
+          const reaching = list.filter(
+            (v) => v.values[env] && v.givenTo.some((g) => given.has(g)),
+          );
+          const gets = (g: GivenTo) =>
+            reaching.some((v) => v.givenTo.includes(g));
+          setAskTabs([
+            ...(given.has('setup') && gets('setup') ? ['Setup'] : []),
+            ...(given.has('shell') && gets('shell') ? ['your shell'] : []),
+          ]);
+          setAskKeys([...new Set(reaching.map((v) => v.name))]);
         },
       );
       return;
@@ -483,7 +487,7 @@ export function NewTaskScreen({
             <EnvironmentConfirm
               title={`Start ${(workItem?.id || label.trim() || 'this task').trim()} on ${ENVIRONMENT_LABEL[environment]}?`}
               env={environment as 'uat' | 'production'}
-              tabs={setupTabs}
+              tabs={askTabs}
               keys={askKeys}
               minutes={productionMinutes}
               busy={busy}

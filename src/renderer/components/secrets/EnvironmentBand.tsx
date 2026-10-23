@@ -4,13 +4,16 @@ import { ENVIRONMENT_LABEL, isGuarded } from '../../../shared/secrets';
 import type { TaskView } from '../../../shared/types';
 import { api, tryInvoke } from '../../api';
 import { useStore } from '../../store';
-import { joinAnd, secretTabs, tabNames } from './environment';
+import type { EnvironmentInfo } from '../../../shared/secrets';
+import { joinAnd, tabNames } from './environment';
 
 const MINUTE = 60_000;
 
 /**
  * The band across the top of a task on UAT (amber) or Production (red, with the minutes left): which tabs have
- * the values, that agents never do, and a way back to Development.
+ * the values, that agents never do, and a way back to Development. The tabs are main's: running tabs a stored
+ * secret is given to (not a finished `shellie run` tab, not a shell that gets nothing), asked again when the
+ * task's tabs or secrets change and when a tab ends.
  */
 export function EnvironmentBand({
   task,
@@ -22,6 +25,36 @@ export function EnvironmentBand({
   const notify = useStore((s) => s.notify);
   const [busy, setBusy] = useState(false);
   const [, setTick] = useState(0);
+  const [tabs, setTabs] = useState<EnvironmentInfo['tabs'] | null>(null);
+  const guarded = isGuarded(task.environment);
+  const terminalIds = task.terminals.map((t) => t.id).join(' ');
+  useEffect(() => {
+    if (!guarded) return;
+    let live = true;
+    const load = () =>
+      void api()
+        .invoke('tasks:environmentInfo', task.id)
+        .then((i) => {
+          if (live) setTabs(i.tabs);
+        })
+        // The band still says the environment; only the tab names are missing.
+        .catch(() => undefined);
+    load();
+    const ids = new Set(terminalIds.split(' '));
+    const offExit = api().on('terminal:exit', (e) => {
+      if (ids.has(e.id)) load();
+    });
+    const offReset = api().on('terminal:reset', (e) => {
+      if (ids.has(e.id)) load();
+    });
+    const offSecrets = api().on('secrets:changed', load);
+    return () => {
+      live = false;
+      offExit();
+      offReset();
+      offSecrets();
+    };
+  }, [guarded, task.id, task.environment, terminalIds]);
   const counting =
     task.environment === 'production' && task.environmentUntil !== null;
   useEffect(() => {
@@ -31,7 +64,7 @@ export function EnvironmentBand({
   }, [counting]);
 
   if (!isGuarded(task.environment)) return null;
-  const names = tabNames(secretTabs(task.terminals));
+  const names = tabNames(tabs ?? []);
   const where =
     names.length > 0 ? `in ${joinAnd(names)}` : 'for the tabs you open';
   const left =

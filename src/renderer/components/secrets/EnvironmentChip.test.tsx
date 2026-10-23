@@ -219,18 +219,51 @@ describe('EnvironmentBand', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('is amber on UAT', () => {
-    installFakeApi();
+  it('is amber on UAT', async () => {
+    installFakeApi({ 'tasks:environmentInfo': () => info });
     render(<EnvironmentBand task={task({ environment: 'uat' })} />);
     const band = screen.getByRole('status');
     expect(band).toHaveClass('env-band', 'env-band-uat');
-    expect(band).toHaveTextContent('UAT secrets in dev and your shell');
+    await waitFor(() =>
+      expect(band).toHaveTextContent('UAT secrets in dev and your shell'),
+    );
     expect(band).toHaveTextContent('Agents never get them');
+  });
+
+  it('lists only the running tabs that hold secrets, as main says, and follows exits', async () => {
+    let tabs: EnvironmentInfo['tabs'] = [
+      { id: 'd1', label: 'dev', kind: 'run' },
+      { id: 'a1', label: 'agent · test', kind: 'run' },
+    ];
+    const { emit } = installFakeApi({
+      'tasks:environmentInfo': () => ({ ...info, tabs }),
+    });
+    render(
+      <EnvironmentBand
+        task={task({
+          environment: 'uat',
+          terminals: [
+            ...task().terminals,
+            { id: 'a1', kind: 'run', label: 'agent · test', command: 'x' },
+          ],
+        })}
+      />,
+    );
+    const band = screen.getByRole('status');
+    await waitFor(() =>
+      expect(band).toHaveTextContent('UAT secrets in dev and agent · test'),
+    );
+    expect(band).not.toHaveTextContent('your shell');
+    tabs = [{ id: 'd1', label: 'dev', kind: 'run' }];
+    emit('terminal:exit', { id: 'a1', exitCode: 0 });
+    await waitFor(() => expect(band).toHaveTextContent('UAT secrets in dev'));
+    expect(band).not.toHaveTextContent('agent · test');
   });
 
   it('is red on Production, with the minutes left, and goes back to Development', async () => {
     const { calls } = installFakeApi({
       'tasks:setEnvironment': (_id, env) => task({ environment: env }),
+      'tasks:environmentInfo': () => info,
     });
     render(
       <EnvironmentBand
@@ -243,8 +276,10 @@ describe('EnvironmentBand', () => {
     );
     const band = screen.getByRole('status');
     expect(band).toHaveClass('env-band', 'env-band-production');
-    expect(band).toHaveTextContent(
-      'Production secrets in dev and your shell · 47 min left',
+    await waitFor(() =>
+      expect(band).toHaveTextContent(
+        'Production secrets in dev and your shell · 47 min left',
+      ),
     );
     await userEvent.click(
       within(band).getByRole('button', { name: 'Back to Development' }),

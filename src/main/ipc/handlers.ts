@@ -35,6 +35,7 @@ import {
 } from '../secrets/importPlan';
 import {
   givenToFor,
+  holdsSecrets as holdsSecretsFor,
   launchProfileArgs,
   launchProfileFor,
   secretsEnv,
@@ -1182,7 +1183,12 @@ export function createHandlers(s: Services): Handlers {
   };
 
   /** Every tab but an agent's can hold secrets. */
-  const holdsSecrets = (def: TerminalDef) => givenToFor(def, null) !== null;
+  /** The shared rule (inject.ts): a stored secret of the tab's repo is given to it. */
+  const holdsSecrets = (task: Task, def: TerminalDef) =>
+    holdsSecretsFor(
+      def,
+      s.secrets.list({ repoId: terminalWorkspace(task, def).repoId }),
+    );
 
   /** Stops a tab and tells its view it ended (a kill alone sends no exit). */
   const stopTab = async (id: string) => {
@@ -1299,7 +1305,7 @@ export function createHandlers(s: Services): Handlers {
     why = `The task switched to ${ENVIRONMENT_LABEL[task.environment]}`,
   ) => {
     for (const def of task.terminals) {
-      if (!holdsSecrets(def) || !s.terminals.isRunning(def.id)) continue;
+      if (!holdsSecrets(task, def) || !s.terminals.isRunning(def.id)) continue;
       // A `shellie run` tab ends with its run: the agent asked for a run with the old environment's values.
       if (runArgs.has(def.id)) {
         s.runs?.tabGone(def.id, why);
@@ -1372,7 +1378,7 @@ export function createHandlers(s: Services): Handlers {
   /** Stops the running tabs that hold secrets (Finish on UAT or Production). */
   const stopSecretTabs = async (task: Task) => {
     for (const def of task.terminals)
-      if (holdsSecrets(def) && s.terminals.isRunning(def.id))
+      if (holdsSecrets(task, def) && s.terminals.isRunning(def.id))
         await stopTab(def.id);
   };
 
@@ -2745,16 +2751,32 @@ export function createHandlers(s: Services): Handlers {
         style = await fs
           .readFile(path.join(w.worktreePath, PR_STYLE_FILE), 'utf8')
           .catch(() => null);
-        const prompt = prSummaryPrompt({
-          heading: task.workItem
-            ? `${task.workItem.type} ${task.workItem.id}: ${task.workItem.title}`
-            : task.name,
-          ...changes,
-          requests: await taskRequests(task),
-          style,
-        });
+        // Secrets: a stored value in the diff or the requests is sent as [NAME], and Claude's Read is denied the
+        // worktree's secret files, as in its tabs.
+        const matcher = diffMatcher(task);
+        const masked = (t: string) => matcher.mask(t, '', true).text;
+        const prompt = masked(
+          prSummaryPrompt({
+            heading: task.workItem
+              ? `${task.workItem.type} ${task.workItem.id}: ${task.workItem.title}`
+              : task.name,
+            ...changes,
+            requests: await taskRequests(task),
+            style,
+          }),
+        );
+        const deny = existsSync(w.worktreePath)
+          ? await worktreeDenyTargets(w.worktreePath)
+          : [];
+        const settings =
+          deny.length > 0
+            ? (s.claudeThemeSettings?.(denyRulesFor(deny)) ?? null)
+            : null;
         const out = await (s.runAgent ?? runWithInput)(
-          s.platform.claudeCommand(null, prSummaryFlags()),
+          s.platform.claudeCommand(null, [
+            ...prSummaryFlags(),
+            ...(settings ? ['--settings', settings] : []),
+          ]),
           {
             cwd: w.worktreePath,
             input: prompt,
@@ -2770,7 +2792,8 @@ export function createHandlers(s: Services): Handlers {
             },
           },
         );
-        const text = tidySummary(claudeResult(out));
+        const tidied = tidySummary(claudeResult(out));
+        const text = tidied ? masked(tidied) : tidied;
         if (!text) return failed('Claude Code wrote nothing', 'empty');
         tel.event(
           'pr.summary',
@@ -3106,7 +3129,9 @@ export function createHandlers(s: Services): Handlers {
       );
       const tabs = task.terminals.filter(
         (d) =>
-          holdsSecrets(d) && !d.setupCommands && s.terminals.isRunning(d.id),
+          holdsSecrets(task, d) &&
+          !d.setupCommands &&
+          s.terminals.isRunning(d.id),
       );
       const given = new Set(
         tabs.map((d) => givenToFor(d, null)).filter((g) => g !== null),
@@ -3229,7 +3254,7 @@ export function createHandlers(s: Services): Handlers {
       const stale =
         def !== undefined &&
         owner !== undefined &&
-        holdsSecrets(def) &&
+        holdsSecrets(owner, def) &&
         spawnedEnv.get(id) !== owner.environment;
       if (
         known &&

@@ -2,10 +2,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
+import type { GivenTo } from '../../shared/secrets';
 import type { ShellieConfig, TerminalDef } from '../../shared/types';
 import {
   DEFAULT_GIVEN_TO,
   givenToFor,
+  holdsSecrets,
   launchProfileArgs,
   secretsEnv,
   strippableKind,
@@ -242,11 +244,41 @@ describe('strippableKind', () => {
     expect(strippableKind('prod.env')).toBe('dotenv');
     expect(strippableKind('appsettings.Development.json')).toBe('json');
     expect(strippableKind('Api/appsettings.json')).toBe('json');
-    expect(strippableKind('local.settings.json')).toBe('json');
+    expect(strippableKind('local.settings.json')).toBe('localSettings');
     expect(strippableKind('db.secrets.json')).toBe('json');
     expect(strippableKind('secrets/stripe.json')).toBe('json');
     expect(strippableKind('config.json')).toBeNull();
     expect(strippableKind('package.json')).toBeNull();
     expect(strippableKind('README.md')).toBeNull();
+  });
+});
+
+describe('holdsSecrets', () => {
+  const shell = { id: 's', kind: 'shell', label: 'zsh' } as const;
+  const run: TerminalDef = {
+    id: 'r',
+    kind: 'run',
+    label: 'dev',
+    command: 'npm run dev',
+  };
+  const claude = { id: 'c', kind: 'claude', label: 'Claude Code' } as const;
+  const secret = (givenTo: GivenTo[], values = { development: 'x' }) => ({
+    givenTo,
+    values,
+  });
+
+  it('is true only when a stored value is given to the tab', () => {
+    expect(holdsSecrets(shell, [secret(['run'])])).toBe(false);
+    expect(holdsSecrets(shell, [secret(['shell'])])).toBe(true);
+    expect(holdsSecrets(run, [secret(['run'])])).toBe(true);
+    expect(holdsSecrets(run, [secret(['tests'])])).toBe(true);
+    expect(holdsSecrets(run, [secret(['setup'])])).toBe(false);
+    expect(holdsSecrets(run, [secret(['run'], {} as never)])).toBe(false);
+  });
+
+  it('is never true for an agent tab', () => {
+    expect(holdsSecrets(claude, [secret(['run', 'shell', 'setup'])])).toBe(
+      false,
+    );
   });
 });

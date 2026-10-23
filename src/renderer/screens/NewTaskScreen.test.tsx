@@ -178,6 +178,41 @@ describe('NewTaskScreen', () => {
     expect(screen.getByRole('button', { name: 'Use UAT' })).toBeEnabled();
   });
 
+  it('names in the confirm only the tabs a stored value goes into', async () => {
+    const value = { mask: '••••', source: null, changedAt: 'x' };
+    installFakeApi({
+      'repos:config': () => config,
+      'secrets:list': () => [
+        {
+          id: '2',
+          scope: { repoId: 'r1' },
+          name: 'RUN_ONLY',
+          givenTo: ['run'],
+          values: { uat: value },
+        },
+        {
+          id: '3',
+          scope: { repoId: 'r1' },
+          name: 'SETUP_KEY',
+          givenTo: ['setup'],
+          values: { uat: value },
+        },
+      ],
+    });
+    render(<NewTaskScreen />);
+    await userEvent.type(screen.getByLabelText('Work item id'), '48231');
+    await userEvent.type(screen.getByLabelText('Title'), 'Delivery date');
+    await waitFor(() => expect(screen.getByLabelText('npm ci')).toBeChecked());
+    await userEvent.selectOptions(screen.getByLabelText('Environment'), 'uat');
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    const confirm = screen.getByRole('alertdialog', {
+      name: 'Start 48231 on UAT?',
+    });
+    await waitFor(() => expect(confirm).toHaveTextContent('SETUP_KEY'));
+    expect(confirm).toHaveTextContent('These go into Setup until');
+    expect(confirm).not.toHaveTextContent('your shell');
+  });
+
   it('offers the four environments with the repo default selected', async () => {
     const { calls } = installFakeApi({
       'repos:config': () => config,

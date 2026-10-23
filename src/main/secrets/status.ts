@@ -8,7 +8,7 @@ import type {
 import type { GitClient } from '../services/GitClient';
 import { isInside } from '../paths';
 import { discoverSecrets } from './discover';
-import { strippableKind, stripKeys } from './inject';
+import { type StripKind, strippableKind, stripKeys } from './inject';
 import type { SecretStore } from './SecretStore';
 
 export type StatusDeps = {
@@ -44,11 +44,7 @@ async function walk(
   root: string,
   copy: string[],
   tracked: Set<string>,
-  visit: (
-    abs: string,
-    rel: string,
-    kind: 'dotenv' | 'json',
-  ) => Promise<boolean>,
+  visit: (abs: string, rel: string, kind: StripKind) => Promise<boolean>,
 ): Promise<string[]> {
   const hits: string[] = [];
   const one = async (target: string): Promise<void> => {

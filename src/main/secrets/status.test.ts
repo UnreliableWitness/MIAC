@@ -15,7 +15,7 @@ import { fakeCrypto } from '../test-helpers/fakeCrypto';
 import { commitFile, makeRepo } from '../test-helpers/gitRepo';
 import { SecretStore } from './SecretStore';
 import { discoverSecrets } from './discover';
-import { strippableKind } from './inject';
+import { strippableKind, stripKeys } from './inject';
 import { cleanAll, cleanWorktree, computeStatus } from './status';
 
 const git = new GitClient();
@@ -314,5 +314,58 @@ describe('the temp file of a crashed clean', () => {
     expect(path.dirname(String(from))).toBe(path.dirname(file));
     expect(path.basename(String(from))).toMatch(/^\.shellie-tmp-\d+-\.env$/);
     spy.mockRestore();
+  });
+});
+
+describe('Azure Functions local.settings.json', () => {
+  const text = JSON.stringify(
+    {
+      IsEncrypted: false,
+      Values: {
+        FUNCTIONS_WORKER_RUNTIME: 'dotnet-isolated',
+        StripeKey: 'sk_live_abcdefghijkl0b3d',
+      },
+      ConnectionStrings: { Db: 'Server=db;Password=hunter2hunter2' },
+    },
+    null,
+    2,
+  );
+
+  it('discovered names strip their values (Values keys have no prefix)', async () => {
+    const repo = makeRepo();
+    writeFileSync(path.join(repo, 'local.settings.json'), text);
+    const r = await discoverSecrets(repo, { git, userSecretsDir: noUser });
+    const names = r.found.map((f) => f.name);
+    expect(names).toContain('StripeKey');
+    const kind = strippableKind('local.settings.json')!;
+    const out = stripKeys(text, kind, names);
+    for (const f of r.found) expect(out).not.toContain(f.value);
+  });
+
+  it('is not protected while a copied local.settings.json holds a stored value', async () => {
+    const repo = makeRepo();
+    writeFileSync(path.join(repo, 'local.settings.json'), text);
+    const s = await store(false);
+    await s.save({
+      scope: { repoId: 'r1' },
+      name: 'StripeKey',
+      givenTo: ['run'],
+      values: { development: { value: 'sk_live_abcdefghijkl0b3d' } },
+    });
+    const st = await computeStatus({
+      ...base(s, repo),
+      copy: ['local.settings.json'],
+    });
+    expect(st.state).toBe('attention');
+    expect(st.reasons).toContainEqual({
+      kind: 'copy',
+      files: ['local.settings.json'],
+      count: 1,
+    });
+  });
+
+  it('a Values key named like a nested one stays when another file kind', () => {
+    const app = '{"Values":{"StripeKey":"x"}}';
+    expect(stripKeys(app, 'json', ['StripeKey'])).toBe(app);
   });
 });
