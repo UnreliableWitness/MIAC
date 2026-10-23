@@ -106,7 +106,25 @@ describe('buildImportPlan', () => {
     expect(rows.map((r) => r.name)).toEqual(['A', 'B', 'C']);
   });
 
-  it('keeps only the differing candidates of a changed cell, and an unreadable stored value counts as changed', () => {
+  it('matches stored names case-insensitively, and marks gaps that have a stored value', () => {
+    const [row] = buildImportPlan(
+      [f({ name: 'Db', value: 'dev-db' })],
+      [
+        {
+          name: 'DB',
+          values: {
+            development: { value: 'dev-db', source: '.env' },
+            test: { value: 'test-db', source: null },
+          },
+        },
+      ],
+    );
+    expect(row!.cells.development.state).toBe('same');
+    expect(row!.cells.test).toMatchObject({ state: 'missing', stored: true });
+    expect(row!.cells.uat).toMatchObject({ state: 'missing', stored: false });
+  });
+
+  it('shows every source of a changed cell, marking the one that matches the stored value', () => {
     const [row] = buildImportPlan(
       [
         f({ name: 'K', value: 'stored' }),
@@ -124,8 +142,14 @@ describe('buildImportPlan', () => {
       ],
     );
     expect(row!.cells.development.state).toBe('changed');
-    expect(row!.cells.development.candidates.map((c) => c.source)).toEqual([
-      '.env.local',
+    expect(
+      row!.cells.development.candidates.map((c) => [
+        c.source,
+        c.matchesStored ?? false,
+      ]),
+    ).toEqual([
+      ['.env', true],
+      ['.env.local', false],
     ]);
     expect(row!.cells.uat.state).toBe('changed');
   });
@@ -313,6 +337,75 @@ describe('importSecrets', () => {
     expect(store.valuesFor('r1', 'uat').STRIPE_KEY!.value).toBe('uat-kept');
   });
 
+  it('merges a discovered name into a stored one that differs only in case, keeping the stored spelling', async () => {
+    const { store, repo, git } = await setup();
+    await store.save({
+      scope: { repoId: 'r1' },
+      name: 'DB',
+      givenTo: ['shell'],
+      values: { uat: { value: 'uat-db' } },
+    });
+    const hold = new DiscoveryHold();
+    const view = hold.hold('r1', [
+      {
+        name: 'Db',
+        value: 'dev-db',
+        env: 'development',
+        source: '.env',
+        tracked: false,
+        secretLike: true,
+      },
+    ]);
+    await importSecrets(
+      {
+        repoId: 'r1',
+        picks: [{ name: 'Db', env: 'development', key: view.found[0]!.key }],
+        rewriteWorktreeCopies: false,
+        removeFromMainCheckout: [],
+      },
+      { hold, store, git, repoPath: repo, worktrees: () => [] },
+    );
+    const all = store.list({ repoId: 'r1' });
+    expect(all.map((s) => [s.name, s.givenTo])).toEqual([['DB', ['shell']]]);
+    expect(store.valuesFor('r1', 'development').DB!.value).toBe('dev-db');
+    expect(store.valuesFor('r1', 'uat').DB!.value).toBe('uat-db');
+  });
+
+  it('refuses two picked names that differ only in case before saving anything', async () => {
+    const { store, repo, git } = await setup();
+    const hold = new DiscoveryHold();
+    const item = (name: string, value: string): Found => ({
+      name,
+      value,
+      env: 'development',
+      source: '.env',
+      tracked: false,
+      secretLike: true,
+    });
+    const view = hold.hold('r1', [
+      item('A', 'a'),
+      item('Key', '1'),
+      item('KEY', '2'),
+    ]);
+    const picks = view.found.map((x) => ({
+      name: x.name,
+      env: 'development' as const,
+      key: x.key,
+    }));
+    await expect(
+      importSecrets(
+        {
+          repoId: 'r1',
+          picks,
+          rewriteWorktreeCopies: false,
+          removeFromMainCheckout: [],
+        },
+        { hold, store, git, repoPath: repo, worktrees: () => [] },
+      ),
+    ).rejects.toThrow(/Key and KEY/);
+    expect(store.list()).toEqual([]);
+  });
+
   it('refuses unknown keys, a key under another name and two picks for one cell, saving nothing', async () => {
     const { store, repo, hold, key, git } = await setup();
     const run = (picks: { name: string; env: 'development'; key: string }[]) =>
@@ -420,6 +513,10 @@ describe('importSecrets', () => {
     writeFileSync(path.join(wt, '.env'), 'STRIPE_KEY=x\nPORT=1\n');
     mkdirSync(path.join(wt, 'conf'));
     writeFileSync(path.join(wt, 'conf', 'app.env'), 'STRIPE_KEY=y\n');
+    writeFileSync(
+      path.join(wt, 'appsettings.Production.json'),
+      '{"STRIPE_KEY":"live"}',
+    );
     commitFile(repo, 'tracked.env', 'STRIPE_KEY=z\n');
     writeFileSync(path.join(wt, 'tracked.env'), 'STRIPE_KEY=z\n');
     const result = await importSecrets(
@@ -443,7 +540,13 @@ describe('importSecrets', () => {
         worktrees: () => [
           {
             worktreePath: wt,
-            copy: ['.env', 'conf', 'tracked.env', 'missing.env'],
+            copy: [
+              '.env',
+              'conf',
+              'tracked.env',
+              'missing.env',
+              'appsettings.Production.json',
+            ],
           },
         ],
       },
@@ -455,5 +558,9 @@ describe('importSecrets', () => {
       'STRIPE_KEY=z\n',
     );
     expect(existsSync(path.join(wt, 'missing.env'))).toBe(false);
+    // Only Development was imported: a Production file keeps its value.
+    expect(
+      readFileSync(path.join(wt, 'appsettings.Production.json'), 'utf8'),
+    ).toBe('{"STRIPE_KEY":"live"}');
   });
 });

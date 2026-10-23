@@ -100,6 +100,7 @@ beforeEach(() =>
 function setup(p: ImportPlan = plan) {
   const sent: ImportRequest[] = [];
   const api = installFakeApi({
+    'secrets:forget': () => undefined,
     'secrets:importPlan': () => p,
     'secrets:import': (req) => {
       sent.push(req);
@@ -110,8 +111,8 @@ function setup(p: ImportPlan = plan) {
       };
     },
   });
-  render(<SecretsImportScreen repoId="r1" />);
-  return { sent, api };
+  const view = render(<SecretsImportScreen repoId="r1" />);
+  return { sent, api, view };
 }
 
 const rowOf = (name: string) => screen.getByText(name).closest('tr')!;
@@ -291,6 +292,64 @@ describe('Import page', () => {
     expect(
       screen.getByRole('button', { name: 'Import 1 value' }),
     ).toBeVisible();
+  });
+
+  it('keeps a stored Test value instead of offering Development for it', async () => {
+    setup({
+      ...plan,
+      rows: [
+        row('DB', {
+          development: { candidates: [cand('k-dev', '.env')] },
+          test: { stored: true },
+        }),
+      ],
+    });
+    const db = (await screen.findByText('DB')).closest('tr')!;
+    expect(within(db).getByText('kept')).toBeVisible();
+    expect(
+      within(db).queryByRole('button', { name: /same as Development/ }),
+    ).toBeNull();
+  });
+
+  it('shows both sources of a changed cell and picks the new value by default', async () => {
+    const user = userEvent.setup();
+    const { sent } = setup({
+      ...plan,
+      rows: [
+        row('DB', {
+          development: {
+            state: 'changed',
+            was: '.env',
+            candidates: [
+              { ...cand('k-old', '.env'), matchesStored: true },
+              cand('k-new', '.env.local'),
+            ],
+          },
+        }),
+      ],
+    });
+    const db = (await screen.findByText('DB')).closest('tr')!;
+    expect(
+      within(db).getByRole('radio', { name: /\.env\.local/ }),
+    ).toBeChecked();
+    expect(
+      within(db).getByRole('radio', { name: /stored already/ }),
+    ).not.toBeChecked();
+    await user.click(screen.getByRole('button', { name: 'Import 1 value' }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]!.picks).toEqual([
+      { name: 'DB', env: 'development', key: 'k-new' },
+    ]);
+  });
+
+  it('asks main to forget the found values when the page closes', async () => {
+    const { api, view } = setup();
+    await screen.findByText('STRIPE_SECRET_KEY');
+    view.unmount();
+    expect(api.calls.at(-1)).toEqual({
+      channel: 'secrets:forget',
+      args: ['r1'],
+    });
   });
 
   it('ticks nothing for a plain-only .env and says there is nothing to import', async () => {

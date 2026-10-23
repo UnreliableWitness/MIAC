@@ -4735,6 +4735,18 @@ describe('handlers: secrets', () => {
       again.rows.find((r) => r.name === 'STRIPE_SECRET_KEY')!.cells.development
         .state,
     ).toBe('same');
+    // Closing the page forgets the held values: their keys no longer resolve.
+    await hx.h['secrets:forget'](hx.added.id);
+    const key = again.rows.find((r) => r.name === 'STRIPE_SECRET_KEY')!.cells
+      .development.candidates[0]!.key;
+    await expect(
+      hx.h['secrets:import']({
+        repoId: hx.added.id,
+        picks: [{ name: 'STRIPE_SECRET_KEY', env: 'test', key }],
+        rewriteWorktreeCopies: false,
+        removeFromMainCheckout: [],
+      }),
+    ).rejects.toThrow(/look again/);
     await hx.terminals.killAllForTask(task.id);
   });
 });

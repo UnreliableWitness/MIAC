@@ -100,6 +100,8 @@ export type ImportCandidate = {
   mask: string;
   key: string;
   tracked: boolean;
+  /** In a `changed` cell: this source holds the value stored already. */
+  matchesStored?: boolean;
 };
 
 /**
@@ -110,6 +112,8 @@ export type ImportCell = {
   candidates: ImportCandidate[];
   state: 'new' | 'changed' | 'same' | 'missing';
   was?: string | null;
+  /** In a `missing` cell: the repo has a value stored for it, which the import keeps. */
+  stored?: boolean;
 };
 
 export type ImportRow = {
@@ -135,7 +139,7 @@ export type ImportPlan = {
 
 export type ImportRequest = {
   repoId: string;
-  /** Keys only: main resolves each to the value it found. */
+  /** Keys only: main resolves each to the value it found. Names as found; a stored spelling wins on save. */
   picks: { name: string; env: Environment; key: string }[];
   rewriteWorktreeCopies: boolean;
   /** Repo-relative `.env`-style files (untracked) to take the imported keys out of. */

@@ -2342,6 +2342,7 @@ export function createHandlers(s: Services): Handlers {
         skipped: r.skipped,
       };
     },
+    'secrets:forget': async (repoId) => discovery.drop(repoId),
     'secrets:import': async (request) => {
       const repo = s.repos.get(request.repoId);
       // Broadcast even after a failure part-way: some secrets may have been saved.

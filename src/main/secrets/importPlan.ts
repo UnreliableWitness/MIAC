@@ -15,7 +15,7 @@ import {
 } from '../../shared/secrets';
 import { isInside } from '../paths';
 import type { GitClient } from '../services/GitClient';
-import type { DiscoveryHold } from './discover';
+import { fileEnvironment, type DiscoveryHold } from './discover';
 import { DEFAULT_GIVEN_TO, strippableKind, stripKeys } from './inject';
 import type { SecretStore } from './SecretStore';
 
@@ -45,8 +45,9 @@ function distinct(found: KeyedFound[]): KeyedFound[] {
 /**
  * The import page's rows: one per found name, a cell per environment against what the repo has stored. Two
  * sources with different values for one environment are a conflict (two candidates); one value in two sources is
- * not. Values the store holds already are `same`; a cell whose stored value differs is `changed` and keeps only the
- * values that differ. Masks and keys only: values stay in main.
+ * not. Stored names match case-insensitively (the store allows one spelling per scope). Values the store holds
+ * already are `same`; a cell where a value differs is `changed`, listing every source and marking the one that
+ * matches the stored value; a gap says whether a value is stored. Masks and keys only: values stay in main.
  */
 export function buildImportPlan(
   found: KeyedFound[],
@@ -55,7 +56,9 @@ export function buildImportPlan(
   const names = [...new Set(found.map((f) => f.name))];
   return names.map((name) => {
     const mine = found.filter((f) => f.name === name);
-    const have = stored.find((s) => s.name === name)?.values ?? {};
+    const have =
+      stored.find((s) => s.name.toLowerCase() === name.toLowerCase())?.values ??
+      {};
     const storedValues = new Set(
       Object.values(have)
         .map((v) => v?.value)
@@ -66,16 +69,20 @@ export function buildImportPlan(
         const all = distinct(mine.filter((f) => f.env === env));
         const old = have[env];
         if (all.length === 0)
-          return [env, { candidates: [], state: 'missing' }];
+          return [env, { candidates: [], state: 'missing', stored: !!old }];
         if (!old)
           return [env, { candidates: all.map(candidate), state: 'new' }];
-        const differ = all.filter((f) => f.value !== old.value);
-        return differ.length === 0
+        const matches = (f: KeyedFound) => f.value === old.value;
+        return all.every(matches)
           ? [env, { candidates: all.map(candidate), state: 'same' }]
           : [
               env,
               {
-                candidates: differ.map(candidate),
+                candidates: all.map((f) =>
+                  matches(f)
+                    ? { ...candidate(f), matchesStored: true }
+                    : candidate(f),
+                ),
                 state: 'changed',
                 was: old.source,
               },
@@ -165,31 +172,46 @@ export async function importSecrets(
     values[p.env] = { value: f.value, source: f.source };
     byName.set(p.name, values);
   }
+  const lower = new Map<string, string>();
+  for (const name of byName.keys()) {
+    const other = lower.get(name.toLowerCase());
+    if (other !== undefined)
+      throw new Error(
+        `${other} and ${name} differ only in case; import one of them`,
+      );
+    lower.set(name.toLowerCase(), name);
+  }
 
   const existing = deps.store
     .list({ repoId: req.repoId })
     .filter((s) => s.scope !== 'all');
   for (const [name, values] of byName) {
-    const current = existing.find((s) => s.name === name);
+    const current = existing.find(
+      (s) => s.name.toLowerCase() === name.toLowerCase(),
+    );
     await deps.store.save({
       id: current?.id,
       scope: { repoId: req.repoId },
-      name,
+      name: current?.name ?? name,
       givenTo: current?.givenTo ?? DEFAULT_GIVEN_TO,
       values,
     });
   }
 
-  const names = [...byName.keys()];
+  /** Names to take out of a copied file: those imported for its environment, all of them when it has none. */
+  const namesFor = (env: Environment | null) =>
+    [...byName]
+      .filter(([, values]) => env === null || values[env] !== undefined)
+      .map(([name]) => name);
   const tracked = await trackedFiles(deps.git, deps.repoPath);
   let worktreesRewritten = 0;
-  if (req.rewriteWorktreeCopies && names.length > 0)
+  if (req.rewriteWorktreeCopies && byName.size > 0)
     for (const w of await deps.worktrees()) {
       let changed = false;
       for (const rel of w.copy) {
         const target = path.resolve(w.worktreePath, rel);
         if (!isInside(w.worktreePath, target)) continue;
-        if (await stripTree(w.worktreePath, target, names, tracked))
+        if (await stripTree(w.worktreePath, target, namesFor, tracked))
           changed = true;
       }
       if (changed) worktreesRewritten++;
@@ -241,7 +263,7 @@ async function trackedFiles(
 async function stripTree(
   root: string,
   target: string,
-  names: string[],
+  names: (env: Environment | null) => string[],
   tracked: Set<string>,
 ): Promise<boolean> {
   const st = await fs.lstat(target).catch(() => null);
@@ -259,7 +281,7 @@ async function stripTree(
   const kind = strippableKind(rel);
   if (!kind || tracked.has(rel)) return false;
   const text = await fs.readFile(target, 'utf8');
-  const stripped = stripKeys(text, kind, names);
+  const stripped = stripKeys(text, kind, names(fileEnvironment(rel)));
   if (stripped === text) return false;
   await fs.writeFile(target, stripped, 'utf8');
   return true;

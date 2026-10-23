@@ -51,6 +51,14 @@ function dotenvEnvironment(file: string): Environment | null {
   return environmentOf(base) ?? (base === '.env' ? 'development' : null);
 }
 
+/** The environment a file's name gives (`.env.production`, `appsettings.Uat.json`); null when it names none. */
+export function fileEnvironment(file: string): Environment | null {
+  const base = path.basename(file);
+  if (/^\.env(\..+)?$/.test(base)) return dotenvEnvironment(file);
+  if (/^appsettings\..+\.json$/i.test(base)) return environmentOf(base);
+  return null;
+}
+
 /**
  * Looks in the known places at the repo's root and up to two folders down, plus .NET user secrets. Never reads
  * outside the repo except the user-secrets folder, never shell profiles.

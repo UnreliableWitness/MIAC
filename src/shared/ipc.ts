@@ -88,6 +88,8 @@ export type Channels = {
   'secrets:importPlan': { args: [repoId: string]; result: ImportPlan };
   /** Saves the picked keys' values (resolved in main), then the chosen file rewrites; forgets the held values. */
   'secrets:import': { args: [request: ImportRequest]; result: ImportResult };
+  /** Forgets the values the last discovery of the repo holds in main (the import page closed). */
+  'secrets:forget': { args: [repoId: string]; result: void };
   /** The repo's secrets status for the manager's panel. */
   'secrets:status': { args: [repoId: string]; result: SecretsStatus };
   'secrets:setRepoDefault': {

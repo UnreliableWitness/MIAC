@@ -65,6 +65,10 @@ export function SecretsImportScreen({ repoId }: { repoId: string }) {
     });
     return () => {
       live = false;
+      // Main holds the found values for the import; the page closing (imported or not) drops them.
+      void api()
+        .invoke('secrets:forget', repoId)
+        .catch(() => undefined);
     };
   }, [repoId, notify]);
 
@@ -81,10 +85,18 @@ export function SecretsImportScreen({ repoId }: { repoId: string }) {
     r.unassigned.map((c) => ({ row: r, c })),
   );
 
-  const chosen = (row: ImportRow, env: Environment): string | undefined =>
-    choice[cellKey(row.name, env)] ?? row.cells[env].candidates[0]?.key;
+  /** The radio's pick, else the first value that is not the stored one. */
+  const chosen = (row: ImportRow, env: Environment): string | undefined => {
+    const all = row.cells[env].candidates;
+    return (
+      choice[cellKey(row.name, env)] ??
+      (all.find((c) => !c.matchesStored) ?? all[0])?.key
+    );
+  };
   const canLink = (row: ImportRow) =>
-    row.cells.test.state === 'missing' && pickable(row, 'development');
+    row.cells.test.state === 'missing' &&
+    !row.cells.test.stored &&
+    pickable(row, 'development');
 
   /** What Import sends: keys only, one per name and environment; an unassigned value dropped on a cell wins. */
   const picks: Pick[] = (() => {
@@ -160,7 +172,11 @@ export function SecretsImportScreen({ repoId }: { repoId: string }) {
           </button>
         );
       }
-      return <span className="import-missing">not found</span>;
+      return (
+        <span className="import-missing">
+          {c.stored ? 'kept' : 'not found'}
+        </span>
+      );
     }
     if (c.state === 'same')
       return (
@@ -196,6 +212,9 @@ export function SecretsImportScreen({ repoId }: { repoId: string }) {
               }
             />
             <code>{cand.mask}</code> <Source c={cand} />
+            {cand.matchesStored && (
+              <span className="secret-source">stored already</span>
+            )}
           </label>
         ))}
         {note}
