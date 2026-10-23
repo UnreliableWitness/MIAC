@@ -9,6 +9,7 @@ import {
 } from '../test-helpers/shell';
 import { LeakMatcher } from '../secrets/LeakMatcher';
 import {
+  mergeEnv,
   normaliseExitCode,
   type OutputFilter,
   schemeReport,
@@ -505,10 +506,32 @@ describe('TerminalManager output filter (leak watch)', () => {
       filtered: true,
       ...twoParts('typing sk_', '', 30),
     });
+    // A shell takes seconds to start on a Windows runner; the wait after its output is the 30 ms flush.
     await vi.waitFor(() => expect(m.buffer('f2')).toContain('typing sk_'), {
-      timeout: 3000,
+      timeout: 10_000,
     });
     expect(m.isRunning('f2')).toBe(true);
     m.kill('f2');
+  });
+});
+
+describe('mergeEnv', () => {
+  it('puts the given names over the process environment', () => {
+    expect(
+      mergeEnv({ A: '1', B: '2', U: undefined }, { B: '3' }, false),
+    ).toEqual({ A: '1', B: '3' });
+  });
+
+  it('keeps names that differ only in case apart where case counts', () => {
+    expect(mergeEnv({ Db: 'machine' }, { DB: 'secret' }, false)).toEqual({
+      Db: 'machine',
+      DB: 'secret',
+    });
+  });
+
+  it('on Windows replaces the inherited name in any case, so one value is left', () => {
+    expect(
+      mergeEnv({ Db: 'machine', Path: 'C:\\bin' }, { DB: 'secret' }, true),
+    ).toEqual({ DB: 'secret', Path: 'C:\\bin' });
   });
 });

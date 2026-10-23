@@ -76,6 +76,26 @@ export const normaliseExitCode = (code: unknown): number =>
   typeof code === 'number' && Number.isFinite(code) ? code : UNKNOWN_EXIT;
 
 /** One pty per terminal id. Exited terminals stay known (for restart and buffer) until killed. */
+/**
+ * The process environment with `over` on top. Windows reads names regardless of case, so there an `over` name
+ * replaces the inherited one in any case (`Path` for `PATH`, `DB` for `Db`): two spellings in one environment block
+ * would leave which value a program sees to the order of the block.
+ */
+export function mergeEnv(
+  base: Record<string, string | undefined>,
+  over: Record<string, string>,
+  ignoreCase: boolean,
+): Record<string, string> {
+  const env: Record<string, string> = {};
+  const lower = new Set(
+    ignoreCase ? Object.keys(over).map((k) => k.toLowerCase()) : [],
+  );
+  for (const [k, v] of Object.entries(base))
+    if (v !== undefined && !(ignoreCase && lower.has(k.toLowerCase())))
+      env[k] = v;
+  return Object.assign(env, over);
+}
+
 export class TerminalManager extends EventEmitter<{
   data: [id: string, data: string];
   exit: [id: string, exitCode: number];
@@ -103,10 +123,11 @@ export class TerminalManager extends EventEmitter<{
   spawn(options: SpawnOptions): void {
     if (this.entries.has(options.id))
       throw new Error(`Terminal ${options.id} already exists`);
-    const env: Record<string, string> = {};
-    for (const [k, v] of Object.entries(process.env))
-      if (v !== undefined) env[k] = v;
-    Object.assign(env, options.env ?? {});
+    const env = mergeEnv(
+      process.env,
+      options.env ?? {},
+      process.platform === 'win32',
+    );
     env.TERM = 'xterm-256color';
     // xterm.js draws 24-bit colour; without this, programs started from the Dock or Start menu (no COLORTERM in
     // the environment) fall back to 256 colours, which bends Claude Code's theme colours (as VS Code sets it).
