@@ -321,7 +321,9 @@ describe('handlers: repos', () => {
 
   it('repos:config gives a repo kept in Shellie only the base branch it was added with', async () => {
     const { h } = await harness();
-    const repo = await h['repos:add'](makeRepo('kept-in-shellie'), {
+    const dir = makeRepo('kept-in-shellie');
+    git(dir, 'branch', 'develop');
+    const repo = await h['repos:add'](dir, {
       baseBranch: 'develop',
     });
     const cfg = await h['repos:config'](repo.id);

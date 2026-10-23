@@ -1816,10 +1816,13 @@ export function createHandlers(s: Services): Handlers {
       return result;
     },
     'repos:config': async (repoId) => {
-      const repo = s.repos.get(repoId);
-      const config = await s.loadConfig(repo.path);
+      const config = await s.loadConfig(s.repos.get(repoId).path);
+      // A repo kept in Shellie only (no file) starts from the base branch it was added with when that still exists,
+      // else the detected default; refresh corrects the stored value.
+      const repo = config.found
+        ? s.repos.get(repoId)
+        : await s.repos.refresh(repoId);
       return {
-        // A repo kept in Shellie only (no file) starts from the base branch it was added with, not the built-in `main`.
         config: config.found ? config : { ...config, base: repo.baseBranch },
         worktreeRoot: worktreeRoot(repo.path),
       };
