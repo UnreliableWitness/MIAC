@@ -163,7 +163,7 @@ export class LedgerStore {
 
   markSent(recs: CostRecord[]): Promise<void> {
     return this.writeSent((s) => {
-      for (const r of recs) s[r.id] = this.hashes.get(r.id) ?? hashOf(r);
+      for (const r of recs) s[r.id] = hashOf(r);
     });
   }
 
