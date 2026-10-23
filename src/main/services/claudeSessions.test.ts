@@ -7,6 +7,7 @@ import {
   claudeProjectFolder,
   claudeProjectsDir,
   claudeSessionExists,
+  claudeSessionFile,
 } from './claudeSessions';
 
 describe('claudeSessionExists', () => {
@@ -19,6 +20,10 @@ describe('claudeSessionExists', () => {
     );
     expect(claudeSessionExists('abc', dir)).toBe(true);
     expect(claudeSessionExists('def', dir)).toBe(false);
+    expect(claudeSessionFile('abc', dir)).toBe(
+      path.join(dir, '-Users-d-src-webshop-worktrees-48231', 'abc.jsonl'),
+    );
+    expect(claudeSessionFile('def', dir)).toBeNull();
   });
 
   it('is false when Claude Code has no projects folder yet', () => {

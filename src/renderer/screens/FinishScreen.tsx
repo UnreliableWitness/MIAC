@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type {
   FinishChecks,
   FinishOptions,
@@ -14,6 +14,10 @@ import {
 import { gitAuthHintFromText, remoteHost } from '../../shared/gitAuth';
 import { api, tryInvoke } from '../api';
 import { GitAuthNotice } from '../components/GitAuthNotice';
+import {
+  PrDescriptionField,
+  type PrDraft,
+} from '../components/PrDescriptionField';
 import { eur, plural } from '../format';
 import { useTaskUsage } from '../hooks/useTaskUsage';
 import { useWriteCostToAdo } from '../hooks/useWriteCostToAdo';
@@ -74,6 +78,15 @@ const actionOf = (
   if (!on) return 'keep';
   return noChanges(c) ? 'drop' : c.pr.available ? 'pr' : 'push';
 };
+
+/**
+ * The PR descriptions written on the Finish page, per `<taskId>:<workspaceId>`, kept for the app session so leaving
+ * the page and coming back does not ask Claude Code again (Write again does).
+ */
+const prDrafts = new Map<string, PrDraft>();
+export function clearPrDrafts(): void {
+  prDrafts.clear();
+}
 
 const G = {
   WARN: String.fromCharCode(0x26a0),
@@ -152,6 +165,89 @@ export function FinishScreen({ taskId }: { taskId: string }) {
   // Untouched (null) defaults to on, except when no usage was captured.
   const [syncChoice, setSyncUsage] = useState<boolean | null>(null);
   const syncUsage = syncChoice ?? !(usage && usage.sessions.length === 0);
+
+  // The workspaces Finish would open a PR for: each gets a "what changed and why" (#111).
+  const multiTask = task
+    ? activeWorkspaces(task).length > 1 || task.homeDropped
+    : false;
+  const prWorkspaces =
+    !task || !ready
+      ? []
+      : multiTask
+        ? (checks?.workspaces ?? [])
+            .filter((c) => actionOf(c, rowChoice, task.branch) === 'pr')
+            .map((c) => c.workspaceId)
+        : pr?.available && prChoice
+          ? [HOME_ID]
+          : [];
+  const [drafts, setDrafts] = useState<Record<string, PrDraft>>(() =>
+    Object.fromEntries(
+      [...prDrafts]
+        .filter(([k]) => k.startsWith(`${taskId}:`))
+        .map(([k, d]) => [k.slice(taskId.length + 1), d]),
+    ),
+  );
+  // A newer request (Write again) or Skip makes an older answer stale.
+  const draftRuns = useRef(new Map<string, number>());
+  const setDraft = (workspaceId: string, d: PrDraft) => {
+    prDrafts.set(`${taskId}:${workspaceId}`, d);
+    setDrafts((all) => ({ ...all, [workspaceId]: d }));
+  };
+  const writeDraft = (workspaceId: string) => {
+    const run = (draftRuns.current.get(workspaceId) ?? 0) + 1;
+    draftRuns.current.set(workspaceId, run);
+    setDraft(workspaceId, { status: 'writing', text: '', error: null });
+    void api()
+      .invoke('tasks:prSummary', taskId, workspaceId)
+      .catch((e: unknown) => ({
+        text: null,
+        error: e instanceof Error ? e.message : 'unknown error',
+      }))
+      .then((r) => {
+        if (draftRuns.current.get(workspaceId) !== run) return;
+        setDraft(
+          workspaceId,
+          r.text
+            ? { status: 'ready', text: r.text, error: null }
+            : { status: 'failed', text: '', error: r.error },
+        );
+      });
+  };
+  const skipDraft = (workspaceId: string) => {
+    draftRuns.current.set(
+      workspaceId,
+      (draftRuns.current.get(workspaceId) ?? 0) + 1,
+    );
+    setDraft(workspaceId, { status: 'skipped', text: '', error: null });
+  };
+  const prWorkspacesKey = prWorkspaces.join('|');
+  useEffect(() => {
+    for (const id of prWorkspaces)
+      if (!prDrafts.has(`${taskId}:${id}`)) writeDraft(id);
+    // Runs when the set of PR workspaces changes; writeDraft only closes over taskId.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prWorkspacesKey, taskId]);
+  const draftWriting = prWorkspaces.some(
+    (id) => drafts[id]?.status === 'writing',
+  );
+  const prSummaries = Object.fromEntries(
+    prWorkspaces
+      .map((id) => [id, drafts[id]?.text.trim() ?? ''] as const)
+      .filter(([, text]) => text.length > 0),
+  );
+  const prField = (workspaceId: string) => {
+    const d = drafts[workspaceId];
+    if (!d) return null;
+    return (
+      <PrDescriptionField
+        draft={d}
+        costLine={writeCost === true}
+        onChange={(text) => setDraft(workspaceId, { ...d, text })}
+        onRewrite={() => writeDraft(workspaceId)}
+        onSkip={() => skipDraft(workspaceId)}
+      />
+    );
+  };
 
   const loadChecks = async (isLive: () => boolean) => {
     const c = await tryInvoke(async () => {
@@ -268,6 +364,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
           deleteBranch,
           syncUsage: canSync && syncUsage,
           ...options,
+          ...(Object.keys(prSummaries).length > 0 ? { prSummaries } : {}),
           ...(!withoutTime && time && bookValue !== null
             ? { bookedSeconds: bookValue }
             : {}),
@@ -317,7 +414,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
 
   // A task with other repos finishes per workspace; a single-repo task keeps the page as it was. Repos dropped at
   // an earlier Finish do not count, but a dropped home does: the single-repo path works on the home.
-  const multi = activeWorkspaces(task).length > 1 || task.homeDropped;
+  const multi = multiTask;
   // The single-repo push error reaches the page as text; the repo's connection is the one whose token git used.
   const singleConnectionId =
     repos.find((r) => r.id === task.repoId)?.connectionId ?? null;
@@ -502,6 +599,11 @@ export function FinishScreen({ taskId }: { taskId: string }) {
                 onToggle={(on) => setRow(c.workspaceId, on)}
                 openGit={openGit}
                 result={results?.find((r) => r.workspaceId === c.workspaceId)}
+                prField={
+                  actionOf(c, rowChoice, taskBranch) === 'pr'
+                    ? prField(c.workspaceId)
+                    : null
+                }
                 busy={busy}
                 onRemove={
                   c.workspaceId === HOME_ID
@@ -705,6 +807,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
               )}
             </label>
           )}
+          {!multi && createPr && prField(HOME_ID)}
           <label className="checkbox">
             <input
               type="checkbox"
@@ -805,6 +908,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
               busy ||
               (!multi && !prLoaded) ||
               timeBlocks ||
+              draftWriting ||
               (!checks && !checksFailed)
             }
             onClick={() => (multi ? void finishRows(rowChoice) : void finish())}
@@ -855,6 +959,7 @@ function WorkspaceRow({
   busy,
   onRemove,
   otherBranch,
+  prField,
 }: {
   check: WorkspaceCheck;
   on: boolean;
@@ -868,6 +973,8 @@ function WorkspaceRow({
   busy: boolean;
   /** Absent for the home workspace, which stays in the task. */
   onRemove?: () => void;
+  /** The PR's description field, when Finish opens a PR for this repo. */
+  prField?: ReactNode;
 }) {
   const done = result?.ok
     ? result.pullRequest
@@ -989,6 +1096,7 @@ function WorkspaceRow({
           {!noChanges(c) && !c.pr.available && c.pr.reason && (
             <div className="muted small">{`No pull request: ${c.pr.reason}`}</div>
           )}
+          {prField}
           {!noChanges(c) && c.pr.available && !c.pr.linksWorkItem && (
             <div className="muted small">
               This repo is in another organization: the PR names the work item

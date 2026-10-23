@@ -225,6 +225,8 @@ export type FinishOptions = {
   workspaces?: { workspaceId: string; action: WorkspaceAction }[];
   /** The time to book on the task (seconds); absent books nothing. */
   bookedSeconds?: number;
+  /** Per workspace id (`home` for a single repo): the "what changed and why" the new PR's description starts with. */
+  prSummaries?: Record<string, string>;
 };
 
 export type GitFile = { status: string; path: string };

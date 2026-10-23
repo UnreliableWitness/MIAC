@@ -405,6 +405,32 @@
   max-height: 160px;
   overflow: auto;
 }
+/* The PR description: what changed and why (issue 111). */
+.pr-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-left: 24px;
+}
+.pr-summary-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.pr-summary textarea {
+  width: 100%;
+  height: auto;
+  min-height: 120px;
+  padding: 6px 8px;
+  font-family: var(--font-code);
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
+}
+.pr-summary textarea:disabled {
+  color: var(--muted);
+}
 .amount-line {
   font-size: 16px;
   font-weight: 600;

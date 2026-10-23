@@ -15,7 +15,7 @@ import type {
 import { readPrChoice, readPushChoice, writePrChoice } from '../uiPrefs';
 import { CHANGES_TAB, useStore } from '../store';
 import { emptyTime, emptyUsage, installFakeApi } from '../test-helpers/fakeApi';
-import { FinishScreen } from './FinishScreen';
+import { clearPrDrafts, FinishScreen } from './FinishScreen';
 
 const task: TaskView = {
   id: 'a',
@@ -80,6 +80,7 @@ const clean = {
 
 beforeEach(() => {
   localStorage.clear();
+  clearPrDrafts();
   useStore.setState({
     repos: [],
     tasks: [task],
@@ -634,6 +635,99 @@ describe('FinishScreen pull request', () => {
   });
 });
 
+describe('FinishScreen pull request description', () => {
+  const available = {
+    'tasks:prAvailability': () => ({
+      available: true,
+      reason: null,
+      target: 'main',
+    }),
+  };
+  const finishArgs = (calls: { channel: string; args: unknown[] }[]) =>
+    calls.filter((c) => c.channel === 'tasks:finish').map((c) => c.args[1]);
+
+  it('writes the description once the PR is ticked, lets the user edit it and sends it', async () => {
+    const { calls } = installFakeApi({
+      ...available,
+      'tasks:finishChecks': () => clean,
+      'tasks:finish': () => undefined,
+      'tasks:prSummary': () => ({
+        text: '## What changed\n- Dates',
+        error: null,
+      }),
+    });
+    render(<FinishScreen taskId="a" />);
+    // Not asked for while no PR is wanted.
+    expect(screen.queryByLabelText('Pull request description')).toBeNull();
+    await userEvent.click(
+      await screen.findByLabelText('Create a draft pull request into main'),
+    );
+    const box = await screen.findByLabelText('Pull request description');
+    await waitFor(() => expect(box).toHaveValue('## What changed\n- Dates'));
+    expect(
+      calls.filter((c) => c.channel === 'tasks:prSummary').map((c) => c.args),
+    ).toEqual([['a', 'home']]);
+    await userEvent.type(box, '\n- Edited');
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Finish and clean up' }),
+    );
+    await waitFor(() => expect(finishArgs(calls)).toHaveLength(1));
+    expect(finishArgs(calls)[0]).toMatchObject({
+      createPullRequest: true,
+      prSummaries: { home: '## What changed\n- Dates\n- Edited' },
+    });
+  });
+
+  it('holds Finish while Claude Code writes, and Skip lets the user go on without it', async () => {
+    writePrChoice('r1', true);
+    const { calls } = installFakeApi({
+      ...available,
+      'tasks:finishChecks': () => clean,
+      'tasks:finish': () => undefined,
+      'tasks:prSummary': () => new Promise(() => {}),
+    });
+    render(<FinishScreen taskId="a" />);
+    expect(
+      await screen.findByText(/Claude Code is writing it/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Finish and clean up' }),
+    ).toBeDisabled();
+    await userEvent.click(screen.getByRole('button', { name: 'Skip' }));
+    const finish = screen.getByRole('button', { name: 'Finish and clean up' });
+    await waitFor(() => expect(finish).toBeEnabled());
+    await userEvent.click(finish);
+    await waitFor(() => expect(finishArgs(calls)).toHaveLength(1));
+    expect(finishArgs(calls)[0]).not.toHaveProperty('prSummaries');
+  });
+
+  it('says why it could not write one and offers to try again', async () => {
+    writePrChoice('r1', true);
+    let n = 0;
+    const { calls } = installFakeApi({
+      ...available,
+      'tasks:finishChecks': () => clean,
+      'tasks:prSummary': () =>
+        n++ === 0
+          ? { text: null, error: 'Claude Code (claude) was not found' }
+          : { text: 'Second try', error: null },
+    });
+    render(<FinishScreen taskId="a" />);
+    expect(
+      await screen.findByText(/Claude Code \(claude\) was not found/),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Write again' }));
+    await waitFor(() =>
+      expect(screen.getByLabelText('Pull request description')).toHaveValue(
+        'Second try',
+      ),
+    );
+    expect(calls.filter((c) => c.channel === 'tasks:prSummary')).toHaveLength(
+      2,
+    );
+  });
+});
+
 describe('FinishScreen push that cannot sign in', () => {
   const connection = {
     id: 'c1',
@@ -1168,6 +1262,30 @@ describe('FinishScreen with several repos', () => {
 
   beforeEach(() => {
     useStore.setState({ tasks: [multi] });
+  });
+
+  it('writes a description per repo that gets a PR and sends each under its workspace', async () => {
+    writePrChoice('r2', true);
+    const { calls } = installFakeApi({
+      'tasks:finishChecks': () => checks(),
+      'tasks:finish': () => undefined,
+      'tasks:prSummary': (_t, ws) => ({ text: `About ${ws}`, error: null }),
+    });
+    render(<FinishScreen taskId="a" />);
+    await screen.findByRole('group', { name: 'api' });
+    const box = await within(group('api')).findByLabelText(
+      'Pull request description',
+    );
+    await waitFor(() => expect(box).toHaveValue('About w2'));
+    // Only the repo with a PR gets one.
+    expect(screen.getAllByLabelText('Pull request description')).toHaveLength(
+      1,
+    );
+    await userEvent.click(screen.getByRole('button', { name: /clean up/ }));
+    await waitFor(() => expect(finishArgs(calls)).toHaveLength(1));
+    expect(finishArgs(calls)[0]).toMatchObject({
+      prSummaries: { w2: 'About w2' },
+    });
   });
 
   it("keeps a repo that is not on the task's branch as is: no remove, a push or PR only when ticked", async () => {

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Events, Handlers, PendingUpdate } from '../../shared/ipc';
 import { claudeContext, renderTaskMd, taskSlug } from '../../shared/naming';
@@ -7,6 +8,7 @@ import {
   claudeHasSessionsIn,
   claudeProjectsDir,
   claudeSessionExists,
+  claudeSessionFile,
 } from '../services/claudeSessions';
 import { WorkspaceDetector } from '../workspaces/WorkspaceDetector';
 import type {
@@ -102,6 +104,17 @@ import type { SettingsStore } from '../usage/SettingsStore';
 import { NoopTelemetry, type Telemetry } from '../telemetry/AppInsightsClient';
 import { changedKeys } from '../telemetry/helpers';
 import { telemetryEnv } from '../usage/telemetryEnv';
+import {
+  claudeResult,
+  PR_STYLE_FILE,
+  PR_SUMMARY_ENV,
+  PR_SUMMARY_TIMEOUT_MS,
+  prSummaryFlags,
+  prSummaryPrompt,
+  runWithInput,
+  tidySummary,
+  userRequests,
+} from '../services/prSummary';
 import type { UsageReceiver } from '../usage/UsageReceiver';
 import type { UsageStore } from '../usage/UsageStore';
 import { UsageSync } from '../usage/UsageSync';
@@ -187,6 +200,18 @@ export type Services = {
   rememberSensitive?: (values: string[]) => void;
   /** Whether Claude Code saved a session with this id (default: looks in ~/.claude/projects). */
   claudeSessionExists?: (sessionId: string) => boolean;
+  /** Where Claude Code saved a session id's transcript (default: looks in ~/.claude/projects). */
+  claudeSessionFile?: (sessionId: string) => string | null;
+  /** Runs a command with stdin and a time limit (default: runWithInput); tests stub Claude Code's print mode. */
+  runAgent?: (
+    cmd: Command,
+    o: {
+      cwd: string;
+      input: string;
+      timeoutMs: number;
+      env?: Record<string, string>;
+    },
+  ) => Promise<string>;
   /** Whether Claude Code saved any session for this folder (default: looks in ~/.claude/projects). */
   claudeHasSessionsIn?: (cwd: string) => boolean;
   /** Finds and joins other repos' worktrees of a task; handlers build one from these services when absent (tests). */
@@ -1165,6 +1190,22 @@ export function createHandlers(s: Services): Handlers {
     });
 
   /** What a workspace's branch did since its base; a summary must never block Finish, so a failure is null. */
+  /** What the developer typed in the task's Claude Code sessions, oldest session first (#111). */
+  const taskRequests = async (task: Task): Promise<string[]> => {
+    const ids = [...task.closedTerminals, ...task.terminals]
+      .filter((t) => t.kind === 'claude' && t.sessionId)
+      .map((t) => t.sessionId!);
+    const out: string[] = [];
+    for (const id of new Set(ids)) {
+      const file = (s.claudeSessionFile ?? ((x) => claudeSessionFile(x)))(id);
+      if (!file) continue;
+      const text = await fs.readFile(file, 'utf8').catch(() => '');
+      for (const r of userRequests(text.split('\n')))
+        if (!out.includes(r)) out.push(r);
+    }
+    return out;
+  };
+
   const summaryOf = (
     w: Pick<WorkspaceView, 'worktreePath' | 'baseRef' | 'baseSha' | 'branch'>,
   ) =>
@@ -1265,6 +1306,8 @@ export function createHandlers(s: Services): Handlers {
     w: WorkspaceView,
     summary: TaskSummary | null,
     costScope: { repos: number } | undefined,
+    /** The "what changed and why" from the Finish page, put above the commits. */
+    prSummary?: string,
   ): Promise<{
     ref: PullRequestRef;
     existed: boolean;
@@ -1300,6 +1343,7 @@ export function createHandlers(s: Services): Handlers {
           costLine: costLineFor(task.id),
           costScope,
           workItemUrl: c.linksWorkItem ? null : (task.workItem?.url ?? null),
+          summary: prSummary,
         }),
         workItemId:
           task.workItem && c.linksWorkItem ? Number(task.workItem.id) : null,
@@ -1546,6 +1590,7 @@ export function createHandlers(s: Services): Handlers {
                   r.w,
                   r.summary,
                   costScope,
+                  options.prSummaries?.[r.w.id],
                 );
                 r.summary = pr.summary;
                 await patchWorkspace(taskId, r.w.id, { pullRequest: pr.ref });
@@ -1909,6 +1954,71 @@ export function createHandlers(s: Services): Handlers {
       };
     },
     'tasks:finishResults': async (taskId) => finishResults.get(taskId) ?? null,
+    'tasks:prSummary': async (taskId, workspaceId) => {
+      const task = taskById(taskId);
+      const w = workspaceById(task, workspaceId);
+      const started = Date.now();
+      let style: string | null = null;
+      const failed = (error: string, reason: string) => {
+        tel.event(
+          'pr.summary',
+          { ok: false, reason, style: style !== null },
+          { ms: Date.now() - started },
+        );
+        return { text: null, error };
+      };
+      try {
+        const changes = await s.git.branchChanges(w.worktreePath, w);
+        if (!changes)
+          return failed('Where the branch started is unknown', 'no-base');
+        style = await fs
+          .readFile(path.join(w.worktreePath, PR_STYLE_FILE), 'utf8')
+          .catch(() => null);
+        const prompt = prSummaryPrompt({
+          heading: task.workItem
+            ? `${task.workItem.type} ${task.workItem.id}: ${task.workItem.title}`
+            : task.name,
+          ...changes,
+          requests: await taskRequests(task),
+          style,
+        });
+        const out = await (s.runAgent ?? runWithInput)(
+          s.platform.claudeCommand(null, prSummaryFlags()),
+          {
+            cwd: w.worktreePath,
+            input: prompt,
+            timeoutMs: PR_SUMMARY_TIMEOUT_MS,
+            // The run's cost is the task's, like its Claude Code tabs.
+            env: {
+              ...telemetryEnv(
+                task.id,
+                s.settings.get().receiverPort,
+                s.usageDir,
+              ),
+              ...PR_SUMMARY_ENV,
+            },
+          },
+        );
+        const text = tidySummary(claudeResult(out));
+        if (!text) return failed('Claude Code wrote nothing', 'empty');
+        tel.event(
+          'pr.summary',
+          { ok: true, style: style !== null },
+          { ms: Date.now() - started, chars: text.length },
+        );
+        return { text, error: null };
+      } catch (e) {
+        const error = errorMessage(e);
+        return failed(
+          error,
+          /not found/.test(error)
+            ? 'no-agent'
+            : /timed out/.test(error)
+              ? 'timeout'
+              : 'failed',
+        );
+      }
+    },
     'tasks:reopen': async (taskId) => {
       claim(taskId, ['done'], 'reopen');
       let setup = false;
@@ -2042,6 +2152,7 @@ export function createHandlers(s: Services): Handlers {
                   commits: summary?.commits ?? [],
                   commitCount: summary?.commitCount ?? 0,
                   costLine: costLineFor(taskId),
+                  summary: options.prSummaries?.[HOME_ID],
                 }),
                 workItemId: task.workItem ? Number(task.workItem.id) : null,
               }));

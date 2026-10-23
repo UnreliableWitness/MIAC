@@ -129,6 +129,11 @@ export type PrDescriptionInput = {
   costScope?: { repos: number };
   /** Named in the description when the PR cannot link the work item (another organization). */
   workItemUrl?: string | null;
+  /**
+   * What changed and why, in Markdown (written at Finish, #111). Goes between the heading and the commits; the
+   * commit list is shortened first to stay under the limit, then this text is cut.
+   */
+  summary?: string | null;
 };
 
 export function prDescription(input: PrDescriptionInput): string {
@@ -141,10 +146,12 @@ export function prDescription(input: PrDescriptionInput): string {
   const footer = costLine
     ? `${costLine} · recorded by Shellie`
     : 'Recorded by Shellie';
-  const head = input.workItemUrl
+  const top = input.workItemUrl
     ? `${input.heading}\n\nWork item: ${input.workItemUrl}`
     : input.heading;
-  const build = (n: number): string => {
+  const summary = input.summary?.trim() ?? '';
+  const build = (n: number, text: string): string => {
+    const head = text ? `${top}\n\n${text}` : top;
     if (input.commits.length === 0 && input.commitCount === 0)
       return `${head}\n\n${footer}`;
     const lines = input.commits
@@ -155,8 +162,13 @@ export function prDescription(input: PrDescriptionInput): string {
     return `${head}\n\n## Commits\n${lines.join('\n')}\n\n${footer}`;
   };
   for (let n = input.commits.length; n >= 0; n--) {
-    const text = build(n);
+    const text = build(n, summary);
     if (text.length <= PR_DESCRIPTION_MAX) return text;
   }
-  return `${head}\n\n${footer}`.slice(0, PR_DESCRIPTION_MAX);
+  if (summary) {
+    // Even without any commit listed the summary is too long: cut it to what is left.
+    const room = PR_DESCRIPTION_MAX - build(0, '…').length;
+    if (room > 0) return build(0, `${summary.slice(0, room).trimEnd()}…`);
+  }
+  return `${top}\n\n${footer}`.slice(0, PR_DESCRIPTION_MAX);
 }

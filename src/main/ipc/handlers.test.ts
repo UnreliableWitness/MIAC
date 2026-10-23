@@ -3437,8 +3437,9 @@ describe('handlers: finish with a pull request', () => {
   async function prHarness(
     remote = 'https://dev.azure.com/contoso/P/_git/R',
     over: Partial<CreateTaskInput> = {},
+    services: Partial<Services> = {},
   ) {
-    const hx = await harness();
+    const hx = await harness(fakeCrypto(), services);
     const bare = addOrigin(hx.repo);
     const c = await hx.connections.save({
       organizationUrl: 'https://dev.azure.com/contoso',
@@ -3542,6 +3543,132 @@ describe('handlers: finish with a pull request', () => {
     const description = hx.create.mock.calls[0][2].description;
     expect(description).toContain('Add the feature');
     expect(description).not.toContain('AI cost');
+  });
+
+  it('puts the written summary in the PR description above the commits', async () => {
+    const hx = await prHarness();
+    commitFile(hx.t.worktreePath, 'feature.txt', 'a\n', 'Add the feature');
+    await hx.h['tasks:finish'](hx.t.id, {
+      ...finishWithPr,
+      prSummaries: { home: '## What changed\n- The feature\n\n## Why\nAsked.' },
+    });
+    const description: string = hx.create.mock.calls[0][2].description;
+    expect(description).toMatch(
+      /^User Story 48231: Show estimated delivery date\n\n## What changed\n- The feature\n\n## Why\nAsked\.\n\n## Commits\n- [0-9a-f]+ Add the feature/,
+    );
+  });
+
+  describe('tasks:prSummary', () => {
+    const result = (text: string) =>
+      JSON.stringify({
+        type: 'result',
+        subtype: 'success',
+        is_error: false,
+        result: text,
+      });
+
+    it("asks Claude Code with the branch, the work item and the developer's requests", async () => {
+      const events: [string, unknown, unknown][] = [];
+      const hx = await prHarness(undefined, undefined, {
+        telemetry: {
+          ...NoopTelemetry,
+          event: (name, props, m) => events.push([name, props, m]),
+        },
+      });
+      commitFile(hx.t.worktreePath, 'feature.txt', 'a\n', 'Add the feature');
+      const sessions = mkdtempSync(path.join(os.tmpdir(), 'shellie-sess-'));
+      const log = path.join(sessions, 'abc.jsonl');
+      writeFileSync(
+        log,
+        `${JSON.stringify({ type: 'user', message: { content: 'Show the delivery date on the PDP' } })}\n`,
+      );
+      hx.services.claudeSessionFile = (id) => (id === 'abc' ? log : null);
+      await hx.store.update((st) => {
+        st.tasks[0].terminals.push({
+          id: 'c1',
+          kind: 'claude',
+          label: 'Claude Code',
+          sessionId: 'abc',
+        });
+      });
+      const calls: {
+        args: string[];
+        cwd: string;
+        input: string;
+        env?: Record<string, string>;
+      }[] = [];
+      hx.services.runAgent = async (cmd, o) => {
+        calls.push({ args: cmd.args, cwd: o.cwd, input: o.input, env: o.env });
+        return result('```markdown\n## What changed\n- Dates\n```');
+      };
+      const r = await hx.h['tasks:prSummary'](hx.t.id);
+      expect(r).toEqual({ text: '## What changed\n- Dates', error: null });
+      expect(calls).toHaveLength(1);
+      expect(calls[0].cwd).toBe(hx.t.worktreePath);
+      expect(calls[0].args.join(' ')).toContain('-p');
+      expect(calls[0].input).toContain(
+        'User Story 48231: Show estimated delivery date',
+      );
+      expect(calls[0].input).toContain('Show the delivery date on the PDP');
+      expect(calls[0].input).toContain('Add the feature');
+      expect(calls[0].input).toContain('+a');
+      // The run's usage counts for the task.
+      expect(calls[0].env?.OTEL_RESOURCE_ATTRIBUTES).toBe(
+        `shellie.task.id=${hx.t.id}`,
+      );
+      expect(calls[0].env?.CLAUDE_CODE_DISABLE_CLAUDE_MDS).toBe('1');
+      expect(events).toContainEqual([
+        'pr.summary',
+        { ok: true, style: false },
+        expect.objectContaining({ chars: 23 }),
+      ]);
+    });
+
+    it("adds the repo's style file to the prompt", async () => {
+      const hx = await prHarness();
+      commitFile(
+        hx.t.worktreePath,
+        '.shellie-pr.md',
+        'Always end with a Testing section.\n',
+        'Add the style',
+      );
+      let input = '';
+      hx.services.runAgent = async (_cmd, o) => {
+        input = o.input;
+        return result('ok');
+      };
+      await hx.h['tasks:prSummary'](hx.t.id);
+      expect(input).toContain('Always end with a Testing section.');
+    });
+
+    it('gives the reason, never throws, when Claude Code fails', async () => {
+      const events: [string, unknown][] = [];
+      const hx = await prHarness(undefined, undefined, {
+        telemetry: {
+          ...NoopTelemetry,
+          event: (name, props) => events.push([name, props]),
+        },
+      });
+      commitFile(hx.t.worktreePath, 'feature.txt', 'a\n', 'Add the feature');
+      hx.services.runAgent = async () => {
+        throw new Error('Claude Code (claude) was not found');
+      };
+      expect(await hx.h['tasks:prSummary'](hx.t.id)).toEqual({
+        text: null,
+        error: 'Claude Code (claude) was not found',
+      });
+      hx.services.runAgent = async () => {
+        throw new Error('timed out after 120 s');
+      };
+      await hx.h['tasks:prSummary'](hx.t.id);
+      hx.services.runAgent = async () => result('   ');
+      expect((await hx.h['tasks:prSummary'](hx.t.id)).text).toBeNull();
+      expect(events.filter((e) => e[0] === 'pr.summary')).toEqual([
+        ['pr.summary', { ok: false, reason: 'no-agent', style: false }],
+        ['pr.summary', { ok: false, reason: 'timeout', style: false }],
+        ['pr.summary', { ok: false, reason: 'empty', style: false }],
+      ]);
+    });
   });
 
   it('records the branch as pushed in the Done summary, since the PR pushed it', async () => {
@@ -4041,6 +4168,7 @@ describe('handlers: finish every workspace of a task', () => {
         { workspaceId: 'home', action: 'drop' },
         { workspaceId: hx.ids[0], action: 'pr' },
       ],
+      prSummaries: { [hx.ids[0]]: '## Why\nThe API needed it.' },
     });
     expect(hx.push.mock.calls.map((c) => c[0])).toEqual([hx.repos[0].wt]);
     const task = hx.store.state.tasks[0];
@@ -4064,6 +4192,10 @@ describe('handlers: finish every workspace of a task', () => {
     expect(
       (hx.created[0].args as { description: string }).description,
     ).toContain('AI cost for this task: ');
+    // The row's own summary heads its PR.
+    expect(
+      (hx.created[0].args as { description: string }).description,
+    ).toContain('\n\n## Why\nThe API needed it.\n\n## Commits\n');
     expect(ws(hx, hx.ids[0]).pullRequest).toMatchObject({
       id: 100,
       repo: 'api',

@@ -294,6 +294,14 @@ export type Channels = {
   };
   'tasks:finishChecks': { args: [taskId: string]; result: FinishChecks };
   /** Each row's outcome of the last Finish with workspaces (null before one ran); read after a failed Finish. */
+  /**
+   * Writes the "what changed and why" of the workspace's PR with Claude Code (#111); `text` is null, with the reason
+   * in `error`, when it could not.
+   */
+  'tasks:prSummary': {
+    args: [taskId: string, workspaceId?: string];
+    result: { text: string | null; error: string | null };
+  };
   'tasks:finishResults': {
     args: [taskId: string];
     result: FinishRowResult[] | null;
