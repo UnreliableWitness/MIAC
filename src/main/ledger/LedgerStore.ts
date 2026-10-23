@@ -29,6 +29,8 @@ const hashOf = (r: CostRecord): string =>
  */
 export class LedgerStore {
   private readonly byId = new Map<string, CostRecord>();
+  /** Hash of each record's current version, kept so dirty() only compares strings. */
+  private readonly hashes = new Map<string, string>();
   private sent: Record<string, string> = {};
   private queue: Promise<unknown> = Promise.resolve();
 
@@ -51,6 +53,7 @@ export class LedgerStore {
 
   async load(): Promise<void> {
     this.byId.clear();
+    this.hashes.clear();
     let files: string[] = [];
     try {
       files = (await fs.readdir(this.dir))
@@ -60,9 +63,8 @@ export class LedgerStore {
       if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
     }
     for (const f of files) {
-      const lines = (await fs.readFile(path.join(this.dir, f), 'utf8'))
-        .split('\n')
-        .filter((l) => l.trim());
+      const text = await fs.readFile(path.join(this.dir, f), 'utf8');
+      const lines = text.split('\n').filter((l) => l.trim());
       const live = new Map<string, CostRecord>();
       for (const line of lines) {
         try {
@@ -75,11 +77,14 @@ export class LedgerStore {
           // A torn or damaged line is skipped; the rest of the file still loads.
         }
       }
-      if (lines.length - live.size > live.size) {
+      // A last line without its newline is a torn write: rewrite so the next append starts clean.
+      const torn = text.length > 0 && !text.endsWith('\n');
+      if (torn || lines.length - live.size > live.size) {
         const month = f.slice('records-'.length, -'.jsonl'.length);
         await this.serial(() => this.rewrite(month, [...live.values()]));
       }
     }
+    for (const r of this.byId.values()) this.hashes.set(r.id, hashOf(r));
     try {
       const raw = JSON.parse(
         await fs.readFile(this.sentFile, 'utf8'),
@@ -130,7 +135,10 @@ export class LedgerStore {
       await fs.mkdir(this.dir, { recursive: true });
       for (const [m, text] of byMonth)
         await fs.appendFile(this.file(m), text, 'utf8');
-      for (const r of changed.values()) this.byId.set(r.id, r);
+      for (const r of changed.values()) {
+        this.byId.set(r.id, r);
+        this.hashes.set(r.id, hashOf(r));
+      }
       return [...changed.keys()];
     });
   }
@@ -138,7 +146,7 @@ export class LedgerStore {
   /** Records whose current version the server has not accepted, oldest first. */
   dirty(limit: number): CostRecord[] {
     return this.all()
-      .filter((r) => this.sent[r.id] !== hashOf(r))
+      .filter((r) => this.sent[r.id] !== this.hashes.get(r.id))
       .sort((a, b) =>
         a.at < b.at
           ? -1
@@ -155,7 +163,7 @@ export class LedgerStore {
 
   markSent(recs: CostRecord[]): Promise<void> {
     return this.writeSent((s) => {
-      for (const r of recs) s[r.id] = hashOf(r);
+      for (const r of recs) s[r.id] = this.hashes.get(r.id) ?? hashOf(r);
     });
   }
 

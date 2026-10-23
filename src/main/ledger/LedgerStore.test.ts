@@ -129,4 +129,45 @@ describe('LedgerStore', () => {
         .sort(),
     ).toEqual(['cc:a', 'cc:b']);
   });
+
+  it('leaves nothing dirty after a no-op re-upsert following markSent', async () => {
+    const s = new LedgerStore(dir);
+    await s.load();
+    const a = rec('cc:a');
+    await s.upsert([a]);
+    await s.markSent([a]);
+    expect(await s.upsert([rec('cc:a')])).toEqual([]);
+    expect(s.dirty(500)).toEqual([]);
+  });
+
+  it('keeps everything dirty after resetSent and a reload', async () => {
+    const s = new LedgerStore(dir);
+    await s.load();
+    const a = rec('cc:a');
+    await s.upsert([a]);
+    await s.markSent([a]);
+    await s.resetSent();
+    const s2 = new LedgerStore(dir);
+    await s2.load();
+    expect(s2.dirty(500).map((r) => r.id)).toEqual(['cc:a']);
+  });
+
+  it('repairs a month file that ends in a partial line before the next append', async () => {
+    const file = path.join(dir, 'records-2026-10.jsonl');
+    await fs.writeFile(
+      file,
+      `${JSON.stringify(rec('cc:a'))}\n{"id":"cc:torn","at":"2026-1`,
+    );
+    const s = new LedgerStore(dir);
+    await s.load();
+    await s.upsert([rec('cc:b')]);
+    const s2 = new LedgerStore(dir);
+    await s2.load();
+    expect(
+      s2
+        .all()
+        .map((r) => r.id)
+        .sort(),
+    ).toEqual(['cc:a', 'cc:b']);
+  });
 });
