@@ -66,7 +66,7 @@ export type RunBackend = {
     attach: (terminalId: string) => boolean,
   ): Promise<void>;
   kill(terminalId: string): void;
-  /** Leak watch's filter, the same as agent tabs' output goes through. */
+  /** Leak watch's masking for what the agent gets back (no notice, no pause: it never sees a value). */
   filter: Filter;
   /** The runs waiting for an approve changed (`runs:pending`). */
   pending(list: PendingRun[]): void;

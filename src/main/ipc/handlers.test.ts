@@ -5979,6 +5979,23 @@ describe('handlers: environment per task', () => {
     });
   });
 
+  it('Restart of a tab that holds secrets builds its env again, so an edited value applies', async () => {
+    const e = await envScenario();
+    const db = e.hx.services.secrets
+      .list({ repoId: e.hx.added.id })
+      .find((v) => v.name === 'DB')!;
+    await e.hx.h['secrets:save']({
+      id: db.id,
+      scope: db.scope,
+      name: 'DB',
+      givenTo: db.givenTo,
+      values: { development: { value: 'dev-db-edited' } },
+    });
+    await e.hx.h['terminals:restart'](e.dev.id);
+    expect(e.envOf(e.dev.id).DB).toBe('dev-db-edited');
+    await e.hx.terminals.killAllForTask(e.task.id);
+  });
+
   it('refuses UAT and Production without a confirm and changes nothing', async () => {
     const e = await envScenario();
     for (const env of ['uat', 'production'] as const) {
@@ -6778,14 +6795,9 @@ describe('handlers: shellie run', () => {
     expect(tab).toMatchObject({ kind: 'run' });
     // The tab itself is the developer's: it shows what ran.
     expect(hx.terminals.buffer(tab.id)).toContain(`db=${DB_VALUE}`);
-    // The agent tab that asked is told a value showed up.
-    expect(
-      hx.broadcasts.some(
-        (b) =>
-          b.event === 'terminal:leak' &&
-          (b.payload as { id: string }).id === hx.claude().id,
-      ),
-    ).toBe(true);
+    // The agent got [DB], never the value: no "the model read it" notice on the tab that asked, nor on the run tab.
+    expect(hx.broadcasts.some((b) => b.event === 'terminal:leak')).toBe(false);
+    expect(await hx.h['terminals:leak'](hx.claude().id)).toBeNull();
     expect(JSON.stringify(hx.broadcasts)).not.toContain(DB_VALUE);
     // A second run reuses the tab.
     expect(await hx.run('show').code).toBe(0);
@@ -6863,6 +6875,8 @@ describe('handlers: shellie run', () => {
     expect(await ok.code).toBe(0);
     expect(ok.text()).toContain('db=[DB]');
     expect(ok.text()).not.toContain(PROD_VALUE);
+    // Masked for the agent, so its tab is not paused.
+    expect(await hx.h['terminals:leak'](hx.claude().id)).toBeNull();
     await hx.terminals.killAllForTask(hx.task.id);
   });
 

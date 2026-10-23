@@ -1280,9 +1280,8 @@ export function createHandlers(s: Services): Handlers {
       testCommand: testCommandFor,
       openTab: openRunTab,
       kill: (id) => void stopTab(id),
-      // The agent reads what comes back: the same masking, notices and Production pause as its own output.
-      filter: (o, data, carry, final) =>
-        leakWatch.filter(o, data, carry, final),
+      // The agent reads what comes back masked: it never sees a value, so no notice and no Production pause.
+      filter: (o, data, carry, final) => leakWatch.mask(o, data, carry, final),
       pending: (list) => s.broadcast('runs:pending', list),
       started: (spec) =>
         tel.event('secrets.runStarted', {
@@ -3250,12 +3249,10 @@ export function createHandlers(s: Services): Handlers {
       const known = s.terminals.has(id);
       // Claude Code resumes its conversation instead of starting a new one. OpenCode gets its env built again, so
       // a start without the project config (#109) lasts until the next Restart only.
-      // A tab that holds secrets and was spawned on another environment starts with a fresh env, never the old one.
+      // A tab that holds secrets always starts with a fresh env (an edited value, another environment), never the
+      // old spawn options.
       const stale =
-        def !== undefined &&
-        owner !== undefined &&
-        holdsSecrets(owner, def) &&
-        spawnedEnv.get(id) !== owner.environment;
+        def !== undefined && owner !== undefined && holdsSecrets(owner, def);
       if (
         known &&
         !stale &&

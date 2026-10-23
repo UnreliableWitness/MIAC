@@ -29,8 +29,6 @@ export class LeakWatch {
   private readonly trackedByRepo = new Map<string, Set<string>>();
   private readonly loading = new Map<string, Promise<void>>();
   private readonly states = new Map<string, LeakState>();
-  /** Bumped by invalidate, so a tracked-file look started before it is not kept. */
-  private generation = 0;
 
   constructor(private readonly d: LeakWatchDeps) {}
 
@@ -42,12 +40,12 @@ export class LeakWatch {
     this.matchers.delete(taskId);
   }
 
-  /** Stored secrets changed: matchers and tracked values are built again on the next output. */
+  /**
+   * Stored secrets changed: matchers are built again on the next output. The values git tracks do not depend on
+   * what is stored, so they are kept: a value in a committed file stays quiet right after a save.
+   */
   invalidate(): void {
-    this.generation++;
     this.matchers.clear();
-    this.trackedByRepo.clear();
-    this.loading.clear();
   }
 
   /** The output filter for agent tabs (TerminalManager's OutputFilter). */
@@ -61,6 +59,20 @@ export class LeakWatch {
     // Values in a tracked file are masked like any other but raise nothing: they are in git already.
     const loud = r.hits.filter((h) => !h.quiet);
     if (loud.length > 0) this.hit(o.id, loud);
+    return { text: r.text, carry: r.carry };
+  }
+
+  /**
+   * Masks a `shellie run` output for the agent that asked: it gets `[NAME]`, never the value, so there is nothing
+   * to tell it about and nothing to pause (the run tab is the developer's and shows the value as it is).
+   */
+  mask(
+    o: { id: string; taskId: string },
+    data: string,
+    carry: string,
+    final: boolean,
+  ): { text: string; carry: string } {
+    const r = this.matcherFor(o.taskId).mask(data, carry, final);
     return { text: r.text, carry: r.carry };
   }
 
@@ -138,7 +150,6 @@ export class LeakWatch {
     if (this.trackedByRepo.has(repoId)) return Promise.resolve();
     let p = this.loading.get(repoId);
     if (!p) {
-      const gen = this.generation;
       p = this.d
         .tracked(repoId)
         .catch(() => {
@@ -147,7 +158,6 @@ export class LeakWatch {
           return new Set<string>();
         })
         .then((set) => {
-          if (gen !== this.generation) return;
           this.trackedByRepo.set(repoId, set);
           this.loading.delete(repoId);
         });

@@ -135,6 +135,33 @@ describe('LeakWatch', () => {
     await vi.waitFor(() => expect(tracked).toHaveBeenCalledWith('repo-2'));
   });
 
+  it('keeps a tracked value quiet right after a save (only matchers are dropped)', async () => {
+    const { watch, leaks, show, tracked } = setup({
+      tracked: { 'repo-1': [TRACKED.value] },
+    });
+    await watch.prepare('task');
+    watch.invalidate();
+    expect(show('t1', TRACKED.value)).toBe('[APP_KEY]');
+    expect(leaks).toEqual([]);
+    expect(watch.isPaused('t1')).toBe(false);
+    expect(tracked).toHaveBeenCalledTimes(1);
+  });
+
+  it('masks a `shellie run` output without a notice or a pause', async () => {
+    const { watch, leaks, detected } = setup();
+    await watch.prepare('task');
+    const r = watch.mask(
+      { id: 'agent-1', taskId: 'task' },
+      `db=${PROD.value}`,
+      '',
+      true,
+    );
+    expect(r.text).toBe('db=[DB_PASSWORD]');
+    expect(leaks).toEqual([]);
+    expect(detected).toEqual([]);
+    expect(watch.isPaused('agent-1')).toBe(false);
+  });
+
   it("drops a finished task's matcher", async () => {
     const { watch, values, show } = setup();
     await watch.prepare('task');
