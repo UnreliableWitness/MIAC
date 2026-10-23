@@ -165,6 +165,19 @@ h3 {
   min-width: 0;
   overflow-wrap: anywhere;
 }
+.confirm-bar-details {
+  display: block;
+  margin-top: 4px;
+}
+.confirm-bar-line {
+  display: block;
+}
+.confirm-bar-line + .confirm-bar-line {
+  margin-top: 2px;
+}
+.confirm-bar-warn {
+  font-weight: 600;
+}
 .confirm-bar-actions {
   display: inline-flex;
   gap: 6px;

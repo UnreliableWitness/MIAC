@@ -2,6 +2,7 @@ import {
   Branch16Regular,
   BranchCompare16Regular,
   CheckmarkCircle16Regular,
+  Delete16Regular,
   Dismiss12Regular,
   Warning16Regular,
   DataPie16Regular,
@@ -39,6 +40,7 @@ import {
 } from '../../shared/workspaces';
 import { OpenInEditor } from './OpenInEditor';
 import { ChangesTab } from './review/ChangesTab';
+import { DiscardBar } from './DiscardBar';
 import { NewTerminalMenu } from './NewTerminalMenu';
 import { TerminalView } from './TerminalView';
 import { IconButton, MindMark, modKey } from './ui';
@@ -158,6 +160,8 @@ export function TerminalTabs({
 }) {
   const notify = useStore((s) => s.notify);
   const go = useStore((s) => s.go);
+  const askDiscard = useStore((s) => s.askDiscard);
+  const discarding = useStore((s) => s.discardTaskId === task.id);
   const repos = useStore((s) => s.repos);
   const git = useGitSummary(task.id, task.worktreeMissing, visible);
   const active = useStore((s) => s.activeTab(task.id));
@@ -405,6 +409,14 @@ export function TerminalTabs({
                   Finish
                 </button>
               )}
+              {inFocus && !navCollapsed && (
+                <IconButton
+                  label="Discard task"
+                  onClick={() => askDiscard(task.id)}
+                >
+                  <Delete16Regular />
+                </IconButton>
+              )}
               <TaskMenu task={task} />
               <IconButton
                 label={inFocus ? 'Exit focus' : 'Focus'}
@@ -421,6 +433,7 @@ export function TerminalTabs({
           )}
         </div>
       </div>
+      {discarding && ready && <DiscardBar task={task} />}
       {task.mainCheckoutEdits.map((e) => (
         <div key={e.repoPath} role="status" className="ws-warning">
           <Warning16Regular aria-hidden="true" />

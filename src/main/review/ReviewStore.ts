@@ -1,4 +1,5 @@
 // src/main/review/ReviewStore.ts
+import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
   emptyReviewState,
@@ -42,6 +43,15 @@ export class ReviewStore {
 
   async get(taskId: string): Promise<ReviewState> {
     return (await this.store(taskId)).value;
+  }
+
+  /** Deletes a task's notes once the task is gone (a discarded task, #124), after any write still queued. */
+  async remove(taskId: string): Promise<void> {
+    if (!/^[\w-]+$/.test(taskId)) throw new Error('Bad task id');
+    const open = this.open.get(taskId);
+    this.open.delete(taskId);
+    if (open) await (await open.catch(() => null))?.update(() => {});
+    await fs.rm(path.join(this.dir, `${taskId}.json`), { force: true });
   }
 
   async update(

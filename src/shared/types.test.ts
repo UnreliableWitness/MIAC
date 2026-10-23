@@ -25,6 +25,8 @@ describe('StateSchema', () => {
       version: 1,
       repos: [],
       tasks: [],
+      // A state from before #124 has no discarded leftovers.
+      discardedCleanup: [],
     });
   });
   it('rejects an unknown task status', () => {

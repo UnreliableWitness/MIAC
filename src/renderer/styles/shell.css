@@ -282,12 +282,29 @@ button.projecttile:hover {
 }
 /* The current task's Finish, right under its row, lined up with the title. */
 .nav-task-action {
+  display: flex;
+  gap: 4px;
   padding: 4px 12px 8px 40px;
   background: var(--bg-selected);
 }
 .btn.nav-finish {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   height: 28px;
+}
+/* Discard task: a quiet icon beside Finish, in the danger tone only on hover. */
+.ibtn.nav-discard {
+  width: 28px;
+  height: 28px;
+  color: var(--muted);
+}
+.railrow.rail-discard {
+  background: var(--bg-selected);
+  color: var(--muted);
+}
+.ibtn.nav-discard:hover:not(:disabled),
+.railrow.rail-discard:hover {
+  color: var(--red);
 }
 .rail-new {
   color: var(--link);

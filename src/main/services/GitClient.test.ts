@@ -609,6 +609,45 @@ describe('GitClient push from the GUI', () => {
 });
 
 describe('GitClient worktree helpers', () => {
+  it('branchCommits counts commits since the base and those no remote has (#124)', async () => {
+    const repo = makeRepo();
+    addOrigin(repo);
+    const base = git(repo, 'rev-parse', 'HEAD').trim();
+    git(repo, 'branch', 'feature/x');
+    expect(await client.branchCommits(repo, 'feature/x', base)).toEqual({
+      commits: 0,
+      unpushed: 0,
+    });
+    git(repo, 'checkout', '-q', 'feature/x');
+    commitFile(repo, 'a.txt', 'a');
+    commitFile(repo, 'b.txt', 'b');
+    expect(await client.branchCommits(repo, 'feature/x', base)).toEqual({
+      commits: 2,
+      unpushed: 2,
+    });
+    git(repo, 'push', '-q', 'origin', 'HEAD~1:refs/heads/feature/x');
+    git(repo, 'fetch', '-q', 'origin');
+    expect(await client.branchCommits(repo, 'feature/x', base)).toEqual({
+      commits: 2,
+      unpushed: 1,
+    });
+    expect(await client.branchCommits(repo, 'gone', base)).toEqual({
+      commits: 0,
+      unpushed: 0,
+    });
+  });
+
+  it('branchCommits leaves local-only base commits out of the unpushed count (#124)', async () => {
+    const repo = makeRepo();
+    commitFile(repo, 'local.txt', 'only here');
+    const base = git(repo, 'rev-parse', 'HEAD').trim();
+    git(repo, 'branch', 'feature/y');
+    expect(await client.branchCommits(repo, 'feature/y', base)).toEqual({
+      commits: 0,
+      unpushed: 0,
+    });
+  });
+
   it('worktreeRemove deletes a worktree git half removed (#87)', async () => {
     const repo = makeRepo();
     const wt = path.join(path.dirname(repo), 'wt-half');

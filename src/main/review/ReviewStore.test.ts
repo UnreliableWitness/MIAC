@@ -39,4 +39,17 @@ describe('ReviewStore', () => {
       'Bad task id',
     );
   });
+
+  it('forgets a discarded task: its file goes and a later read starts empty (#124)', async () => {
+    const d = dir();
+    const a = new ReviewStore(d);
+    await a.update('t1', (s) => {
+      s.viewed['home:a.ts'] = 'abc';
+    });
+    await a.remove('t1');
+    expect(readdirSync(d)).toEqual([]);
+    expect(await a.get('t1')).toEqual(emptyReviewState());
+    // A task that never had review notes is fine too.
+    await new ReviewStore(d).remove('t2');
+  });
 });

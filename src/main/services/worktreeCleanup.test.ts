@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { PendingCleanup, Task } from '../../shared/types';
+import type {
+  DiscardedCleanup,
+  PendingCleanup,
+  Task,
+} from '../../shared/types';
 import { GitError } from './GitClient';
 import {
   cleanupErrorCode,
@@ -245,5 +249,86 @@ describe('WorktreeCleanup', () => {
     expect(await h.cleanup.retryTask('t1')).toBe(false);
     h.f.held.clear();
     expect(await h.cleanup.retryTask('t1')).toBe(true);
+  });
+});
+
+describe('WorktreeCleanup: discarded tasks (#124)', () => {
+  function discardHarness(list: DiscardedCleanup[], tasks: Task[] = []) {
+    const f = fakeGit();
+    const state = { list };
+    const notices: string[] = [];
+    const events: string[] = [];
+    const cleanup = new WorktreeCleanup({
+      git: f.git,
+      exists: f.exists,
+      now: () => T0 + 5 * 60_000,
+      tasks: () => tasks,
+      claim: () => true,
+      release: () => undefined,
+      mutate: async () => undefined,
+      notice: (m) => notices.push(m),
+      event: (name) => events.push(name),
+      discarded: {
+        list: () => state.list,
+        mutate: async (fn) => {
+          state.list = fn(state.list);
+        },
+      },
+    });
+    return { f, state, notices, events, cleanup };
+  }
+
+  it('retries what a discarded task left until it is gone', async () => {
+    const h = discardHarness([{ ...entry(), taskId: 'gone' }]);
+    h.f.folders.add('/wt');
+    h.f.branches.add('feature/x');
+    h.f.held.set('/wt', errno('EBUSY'));
+    await h.cleanup.retryAll();
+    expect(h.state.list).toEqual([
+      expect.objectContaining({ taskId: 'gone', attempts: 2, code: 'EBUSY' }),
+    ]);
+    h.f.held.delete('/wt');
+    await h.cleanup.retryAll();
+    expect(h.state.list).toEqual([]);
+    expect(h.f.folders.has('/wt')).toBe(false);
+    expect(h.f.branches.has('feature/x')).toBe(false);
+    expect(h.events).toEqual(['cleanup.done']);
+  });
+
+  it('never touches a folder a live task uses now: that leftover is dropped', async () => {
+    const live = {
+      id: 'new',
+      status: 'ready',
+      repoId: 'r',
+      branch: 'feature/x',
+      worktreePath: '/wt',
+      baseRef: 'main',
+      baseSha: null,
+      summary: null,
+      pullRequest: null,
+      reopen: null,
+      homeDropped: false,
+      extraWorkspaces: [],
+      pendingCleanup: [],
+    } as unknown as Task;
+    const h = discardHarness([{ ...entry(), taskId: 'gone' }], [live]);
+    h.f.folders.add('/wt');
+    await h.cleanup.retryAll();
+    expect(h.f.calls).toEqual([]);
+    expect(h.f.folders.has('/wt')).toBe(true);
+    expect(h.state.list).toEqual([]);
+  });
+
+  it('keeps a leftover added while a retry ran', async () => {
+    const h = discardHarness([{ ...entry(), taskId: 'a' }]);
+    h.f.folders.add('/wt');
+    const later = { ...entry({ worktreePath: '/wt2' }), taskId: 'b' };
+    const realRemove = h.f.git.worktreeRemove;
+    h.f.git.worktreeRemove = async (r: string, p: string) => {
+      h.state.list = [...h.state.list, later];
+      return realRemove(r, p);
+    };
+    await h.cleanup.retryAll();
+    expect(h.state.list).toEqual([later]);
   });
 });

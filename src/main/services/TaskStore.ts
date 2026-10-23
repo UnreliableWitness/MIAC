@@ -3,7 +3,12 @@ import { JsonFileStore } from '../usage/JsonFileStore';
 
 export type LoadResult = { recovered: boolean; backup?: string };
 
-export const emptyState = (): State => ({ version: 1, repos: [], tasks: [] });
+export const emptyState = (): State => ({
+  version: 1,
+  repos: [],
+  tasks: [],
+  discardedCleanup: [],
+});
 
 /** Persists repos and tasks to one JSON file. Writes are atomic (temp file, then rename) and serialised. */
 export class TaskStore {

@@ -6,6 +6,8 @@ import {
   CheckmarkCircle20Regular,
   ChevronDown12Regular,
   ChevronRight12Regular,
+  Delete16Regular,
+  Delete20Regular,
   Document16Regular,
   Home20Regular,
   PanelLeftContract20Regular,
@@ -153,6 +155,7 @@ function useShowsFinish(task: TaskView) {
 }
 
 const FINISH_TITLE = 'Finish task: check changes, push, book time, clean up';
+const DISCARD_LABEL = 'Discard task';
 
 /** The current task's primary action, right under its row (#95): one click opens the Finish page, which asks first. */
 function FinishAction({ task }: { task: TaskView }) {
@@ -180,7 +183,24 @@ function FinishAction({ task }: { task: TaskView }) {
         <CheckmarkCircle16Regular aria-hidden="true" />
         Finish task
       </button>
+      <DiscardButton task={task} />
     </div>
+  );
+}
+
+/** Throws the task away (#124): opens the confirm on the task's page, which names what goes first. */
+function DiscardButton({ task }: { task: TaskView }) {
+  const askDiscard = useStore((s) => s.askDiscard);
+  return (
+    <button
+      type="button"
+      className="ibtn nav-discard"
+      aria-label={DISCARD_LABEL}
+      title={DISCARD_LABEL}
+      onClick={() => askDiscard(task.id)}
+    >
+      <Delete16Regular aria-hidden="true" />
+    </button>
   );
 }
 
@@ -199,6 +219,23 @@ function RailFinish({ task }: { task: TaskView }) {
       <span className="rail-finish-mark">
         <CheckmarkCircle20Regular aria-hidden="true" />
       </span>
+    </button>
+  );
+}
+
+/** The rail's Discard, under its Finish (#124). */
+function RailDiscard({ task }: { task: TaskView }) {
+  const askDiscard = useStore((s) => s.askDiscard);
+  if (!useShowsFinish(task)) return null;
+  return (
+    <button
+      type="button"
+      className="railrow rail-discard"
+      aria-label={DISCARD_LABEL}
+      title={DISCARD_LABEL}
+      onClick={() => askDiscard(task.id)}
+    >
+      <Delete20Regular aria-hidden="true" />
     </button>
   );
 }
@@ -433,6 +470,7 @@ export function TaskNav() {
                 <Fragment key={t.id}>
                   <RailRow task={t} />
                   <RailFinish task={t} />
+                  <RailDiscard task={t} />
                 </Fragment>
               ) : (
                 <Fragment key={t.id}>

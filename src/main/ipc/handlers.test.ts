@@ -5045,3 +5045,155 @@ describe('home', () => {
     });
   });
 });
+
+describe('handlers: discard a task (#124)', () => {
+  async function ready(over: Partial<Services> = {}) {
+    const telemetry: Telemetry = { ...NoopTelemetry };
+    const event = vi.spyOn(telemetry, 'event');
+    let retryAll: (() => Promise<void>) | null = null;
+    const hx = await harness(fakeCrypto(), {
+      telemetry,
+      onCleanupRetry: (fn) => {
+        retryAll = fn;
+      },
+      ...over,
+    });
+    // The copied .env is ignored, as in a real repo: a task nobody worked in has nothing uncommitted.
+    commitFile(hx.repo, '.gitignore', '.env\n');
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](hx.input({ name: 'try' }));
+    await done;
+    return { ...hx, t, event, retryAll: () => retryAll!() };
+  }
+
+  it('a blank task: closes its terminals, removes its worktree and branch, and the task is gone', async () => {
+    const hx = await ready();
+    expect(hx.terminals.runningCount(hx.t.id)).toBeGreaterThan(0);
+    const reviewFile = path.join(hx.usageDir, 'review', `${hx.t.id}.json`);
+    mkdirSync(path.dirname(reviewFile), { recursive: true });
+    writeFileSync(reviewFile, '{}');
+    const checks = await hx.h['tasks:discardChecks'](hx.t.id);
+    expect(checks).toMatchObject({ blank: true, commitsLost: 0 });
+    await hx.h['tasks:discard'](hx.t.id);
+    expect(hx.terminals.runningCount(hx.t.id)).toBe(0);
+    expect(existsSync(hx.t.worktreePath)).toBe(false);
+    expect(await new GitClient().branchExists(hx.repo, hx.t.branch)).toBe(
+      false,
+    );
+    expect(hx.store.state.tasks).toEqual([]);
+    expect(hx.store.state.discardedCleanup).toEqual([]);
+    expect(await hx.h['tasks:list']()).toEqual([]);
+    expect(existsSync(reviewFile)).toBe(false);
+    expect(hx.event).toHaveBeenCalledWith(
+      'task.discarded',
+      { blank: true },
+      expect.objectContaining({ commitsLost: 0 }),
+    );
+    // Nothing else happens: no push, no PR, no booking.
+    expect(hx.opened).toEqual([]);
+    expect(hx.event).not.toHaveBeenCalledWith(
+      'task.finished',
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it('names the commits no remote has and the uncommitted files, which Discard loses', async () => {
+    const hx = await ready();
+    commitFile(hx.t.worktreePath, 'work.txt', 'work');
+    writeFileSync(path.join(hx.t.worktreePath, 'draft.txt'), 'draft');
+    const checks = await hx.h['tasks:discardChecks'](hx.t.id);
+    expect(checks).toMatchObject({
+      blank: false,
+      commitsLost: 1,
+      uncommitted: 1,
+    });
+    expect(checks.workspaces[0]).toMatchObject({
+      workspaceId: 'home',
+      branch: hx.t.branch,
+      kept: false,
+      missing: false,
+      commits: 1,
+      unpushed: 1,
+      uncommitted: 1,
+    });
+    await hx.h['tasks:discard'](hx.t.id);
+    expect(hx.event).toHaveBeenCalledWith(
+      'task.discarded',
+      { blank: false },
+      expect.objectContaining({ commitsLost: 1 }),
+    );
+    expect(await new GitClient().branchExists(hx.repo, hx.t.branch)).toBe(
+      false,
+    );
+  });
+
+  it('is refused while the task sets up or finishes', async () => {
+    const hx = await harness();
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](hx.input({ commands: [sleepCmd(1)] }));
+    await expect(hx.h['tasks:discard'](t.id)).rejects.toThrow(/setting-up/);
+    await done;
+    await hx.store.update((st) => {
+      st.tasks[0].status = 'finishing';
+    });
+    await expect(hx.h['tasks:discard'](t.id)).rejects.toThrow(/finishing/);
+    expect(hx.store.state.tasks).toHaveLength(1);
+    await hx.terminals.killAllForTask(t.id);
+  });
+
+  it('a folder a process holds does not fail Discard: the task is gone and the cleanup is retried', async () => {
+    const hx = await ready();
+    const remove = vi
+      .spyOn(hx.services.git, 'worktreeRemove')
+      .mockRejectedValue(
+        Object.assign(new Error('Could not delete: EPERM'), { code: 'EPERM' }),
+      );
+    await hx.h['tasks:discard'](hx.t.id);
+    expect(hx.store.state.tasks).toEqual([]);
+    expect(hx.store.state.discardedCleanup).toEqual([
+      expect.objectContaining({
+        taskId: hx.t.id,
+        worktreePath: hx.t.worktreePath,
+        branch: hx.t.branch,
+        code: 'EPERM',
+      }),
+    ]);
+    expect(existsSync(hx.t.worktreePath)).toBe(true);
+    expect(hx.event).toHaveBeenCalledWith('cleanup.deferred', {
+      code: 'EPERM',
+    });
+    remove.mockRestore();
+    await hx.retryAll();
+    expect(hx.store.state.discardedCleanup).toEqual([]);
+    expect(existsSync(hx.t.worktreePath)).toBe(false);
+    expect(await new GitClient().branchExists(hx.repo, hx.t.branch)).toBe(
+      false,
+    );
+  });
+
+  it('discards every workspace on the task branch, and leaves one on another branch alone', async () => {
+    const hx = await ready();
+    const other = makeRepo('api');
+    const wt = path.join(path.dirname(other), 'api-wt');
+    git(other, 'worktree', 'add', '-q', '-b', hx.t.branch, wt);
+    const dev = makeRepo('docs');
+    const devWt = path.join(path.dirname(dev), 'docs-wt');
+    git(dev, 'worktree', 'add', '-q', '-b', 'dev', devWt);
+    await hx.h['tasks:addWorkspace'](hx.t.id, wt);
+    await hx.h['tasks:addWorkspace'](hx.t.id, devWt);
+    const checks = await hx.h['tasks:discardChecks'](hx.t.id);
+    expect(checks.workspaces.map((w) => [w.repoName, w.kept])).toEqual([
+      ['webshop', false],
+      ['api', false],
+      ['docs', true],
+    ]);
+    await hx.h['tasks:discard'](hx.t.id);
+    expect(existsSync(hx.t.worktreePath)).toBe(false);
+    expect(existsSync(wt)).toBe(false);
+    expect(await new GitClient().branchExists(other, hx.t.branch)).toBe(false);
+    expect(existsSync(devWt)).toBe(true);
+    expect(await new GitClient().branchExists(dev, 'dev')).toBe(true);
+    expect(hx.store.state.tasks).toEqual([]);
+  });
+});

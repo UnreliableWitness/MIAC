@@ -14,6 +14,9 @@ import { WorkspaceDetector } from '../workspaces/WorkspaceDetector';
 import type {
   Connection,
   ConnectionInput,
+  DiscardChecks,
+  DiscardedCleanup,
+  DiscardWorkspaceCheck,
   FinishOptions,
   FinishRowResult,
   ShellieConfig,
@@ -483,6 +486,14 @@ export function createHandlers(s: Services): Handlers {
     mutate: mutateTask,
     notice: (message) => s.broadcast('notice', { level: 'warn', message }),
     event: (name, props, m) => tel.event(name, props, m),
+    discarded: {
+      list: () => s.store.state.discardedCleanup,
+      mutate: async (change) => {
+        await s.store.update((st) => {
+          st.discardedCleanup = change(st.discardedCleanup);
+        });
+      },
+    },
   });
   s.onCleanupRetry?.(() => cleanup.retryAll());
 
@@ -1211,15 +1222,18 @@ export function createHandlers(s: Services): Handlers {
         s.broadcast('docs:watchStopped', { taskId });
       },
     );
-  const review = new ReviewService({
-    git: s.git,
-    store: new ReviewStore(s.reviewDir ?? path.join(s.usageDir, 'review'), () =>
+  const reviewStore = new ReviewStore(
+    s.reviewDir ?? path.join(s.usageDir, 'review'),
+    () =>
       s.broadcast('notice', {
         level: 'warn',
         message:
           'The review notes of a task could not be read and were started again',
       }),
-    ),
+  );
+  const review = new ReviewService({
+    git: s.git,
+    store: reviewStore,
     repoName: (id) => s.repos.list().find((r) => r.id === id)?.name ?? id,
     collapseOf: async (wt) => (await s.loadConfig(wt)).reviewCollapse ?? [],
   });
@@ -1324,6 +1338,63 @@ export function createHandlers(s: Services): Handlers {
 
   /** Whether Finish may clean up a workspace: only one on the task's own branch. */
   const ownBranch = (task: Task, w: WorkspaceView) => w.branch === task.branch;
+
+  /**
+   * What Discard would lose in one workspace (#124). Git is asked in the repo, so a folder removed by hand still
+   * counts its branch; a git failure counts nothing rather than blocking Discard.
+   */
+  const discardCheck = async (
+    task: Task,
+    w: WorkspaceView,
+  ): Promise<DiscardWorkspaceCheck> => {
+    const repo = s.repos.list().find((r) => r.id === w.repoId);
+    const kept = !ownBranch(task, w);
+    const missing = !(await pathExists(path.join(w.worktreePath, '.git')));
+    const base: DiscardWorkspaceCheck = {
+      workspaceId: w.id,
+      repoName: repo?.name ?? w.repoId,
+      worktreePath: w.worktreePath,
+      branch: w.branch,
+      kept,
+      missing,
+      commits: 0,
+      unpushed: 0,
+      uncommitted: 0,
+    };
+    if (kept || !repo) return base;
+    const start =
+      w.baseSha && (await s.git.commitExists(repo.path, w.baseSha))
+        ? w.baseSha
+        : await s.git.mergeBase(repo.path, w.baseRef, `refs/heads/${w.branch}`);
+    const [commits, uncommitted] = await Promise.all([
+      s.git
+        .branchCommits(repo.path, w.branch, start)
+        .catch(() => ({ commits: 0, unpushed: 0 })),
+      missing
+        ? 0
+        : s.git
+            .summary(w.worktreePath, w.baseRef)
+            .then((x) => x.files.length)
+            .catch(() => 0),
+    ]);
+    return { ...base, ...commits, uncommitted };
+  };
+
+  const discardChecks = async (task: Task): Promise<DiscardChecks> => {
+    const workspaces = await Promise.all(
+      activeWorkspaces(task).map((w) => discardCheck(task, w)),
+    );
+    const gone = workspaces.filter((w) => !w.kept);
+    const sum = (f: (w: DiscardWorkspaceCheck) => number) =>
+      gone.reduce((n, w) => n + f(w), 0);
+    return {
+      workspaces,
+      runningTerminals: s.terminals.runningCount(task.id),
+      commitsLost: sum((w) => w.unpushed),
+      uncommitted: sum((w) => w.uncommitted),
+      blank: sum((w) => w.commits + w.uncommitted) === 0,
+    };
+  };
 
   /** Each row's outcome of the last Finish with workspaces, so the page can show them after a failure. */
   const finishResults = new Map<string, FinishRowResult[]>();
@@ -2295,6 +2366,50 @@ export function createHandlers(s: Services): Handlers {
           dropped: 0,
         });
         await afterFinish(taskId, options, killTerminals);
+      } finally {
+        release(taskId);
+      }
+    },
+    'tasks:discardChecks': async (taskId) => discardChecks(taskById(taskId)),
+    'tasks:discard': async (taskId) => {
+      claim(taskId, ['ready'], 'discard');
+      try {
+        const task = taskById(taskId);
+        // For telemetry only: what was lost must never keep the task from going.
+        const checks = await discardChecks(task).catch(() => null);
+        // Windows will not remove a folder that a running process has as its cwd.
+        docsWatcher.stopTask(taskId);
+        gitDirWatcher.stopTask(taskId);
+        await s.terminals.killAllForTask(taskId);
+        // Every workspace on the task's branch goes, folder and branch, as at Finish; a held folder is
+        // retried in the background (#115). One on another branch was joined by hand and stays.
+        const left: DiscardedCleanup[] = [];
+        const removed = activeWorkspaces(task).filter((w) =>
+          ownBranch(task, w),
+        );
+        for (const w of removed) {
+          const l = await removeForFinish(w, s.repos.get(w.repoId).path, true);
+          if (l) left.push({ ...l, taskId });
+        }
+        await s.store.update((st) => {
+          st.tasks = st.tasks.filter((t) => t.id !== taskId);
+          st.discardedCleanup.push(...left);
+        });
+        setupStates.delete(taskId);
+        finishResults.delete(taskId);
+        // The AI usage stays: it was spent. The review notes have nothing left to point at.
+        await reviewStore.remove(taskId).catch(() => undefined);
+        await tasksChanged();
+        tel.event(
+          'task.discarded',
+          { blank: checks?.blank ?? false },
+          {
+            commitsLost: checks?.commitsLost ?? 0,
+            workspaces: removed.length,
+            deferred: left.length,
+            ageHours: (Date.now() - Date.parse(task.createdAt)) / 3_600_000,
+          },
+        );
       } finally {
         release(taskId);
       }

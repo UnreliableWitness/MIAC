@@ -104,6 +104,11 @@ type Store = {
   viewsByTask: Record<string, HtmlView[]>;
   focus: boolean;
   navCollapsed: boolean;
+  /** The task whose Discard confirm shows on its page (#124), else null. */
+  discardTaskId: string | null;
+  /** Opens the task's page with its Discard confirm. */
+  askDiscard(taskId: string): void;
+  cancelDiscard(): void;
   go(screen: Screen): void;
   back(): void;
   select(taskId: string | null): void;
@@ -186,6 +191,13 @@ export const useStore = create<Store>((set, get) => ({
   docTarget: {},
   reviewByTask: {},
   viewsByTask: {},
+  discardTaskId: null,
+  askDiscard: (taskId) => {
+    get().select(taskId);
+    get().go({ kind: 'task' });
+    set({ discardTaskId: taskId });
+  },
+  cancelDiscard: () => set({ discardTaskId: null }),
   ...readPrefs(),
   go: (screen) => {
     const current = get().screen;
@@ -196,6 +208,8 @@ export const useStore = create<Store>((set, get) => ({
         current.kind === screen.kind || TRANSIENT.has(current.kind)
           ? get().previous
           : current,
+      // Discard asks on the task's page only: leaving it drops the question.
+      ...(screen.kind === 'task' ? {} : { discardTaskId: null }),
     });
   },
   back: () => {
@@ -207,7 +221,13 @@ export const useStore = create<Store>((set, get) => ({
       previous: null,
     });
   },
-  select: (selectedTaskId) => set({ selectedTaskId }),
+  select: (selectedTaskId) =>
+    set({
+      selectedTaskId,
+      ...(selectedTaskId === get().discardTaskId
+        ? {}
+        : { discardTaskId: null }),
+    }),
   openTask: (taskId) => {
     const task = get().tasks.find((t) => t.id === taskId);
     get().select(taskId);

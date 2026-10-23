@@ -33,7 +33,12 @@ describe('TaskStore', () => {
     const store = new TaskStore(tmp());
     const result = await store.load();
     expect(result).toEqual({ recovered: false });
-    expect(store.state).toEqual({ version: 1, repos: [], tasks: [] });
+    expect(store.state).toEqual({
+      version: 1,
+      repos: [],
+      tasks: [],
+      discardedCleanup: [],
+    });
   });
 
   it('persists updates and reads them back', async () => {
@@ -174,7 +179,12 @@ describe('TaskStore', () => {
     expect(result.recovered).toBe(true);
     expect(result.backup).toMatch(/state\.json\.corrupt-\d+$/);
     expect(readFileSync(result.backup!, 'utf8')).toBe('{ not json');
-    expect(store.state).toEqual({ version: 1, repos: [], tasks: [] });
+    expect(store.state).toEqual({
+      version: 1,
+      repos: [],
+      tasks: [],
+      discardedCleanup: [],
+    });
   });
 
   it('falls back to copying the corrupt file when rename fails', async () => {
@@ -189,7 +199,12 @@ describe('TaskStore', () => {
     expect(result.recovered).toBe(true);
     expect(readFileSync(result.backup!, 'utf8')).toBe('{ not json');
     expect(existsSync(file)).toBe(true);
-    expect(store.state).toEqual({ version: 1, repos: [], tasks: [] });
+    expect(store.state).toEqual({
+      version: 1,
+      repos: [],
+      tasks: [],
+      discardedCleanup: [],
+    });
   });
 
   it('throws when neither rename nor copy can back up the corrupt file', async () => {
