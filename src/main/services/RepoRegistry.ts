@@ -155,6 +155,18 @@ export class RepoRegistry {
     });
   }
 
+  /** A stored base branch if origin or the local repo has it; a stale one (e.g. a default `main` in a master repo) is null. */
+  private async existingBase(
+    repoPath: string,
+    branch: string | undefined,
+  ): Promise<string | null> {
+    if (!branch) return null;
+    if (await this.git.commitExists(repoPath, `refs/remotes/origin/${branch}`))
+      return branch;
+    if (await this.git.branchExists(repoPath, branch)) return branch;
+    return null;
+  }
+
   private async describe(
     base: Pick<Repo, 'id' | 'path' | 'connectionId'> &
       Partial<Pick<Repo, 'workItemOnStart' | 'discovered' | 'baseBranch'>>,
@@ -164,8 +176,11 @@ export class RepoRegistry {
       id: base.id,
       name: path.basename(base.path),
       path: base.path,
-      // Without a config file the base branch Shellie was given (the inspected one) stays.
-      baseBranch: config.found ? config.base : (base.baseBranch ?? config.base),
+      // Without a config file the base branch Shellie was given (the inspected one) stays, as long as it exists.
+      baseBranch: config.found
+        ? config.base
+        : ((await this.existingBase(base.path, base.baseBranch)) ??
+          config.base),
       connectionId: base.connectionId,
       configFound: config.found,
       discovered: base.discovered ?? false,

@@ -9,7 +9,8 @@ const listOrString = z.union([
 
 /** The shape of `.shellie.yml`; shared so the renderer can validate an edited proposal. */
 export const ShellieYmlSchema = z.strictObject({
-  base: z.string().default('main'),
+  /** Absent: the repo's own default branch (`GitClient.defaultBaseRef`), not a fixed `main`. */
+  base: z.string().optional(),
   branch: z.string().default(DEFAULT_BRANCH_TEMPLATE),
   copy: listOrString.default([]),
   setup: listOrString.optional(),
