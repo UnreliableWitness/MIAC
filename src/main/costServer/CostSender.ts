@@ -1,0 +1,263 @@
+import type { CostServerStatus, ServerBudgets } from '../../shared/costServer';
+import type { CostRecord } from '../../shared/ledger';
+import {
+  CostServerError,
+  hello as helloImpl,
+  sendRecords as sendImpl,
+} from './client';
+import type { CostServerConnection } from './CostServerStore';
+
+const BATCH = 500;
+const FIRST_RUN_MS = 30_000;
+const EVERY_MS = 5 * 60_000;
+const KICK_MS = 5_000;
+const HELLO_EVERY_MS = 60 * 60_000;
+const BACKOFF_START_MS = 60_000;
+const BACKOFF_MAX_MS = 30 * 60_000;
+
+export type CostSenderDeps = {
+  ledger: {
+    dirty: (limit: number) => CostRecord[];
+    markSent: (recs: CostRecord[]) => Promise<void>;
+    resetSent: () => Promise<void>;
+  };
+  server: {
+    get: () => CostServerConnection | null;
+    budgets: ServerBudgets | null;
+    setBudgets: (b: ServerBudgets | null) => Promise<void>;
+  };
+  send?: typeof sendImpl;
+  hello?: typeof helloImpl;
+  now?: () => Date;
+  status: (s: CostServerStatus) => void;
+  notice: (text: string) => void;
+  telemetry: (event: string, props: Record<string, string | number>) => void;
+};
+
+const sig = (c: CostServerConnection) => `${c.url}\n${c.email}\n${c.key}`;
+
+/**
+ * Sends the ledger's dirty records to the cost server in the background. Never throws and never blocks
+ * its caller: a down server means a growing backoff, a refused key means stopping until the connection
+ * changes. Records stay dirty until the server accepted them.
+ */
+export class CostSender {
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private helloTimer: ReturnType<typeof setInterval> | null = null;
+  private running: Promise<void> | null = null;
+  private started = false;
+  private backoffMs = 0;
+  private inBackoff = false;
+  /** The connection the server refused; sending resumes when it differs or onConnected() runs. */
+  private blockedOn: string | null = null;
+  private lastSentAt: string | null = null;
+  private error: string | null = null;
+  private waiting = 0;
+
+  constructor(private readonly d: CostSenderDeps) {}
+
+  start() {
+    if (this.started) return;
+    this.started = true;
+    this.schedule(FIRST_RUN_MS);
+    this.helloTimer = setInterval(() => void this.hello(), HELLO_EVERY_MS);
+  }
+
+  stop() {
+    this.started = false;
+    if (this.timer) clearTimeout(this.timer);
+    if (this.helloTimer) clearInterval(this.helloTimer);
+    this.timer = this.helloTimer = null;
+  }
+
+  /** New records exist: send soon (debounced), unless the server is backing off or refused the key. */
+  kick() {
+    if (!this.started || this.inBackoff || this.blockedOn) return;
+    this.schedule(KICK_MS);
+  }
+
+  /** New server or key: everything is sent again. */
+  async onConnected() {
+    this.blockedOn = null;
+    this.inBackoff = false;
+    this.backoffMs = 0;
+    this.error = null;
+    await this.d.ledger.resetSent();
+    void this.hello();
+    if (!this.started) this.started = true;
+    if (!this.helloTimer)
+      this.helloTimer = setInterval(() => void this.hello(), HELLO_EVERY_MS);
+    this.schedule(KICK_MS);
+  }
+
+  onDisconnected() {
+    this.blockedOn = null;
+    this.inBackoff = false;
+    this.backoffMs = 0;
+    this.error = null;
+    this.lastSentAt = null;
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+    this.emit();
+  }
+
+  status(): CostServerStatus {
+    const c = this.d.server.get();
+    return {
+      connected: c !== null && this.error === null,
+      url: c?.url ?? null,
+      email: c?.email ?? null,
+      lastSentAt: this.lastSentAt,
+      waiting: this.waiting,
+      error: this.error,
+      budgets: this.d.server.budgets,
+    };
+  }
+
+  private emit() {
+    this.d.status(this.status());
+  }
+
+  private schedule(ms: number) {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      void this.run();
+    }, ms);
+  }
+
+  private run(): Promise<void> {
+    this.running ??= this.work()
+      .catch((err) => console.warn('[costServer] send pass failed', err))
+      .finally(() => {
+        this.running = null;
+      });
+    return this.running;
+  }
+
+  private async hello() {
+    const c = this.d.server.get();
+    if (!c || this.blockedOn === sig(c)) return;
+    try {
+      const r = await (this.d.hello ?? helloImpl)(c);
+      await this.d.server.setBudgets(r.budgets);
+      this.emit();
+    } catch (err) {
+      this.fail(err, c);
+    }
+  }
+
+  private fail(err: unknown, c: CostServerConnection) {
+    const e =
+      err instanceof CostServerError ? err : new CostServerError('network');
+    this.d.telemetry('costServer.sendFailed', {
+      kind: e.kind,
+      status: e.status ?? 0,
+    });
+    if (e.kind === 'auth') {
+      if (this.blockedOn !== sig(c))
+        this.d.notice(
+          'Your cost server refused the key. Check Settings › Cost server.',
+        );
+      this.blockedOn = sig(c);
+      this.error = 'The server refused the key';
+    } else if (e.kind === 'rejected') {
+      this.error = 'The server did not accept the request';
+    } else {
+      this.error =
+        e.kind === 'server'
+          ? 'The server had a problem; trying again soon'
+          : 'The server could not be reached; trying again soon';
+    }
+    this.emit();
+    return e;
+  }
+
+  private async work() {
+    const c = this.d.server.get();
+    if (!c) {
+      this.waiting = 0;
+      return;
+    }
+    if (this.blockedOn) {
+      if (this.blockedOn === sig(c)) return;
+      this.blockedOn = null;
+    }
+    this.inBackoff = false;
+    if (this.d.server.budgets === null) await this.hello();
+    if (this.blockedOn) return;
+    const send = this.d.send ?? sendImpl;
+    const skipped = new Set<string>();
+    let failure: CostServerError | null = null;
+    for (;;) {
+      const batch = this.d.ledger
+        .dirty(BATCH + skipped.size)
+        .filter((r) => !skipped.has(r.id))
+        .slice(0, BATCH);
+      if (batch.length === 0) break;
+      try {
+        await send(c, batch);
+        await this.d.ledger.markSent(batch);
+        this.lastSentAt = (this.d.now?.() ?? new Date()).toISOString();
+      } catch (err) {
+        const e = err instanceof CostServerError ? err : null;
+        if (e?.kind === 'rejected' && batch.length > 1) {
+          failure = await this.oneByOne(c, batch, skipped, send);
+          if (failure) break;
+          continue;
+        }
+        if (e?.kind === 'rejected') {
+          console.warn('[costServer] record rejected', batch[0]!.id);
+          skipped.add(batch[0]!.id);
+          this.fail(e, c);
+          continue;
+        }
+        failure = this.fail(err, c);
+        break;
+      }
+    }
+    this.waiting = this.d.ledger.dirty(Number.MAX_SAFE_INTEGER).length;
+    if (!failure) {
+      this.error = skipped.size > 0 ? this.error : null;
+      this.backoffMs = 0;
+      this.emit();
+    } else if (failure.kind !== 'auth') {
+      this.backoffMs = Math.min(
+        this.backoffMs ? this.backoffMs * 2 : BACKOFF_START_MS,
+        BACKOFF_MAX_MS,
+      );
+      this.inBackoff = true;
+      this.emit();
+      this.schedule(this.backoffMs);
+      return;
+    } else {
+      this.emit();
+      return;
+    }
+    if (this.started) this.schedule(EVERY_MS);
+  }
+
+  /** A rejected batch is sent record by record; the ones the server refuses are skipped for this run. */
+  private async oneByOne(
+    c: CostServerConnection,
+    batch: CostRecord[],
+    skipped: Set<string>,
+    send: typeof sendImpl,
+  ): Promise<CostServerError | null> {
+    for (const r of batch) {
+      try {
+        await send(c, [r]);
+        await this.d.ledger.markSent([r]);
+        this.lastSentAt = (this.d.now?.() ?? new Date()).toISOString();
+      } catch (err) {
+        if (err instanceof CostServerError && err.kind === 'rejected') {
+          console.warn('[costServer] record rejected', r.id);
+          skipped.add(r.id);
+          continue;
+        }
+        return this.fail(err, c);
+      }
+    }
+    return null;
+  }
+}

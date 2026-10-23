@@ -53,6 +53,8 @@ async function call(
         method: init.method,
         body: init.body,
         signal: ctl.signal,
+        // The bearer key must never follow a redirect to another address.
+        redirect: 'error',
         headers: {
           Authorization: `Bearer ${c.key}`,
           Accept: 'application/json',

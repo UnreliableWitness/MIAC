@@ -55,6 +55,8 @@ import {
   claudeProjectsDir,
 } from './main/budget/claudeTranscripts';
 import { OpenCodeReader, openCodeDbPath } from './main/budget/openCode';
+import { CostSender } from './main/costServer/CostSender';
+import { CostServerStore } from './main/costServer/CostServerStore';
 import { attributionContext } from './main/ledger/attribute';
 import { LedgerService } from './main/ledger/LedgerService';
 import { LedgerStore } from './main/ledger/LedgerStore';
@@ -703,8 +705,27 @@ async function boot(): Promise<void> {
     stopBudget = () => budget.stop();
     // The cost ledger: every AI request priced and attributed to a task, a repo or nothing. Its readers
     // have no `since`, so the first run backfills all the transcripts and OpenCode still have.
+    const ledgerStore = new LedgerStore(path.join(usageDir, 'ledger'));
+    const costServer = new CostServerStore(
+      path.join(userData, 'cost-server.json'),
+      {
+        available: () => safeStorage.isEncryptionAvailable(),
+        encrypt: (plain) => safeStorage.encryptString(plain),
+        decrypt: (cipher) => safeStorage.decryptString(cipher),
+      },
+    );
+    await costServer.load();
+    // Sends the ledger's dirty records to the cost server in the background (nothing without a connection).
+    const sender = new CostSender({
+      ledger: ledgerStore,
+      server: costServer,
+      // Settings (Task 9) adds `costServer:changed`; until then the status goes nowhere.
+      status: () => {},
+      notice: (message) => broadcast('notice', { level: 'warn', message }),
+      telemetry: (event, props) => telemetry.event(event, props),
+    });
     const ledger = new LedgerService({
-      store: new LedgerStore(path.join(usageDir, 'ledger')),
+      store: ledgerStore,
       claude: new ClaudeTranscriptReader(claudeProjectsDir()),
       openCode: new OpenCodeReader(openCodeDbPath()),
       usageRecords: () => usage.allRecords(),
@@ -719,9 +740,12 @@ async function boot(): Promise<void> {
       developer: () => null,
       version: app.getVersion(),
       toUsage: (e) => ingest([e]),
-      changed: () => {},
+      changed: () => sender.kick(),
     });
-    stopLedger = () => ledger.stop();
+    stopLedger = () => {
+      ledger.stop();
+      sender.stop();
+    };
     protocol.handle(VIEW_SCHEME, (req) => serveView(htmlViews, req.url));
     // Agent tabs that stop right after starting (a missing CLI, an invalid OpenCode config) say why (#109).
     const terminalFailures = new TerminalFailures({
@@ -978,6 +1002,7 @@ async function boot(): Promise<void> {
     win.webContents.once('did-finish-load', () => {
       budget.start();
       ledger.start();
+      sender.start();
       const warnings = [
         loaded.recovered &&
           `state.json was unreadable and was moved to ${path.basename(loaded.backup ?? '')}. Starting empty.`,

@@ -91,3 +91,15 @@ describe('cost server client', () => {
     ).rejects.toMatchObject({ kind: 'rejected' });
   });
 });
+
+describe('cost server client redirects', () => {
+  it('never follows a redirect, so the key stays with the server it was given for', async () => {
+    const f = vi.fn(async (_u: string, _init?: RequestInit) => {
+      throw new TypeError('redirect');
+    });
+    await expect(hello(c, f as unknown as typeof fetch)).rejects.toMatchObject({
+      kind: 'network',
+    });
+    expect(f.mock.calls[0]![1]?.redirect).toBe('error');
+  });
+});
