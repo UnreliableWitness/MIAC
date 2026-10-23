@@ -77,3 +77,16 @@ export type DiscoverResult = {
   sources: string[];
   skipped: number;
 };
+
+/** Why a repo's secrets are not yet fully protected. */
+export type SecretsReason =
+  | { kind: 'copy'; files: string[] }
+  | { kind: 'tracked'; files: string[] }
+  | { kind: 'worktrees'; taskIds: string[] };
+
+/** The manager's status panel: green when protected, amber with reasons, nothing when the repo has no secrets. */
+export type SecretsStatus = {
+  state: 'empty' | 'protected' | 'attention';
+  reasons: SecretsReason[];
+  given: GivenTo[];
+};

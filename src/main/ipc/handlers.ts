@@ -2324,6 +2324,11 @@ export function createHandlers(s: Services): Handlers {
       });
       return discovery.hold(repoId, r.found, r.skipped);
     },
+    'secrets:status': async () => ({
+      state: 'empty',
+      reasons: [],
+      given: [],
+    }),
     'secrets:setRepoDefault': async (repoId, env) => {
       await s.secrets.setRepoDefault(repoId, env);
       s.broadcast('secrets:changed', null);

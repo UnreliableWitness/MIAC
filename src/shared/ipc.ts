@@ -4,6 +4,7 @@ import type {
   Environment,
   SecretInput,
   SecretView,
+  SecretsStatus,
 } from './secrets';
 import type { TerminalFailure } from './terminalFailure';
 
@@ -80,6 +81,8 @@ export type Channels = {
   'secrets:reveal': { args: [id: string, env: Environment]; result: string };
   /** Looks in the repo's known places and .NET user secrets. Masks only; main keeps the values by key for the import. */
   'secrets:discover': { args: [repoId: string]; result: DiscoverResult };
+  /** The repo's secrets status for the manager's panel. */
+  'secrets:status': { args: [repoId: string]; result: SecretsStatus };
   'secrets:setRepoDefault': {
     args: [repoId: string, env: Environment];
     result: void;

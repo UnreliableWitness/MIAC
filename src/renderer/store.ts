@@ -63,7 +63,9 @@ export type Screen =
   | { kind: 'setup'; taskId: string }
   | { kind: 'finish'; taskId: string }
   /** `section` is the id of a settings section to scroll to on open. */
-  | { kind: 'settings'; section?: string };
+  | { kind: 'settings'; section?: string }
+  | { kind: 'secrets'; repoId?: string }
+  | { kind: 'secrets-import'; repoId: string };
 
 type Store = {
   screen: Screen;

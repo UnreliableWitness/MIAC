@@ -9,6 +9,7 @@ import { useTimeFocus } from './hooks/useTimeFocus';
 import { useShortcuts } from './hooks/useShortcuts';
 import { FinishScreen } from './screens/FinishScreen';
 import { NewTaskScreen } from './screens/NewTaskScreen';
+import { SecretsScreen } from './screens/SecretsScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { HomeScreen } from './screens/HomeScreen';
 import { SetupScreen } from './screens/SetupScreen';
@@ -39,6 +40,10 @@ function Page() {
       return <FinishScreen taskId={screen.taskId} />;
     case 'settings':
       return <SettingsScreen />;
+    case 'secrets':
+      return <SecretsScreen key={screen.repoId ?? ''} repoId={screen.repoId} />;
+    case 'secrets-import':
+      return <p>Import comes next.</p>;
   }
 }
 

@@ -352,6 +352,7 @@ export function SettingsScreen() {
   const repos = useStore((s) => s.repos);
   const setRepos = useStore((s) => s.setRepos);
   const notify = useStore((s) => s.notify);
+  const go = useStore((s) => s.go);
   const section = useStore((s) =>
     s.screen.kind === 'settings' ? s.screen.section : undefined,
   );
@@ -402,6 +403,15 @@ export function SettingsScreen() {
             Repositories
           </a>
           <a href="#editor">Editor</a>
+          <a
+            href="#secrets"
+            onClick={(e) => {
+              e.preventDefault();
+              go({ kind: 'secrets' });
+            }}
+          >
+            Secrets
+          </a>
           <a href="#ado">Azure DevOps</a>
           <a href="#cost">AI cost and invoicing</a>
           <a href="#time">Time tracking</a>

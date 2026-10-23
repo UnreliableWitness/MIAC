@@ -136,6 +136,7 @@ const defaults: FakeHandlers = {
   'workItems:types': () => [],
   'connections:list': () => [],
   'secrets:list': () => [],
+  'secrets:status': () => ({ state: 'empty', reasons: [], given: [] }),
   'tasks:list': () => [],
   'tasks:scanWorkspaces': () => [],
   'tasks:setupState': () => null,
