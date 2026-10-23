@@ -6020,6 +6020,67 @@ describe('handlers: environment per task', () => {
     await e.hx.terminals.killAllForTask(e.task.id);
   });
 
+  describe('a tab given secrets stays tracked after the secret changes', () => {
+    it('an expiry stops and respawns the shell although DB was deleted meanwhile', async () => {
+      const e = await envScenario();
+      const shell = e.shellId();
+      await e.hx.h['tasks:setEnvironment'](e.task.id, 'production', true);
+      expect(e.envOf(shell).DB).toBe('prd-db');
+      const db = e.hx.services.secrets
+        .list({ repoId: e.hx.added.id })
+        .find((v) => v.name === 'DB')!;
+      await e.hx.h['secrets:delete'](db.id);
+      e.killedIds().length = 0;
+      e.clock.now = T0 + 61 * 60_000;
+      for (const tick of e.ticks) tick();
+      await vi.waitFor(() =>
+        expect(e.stored().environment).toBe('development'),
+      );
+      expect(e.killedIds()).toContain(shell);
+      expect(e.envOf(shell).DB).toBeUndefined();
+      await e.hx.terminals.killAllForTask(e.task.id);
+    });
+
+    it('Restart after DB was deleted builds the env again, without the old value', async () => {
+      const e = await envScenario();
+      const shell = e.shellId();
+      await e.hx.h['tasks:setEnvironment'](e.task.id, 'production', true);
+      const db = e.hx.services.secrets
+        .list({ repoId: e.hx.added.id })
+        .find((v) => v.name === 'DB')!;
+      await e.hx.h['secrets:delete'](db.id);
+      const restart = vi.spyOn(e.hx.terminals, 'restart');
+      await e.hx.h['terminals:restart'](shell);
+      expect(restart).not.toHaveBeenCalledWith(shell);
+      expect(e.envOf(shell).DB).toBeUndefined();
+      await e.hx.terminals.killAllForTask(e.task.id);
+    });
+
+    it('a tab opened while the environment switched is respawned with the new values', async () => {
+      const e = await envScenario();
+      const realSpawn = Object.getPrototypeOf(e.hx.terminals).spawn.bind(
+        e.hx.terminals,
+      );
+      let switched = false;
+      e.spawn.mockImplementation((opts: { env?: Record<string, string> }) => {
+        const r = realSpawn(opts);
+        if (!switched && opts.env?.DB === 'dev-db') {
+          switched = true;
+          // The switch lands after the spawn, before the tab is listed on the task.
+          e.stored().environment = 'production';
+        }
+        return r;
+      });
+      const def = await e.hx.h['terminals:open'](e.task.id, {
+        kind: 'shell',
+        label: 'late',
+      });
+      expect(switched).toBe(true);
+      expect(e.envOf(def.id).DB).toBe('prd-db');
+      await e.hx.terminals.killAllForTask(e.task.id);
+    });
+  });
+
   it('refuses UAT and Production without a confirm and changes nothing', async () => {
     const e = await envScenario();
     for (const env of ['uat', 'production'] as const) {

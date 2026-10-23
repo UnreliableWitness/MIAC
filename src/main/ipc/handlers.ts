@@ -1135,6 +1135,15 @@ export function createHandlers(s: Services): Handlers {
 
   /** The environment each tab was last spawned with, so a Restart after a switch builds its env again. */
   const spawnedEnv = new Map<string, Environment>();
+  /**
+   * Tabs spawned with a stored secret in their env. A tab keeps the value it got until it restarts, so it stays
+   * tracked (expiry, switch, Finish, Restart) even after the secret is deleted or no longer given to it.
+   */
+  const spawnedWithSecrets = new Set<string>();
+  const forgetSpawn = (id: string) => {
+    spawnedEnv.delete(id);
+    spawnedWithSecrets.delete(id);
+  };
 
   /** Spawns at once (no await), so a caller holding a task claim keeps it only for the spawn itself. */
   const startTerminal = (
@@ -1144,6 +1153,7 @@ export function createHandlers(s: Services): Handlers {
     resume = false,
     extraEnv: Record<string, string> = {},
   ) => {
+    const spawnEnvironment = task.environment;
     try {
       const cmd = terminalCommand(
         task,
@@ -1178,7 +1188,15 @@ export function createHandlers(s: Services): Handlers {
       s.terminalFailures?.spawnFailed(def.id, def.kind, e);
       throw e;
     }
-    spawnedEnv.set(def.id, task.environment);
+    spawnedEnv.set(def.id, spawnEnvironment);
+    const stored = new Set(
+      s.secrets
+        .list({ repoId: terminalWorkspace(task, def).repoId })
+        .map((v) => v.name),
+    );
+    if (Object.keys(secrets.env).some((k) => stored.has(k)))
+      spawnedWithSecrets.add(def.id);
+    else spawnedWithSecrets.delete(def.id);
     if (def.kind === 'claude') s.claudeSpawned?.(def.id);
   };
 
@@ -1188,12 +1206,12 @@ export function createHandlers(s: Services): Handlers {
     holdsSecretsFor(
       def,
       s.secrets.list({ repoId: terminalWorkspace(task, def).repoId }),
-    );
+    ) || spawnedWithSecrets.has(def.id);
 
   /** Stops a tab and tells its view it ended (a kill alone sends no exit). */
   const stopTab = async (id: string) => {
     await s.terminals.kill(id);
-    spawnedEnv.delete(id);
+    forgetSpawn(id);
     leakWatch.forget(id);
     s.broadcast('terminal:exit', { id, exitCode: -1 });
   };
@@ -1228,7 +1246,7 @@ export function createHandlers(s: Services): Handlers {
     };
     if (old) {
       await s.terminals.kill(old.id);
-      spawnedEnv.delete(old.id);
+      forgetSpawn(old.id);
       leakWatch.forget(old.id);
     }
     const prepared = await prepareTab(taskById(taskId), def);
@@ -2104,7 +2122,7 @@ export function createHandlers(s: Services): Handlers {
     gitDirWatcher.stopTask(taskId);
     await s.terminals.killAllForTask(taskId);
     for (const d of taskById(taskId).terminals) {
-      spawnedEnv.delete(d.id);
+      forgetSpawn(d.id);
       leakWatch.forget(d.id);
     }
     await patchTask(taskId, {
@@ -3089,7 +3107,7 @@ export function createHandlers(s: Services): Handlers {
         // Secrets: `shellie run` processes end, and nothing about the task's tabs (or its plaintext matcher) is kept.
         s.stopRuns?.(taskId, 'The task was discarded');
         for (const d of task.terminals) {
-          spawnedEnv.delete(d.id);
+          forgetSpawn(d.id);
           runArgs.delete(d.id);
           leakWatch.forget(d.id);
         }
@@ -3222,6 +3240,28 @@ export function createHandlers(s: Services): Handlers {
         }
       }
       await updateTerminals(taskId, (list) => [...list, full]);
+      // A switch, an expiry or Finish in the gap before the tab was listed missed it: it still holds the old
+      // environment's values, so it starts again with the current ones (or stops when the task is no longer ready).
+      if (
+        spawnedWithSecrets.has(full.id) &&
+        spawnedEnv.get(full.id) !== taskById(taskId).environment
+      ) {
+        let claimed = false;
+        try {
+          claim(taskId, ['ready'], 'open a terminal in');
+          claimed = true;
+        } catch {
+          // Busy or no longer ready: the tab must not keep the old values.
+        }
+        try {
+          if (claimed) {
+            await s.terminals.kill(full.id);
+            await spawnTerminal(taskById(taskId), full);
+          } else await stopTab(full.id);
+        } finally {
+          if (claimed) release(taskId);
+        }
+      }
       tel.event('terminal.opened', { kind: full.kind, initial: false });
       return full;
     },
@@ -3237,7 +3277,7 @@ export function createHandlers(s: Services): Handlers {
       s.terminals.kill(id);
       s.runs?.tabGone(id);
       runArgs.delete(id);
-      spawnedEnv.delete(id);
+      forgetSpawn(id);
       leakWatch.forget(id);
       const owner = s.store.state.tasks.find((t) =>
         t.terminals.some((x) => x.id === id),
