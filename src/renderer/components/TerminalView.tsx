@@ -3,6 +3,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import type { RestartOptions } from '../../shared/ipc';
+import type { LeakState } from '../../shared/secrets';
 import type { TerminalFailure } from '../../shared/terminalFailure';
 import type { ColorScheme } from '../../shared/theme';
 import { api, tryInvoke } from '../api';
@@ -11,6 +12,7 @@ import { useStore } from '../store';
 import { attachClipboardKeys, isMac } from '../terminalClipboard';
 import { createLinkProvider } from '../terminalLinks';
 import { registerTerminal } from '../terminalRegistry';
+import { LeakNotice } from './secrets/LeakNotice';
 import {
   followColorScheme,
   loadRenderer,
@@ -46,6 +48,28 @@ export function TerminalView({
   const [failure, setFailure] = useState<TerminalFailure | null>(null);
   /** Main has no process for this terminal: the app was relaunched (or updated) since it started. */
   const [gone, setGone] = useState(false);
+  /** Leak watch: stored values that showed up in this (agent) tab, and whether its input is paused. */
+  const [leak, setLeak] = useState<LeakState | null>(null);
+  const go = useStore((s) => s.go);
+  const repoId = useStore((s) => s.tasks.find((t) => t.id === taskId)?.repoId);
+
+  useEffect(() => {
+    let live = true;
+    const off = api().on('terminal:leak', ({ id, ...state }) => {
+      if (id === terminalId) setLeak(state);
+    });
+    // Mounted after the leak (another page, a relaunch of the view): main keeps the tab's state.
+    void api()
+      .invoke('terminals:leak', terminalId)
+      .then((state) => {
+        if (live && state) setLeak((cur) => cur ?? state);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+      off();
+    };
+  }, [terminalId]);
 
   useEffect(() => {
     const el = host.current;
@@ -204,6 +228,24 @@ export function TerminalView({
   return (
     <div className="termview" hidden={!active}>
       <div ref={host} className="termview-xterm" />
+      <LeakNotice
+        state={leak}
+        onResume={() =>
+          void tryInvoke(
+            () => api().invoke('terminals:resume', terminalId),
+            notify,
+          )
+        }
+        onStop={() =>
+          void tryInvoke(
+            () => api().invoke('terminals:stop', terminalId),
+            notify,
+          )
+        }
+        onOpenSecrets={() =>
+          go(repoId ? { kind: 'secrets', repoId } : { kind: 'secrets' })
+        }
+      />
       {exitCode !== null && (
         <div
           className={failure ? 'term-exit term-exit-failed' : 'term-exit'}

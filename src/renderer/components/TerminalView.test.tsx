@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { installFakeApi } from '../test-helpers/fakeApi';
 import { TerminalView } from './TerminalView';
@@ -232,5 +232,45 @@ describe('TerminalView when an agent fails to start (#109)', () => {
       screen.queryByRole('button', { name: 'Start without project config' }),
     ).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Restart' })).toBeInTheDocument();
+  });
+});
+
+describe('TerminalView leak watch', () => {
+  it('shows the notice main reports, restores it on mount, and resumes a paused tab', async () => {
+    const fake = installFakeApi({
+      'terminals:isRunning': () => true,
+      'terminals:leak': () => ({ names: ['STRIPE_SECRET_KEY'], paused: false }),
+      'terminals:resume': () => undefined,
+      'terminals:stop': () => undefined,
+    });
+    render(<TerminalView terminalId="t1" taskId="task" active />);
+    await screen.findByText(/A secret value showed up in this tab/);
+    act(() =>
+      fake.emit('terminal:leak', {
+        id: 't1',
+        names: ['STRIPE_SECRET_KEY', 'DB_PASSWORD'],
+        paused: true,
+      }),
+    );
+    expect(screen.getByRole('alert').textContent).toContain(
+      'A Production secret appeared',
+    );
+    // Another tab's leak is not this tab's.
+    act(() =>
+      fake.emit('terminal:leak', { id: 'other', names: ['X'], paused: false }),
+    );
+    expect(screen.getByRole('alert')).toBeTruthy();
+    screen.getByRole('button', { name: 'Resume' }).click();
+    await waitFor(() =>
+      expect(fake.calls.some((c) => c.channel === 'terminals:resume')).toBe(
+        true,
+      ),
+    );
+    screen.getByRole('button', { name: 'Stop' }).click();
+    await waitFor(() =>
+      expect(
+        fake.calls.find((c) => c.channel === 'terminals:stop')?.args,
+      ).toEqual(['t1']),
+    );
   });
 });

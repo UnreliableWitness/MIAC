@@ -655,6 +655,10 @@ button.projecttile:hover {
 .termview {
   position: absolute;
   inset: 0;
+  /* A column, so a leak notice under the terminal takes room from it instead of covering the prompt. */
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   padding: 8px 8px 8px 16px;
   /* The padding in the terminal's own ground, so the terminal reads as one surface. */
   background: var(--bg-terminal);
@@ -702,7 +706,8 @@ button.projecttile:hover {
    box stops them covering the exit bar, whose Restart button otherwise never got the click. */
 .termview-xterm {
   width: 100%;
-  height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
   isolation: isolate;
 }
 .term-exit {

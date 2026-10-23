@@ -12,6 +12,7 @@ import {
   HOME_ID,
 } from '../../shared/workspaces';
 import { gitAuthHintFromText, remoteHost } from '../../shared/gitAuth';
+import { LEAK_IN_BRANCH } from '../../shared/secrets';
 import { api, tryInvoke } from '../api';
 import { GitAuthNotice } from '../components/GitAuthNotice';
 import {
@@ -38,6 +39,7 @@ import { TOOL_LABEL } from '../../shared/time';
 
 const ELLIPSIS = String.fromCharCode(0x2026);
 const PR_FAILED = 'Pull request not created: ';
+const PUSH_ANYWAY = `${LEAK_IN_BRANCH}. Push anyway?`;
 
 type Choices = Record<string, boolean>;
 
@@ -135,6 +137,12 @@ export function FinishScreen({ taskId }: { taskId: string }) {
   const [rowChoice, setRowChoice] = useState<Choices>({});
   // Each row's outcome of a Finish that stopped before cleanup.
   const [results, setResults] = useState<FinishRowResult[] | null>(null);
+  /** Ticked after main refused a push for a stored secret: the next Finish pushes anyway. */
+  const [confirmLeak, setConfirmLeak] = useState(false);
+  /** Main refused a push because the branch adds a stored secret (single repo: the error; several: a row). */
+  const leakRefused =
+    Boolean(finishError?.includes(LEAK_IN_BRANCH)) ||
+    Boolean(results?.some((r) => !r.ok && r.leak));
   const ready = task?.status === 'ready';
   const usage = useTaskUsage(ready ? taskId : null);
   const writeCost = useWriteCostToAdo();
@@ -356,9 +364,12 @@ export function FinishScreen({ taskId }: { taskId: string }) {
     setBusy(true);
     setFinishError(null);
     let failed = false;
+    // Only while the refusal is on the page: a confirm never carries over to a Finish that has not been refused.
+    const pushAnyway = leakRefused && confirmLeak;
     const ok = await tryInvoke(async () => {
       try {
         await api().invoke('tasks:finish', taskId, {
+          ...(pushAnyway ? { confirmLeak: true } : {}),
           closeTerminals: closeTerminals && nTerm > 0,
           removeWorktree,
           deleteBranch,
@@ -894,6 +905,17 @@ export function FinishScreen({ taskId }: { taskId: string }) {
           >
             {finishError}
           </Check>
+        )}
+        {leakRefused && (
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={confirmLeak}
+              disabled={busy}
+              onChange={(e) => setConfirmLeak(e.target.checked)}
+            />
+            {PUSH_ANYWAY}
+          </label>
         )}
         {singleAuth && <GitAuthNotice hint={singleAuth} command="git push" />}
 
