@@ -220,21 +220,30 @@ describe('Secrets page', () => {
       'secrets:status': () => s,
     });
     const green = installFakeApi(
-      status({ state: 'protected', reasons: [], given: ['setup', 'run'] }),
+      status({
+        state: 'protected',
+        reasons: [],
+        given: ['setup', 'run'],
+        secrets: 2,
+      }),
     );
     const { unmount } = render(<SecretsScreen repoId="r1" />);
     expect(await screen.findByText(/webshop is protected/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/2 secrets reach the Setup and Dev server tabs only/),
+    ).toBeInTheDocument();
     expect(green.calls.some((c) => c.channel === 'secrets:status')).toBe(true);
     unmount();
     installFakeApi(
       status({
         state: 'attention',
         reasons: [
-          { kind: 'copy', files: ['.env'] },
+          { kind: 'copy', files: ['.env'], count: 4 },
           { kind: 'tracked', files: ['appsettings.json'] },
           { kind: 'worktrees', taskIds: ['t1'] },
         ],
         given: [],
+        secrets: 1,
       }),
     );
     const second = render(<SecretsScreen repoId="r1" />);
@@ -260,8 +269,9 @@ describe('Secrets page', () => {
               state: 'attention',
               reasons: [{ kind: 'worktrees', taskIds: ['t1', 't2'] }],
               given: [],
+              secrets: 1,
             }
-          : { state: 'protected', reasons: [], given: ['run'] },
+          : { state: 'protected', reasons: [], given: ['run'], secrets: 1 },
       'secrets:cleanWorktrees': () => {
         dirty = false;
         return ['t1', 't2'];
@@ -283,14 +293,17 @@ describe('Secrets page', () => {
       'secrets:list': list,
       'secrets:status': () => ({
         state: 'attention',
-        reasons: [{ kind: 'copy', files: ['.env'] }],
+        reasons: [{ kind: 'copy', files: ['.env'], count: 4 }],
         given: [],
+        secrets: 1,
       }),
     });
     const user = userEvent.setup();
     render(<SecretsScreen repoId="r1" />);
     await user.click(
-      await screen.findByRole('button', { name: /Move values into Shellie/ }),
+      await screen.findByRole('button', {
+        name: 'Move 4 values into Shellie…',
+      }),
     );
     expect(useStore.getState().screen).toEqual({
       kind: 'secrets-import',
@@ -369,7 +382,7 @@ describe('Secrets page', () => {
           statusSlow = true;
           await gateA;
         }
-        return { state: 'protected', reasons: [], given: [] };
+        return { state: 'protected', reasons: [], given: [], secrets: 1 };
       },
     });
     const user = userEvent.setup();

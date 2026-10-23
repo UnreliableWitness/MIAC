@@ -23,18 +23,22 @@ export type StatusDeps = {
   worktrees: { taskId: string; worktreePath: string }[];
 };
 
-async function trackedIn(git: GitClient, root: string): Promise<Set<string>> {
+/** The files git tracks under `root`; null when git cannot say (never an empty set: that would read as "none"). */
+async function trackedIn(
+  git: GitClient,
+  root: string,
+): Promise<Set<string> | null> {
   try {
     const out = await git.run(root, ['ls-files', '-z']);
     return new Set(out.split('\0').filter(Boolean));
   } catch {
-    return new Set();
+    return null;
   }
 }
 
 /**
- * The copied files under `root` that hold one of the stored keys (repo-relative, `/`). Tracked files are never
- * listed: they are a warning of their own and Shellie does not change them.
+ * Visits the copied files under `root` that are not tracked, with their repo-relative path (`/`). A file or folder
+ * that vanished or cannot be read is skipped on its own. Returns the paths whose visit said true.
  */
 async function walk(
   root: string,
@@ -48,19 +52,22 @@ async function walk(
 ): Promise<string[]> {
   const hits: string[] = [];
   const one = async (target: string): Promise<void> => {
-    const st = await fs.lstat(target).catch(() => null);
-    if (!st) return;
-    if (st.isDirectory()) {
-      for (const e of await fs.readdir(target))
-        if (e !== 'node_modules' && e !== '.git')
-          await one(path.join(target, e));
-      return;
+    try {
+      const st = await fs.lstat(target);
+      if (st.isDirectory()) {
+        for (const e of await fs.readdir(target))
+          if (e !== 'node_modules' && e !== '.git')
+            await one(path.join(target, e));
+        return;
+      }
+      if (!st.isFile()) return;
+      const rel = path.relative(root, target).split(path.sep).join('/');
+      const kind = strippableKind(rel);
+      if (!kind || tracked.has(rel)) return;
+      if (await visit(target, rel, kind)) hits.push(rel);
+    } catch {
+      // Gone or unreadable: this one is skipped.
     }
-    if (!st.isFile()) return;
-    const rel = path.relative(root, target).split(path.sep).join('/');
-    const kind = strippableKind(rel);
-    if (!kind || tracked.has(rel)) return;
-    if (await visit(target, rel, kind)) hits.push(rel);
   };
   for (const entry of copy) {
     const target = path.resolve(root, entry);
@@ -69,19 +76,45 @@ async function walk(
   return hits;
 }
 
+/** The copied files holding a stored key, with how many of the stored names they hold between them. */
 async function holding(
   root: string,
   copy: string[],
   names: string[],
   tracked: Set<string>,
-): Promise<string[]> {
-  return walk(root, copy, tracked, async (abs, _rel, kind) => {
-    const text = await fs.readFile(abs, 'utf8').catch(() => null);
-    return text !== null && stripKeys(text, kind, names) !== text;
+): Promise<{ files: string[]; count: number }> {
+  const held = new Set<string>();
+  const files = await walk(root, copy, tracked, async (abs, _rel, kind) => {
+    const text = await fs.readFile(abs, 'utf8');
+    let any = false;
+    for (const n of names)
+      if (stripKeys(text, kind, [n]) !== text) {
+        held.add(n);
+        any = true;
+      }
+    return any;
   });
+  return { files, count: held.size };
 }
 
-/** Rewrites the copied files of a worktree without the stored keys. True when a file changed. */
+/** Writes next to the file and renames over it, so a crash never leaves half a file; the mode stays. */
+async function replaceFile(abs: string, text: string): Promise<void> {
+  const mode = (await fs.stat(abs)).mode & 0o777;
+  const tmp = `${abs}.shellie-${process.pid}.tmp`;
+  try {
+    await fs.writeFile(tmp, text, { encoding: 'utf8', mode });
+    await fs.chmod(tmp, mode);
+    await fs.rename(tmp, abs);
+  } catch (e) {
+    await fs.rm(tmp, { force: true }).catch(() => undefined);
+    throw e;
+  }
+}
+
+/**
+ * Rewrites the copied files of a worktree without the stored keys. True when a file changed. A worktree whose
+ * tracked files git cannot list is left alone.
+ */
 export async function cleanWorktree(
   worktreePath: string,
   copy: string[],
@@ -90,6 +123,7 @@ export async function cleanWorktree(
 ): Promise<boolean> {
   if (names.length === 0) return false;
   const tracked = await trackedIn(git, worktreePath);
+  if (!tracked) return false;
   const changed = await walk(
     worktreePath,
     copy,
@@ -98,14 +132,34 @@ export async function cleanWorktree(
       const text = await fs.readFile(abs, 'utf8');
       const stripped = stripKeys(text, kind, names);
       if (stripped === text) return false;
-      await fs.writeFile(abs, stripped, 'utf8');
+      await replaceFile(abs, stripped);
       return true;
     },
   );
   return changed.length > 0;
 }
 
-/** The open tasks whose worktree copy still holds a stored key. */
+/**
+ * Cleans each worktree with `clean`; one that throws is skipped and the rest go on. Returns the task ids that
+ * changed, once each (a task can have several workspaces of the repo).
+ */
+export async function cleanAll(
+  worktrees: StatusDeps['worktrees'],
+  clean: (worktreePath: string) => Promise<boolean>,
+): Promise<string[]> {
+  const cleaned: string[] = [];
+  for (const w of worktrees) {
+    try {
+      if ((await clean(w.worktreePath)) && !cleaned.includes(w.taskId))
+        cleaned.push(w.taskId);
+    } catch {
+      // This worktree stays as it was; the others are still cleaned.
+    }
+  }
+  return cleaned;
+}
+
+/** The open tasks whose worktree copy still holds a stored key (a worktree git cannot read is not reported). */
 export async function dirtyWorktrees(
   worktrees: StatusDeps['worktrees'],
   copy: string[],
@@ -115,7 +169,11 @@ export async function dirtyWorktrees(
   const out: string[] = [];
   for (const w of worktrees) {
     const tracked = await trackedIn(git, w.worktreePath);
-    if ((await holding(w.worktreePath, copy, names, tracked)).length > 0)
+    if (!tracked) continue;
+    if (
+      (await holding(w.worktreePath, copy, names, tracked)).files.length > 0 &&
+      !out.includes(w.taskId)
+    )
       out.push(w.taskId);
   }
   return out;
@@ -132,14 +190,18 @@ export function storedNames(store: SecretStore, repoId: string): string[] {
  */
 export async function computeStatus(deps: StatusDeps): Promise<SecretsStatus> {
   const stored = deps.store.allValues([deps.repoId]);
-  if (stored.length === 0) return { state: 'empty', reasons: [], given: [] };
+  if (stored.length === 0)
+    return { state: 'empty', reasons: [], given: [], secrets: 0 };
   const names = [...new Set(stored.map((v) => v.name))];
   const values = new Set(stored.map((v) => v.value));
   const reasons: SecretsReason[] = [];
 
   const tracked = await trackedIn(deps.git, deps.repoPath);
-  const copyFiles = await holding(deps.repoPath, deps.copy, names, tracked);
-  if (copyFiles.length > 0) reasons.push({ kind: 'copy', files: copyFiles });
+  if (tracked) {
+    const copied = await holding(deps.repoPath, deps.copy, names, tracked);
+    if (copied.files.length > 0)
+      reasons.push({ kind: 'copy', files: copied.files, count: copied.count });
+  }
 
   const found = await discoverSecrets(deps.repoPath, {
     git: deps.git,
@@ -174,5 +236,6 @@ export async function computeStatus(deps: StatusDeps): Promise<SecretsStatus> {
     state: reasons.length === 0 ? 'protected' : 'attention',
     reasons,
     given,
+    secrets: names.length,
   };
 }

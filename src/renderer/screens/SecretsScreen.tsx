@@ -38,7 +38,7 @@ function StatusPanel({
         <div>
           <strong>{repo.name} is protected.</strong>{' '}
           {status.given.length > 0
-            ? `Its secrets reach the ${status.given.map((g) => GIVEN_LABEL[g]).join(' and ')} tabs only. `
+            ? `${plural(status.secrets, 'secret reaches', 'secrets reach')} the ${status.given.map((g) => GIVEN_LABEL[g]).join(' and ')} tabs only. `
             : ''}
           Claude Code, Copilot and OpenCode tabs run without them, and their
           file tools are denied the secret files.
@@ -93,7 +93,7 @@ function StatusPanel({
               className="btn btn-sm"
               onClick={() => go({ kind: 'secrets-import', repoId: repo.id })}
             >
-              Move values into Shellie…
+              Move {plural(r.count, 'value', 'values')} into Shellie…
             </button>
           )}
           {r.kind === 'worktrees' && (

@@ -101,7 +101,7 @@ export type DiscoverResult = {
 
 /** Why a repo's secrets are not yet fully protected. */
 export type SecretsReason =
-  | { kind: 'copy'; files: string[] }
+  | { kind: 'copy'; files: string[]; count: number }
   | { kind: 'tracked'; files: string[] }
   | { kind: 'worktrees'; taskIds: string[] };
 
@@ -110,6 +110,8 @@ export type SecretsStatus = {
   state: 'empty' | 'protected' | 'attention';
   reasons: SecretsReason[];
   given: GivenTo[];
+  /** How many secrets the repo has stored (names, never values). */
+  secrets: number;
 };
 
 /** One found value the import page can pick: a mask and the key main resolves at import. */

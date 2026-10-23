@@ -15,6 +15,7 @@ const dirty = {
   state: 'attention' as const,
   reasons: [{ kind: 'worktrees' as const, taskIds: ['t1'] }],
   given: [],
+  secrets: 1,
 };
 
 describe('CleanWorktreeButton', () => {
@@ -23,7 +24,7 @@ describe('CleanWorktreeButton', () => {
     const api = installFakeApi({
       'secrets:status': () => state,
       'secrets:cleanWorktrees': () => {
-        state = { state: 'attention', reasons: [], given: [] };
+        state = { state: 'attention', reasons: [], given: [], secrets: 1 };
         return ['t1'];
       },
     });

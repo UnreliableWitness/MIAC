@@ -139,7 +139,12 @@ const defaults: FakeHandlers = {
   'secrets:list': () => [],
   'secrets:forget': () => undefined,
   'secrets:repoDefault': () => 'development',
-  'secrets:status': () => ({ state: 'empty', reasons: [], given: [] }),
+  'secrets:status': () => ({
+    state: 'empty',
+    reasons: [],
+    given: [],
+    secrets: 0,
+  }),
   'tasks:list': () => [],
   'tasks:scanWorkspaces': () => [],
   'tasks:setupState': () => null,

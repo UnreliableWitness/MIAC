@@ -5445,6 +5445,23 @@ describe('handlers: environment per task', () => {
     await e.hx.terminals.killAllForTask(e.task.id);
   });
 
+  it('answers concurrent secrets:status calls for a repo with one computation', async () => {
+    const e = await envScenario();
+    const repoId = e.hx.added.id;
+    const spy = vi.spyOn(e.hx.services.secrets, 'allValues');
+    const [a, b, c] = await Promise.all([
+      e.hx.h['secrets:status'](repoId),
+      e.hx.h['secrets:status'](repoId),
+      e.hx.h['secrets:status'](repoId),
+    ]);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(b).toBe(a);
+    expect(c).toBe(a);
+    await e.hx.h['secrets:status'](repoId);
+    expect(spy).toHaveBeenCalledTimes(2);
+    await e.hx.terminals.killAllForTask(e.task.id);
+  });
+
   it('reports an old worktree copy and cleans it, restarting only the secret tabs', async () => {
     const e = await envScenario();
     const envFile = path.join(e.task.worktreePath, '.env');

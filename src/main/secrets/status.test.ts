@@ -1,4 +1,11 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -6,7 +13,7 @@ import { GitClient } from '../services/GitClient';
 import { fakeCrypto } from '../test-helpers/fakeCrypto';
 import { commitFile, makeRepo } from '../test-helpers/gitRepo';
 import { SecretStore } from './SecretStore';
-import { cleanWorktree, computeStatus } from './status';
+import { cleanAll, cleanWorktree, computeStatus } from './status';
 
 const git = new GitClient();
 const noUser = () => null;
@@ -25,8 +32,9 @@ async function store(withSecret = true) {
   return s;
 }
 
+/** A worktree is always a git checkout; a folder git cannot read is skipped, never rewritten. */
 function folder() {
-  return mkdtempSync(path.join(os.tmpdir(), 'shellie-wt-'));
+  return makeRepo();
 }
 
 const base = (s: SecretStore, repoPath: string) => ({
@@ -47,7 +55,12 @@ describe('computeStatus', () => {
       ...base(await store(false), repo),
       copy: ['.env'],
     });
-    expect(st).toEqual({ state: 'empty', reasons: [], given: [] });
+    expect(st).toEqual({
+      state: 'empty',
+      reasons: [],
+      given: [],
+      secrets: 0,
+    });
   });
 
   it('is protected when nothing copied or committed holds a stored value', async () => {
@@ -61,6 +74,7 @@ describe('computeStatus', () => {
       state: 'protected',
       reasons: [],
       given: ['setup', 'run'],
+      secrets: 1,
     });
   });
 
@@ -75,7 +89,7 @@ describe('computeStatus', () => {
       copy: ['.env'],
     });
     expect(st.state).toBe('attention');
-    expect(st.reasons).toEqual([{ kind: 'copy', files: ['.env'] }]);
+    expect(st.reasons).toEqual([{ kind: 'copy', files: ['.env'], count: 1 }]);
   });
 
   it('flags open tasks whose worktree copy still holds the key', async () => {
@@ -134,5 +148,101 @@ describe('cleanWorktree', () => {
     commitFile(repo, '.env', 'API_KEY=abc\n');
     expect(await cleanWorktree(repo, ['.env'], ['API_KEY'], git)).toBe(false);
     expect(readFileSync(path.join(repo, '.env'), 'utf8')).toBe('API_KEY=abc\n');
+  });
+});
+
+const failingGit = {
+  run: async () => {
+    throw new Error('git is broken');
+  },
+} as unknown as GitClient;
+
+describe('when git cannot list tracked files', () => {
+  it('leaves a tracked .env untouched and reports nothing for the worktree', async () => {
+    const repo = makeRepo();
+    commitFile(repo, '.env', 'API_KEY=abc\n');
+    expect(await cleanWorktree(repo, ['.env'], ['API_KEY'], failingGit)).toBe(
+      false,
+    );
+    expect(readFileSync(path.join(repo, '.env'), 'utf8')).toBe('API_KEY=abc\n');
+    const st = await computeStatus({
+      ...base(await store(), repo),
+      git: failingGit,
+      copy: ['.env'],
+      worktrees: [{ taskId: 't1', worktreePath: repo }],
+    });
+    expect(st.reasons).toEqual([]);
+  });
+});
+
+describe('cleanWorktree writing', () => {
+  it('keeps the file mode and leaves no temp file behind', async () => {
+    const wt = folder();
+    const file = path.join(wt, '.env');
+    writeFileSync(file, 'API_KEY=abc\nA=b\n');
+    chmodSync(file, 0o600);
+    await cleanWorktree(wt, ['.env'], ['API_KEY'], git);
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+    expect(readFileSync(file, 'utf8')).toBe('A=b\n');
+    const { readdirSync } = await import('node:fs');
+    expect(readdirSync(wt).filter((n) => n.includes('.tmp'))).toEqual([]);
+  });
+
+  it('skips an unreadable file and still cleans the others', async () => {
+    const wt = folder();
+    const bad = path.join(wt, '.env.local');
+    writeFileSync(bad, 'API_KEY=abc\n');
+    chmodSync(bad, 0o000);
+    writeFileSync(path.join(wt, '.env'), 'API_KEY=abc\nA=b\n');
+    expect(
+      await cleanWorktree(wt, ['.env.local', '.env'], ['API_KEY'], git),
+    ).toBe(true);
+    expect(readFileSync(path.join(wt, '.env'), 'utf8')).toBe('A=b\n');
+    chmodSync(bad, 0o600);
+  });
+
+  it('does not throw for a copy entry that vanished', async () => {
+    const wt = folder();
+    expect(await cleanWorktree(wt, ['.env', 'gone'], ['API_KEY'], git)).toBe(
+      false,
+    );
+  });
+});
+
+describe('cleanAll', () => {
+  it('goes on after a task that fails and dedupes the ids of a task with two workspaces', async () => {
+    const seen: string[] = [];
+    const cleaned = await cleanAll(
+      [
+        { taskId: 'bad', worktreePath: '/a' },
+        { taskId: 'good', worktreePath: '/b' },
+        { taskId: 'good', worktreePath: '/c' },
+        { taskId: 'clean', worktreePath: '/d' },
+      ],
+      async (p) => {
+        seen.push(p);
+        if (p === '/a') throw new Error('boom');
+        return p !== '/d';
+      },
+    );
+    expect(cleaned).toEqual(['good']);
+    expect(seen).toEqual(['/a', '/b', '/c', '/d']);
+  });
+});
+
+describe('counts', () => {
+  it('counts the stored values a copy file holds, and the secrets stored', async () => {
+    const repo = makeRepo();
+    const s = await store();
+    await s.save({
+      scope: { repoId: 'r1' },
+      name: 'DB_URL',
+      givenTo: ['run'],
+      values: { development: { value: 'postgres://u:p@h/db' } },
+    });
+    writeFileSync(path.join(repo, '.env'), 'API_KEY=1\nDB_URL=2\nPORT=3\n');
+    const st = await computeStatus({ ...base(s, repo), copy: ['.env'] });
+    expect(st.reasons).toEqual([{ kind: 'copy', files: ['.env'], count: 2 }]);
+    expect(st.secrets).toBe(2);
   });
 });

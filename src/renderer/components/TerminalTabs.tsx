@@ -391,7 +391,7 @@ export function TerminalTabs({
         </div>
         <div className="taskbar-right">
           {ready && <EnvironmentChip task={task} />}
-          {ready && <CleanWorktreeButton task={task} />}
+          {ready && visible && <CleanWorktreeButton task={task} />}
           <WorkspaceChips task={task} />
           <span className="mono taskbar-git" title={home.branch}>
             <Branch16Regular aria-hidden="true" />

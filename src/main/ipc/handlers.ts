@@ -11,6 +11,7 @@ import {
   LEAK_IN_BRANCH,
   LEAK_UNCHECKED,
   type SecretScope,
+  type SecretsStatus,
   type SecretView,
 } from '../../shared/secrets';
 import { LeakMatcher } from '../secrets/LeakMatcher';
@@ -19,7 +20,12 @@ import type { RunHub, RunSpec } from '../secrets/RunHub';
 import { branchLeaks } from '../secrets/leakScan';
 import { type ExpiryTimers, scheduleExpiry } from '../secrets/expiry';
 import { DiscoveryHold, discoverSecrets } from '../secrets/discover';
-import { cleanWorktree, computeStatus, storedNames } from '../secrets/status';
+import {
+  cleanAll,
+  cleanWorktree,
+  computeStatus,
+  storedNames,
+} from '../secrets/status';
 import { denyRulesFor, denyTargets, inWorktree } from '../secrets/deny';
 import {
   buildImportPlan,
@@ -346,6 +352,7 @@ export function createHandlers(s: Services): Handlers {
   const connectionsChanged = () =>
     s.broadcast('connections:changed', s.connections.list());
   const discovery = new DiscoveryHold();
+  const statusRuns = new Map<string, Promise<SecretsStatus>>();
   const copyOf = (repoPath: string) =>
     s
       .loadConfig(repoPath)
@@ -2998,42 +3005,54 @@ export function createHandlers(s: Services): Handlers {
         secretsChanged();
       }
     },
-    'secrets:status': async (repoId) => {
-      const repo = s.repos.get(repoId);
-      return computeStatus({
-        repoId,
-        repoPath: repo.path,
-        copy: await copyOf(repo.path),
-        store: s.secrets,
-        git: s.git,
-        userSecretsDir: (id) => s.platform.userSecretsDir(id),
-        worktrees: openWorktrees(repoId),
-      });
+    'secrets:status': (repoId) => {
+      // Several screens ask at once (the manager, a task bar per task): one computation answers them all.
+      const running = statusRuns.get(repoId);
+      if (running) return running;
+      const run = (async () => {
+        const repo = s.repos.get(repoId);
+        return computeStatus({
+          repoId,
+          repoPath: repo.path,
+          copy: await copyOf(repo.path),
+          store: s.secrets,
+          git: s.git,
+          userSecretsDir: (id) => s.platform.userSecretsDir(id),
+          worktrees: openWorktrees(repoId),
+        });
+      })().finally(() => statusRuns.delete(repoId));
+      statusRuns.set(repoId, run);
+      return run;
     },
     'secrets:cleanWorktrees': async (repoId, taskId) => {
       const repo = s.repos.get(repoId);
       const copy = await copyOf(repo.path);
       const names = storedNames(s.secrets, repoId);
-      const cleaned: string[] = [];
-      for (const w of openWorktrees(repoId)) {
-        if (taskId !== undefined && w.taskId !== taskId) continue;
-        if (cleaned.includes(w.taskId)) continue;
-        if (!(await cleanWorktree(w.worktreePath, copy, names, s.git)))
-          continue;
-        cleaned.push(w.taskId);
+      const cleaned = await cleanAll(
+        openWorktrees(repoId).filter(
+          (w) => taskId === undefined || w.taskId === taskId,
+        ),
+        (p) => cleanWorktree(p, copy, names, s.git),
+      );
+      try {
+        // Only the cleaned tasks' secret tabs start again, now without the old file next to them.
+        for (const id of cleaned) {
+          const task = s.store.state.tasks.find((t) => t.id === id);
+          if (!task) continue;
+          try {
+            await respawnSecretTabs(
+              task,
+              'development',
+              'The worktree was cleaned',
+            );
+          } catch (e) {
+            console.error('[secrets] could not restart a cleaned task', e);
+          }
+        }
+      } finally {
+        // TODO(telemetry): secrets.worktreesCleaned (count) in Task 11.
+        secretsChanged();
       }
-      // Only the cleaned tasks' secret tabs start again, now without the old file next to them.
-      for (const id of cleaned) {
-        const task = s.store.state.tasks.find((t) => t.id === id);
-        if (task)
-          await respawnSecretTabs(
-            task,
-            'development',
-            'The worktree was cleaned',
-          );
-      }
-      // TODO(telemetry): secrets.worktreesCleaned (count) in Task 11.
-      secretsChanged();
       return cleaned;
     },
     'secrets:repoDefault': async (repoId) => repoDefaultOf(repoId),
