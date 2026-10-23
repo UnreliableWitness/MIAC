@@ -240,6 +240,24 @@ describe('merge', () => {
     expect(m.billable).toBe(false);
   });
 
+  it('fills in the organization of a repo once it is linked', () => {
+    const unlinked = cost({
+      attribution: {
+        level: 'repo',
+        organization: null,
+        project: null,
+        repo: 'web',
+      },
+    });
+    expect(merge(unlinked, repoLevel).attribution).toEqual(
+      repoLevel.attribution,
+    );
+    // A linked repo is not overwritten by another same-level attribution.
+    expect(merge(repoLevel, unlinked).attribution).toEqual(
+      repoLevel.attribution,
+    );
+  });
+
   it('keeps the larger copy of a re-written message', () => {
     const big = cost({ outputTokens: 500, costUsd: 5, costEur: 4.6 });
     const small = cost({ outputTokens: 20, costUsd: 2, costEur: 1.84 });

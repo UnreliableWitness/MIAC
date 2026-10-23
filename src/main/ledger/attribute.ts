@@ -164,6 +164,18 @@ export function attribute(
   return { level: 'none' };
 }
 
+/** Whether `next` may replace the stored attribution `prev`: only a higher level, or a repo that got its connection. Task level is frozen. */
+export function raises(prev: Attribution, next: Attribution): boolean {
+  if (prev.level === 'task') return false;
+  if (LEVEL_RANK[next.level] > LEVEL_RANK[prev.level]) return true;
+  return (
+    prev.level === 'repo' &&
+    next.level === 'repo' &&
+    prev.organization === null &&
+    next.organization !== null
+  );
+}
+
 /** The stored version and a new one of the same request: attribution never goes down (and is frozen at task), the larger token copy wins, billable is the new one's. */
 export function merge(
   prev: CostRecord | undefined,
@@ -171,12 +183,11 @@ export function merge(
 ): CostRecord {
   if (!prev) return next;
   const body = tokensOf(next) > tokensOf(prev) ? next : prev;
-  const keep =
-    prev.attribution.level === 'task' ||
-    LEVEL_RANK[prev.attribution.level] >= LEVEL_RANK[next.attribution.level];
   return {
     ...body,
-    attribution: keep ? prev.attribution : next.attribution,
+    attribution: raises(prev.attribution, next.attribution)
+      ? next.attribution
+      : prev.attribution,
     billable: next.billable,
     developer: next.developer ?? prev.developer,
   };

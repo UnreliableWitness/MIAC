@@ -145,7 +145,7 @@ describe('LedgerService', () => {
     });
     await s.svc.pass();
     expect(s.claudeRead).toHaveBeenCalledWith({});
-    expect(s.openCodeRead).toHaveBeenCalledWith(0);
+    expect(s.openCodeRead).toHaveBeenCalledWith(0, { limit: 1000 });
     const cc = s.store.get('cc:m1')!;
     expect(cc).toMatchObject({
       vendor: 'claude',
@@ -168,7 +168,7 @@ describe('LedgerService', () => {
     expect(again.claudeRead).toHaveBeenCalledWith({
       '/t.jsonl': { offset: 1, size: 1, mtimeMs: 1, ino: 1 },
     });
-    expect(again.openCodeRead).toHaveBeenCalledWith(1);
+    expect(again.openCodeRead).toHaveBeenCalledWith(1, { limit: 1000 });
     expect(again.store.get('cc:m1')).toEqual(cc);
   });
 
@@ -293,5 +293,91 @@ describe('LedgerService', () => {
         .map((r) => r.id)
         .sort(),
     ).toEqual(['cp:trace:span', 'sh:req1']);
+  });
+
+  it('keeps a record not billable when its task is gone and it is read again', async () => {
+    const s = setup({ usage: [usageRec({ id: 'trace:span' })] });
+    s.state.tasks = [task1];
+    s.state.notBillable.add('t1/CP');
+    await s.svc.pass();
+    expect(s.store.get('cp:trace:span')!.billable).toBe(false);
+    s.state.tasks = [];
+    await s.svc.pass();
+    await s.svc.pass();
+    expect(s.store.get('cp:trace:span')).toMatchObject({
+      billable: false,
+      attribution: { level: 'task', taskId: 't1' },
+    });
+  });
+
+  it('fills in the organization once the repo gets a connection', async () => {
+    const s = setup({ claude: [[rec({ cwd: '/src/web/x', sessionId: 'X' })]] });
+    s.state.repos = [{ ...repos[0], connectionId: null }];
+    await s.svc.pass();
+    expect(s.store.get('cc:m1')!.attribution).toEqual({
+      level: 'repo',
+      organization: null,
+      project: null,
+      repo: 'web',
+    });
+    s.state.repos = [...repos];
+    await s.svc.pass();
+    expect(s.store.get('cc:m1')!.attribution).toEqual({
+      level: 'repo',
+      organization: 'https://dev.azure.com/acme',
+      project: 'Shop',
+      repo: 'web',
+    });
+  });
+
+  it('reads a large OpenCode backfill in chunks, yielding between them', async () => {
+    const rows = Array.from({ length: 2500 }, (_, i) =>
+      rec({
+        id: `oc:${String(i).padStart(5, '0')}`,
+        tool: 'opencode',
+        sessionId: 'O',
+        at: new Date(
+          Date.parse('2026-10-12T00:00:00Z') + i * 1000,
+        ).toISOString(),
+      }),
+    );
+    const log: string[] = [];
+    const sizes: number[] = [];
+    const s = setup();
+    const read = vi.fn(
+      (
+        cursor: number,
+        page?: { limit: number; after?: { t: number; id: string } },
+      ) => {
+        log.push('read');
+        setImmediate(() => log.push('yield'));
+        const limit = page?.limit ?? Infinity;
+        const from = page?.after
+          ? rows.findIndex((r) => r.id === page.after!.id) + 1
+          : 0;
+        const chunk = rows.slice(from, from + limit);
+        sizes.push(chunk.length);
+        const last = chunk.at(-1);
+        return {
+          records: chunk,
+          cursor: last ? Date.parse(last.at) : cursor,
+          found: true,
+          more: from + chunk.length < rows.length,
+          last: last ? { t: Date.parse(last.at), id: last.id } : undefined,
+        };
+      },
+    );
+    (
+      s.svc as unknown as { d: { openCode: { read: typeof read } } }
+    ).d.openCode = { read };
+    await s.svc.pass();
+    expect(read.mock.calls.length).toBeGreaterThan(1);
+    expect(Math.max(...sizes)).toBeLessThanOrEqual(1000);
+    expect(read.mock.calls.every(([, p]) => p?.limit === 1000)).toBe(true);
+    // Each chunk after the first starts only after the event loop got a turn.
+    const reads = log.flatMap((x, i) => (x === 'read' ? [i] : []));
+    for (let k = 1; k < reads.length; k++)
+      expect(log.slice(reads[k - 1], reads[k])).toContain('yield');
+    expect(s.store.all()).toHaveLength(2500);
   });
 });

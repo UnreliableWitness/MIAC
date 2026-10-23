@@ -3,7 +3,6 @@ import path from 'node:path';
 import type { BudgetRecord } from '../../shared/budget';
 import { vendorOf } from '../../shared/budget';
 import type { CostRecord } from '../../shared/ledger';
-import { LEVEL_RANK } from '../../shared/ledger';
 import type { UsageEvent, UsageRecord } from '../../shared/usage';
 import type { FileCursor } from '../budget/claudeTranscripts';
 import type { ClaudeTranscriptReader } from '../budget/claudeTranscripts';
@@ -12,7 +11,7 @@ import { budgetRecordsFromUsage } from '../budget/usageRecords';
 import { renameWithRetry } from '../fsRetry';
 import { OFFICIAL_RATES } from '../pricing/officialRates';
 import { modelLabeler } from '../pricing/RateTable';
-import { type AttributionContext, attribute, merge } from './attribute';
+import { type AttributionContext, attribute, merge, raises } from './attribute';
 import type { LedgerStore } from './LedgerStore';
 import { priceRecord } from './price';
 
@@ -36,6 +35,11 @@ type Cursors = { claude: Record<string, FileCursor>; openCode: number };
 type Input = { id: string; s: string; c: string | null; t?: string };
 
 const label = modelLabeler(OFFICIAL_RATES);
+/** OpenCode rows per synchronous database read, and records handled between yields to the event loop. */
+const OPENCODE_CHUNK = 1000;
+const WORK_CHUNK = 500;
+const UPSERT_CHUNK = 2000;
+const tick = () => new Promise<void>((r) => setImmediate(r));
 
 const asBudget = (r: CostRecord, i: Input): BudgetRecord => ({
   id: r.id,
@@ -104,7 +108,9 @@ export class LedgerService {
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
     }
+    let n = 0;
     for (const line of text.split('\n')) {
+      if (++n % 2000 === 0) await tick();
       if (!line.trim()) continue;
       try {
         const i = JSON.parse(line) as Input;
@@ -133,12 +139,36 @@ export class LedgerService {
     return this.running;
   }
 
-  /** Billable comes from the usage store for a task's session; a task Shellie no longer has keeps what it had. */
-  private billableOf(r: CostRecord, i: Input, ctx: AttributionContext) {
+  /** Billable comes from the usage store for a task's session; a task Shellie no longer has keeps the stored value. */
+  private billableOf(
+    r: CostRecord,
+    i: Input,
+    ctx: AttributionContext,
+    stored: boolean,
+  ) {
     const a = r.attribution;
     if (a.level !== 'task') return true;
-    if (!ctx.byId.has(a.taskId)) return r.billable;
+    if (!ctx.byId.has(a.taskId)) return stored;
     return this.d.isBillable(a.taskId, i.s);
+  }
+
+  /** The OpenCode backlog in bounded chunks, yielding between them, so a first backfill never blocks the main process. */
+  private async readOpenCode(cursor: number) {
+    const records: BudgetRecord[] = [];
+    let next = cursor;
+    let after: { t: number; id: string } | undefined;
+    for (;;) {
+      const page = this.d.openCode.read(cursor, {
+        limit: OPENCODE_CHUNK,
+        after,
+      });
+      for (const r of page.records) records.push(r);
+      next = Math.max(next, page.cursor);
+      if (!page.more || !page.last) break;
+      after = page.last;
+      await tick();
+    }
+    return { records, cursor: next };
   }
 
   private build(
@@ -177,7 +207,7 @@ export class LedgerService {
     const claude = await this.d.claude.read(this.cursors.claude);
     let oc: { records: BudgetRecord[]; cursor: number };
     try {
-      oc = this.d.openCode.read(this.cursors.openCode);
+      oc = await this.readOpenCode(this.cursors.openCode);
     } catch (err) {
       console.warn('[ledger] OpenCode database not readable this pass', err);
       oc = { records: [], cursor: this.cursors.openCode };
@@ -192,7 +222,9 @@ export class LedgerService {
     const developer = this.d.developer();
     const out = new Map<string, CostRecord>();
     const fresh: Input[] = [];
+    let n = 0;
     for (const r of [...claude.records, ...oc.records, ...extra]) {
+      if (++n % WORK_CHUNK === 0) await tick();
       let input = this.inputs.get(r.id);
       if (!input) {
         input = {
@@ -204,25 +236,26 @@ export class LedgerService {
         this.inputs.set(r.id, input);
         fresh.push(input);
       }
-      const m = merge(
-        out.get(r.id) ?? store.get(r.id),
-        this.build(r, ctx, developer),
-      );
-      out.set(r.id, { ...m, billable: this.billableOf(m, input, ctx) });
+      const prev = out.get(r.id) ?? store.get(r.id);
+      const m = merge(prev, this.build(r, ctx, developer));
+      out.set(r.id, {
+        ...m,
+        billable: this.billableOf(m, input, ctx, prev?.billable ?? true),
+      });
     }
     // Stored records the readers did not bring again: move up when the context changed, re-apply billable.
     const reattribute = ctx.key !== this.lastKey;
     for (const prev of store.all()) {
+      if (++n % WORK_CHUNK === 0) await tick();
       if (out.has(prev.id)) continue;
       const input = this.inputs.get(prev.id);
       if (!input) continue;
       let rec = prev;
       if (reattribute && prev.attribution.level !== 'task') {
         const a = attribute(asBudget(prev, input), ctx);
-        if (LEVEL_RANK[a.level] > LEVEL_RANK[prev.attribution.level])
-          rec = { ...rec, attribution: a };
+        if (raises(prev.attribution, a)) rec = { ...rec, attribution: a };
       }
-      const billable = this.billableOf(rec, input, ctx);
+      const billable = this.billableOf(rec, input, ctx, prev.billable);
       if (billable !== rec.billable) rec = { ...rec, billable };
       if (rec.developer === null && developer !== null)
         rec = { ...rec, developer };
@@ -241,7 +274,14 @@ export class LedgerService {
         'utf8',
       );
     }
-    const changed = await store.upsert([...out.values()]);
+    // In chunks with a yield between them; cursors are saved only after every chunk is stored.
+    const all = [...out.values()];
+    const changed: string[] = [];
+    for (let i = 0; i === 0 || i < all.length; i += UPSERT_CHUNK) {
+      if (i > 0) await tick();
+      for (const id of await store.upsert(all.slice(i, i + UPSERT_CHUNK)))
+        changed.push(id);
+    }
     const next: Cursors = { claude: claude.cursors, openCode: oc.cursor };
     if (JSON.stringify(next) !== JSON.stringify(this.cursors)) {
       await fs.mkdir(store.dir, { recursive: true });

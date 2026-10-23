@@ -66,7 +66,10 @@ export class LedgerStore {
       const text = await fs.readFile(path.join(this.dir, f), 'utf8');
       const lines = text.split('\n').filter((l) => l.trim());
       const live = new Map<string, CostRecord>();
-      for (const line of lines) {
+      for (const [i, line] of lines.entries()) {
+        // A month file can hold tens of thousands of lines: let the event loop run between batches.
+        if (i > 0 && i % 2000 === 0)
+          await new Promise<void>((r) => setImmediate(r));
         try {
           const rec = JSON.parse(line) as CostRecord;
           if (typeof rec.id !== 'string' || typeof rec.at !== 'string')
