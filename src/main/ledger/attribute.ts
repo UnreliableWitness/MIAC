@@ -132,30 +132,39 @@ function forTask(
   };
 }
 
-/** Task (by task id, a Claude session of its tabs or usage, or OpenCode folder within an open period), else repo by folder, else none. */
+/** The task a record belongs to (by task id, a Claude session of its tabs or usage, or OpenCode folder within an open period), and the repo it names. */
+export function taskOf(
+  r: BudgetRecord,
+  ctx: AttributionContext,
+): { t: TaskCtx; repo: string } | null {
+  const byId = r.taskId ? ctx.byId.get(r.taskId) : undefined;
+  if (byId) return { t: byId, repo: byId.homeRepo };
+  if (r.tool === 'claude-code') {
+    const t = ctx.bySession.get(r.sessionId);
+    if (t) return { t, repo: t.homeRepo };
+  }
+  const cwd = r.cwd;
+  if (!cwd || r.tool !== 'opencode') return null;
+  const at = Date.parse(r.at);
+  let best: { t: TaskCtx; repo: string; len: number } | null = null;
+  for (const t of ctx.tasks) {
+    if (!t.periods.some(([s, e]) => at >= s && at <= e)) continue;
+    for (const w of t.worktrees)
+      if (isInside(w.path, cwd) && (!best || w.path.length > best.len))
+        best = { t, repo: w.repo, len: w.path.length };
+  }
+  return best ? { t: best.t, repo: best.repo } : null;
+}
+
+/** Task (see taskOf), else repo by folder, else none. */
 export function attribute(
   r: BudgetRecord,
   ctx: AttributionContext,
 ): Attribution {
-  const byId = r.taskId ? ctx.byId.get(r.taskId) : undefined;
-  if (byId) return forTask(byId, byId.homeRepo, ctx);
-  if (r.tool === 'claude-code') {
-    const t = ctx.bySession.get(r.sessionId);
-    if (t) return forTask(t, t.homeRepo, ctx);
-  }
+  const task = taskOf(r, ctx);
+  if (task) return forTask(task.t, task.repo, ctx);
   const cwd = r.cwd;
   if (!cwd) return { level: 'none' };
-  if (r.tool === 'opencode') {
-    const at = Date.parse(r.at);
-    let best: { t: TaskCtx; repo: string; len: number } | null = null;
-    for (const t of ctx.tasks) {
-      if (!t.periods.some(([s, e]) => at >= s && at <= e)) continue;
-      for (const w of t.worktrees)
-        if (isInside(w.path, cwd) && (!best || w.path.length > best.len))
-          best = { t, repo: w.repo, len: w.path.length };
-    }
-    if (best) return forTask(best.t, best.repo, ctx);
-  }
   let repo: { r: RepoCtx; len: number } | null = null;
   for (const x of ctx.repos)
     for (const p of x.paths)

@@ -341,6 +341,31 @@ describe('LedgerService', () => {
     });
   });
 
+  it('keeps a task not billable when it has no connection (stored at repo level)', async () => {
+    const s = setup({
+      claude: [
+        [
+          rec({ sessionId: 'S1', cwd: '/wt/t1' }),
+          rec({ id: 'cc:m2', sessionId: 'OTHER', cwd: '/src/web' }),
+        ],
+      ],
+    });
+    s.state.repos = [{ ...repos[0], connectionId: null }];
+    s.state.tasks = [task1];
+    s.state.notBillable.add('t1/S1');
+    await s.svc.pass();
+    expect(s.store.get('cc:m1')).toMatchObject({
+      attribution: { level: 'repo', repo: 'web' },
+      billable: false,
+    });
+    // No task involved: billable.
+    expect(s.store.get('cc:m2')!.billable).toBe(true);
+    // The stored record follows the task's switch on later passes.
+    s.state.notBillable.clear();
+    await s.svc.pass();
+    expect(s.store.get('cc:m1')!.billable).toBe(true);
+  });
+
   it('keeps a record not billable when its task is gone and it is read again', async () => {
     const s = setup({ usage: [usageRec({ id: 'trace:span' })] });
     s.state.tasks = [task1];

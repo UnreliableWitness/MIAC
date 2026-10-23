@@ -11,7 +11,13 @@ import { budgetRecordsFromUsage } from '../budget/usageRecords';
 import { renameWithRetry } from '../fsRetry';
 import { OFFICIAL_RATES } from '../pricing/officialRates';
 import { modelLabeler } from '../pricing/RateTable';
-import { type AttributionContext, attribute, merge, raises } from './attribute';
+import {
+  type AttributionContext,
+  attribute,
+  merge,
+  raises,
+  taskOf,
+} from './attribute';
 import type { LedgerStore } from './LedgerStore';
 import { priceRecord } from './price';
 
@@ -143,7 +149,10 @@ export class LedgerService {
     return this.running;
   }
 
-  /** Billable comes from the usage store for a task's session; a task Shellie no longer has keeps the stored value. */
+  /**
+   * Billable comes from the usage store for a task's session, also when the record sits at repo level because its
+   * task has no connection; a task Shellie no longer has keeps the stored value; no task at all is billable.
+   */
   private billableOf(
     r: CostRecord,
     i: Input,
@@ -151,9 +160,13 @@ export class LedgerService {
     stored: boolean,
   ) {
     const a = r.attribution;
-    if (a.level !== 'task') return true;
-    if (!ctx.byId.has(a.taskId)) return stored;
-    return this.d.isBillable(a.taskId, i.s);
+    const taskId =
+      a.level === 'task'
+        ? a.taskId
+        : (taskOf(asBudget(r, i), ctx)?.t.id ?? i.t);
+    if (!taskId) return true;
+    if (!ctx.byId.has(taskId)) return stored;
+    return this.d.isBillable(taskId, i.s);
   }
 
   /** The OpenCode backlog in bounded chunks, yielding between them, so a first backfill never blocks the main process. */
