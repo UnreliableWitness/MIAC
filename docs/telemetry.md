@@ -36,8 +36,11 @@ This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 
 | `onboarding.shown` | the Get started page opened; none |
 | `onboarding.dismissed` | Skip for now on Get started, or Dismiss on its Home band; `repos`, `connections` (counts) |
 | `onboarding.step` | a step of first-run setup was left; `step` (`agents`, `connect`, `repository`), `outcome` (`continued`, `skipped`, `back`) |
-| `update.ready` | an update finished downloading (Windows); none |
+| `update.ready` | an update finished downloading (Windows); sent again when a newer one downloads while the first waits (#126); none |
 | `update.restart`, `update.later` | the choice on the update notice; none |
+| `update.checkFailed` | the first failed update check of a launch (Windows, #126; later failures are only logged); none, not the error text |
+| `whatsNew.shown` | Home showed the What's new card after an update (#126); `releases` (count covered), `fetched` (whether GitHub's release notes loaded) |
+| `whatsNew.dismissed`, `whatsNew.opened` | Dismiss on the What's new card, or its Release notes on GitHub link; none |
 | `task.created` | has a work item; copy files, start Claude, open shell, open Copilot, open OpenCode (booleans); number of setup commands |
 | `task.finished` | remove worktree, delete branch, close terminals, sync usage, has a work item (booleans); task age in hours, number of workspaces finished, pull requests asked for and workspaces dropped |
 | `task.discarded` | a ready task was thrown away with Discard task (#124); `blank` (no commits since the base and nothing uncommitted in any workspace); measurements `commitsLost` (commits on the removed branches that no remote has), `workspaces` (worktrees removed), `deferred` (folders left to the background retry) and `ageHours`. Never names or paths |

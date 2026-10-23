@@ -384,6 +384,8 @@ export type Channels = {
   'update:status': { args: []; result: PendingUpdate | null };
   /** Quits Shellie and starts the downloaded update. */
   'update:install': { args: []; result: void };
+  /** Home's What's new card for the releases since the last dismissed one; null when none is due (always in dev). */
+  'app:whatsNew': { args: []; result: WhatsNew | null };
   'app:info': {
     args: [];
     /** windowsBuild: the OS build number on Windows (for xterm's ConPTY handling), else null. */
@@ -445,6 +447,20 @@ export type Events = {
 
 /** `version` is null when the release name holds none. */
 export type PendingUpdate = { version: string | null };
+
+/** One GitHub Release on Home's What's new card: its PR titles as short notes. */
+export type ReleaseNote = { version: string; url: string; items: string[] };
+/**
+ * What's new since the version whose card was last dismissed (`whatsNewSeen`), up to the running `version`.
+ * `url` is the release page on GitHub (the long notes), or the releases list when several are covered;
+ * `fetched` is false when GitHub could not be reached, and the card then shows only the link.
+ */
+export type WhatsNew = {
+  version: string;
+  url: string;
+  fetched: boolean;
+  releases: ReleaseNote[];
+};
 
 export type Handlers = {
   [K in keyof Channels]: (

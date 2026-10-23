@@ -2,7 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { Events, Handlers, PendingUpdate } from '../../shared/ipc';
+import type {
+  Events,
+  Handlers,
+  PendingUpdate,
+  WhatsNew,
+} from '../../shared/ipc';
 import { claudeContext, renderTaskMd, taskSlug } from '../../shared/naming';
 import {
   claudeHasSessionsIn,
@@ -232,6 +237,8 @@ export type Services = {
     /** Quits and starts the update; false when none is downloaded. */
     install(): boolean;
   };
+  /** Home's What's new card after an update (#126). Absent in dev and in tests. */
+  whatsNew?: { get(): Promise<WhatsNew | null> };
 };
 
 /** The task's open periods with a new one starting now (reopen). A task from before time tracking keeps creation to finish as its first. */
@@ -2785,6 +2792,7 @@ export function createHandlers(s: Services): Handlers {
       tel.event('update.restart');
       if (!s.update.install()) throw new Error('No update is ready to install');
     },
+    'app:whatsNew': async () => (await s.whatsNew?.get()) ?? null,
     'app:info': async () => ({
       version: s.appVersion,
       windowsBuild: s.windowsBuild ?? null,

@@ -47,6 +47,18 @@ describe('update notice', () => {
     expect(calls.some((c) => c.channel === 'update:install')).toBe(false);
   });
 
+  it('shows the card again when a newer version downloads after Later (#126)', async () => {
+    const { emit } = installFakeApi({
+      'update:status': () => ({ version: '1.0.3' }),
+    });
+    render(<Notices />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Later' }));
+    act(() => emit('update:ready', { version: '1.0.3' }));
+    expect(screen.queryByText('Shellie 1.0.3 is ready')).toBeNull();
+    act(() => emit('update:ready', { version: '1.0.4' }));
+    expect(screen.getByText('Shellie 1.0.4 is ready')).toBeInTheDocument();
+  });
+
   it('stays visible with a notice when the install fails', async () => {
     installFakeApi({
       'update:status': () => ({ version: '1.0.3' }),

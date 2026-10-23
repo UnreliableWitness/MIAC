@@ -99,6 +99,8 @@ export const AppSettingsSchema = z.object({
     tracker: null,
     migrated: false,
   }),
+  /** The version whose What's new card on Home was dismissed (or a fresh install's first version); unset before #126. */
+  whatsNewSeen: z.string().nullable().optional(),
   /** Auto-update (packaged Windows builds). No UI yet: set false in settings.json to turn it off. */
   autoUpdate: z.boolean().optional(),
 });
