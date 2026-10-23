@@ -11,6 +11,15 @@ import { samePath } from '../paths';
 import { loadShellieConfig } from './ShellieConfig';
 import type { TaskStore } from './TaskStore';
 
+export type AddRepoOptions = {
+  /** The `.shellie.yml` text to write into the repo before registering it. */
+  writeConfig?: string;
+  baseBranch?: string;
+  connectionId?: string | null;
+  /** The linked connection's on-start options; the repo default without one. */
+  workItemOnStart?: StartSettings;
+};
+
 export class RepoRegistry {
   constructor(
     private readonly store: TaskStore,
@@ -28,7 +37,7 @@ export class RepoRegistry {
     return repo;
   }
 
-  async add(folder: string): Promise<Repo> {
+  async add(folder: string, options: AddRepoOptions = {}): Promise<Repo> {
     let real: string;
     try {
       real = await fs.realpath(folder);
@@ -43,10 +52,27 @@ export class RepoRegistry {
     if (this.store.state.repos.some((r) => samePath(r.path, top))) {
       throw new Error(`${path.basename(top)} is already registered`);
     }
+    if (options.writeConfig !== undefined) {
+      try {
+        await fs.writeFile(
+          path.join(top, '.shellie.yml'),
+          options.writeConfig,
+          { encoding: 'utf8', flag: 'wx' },
+        );
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === 'EEXIST')
+          throw new Error(`${path.basename(top)}: .shellie.yml already exists`);
+        throw e;
+      }
+    }
     const repo = await this.describe({
       id: randomUUID(),
       path: top,
-      connectionId: null,
+      connectionId: options.connectionId ?? null,
+      baseBranch: options.baseBranch,
+      workItemOnStart: options.workItemOnStart
+        ? StartSettingsSchema.parse(options.workItemOnStart)
+        : undefined,
     });
     // Re-check inside the update: a concurrent add may have registered the same path while we awaited.
     await this.store.update((s) => {
@@ -129,16 +155,32 @@ export class RepoRegistry {
     });
   }
 
+  /** A stored base branch if origin or the local repo has it; a stale one (e.g. a default `main` in a master repo) is null. */
+  private async existingBase(
+    repoPath: string,
+    branch: string | undefined,
+  ): Promise<string | null> {
+    if (!branch) return null;
+    if (await this.git.commitExists(repoPath, `refs/remotes/origin/${branch}`))
+      return branch;
+    if (await this.git.branchExists(repoPath, branch)) return branch;
+    return null;
+  }
+
   private async describe(
     base: Pick<Repo, 'id' | 'path' | 'connectionId'> &
-      Partial<Pick<Repo, 'workItemOnStart' | 'discovered'>>,
+      Partial<Pick<Repo, 'workItemOnStart' | 'discovered' | 'baseBranch'>>,
   ): Promise<Repo> {
     const config = await this.loadConfig(base.path);
     return {
       id: base.id,
       name: path.basename(base.path),
       path: base.path,
-      baseBranch: config.base,
+      // Without a config file the base branch Shellie was given (the inspected one) stays, as long as it exists.
+      baseBranch: config.found
+        ? config.base
+        : ((await this.existingBase(base.path, base.baseBranch)) ??
+          config.base),
       connectionId: base.connectionId,
       configFound: config.found,
       discovered: base.discovered ?? false,

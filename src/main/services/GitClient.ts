@@ -60,7 +60,7 @@ export class GitAuthError extends Error {
 }
 
 /** How Windows reports a folder that a process (a shell, a dev server, an indexer) still holds open. */
-const FOLDER_IN_USE =
+export const FOLDER_IN_USE =
   /Permission denied|Directory not empty|being used by another process|EBUSY/i;
 
 /**
@@ -215,6 +215,31 @@ export class GitClient {
     }
   }
 
+  /**
+   * Commits on `branch` since `base`, and the ones of those no remote has, which deleting the branch loses
+   * (#124). A missing branch has none; with no base every commit no remote has counts for both.
+   */
+  async branchCommits(
+    cwd: string,
+    branch: string,
+    base: string | null,
+  ): Promise<{ commits: number; unpushed: number }> {
+    if (!(await this.branchExists(cwd, branch)))
+      return { commits: 0, unpushed: 0 };
+    const ref = `refs/heads/${branch}`;
+    const count = async (args: string[]) =>
+      Number((await this.run(cwd, ['rev-list', '--count', ...args])).trim()) ||
+      0;
+    const unpushed = await count([
+      ref,
+      '--not',
+      '--remotes',
+      ...(base ? [base] : []),
+    ]);
+    const commits = base ? await count([`${base}..${ref}`]) : unpushed;
+    return { commits, unpushed };
+  }
+
   async validBranchName(cwd: string, branch: string): Promise<boolean> {
     if (branch.length === 0 || branch.startsWith('-')) return false;
     try {
@@ -243,6 +268,19 @@ export class GitClient {
         env: ctx.auth.env,
       });
     } catch (e) {
+      if (e instanceof GitError && /couldn't find remote ref/i.test(e.stderr)) {
+        const fallback = await this.defaultBaseRef(cwd);
+        const real = fallback.startsWith(`${split.remote}/`)
+          ? fallback.slice(split.remote.length + 1)
+          : null;
+        const friendly = new GitError(e.args, e.stderr, e.code, e);
+        friendly.message =
+          `${split.remote} has no branch '${split.branch}'.` +
+          (real && real !== split.branch
+            ? ` This repo's default branch is '${real}'; set \`base: ${real}\` in .shellie.yml.`
+            : ' Set `base:` in .shellie.yml to a branch that exists there.');
+        throw friendly;
+      }
       throw this.signInError(e, cwd, split.remote, ctx, (g) => g.message);
     }
     return true;
@@ -369,9 +407,13 @@ export class GitClient {
       try {
         await removeTree(worktreePath, this.wait);
       } catch (rm) {
-        throw new Error(
-          `Could not delete ${worktreePath}: ${errorMessage(rm)}. Close what has files open there and try again.`,
-          { cause: e },
+        // The fs code (EPERM, EBUSY) stays on the error: Finish tells a held file from other failures by it.
+        throw Object.assign(
+          new Error(
+            `Could not delete ${worktreePath}: ${errorMessage(rm)}. Close what has files open there and try again.`,
+            { cause: e },
+          ),
+          { code: (rm as NodeJS.ErrnoException).code },
         );
       }
       await this.worktreePrune(cwd);

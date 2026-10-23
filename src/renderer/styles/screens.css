@@ -661,6 +661,15 @@
   margin: 0;
   padding: 16px 32px 0;
 }
+/* A worktree folder Finish could not remove yet; retried in the background (issue 115). */
+.done-cleanup {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 32px 0;
+  overflow-wrap: anywhere;
+}
 
 /* Finish: Time spent */
 .time-slider {
@@ -759,4 +768,361 @@
 .time-agents b {
   color: var(--text);
   font-weight: 600;
+}
+
+/* Add repository, first-run step strip; on the step pages it sits above the page header, outside the body. */
+.page > .step-strip {
+  flex: none;
+  padding: 16px 32px 0;
+}
+.step-strip {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+.step-strip .step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.step-strip .step.current {
+  color: var(--text);
+  font-weight: 600;
+}
+.step-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  background: var(--bg-selected);
+}
+.step.done .step-dot {
+  background: var(--green-bg);
+  color: var(--green);
+}
+.step.current .step-dot {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.add-repo {
+  max-width: 1000px;
+}
+.add-repo-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 420px);
+  gap: 16px;
+  align-items: start;
+}
+.add-repo-left,
+.add-repo-choice {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.add-repo-choice {
+  border: 0;
+  margin: 0;
+}
+.repo-fact {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+.repo-fact-value {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  overflow-wrap: anywhere;
+}
+.repo-facts h3 {
+  margin: 8px 0;
+}
+.chip-code {
+  font-family: var(--font-code);
+  background: var(--bg-selected);
+  border-radius: var(--radius);
+  padding: 0 4px;
+}
+.pill-ok {
+  color: var(--green);
+  background: var(--green-bg);
+  border-radius: 10px;
+  padding: 2px 8px;
+}
+.add-repo-right {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.add-repo-code,
+.add-repo-yml {
+  font-family: var(--font-code);
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  padding: 12px;
+  margin: 0;
+  min-height: 180px;
+  white-space: pre-wrap;
+  height: auto;
+}
+.add-repo-yml {
+  color: var(--text);
+  resize: vertical;
+}
+.add-repo-error {
+  color: var(--red);
+  margin: 0;
+}
+.add-repo-note {
+  background: var(--warn-bg);
+  border-radius: var(--radius-card);
+  padding: 12px;
+  margin: 0;
+}
+.add-repo-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.add-repo-actions .grow {
+  flex: 1;
+}
+
+/* Tracker picker (Connect page, Settings > Connections) */
+.provider-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.provider-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  cursor: pointer;
+}
+.provider-card.selected {
+  border-color: var(--accent);
+}
+.provider-card.disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.provider-card input {
+  margin-top: 3px;
+}
+.provider-card-text {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+}
+.provider-card-text .small {
+  flex-basis: 100%;
+}
+.pill-soon {
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--bg-selected);
+  border-radius: 10px;
+  padding: 0 8px;
+}
+
+/* Connect page */
+.connect {
+  max-width: 1000px;
+}
+.connect-form {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 12px 16px;
+  align-items: center;
+  padding: 16px;
+}
+.connect-field {
+  display: flex;
+  gap: 8px;
+}
+.connect-field .field {
+  flex: 1;
+  min-width: 0;
+}
+.connect-form p {
+  margin: 6px 0 0;
+}
+.connect-error {
+  grid-column: 1 / -1;
+  color: var(--red);
+}
+.connect-signed {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.connect-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+}
+.connect-warn {
+  background: var(--warn-bg);
+  color: var(--warn);
+  border-radius: var(--radius-card);
+  padding: 8px 12px;
+}
+.connect-none {
+  padding: 12px 16px;
+  margin: 0;
+}
+
+/* Settings > Connections: one group per organization */
+.conn-group {
+  border-bottom: 1px solid var(--line);
+}
+.conn-group:last-child {
+  border-bottom: none;
+}
+.conn-group-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--bg-hover);
+  border-bottom: 1px solid var(--line);
+}
+.conn-group-head .grow {
+  flex: 1 1 240px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Get started (first run) and its Home band. `.page-body` is a flex column, so the grid needs the extra class. */
+.page-body.get-started {
+  display: grid;
+  grid-template-columns: minmax(0, 600px) minmax(0, 360px);
+  gap: 24px;
+  align-items: start;
+  max-width: 1000px;
+}
+.get-started h1 {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+.get-started-main {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.get-started-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.get-started-art {
+  aspect-ratio: 3 / 2;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--bg-card);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.get-started-art img:not(.mindmark) {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.get-started-gets {
+  padding: 12px 16px;
+}
+.get-started-gets ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+.step-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.step-cards.in-band {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+.step-cards.in-band .step-card {
+  flex: 1 1 220px;
+}
+.step-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+}
+.step-card.is-current {
+  border-color: var(--accent);
+}
+.step-card h3 {
+  margin: 0;
+}
+.step-card p {
+  margin: 2px 0 0;
+}
+.step-card-body {
+  flex: 1;
+  min-width: 0;
+}
+.step-mark {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  border: 1px solid var(--line-strong);
+  color: var(--muted);
+}
+.step-mark.is-done {
+  border: 0;
+  background: var(--green-bg);
+  color: var(--green);
+}
+.step-mark.is-current {
+  border: 0;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.get-started-band .section-head {
+  justify-content: space-between;
+}
+@media (max-width: 900px) {
+  .page-body.get-started {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

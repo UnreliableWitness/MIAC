@@ -179,19 +179,37 @@ export class AdoClient {
   async verify(
     project: string,
   ): Promise<{ user: string; uniqueName: string | null }> {
+    const who = await this.whoAmI();
+    await this.request<Json>(
+      `/_apis/projects/${encodeURIComponent(project)}?${API}`,
+    );
+    return who;
+  }
+
+  /** The user the token belongs to, without checking any project. */
+  async whoAmI(): Promise<{ user: string; uniqueName: string | null }> {
     const auth = await this.connectionData();
     const user =
       (auth?.providerDisplayName as string | undefined) ?? 'unknown user';
     const account = (
       (auth?.properties as Json | undefined)?.Account as Json | undefined
     )?.$value;
-    await this.request<Json>(
-      `/_apis/projects/${encodeURIComponent(project)}?${API}`,
-    );
     return {
       user,
       uniqueName: typeof account === 'string' && account ? account : null,
     };
+  }
+
+  /** The organization's projects the token can see (needs Project and Team: Read). */
+  async projects(): Promise<{ id: string; name: string }[]> {
+    const data = await this.request<{
+      value?: { id?: unknown; name?: unknown }[];
+    }>(`/_apis/projects?$top=1000&${API}`);
+    return (data.value ?? []).flatMap((p) =>
+      typeof p.id === 'string' && p.id && typeof p.name === 'string' && p.name
+        ? [{ id: p.id, name: p.name }]
+        : [],
+    );
   }
 
   async currentIteration(

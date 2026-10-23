@@ -7,7 +7,11 @@ import { invalidateRepoConfig } from './hooks/useRepoConfig';
 import { useAttention } from './hooks/useAttention';
 import { useTimeFocus } from './hooks/useTimeFocus';
 import { useShortcuts } from './hooks/useShortcuts';
+import { AddRepoScreen } from './screens/AddRepoScreen';
+import { AgentsScreen } from './screens/AgentsScreen';
+import { ConnectScreen } from './screens/ConnectScreen';
 import { FinishScreen } from './screens/FinishScreen';
+import { GetStartedScreen } from './screens/GetStartedScreen';
 import { NewTaskScreen } from './screens/NewTaskScreen';
 import { SecretsImportScreen } from './screens/SecretsImportScreen';
 import { SecretsScreen } from './screens/SecretsScreen';
@@ -24,6 +28,10 @@ function Page() {
   switch (screen.kind) {
     case 'home':
       return <HomeScreen />;
+    case 'get-started':
+      return <GetStartedScreen />;
+    case 'agents':
+      return <AgentsScreen />;
     case 'sprint':
       return <SprintScreen />;
     case 'task':
@@ -39,6 +47,10 @@ function Page() {
       return <SetupScreen taskId={screen.taskId} />;
     case 'finish':
       return <FinishScreen taskId={screen.taskId} />;
+    case 'add-repo':
+      return <AddRepoScreen key={screen.folder ?? ''} folder={screen.folder} />;
+    case 'connect':
+      return <ConnectScreen key={screen.connectionId ?? ''} />;
     case 'settings':
       return <SettingsScreen />;
     case 'secrets':

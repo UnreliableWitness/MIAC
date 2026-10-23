@@ -129,6 +129,7 @@ const task: Task = {
   mainCheckoutEdits: [],
   environment: 'development',
   environmentUntil: null,
+  pendingCleanup: [],
 };
 
 describe('renderTaskMd', () => {

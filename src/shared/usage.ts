@@ -53,6 +53,14 @@ export type Rate = z.infer<typeof RateSchema>;
 /** Built-in exchange rate used for every EUR amount, so all teammates on the same Shellie version write identical numbers. Changes only with an app update. */
 export const OFFICIAL_USD_TO_EUR = 0.92;
 
+const OnboardingSchema = z.object({
+  dismissedAt: z.string().nullable().default(null),
+  agentsCheckedAt: z.string().nullable().default(null),
+  tracker: z.literal('none').nullable().default(null),
+  /** Set on the first start of the version with the first-run page, so its migration for existing installs runs once. */
+  migrated: z.boolean().default(false),
+});
+
 export const AppSettingsSchema = z.object({
   version: z.literal(1),
   receiverPort: z.number().int().min(1024).max(65535),
@@ -90,6 +98,15 @@ export const AppSettingsSchema = z.object({
       productionMinutes: z.number().int().min(5).max(480).default(60),
     })
     .default({ productionMinutes: 60 }),
+  /** First-run state: dismissed Get started, the one-time agent pre-tick, a chosen "no tracker". */
+  onboarding: OnboardingSchema.default({
+    dismissedAt: null,
+    agentsCheckedAt: null,
+    tracker: null,
+    migrated: false,
+  }),
+  /** The version whose What's new card on Home was dismissed (or a fresh install's first version); unset before #126. */
+  whatsNewSeen: z.string().nullable().optional(),
   /** Auto-update (packaged Windows builds). No UI yet: set false in settings.json to turn it off. */
   autoUpdate: z.boolean().optional(),
 });

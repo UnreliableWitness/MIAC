@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   CHECK_INTERVAL_MS,
   FIRST_CHECK_DELAY_MS,
+  MIN_WAKE_GAP_MS,
+  STUCK_CHECK_MS,
   canAutoUpdate,
   releaseVersion,
   startAutoUpdate,
@@ -40,6 +42,7 @@ function setup(over: Partial<AutoUpdateDeps> = {}) {
     }),
   };
   const t = fakeTimers();
+  const clock = { now: 1_000_000 };
   const deps: AutoUpdateDeps = {
     isPackaged: true,
     platform: 'win32',
@@ -49,14 +52,17 @@ function setup(over: Partial<AutoUpdateDeps> = {}) {
     enabled: undefined,
     updater,
     onReady: vi.fn(),
+    onCheckFailed: vi.fn(),
     log: vi.fn(),
     timers: t.timers,
+    now: () => clock.now,
     ...over,
   };
   const handle = startAutoUpdate(deps);
   const emit = (event: string, ...args: unknown[]) =>
     listeners.get(event)?.(...args);
-  return { deps, updater, handle, emit, ...t };
+  const tick = () => [...t.intervals.values()][0].fn();
+  return { deps, updater, handle, emit, clock, tick, ...t };
 }
 
 describe('updateFeedUrl', () => {
@@ -96,8 +102,8 @@ describe('startAutoUpdate', () => {
     }
   });
 
-  it('sets the feed, checks after a short delay and then hourly', () => {
-    const { updater, timeouts, intervals } = setup();
+  it('sets the feed, checks after a short delay and then every interval', () => {
+    const { updater, timeouts, intervals, emit, tick } = setup();
     expect(updater.setFeedURL).toHaveBeenCalledWith({
       url: 'https://update.electronjs.org/UnreliableWitness/Shellie/win32-x64/1.2.3',
     });
@@ -106,13 +112,19 @@ describe('startAutoUpdate', () => {
     expect(first.ms).toBe(FIRST_CHECK_DELAY_MS);
     first.fn();
     expect(updater.checkForUpdates).toHaveBeenCalledTimes(1);
-    const [hourly] = [...intervals.values()];
-    expect(hourly.ms).toBe(CHECK_INTERVAL_MS);
-    hourly.fn();
+    emit('checking-for-update');
+    emit('update-not-available');
+    const [every] = [...intervals.values()];
+    expect(every.ms).toBe(CHECK_INTERVAL_MS);
+    tick();
     expect(updater.checkForUpdates).toHaveBeenCalledTimes(2);
   });
 
-  it('skips the start-up check on a Squirrel first run but keeps the hourly one', () => {
+  it('checks every 10 minutes, the interval update.electronjs.org documents', () => {
+    expect(CHECK_INTERVAL_MS).toBe(10 * 60 * 1000);
+  });
+
+  it('skips the start-up check on a Squirrel first run but keeps the periodic one', () => {
     const { timeouts, intervals } = setup({
       argv: ['Shellie.exe', '--squirrel-firstrun'],
     });
@@ -131,23 +143,96 @@ describe('startAutoUpdate', () => {
     expect(deps.onReady).not.toHaveBeenCalled();
   });
 
-  it('on download: reports it ready once, stops checking and installs only when asked', () => {
-    const { emit, deps, updater, handle, timeouts, intervals } = setup();
+  it('reports a failed check once per launch', () => {
+    const { emit, deps } = setup();
+    emit('error', new Error('offline'));
+    emit('error', new Error('offline'));
+    expect(deps.onCheckFailed).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps checking after errors', () => {
+    const { emit, updater, tick } = setup();
+    for (let i = 0; i < 3; i++) {
+      tick();
+      emit('checking-for-update');
+      emit('error', new Error('offline'));
+    }
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(3);
+  });
+
+  it('on download: reports it ready once per version and installs only when asked', () => {
+    const { emit, deps, updater, handle } = setup();
     expect(handle?.install()).toBe(false);
-    emit('update-downloaded', {}, '', 'Shellie v1.3.0 (unsigned)');
-    emit('update-downloaded', {}, '', 'Shellie v1.3.0 (unsigned)');
+    emit('update-downloaded', {}, '', '1.3.0');
+    emit('update-downloaded', {}, '', '1.3.0');
     expect(deps.onReady).toHaveBeenCalledTimes(1);
     expect(deps.onReady).toHaveBeenCalledWith('1.3.0');
-    expect(timeouts.size + intervals.size).toBe(0);
     expect(updater.quitAndInstall).not.toHaveBeenCalled();
     expect(handle?.install()).toBe(true);
     expect(updater.quitAndInstall).toHaveBeenCalledTimes(1);
   });
 
-  it('stop() cancels the timers', () => {
-    const { handle, timeouts, intervals } = setup();
+  it('keeps checking after a download, so a newer release replaces the waiting one (#126)', () => {
+    const { emit, deps, updater, intervals, tick } = setup();
+    tick();
+    emit('checking-for-update');
+    emit('update-available');
+    emit('update-downloaded', {}, '', '1.3.0');
+    expect(intervals.size).toBe(1);
+    tick();
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(2);
+    emit('checking-for-update');
+    emit('update-available');
+    emit('update-downloaded', {}, '', '1.4.0');
+    expect(deps.onReady).toHaveBeenCalledTimes(2);
+    expect(deps.onReady).toHaveBeenLastCalledWith('1.4.0');
+  });
+
+  it('does not start a check while one runs (a slow download), until it looks stuck', () => {
+    const { emit, deps, updater, clock, tick } = setup();
+    tick();
+    emit('checking-for-update');
+    emit('update-available');
+    clock.now += CHECK_INTERVAL_MS;
+    tick();
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(1);
+    clock.now += STUCK_CHECK_MS;
+    tick();
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(2);
+    expect(deps.log).toHaveBeenCalledWith(expect.stringContaining('no result'));
+  });
+
+  it('a check that throws frees the next one', () => {
+    const { updater, tick } = setup();
+    updater.checkForUpdates.mockImplementationOnce(() => {
+      throw new Error('not installed by Squirrel');
+    });
+    tick();
+    tick();
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(2);
+  });
+
+  it('wake() checks after a resume or unlock, at most once per 5 minutes', () => {
+    const { emit, updater, handle, clock } = setup();
+    expect(MIN_WAKE_GAP_MS).toBe(5 * 60 * 1000);
+    handle?.wake();
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(1);
+    emit('checking-for-update');
+    emit('update-not-available');
+    clock.now += MIN_WAKE_GAP_MS - 1;
+    handle?.wake();
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(1);
+    clock.now += 1;
+    handle?.wake();
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(2);
+  });
+
+  it('stop() cancels the timers and later wakes', () => {
+    const { handle, timeouts, intervals, updater } = setup();
     handle?.stop();
     expect(timeouts.size + intervals.size).toBe(0);
+    handle?.wake();
+    expect(updater.checkForUpdates).not.toHaveBeenCalled();
   });
 });
 

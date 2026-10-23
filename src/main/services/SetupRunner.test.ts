@@ -1,5 +1,6 @@
 import {
   chmodSync,
+  symlinkSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -429,6 +430,68 @@ describe('SetupRunner: copied env files without stored secrets', () => {
     const { p } = await run([], files);
     for (const [f, text] of Object.entries(files))
       expect(read(p, f)).toBe(text);
+  });
+});
+
+describe('agent config copy', () => {
+  async function runCopy(repo: string, over: Partial<SetupPlan> = {}) {
+    const p = plan(repo, { copyAgentConfig: true, ...over });
+    const { events, onEvent } = collect();
+    const result = await runner.run(p, {
+      onEvent,
+      startTerminals: async () => {},
+    });
+    expect(result).toEqual({ ok: true });
+    const lines = events.flatMap((e) => (e.type === 'log' ? [e.line] : []));
+    return { p, lines };
+  }
+
+  it('copies untracked agent config files and folders', async () => {
+    const repo = makeRepo();
+    writeFileSync(path.join(repo, 'opencode.json'), '{"mcp":{}}');
+    mkdirSync(path.join(repo, '.opencode', 'agent'), { recursive: true });
+    writeFileSync(path.join(repo, '.opencode', 'agent', 'a.md'), 'agent');
+    writeFileSync(path.join(repo, '.mcp.json'), '{}');
+    const { p, lines } = await runCopy(repo);
+    expect(
+      readFileSync(path.join(p.worktreePath, 'opencode.json'), 'utf8'),
+    ).toBe('{"mcp":{}}');
+    expect(
+      readFileSync(
+        path.join(p.worktreePath, '.opencode', 'agent', 'a.md'),
+        'utf8',
+      ),
+    ).toBe('agent');
+    expect(existsSync(path.join(p.worktreePath, '.mcp.json'))).toBe(true);
+    expect(lines).toContain('copied opencode.json (agent config)');
+  });
+
+  it('leaves tracked files to git', async () => {
+    const repo = makeRepo();
+    commitFile(repo, 'opencode.json', 'committed');
+    writeFileSync(path.join(repo, 'opencode.json'), 'local edit');
+    const { p, lines } = await runCopy(repo);
+    expect(
+      readFileSync(path.join(p.worktreePath, 'opencode.json'), 'utf8'),
+    ).toBe('committed');
+    expect(lines).not.toContain('copied opencode.json (agent config)');
+  });
+
+  it('copies nothing when copyAgentConfig is off', async () => {
+    const repo = makeRepo();
+    writeFileSync(path.join(repo, 'opencode.json'), '{}');
+    const { p } = await runCopy(repo, { copyAgentConfig: false });
+    expect(existsSync(path.join(p.worktreePath, 'opencode.json'))).toBe(false);
+  });
+
+  it('skips a symbolic link, even one pointing outside the repository', async () => {
+    const repo = makeRepo();
+    const outside = path.join(path.dirname(repo), 'secret.json');
+    writeFileSync(outside, 'secret');
+    symlinkSync(outside, path.join(repo, 'opencode.json'));
+    const { p, lines } = await runCopy(repo);
+    expect(existsSync(path.join(p.worktreePath, 'opencode.json'))).toBe(false);
+    expect(lines).toContain('skipped opencode.json (symbolic link)');
   });
 });
 

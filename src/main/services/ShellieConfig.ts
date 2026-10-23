@@ -4,8 +4,13 @@ import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
 import type { ShellieConfig } from '../../shared/types';
 import { pathExists } from '../fsRetry';
+import { GitClient } from './GitClient';
+import {
+  DEFAULT_BRANCH_TEMPLATE,
+  ShellieYmlSchema,
+} from '../../shared/shellieYml';
 
-export const DEFAULT_BRANCH_TEMPLATE = '{type}/{id}-{slug}';
+export { DEFAULT_BRANCH_TEMPLATE, ShellieYmlSchema };
 
 export class ShellieConfigError extends Error {
   constructor(
@@ -17,21 +22,6 @@ export class ShellieConfigError extends Error {
   }
 }
 
-const listOrString = z.union([
-  z.string().transform((s) => [s]),
-  z.array(z.string()),
-]);
-
-const ShellieYmlSchema = z.strictObject({
-  base: z.string().default('main'),
-  branch: z.string().default(DEFAULT_BRANCH_TEMPLATE),
-  copy: listOrString.default([]),
-  setup: listOrString.optional(),
-  run: z.record(z.string(), z.string()).default({}),
-  apm: z.union([z.literal(false), listOrString]).optional(),
-  review: z.strictObject({ collapse: listOrString.default([]) }).optional(),
-});
-
 /** `.shellie.yml`, else the pre-rename `.miac.yml`, else null. */
 export async function configFileFor(repoPath: string): Promise<string | null> {
   for (const name of ['.shellie.yml', '.miac.yml']) {
@@ -41,8 +31,22 @@ export async function configFileFor(repoPath: string): Promise<string | null> {
   return null;
 }
 
+type BaseGit = Pick<GitClient, 'defaultBaseRef' | 'currentBranch'>;
+let defaultGit: GitClient | undefined;
+
+/** The repo's own default branch (origin/HEAD, main, master, ...), for a config that sets no `base`. */
+export async function defaultBaseBranch(
+  repoPath: string,
+  git: BaseGit = (defaultGit ??= new GitClient()),
+): Promise<string> {
+  const ref = await git.defaultBaseRef(repoPath);
+  if (ref === 'HEAD') return (await git.currentBranch(repoPath)) ?? 'main';
+  return ref.replace(/^origin\//, '');
+}
+
 export async function loadShellieConfig(
   repoPath: string,
+  git?: BaseGit,
 ): Promise<ShellieConfig> {
   const file = await configFileFor(repoPath);
   const defaultSetup = (await pathExists(
@@ -52,7 +56,12 @@ export async function loadShellieConfig(
     : [];
 
   if (file === null)
-    return toConfig(ShellieYmlSchema.parse({}), defaultSetup, false);
+    return toConfig(
+      ShellieYmlSchema.parse({}),
+      defaultSetup,
+      false,
+      await defaultBaseBranch(repoPath, git),
+    );
 
   const text = await fs.readFile(file, 'utf8');
   let doc: unknown;
@@ -73,18 +82,25 @@ export async function loadShellieConfig(
       .join('; ');
     throw new ShellieConfigError(file, detail);
   }
-  return toConfig(parsed.data, defaultSetup, true);
+  return toConfig(
+    parsed.data,
+    defaultSetup,
+    true,
+    parsed.data.base ?? (await defaultBaseBranch(repoPath, git)),
+  );
 }
 
 function toConfig(
   c: z.infer<typeof ShellieYmlSchema>,
   defaultSetup: string[],
   found: boolean,
+  base: string,
 ): ShellieConfig {
   return {
-    base: c.base,
+    base,
     branch: c.branch,
     copy: c.copy,
+    copyAgentConfig: c.copyAgentConfig,
     setup: c.setup ?? defaultSetup,
     run: c.run,
     ...(c.apm !== undefined ? { apm: c.apm } : {}),

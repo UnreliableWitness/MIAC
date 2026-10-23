@@ -26,17 +26,27 @@ This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 
 
 | Name | Properties / measurements |
 | --- | --- |
-| Screen views (page views) | `sprint`, `task`, `new-task`, `setup`, `finish`, `settings`, `home`, `secrets`, `secrets-import` |
+| Screen views (page views) | `sprint`, `task`, `new-task`, `setup`, `finish`, `settings`, `home`, `add-repo`, `connect`, `get-started`, `agents`, `secrets`, `secrets-import` |
 | `app.started` | splash on/off; counts of repos, open tasks, connections; whether the usage receiver listens; boot step timings (see Performance) |
 | `app.quit` | session length in minutes |
 | `home.refreshed` | the Home page's data was rebuilt; number of connections, number that failed; duration in ms |
 | `home.failed` | a connection failed in a Home rebuild; `kind` (`unauthorized`, `unreachable`, `timeout`, `step`) |
 | `home.clicked` | a click on Home; `band` (`task`, `up-next`, `review`, `team-review`, `my-pr`, `sprint`, `stats-period`, `budget-month`, `budget-settings`) |
 | `budget.alert` | a Claude budget alert fired (main); `kind` (`at80`, `forecastOver`, `at100`) |
-| `update.ready` | an update finished downloading (Windows); none |
+| `onboarding.shown` | the Get started page opened; none |
+| `onboarding.dismissed` | Skip for now on Get started, or Dismiss on its Home band; `repos`, `connections` (counts) |
+| `onboarding.step` | a step of first-run setup was left; `step` (`agents`, `connect`, `repository`), `outcome` (`continued`, `skipped`, `back`) |
+| `update.ready` | an update finished downloading (Windows); sent again when a newer one downloads while the first waits (#126); none |
 | `update.restart`, `update.later` | the choice on the update notice; none |
+| `update.checkFailed` | the first failed update check of a launch (Windows, #126; later failures are only logged); none, not the error text |
+| `whatsNew.shown` | Home showed the What's new card after an update (#126); `releases` (count covered), `fetched` (whether GitHub's release notes loaded) |
+| `whatsNew.dismissed`, `whatsNew.opened` | Dismiss on the What's new card, or its Release notes on GitHub link; none |
 | `task.created` | has a work item; copy files, start Claude, open shell, open Copilot, open OpenCode (booleans); number of setup commands |
 | `task.finished` | remove worktree, delete branch, close terminals, sync usage, has a work item (booleans); task age in hours, number of workspaces finished, pull requests asked for and workspaces dropped |
+| `task.discarded` | a ready task was thrown away with Discard task (#124); `blank` (no commits since the base and nothing uncommitted in any workspace); measurements `commitsLost` (commits on the removed branches that no remote has), `workspaces` (worktrees removed), `deferred` (folders left to the background retry) and `ageHours`. Never names or paths |
+| `cleanup.deferred` | Finish (or Discard task) could not remove a worktree folder yet and left it to the background retry (#115); the error code only (`EPERM`, `EBUSY`, another fs code, `in-use`, `git` or `other`), no path |
+| `cleanup.done` | a background retry removed a leftover folder (and its branch); the code it first failed with; attempts in all and minutes since Finish |
+| `cleanup.gaveUp` | a leftover folder still could not be removed a day after Finish, so the user got one notice (retries go on); the last error code; attempts so far |
 | `workitem.startUpdated` | setup moved the work item to In Progress (`moved`), assigned it (`assigned`), or the update failed (`failed`) |
 | `pr.created` | Finish created a draft pull request; none |
 | `pr.linked` | Finish linked an existing active pull request instead of creating one; none |
@@ -49,6 +59,7 @@ This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 
 | `migration.miac` | first start after the rename from MIAC copied its data folder, or gave up after the third failed attempt; `result` (`ok`, `failed`); `tokens` (`migrated`, `partial`, `refused`, `none`; `none` when the copy gave up); `copied` (number of top-level entries), `ms` |
 | `workspace.joined` | a worktree of another repo joined a task; `source` (`log`: found in a Claude session log, `branch`: found by the task branch, `manual`: added by hand) |
 | `workspace.removed` | a joined worktree was removed from its task; none |
+| `agents.detected` | the agent CLI check ran; `claude`, `copilot`, `opencode` (true when found; never versions or paths) |
 | `terminal.opened` | kind (`claude`, `copilot`, `opencode`, `shell`, `run`); opened by setup or by hand |
 | `terminal.closed` | kind |
 | `terminal.restarted` | kind; after an app relaunch or not (a Claude Code restart resumes its session); `withoutProjectConfig` when OpenCode was started again without the repo's config (#109) |
@@ -73,7 +84,6 @@ This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 
 | `focus.toggled`, `nav.toggled` | on / collapsed |
 | `settings.changed` | names of the changed settings (not their values) |
 | `workItems.search` | picker scope (`sprint` or `mine`); whether search text was typed (not the text) |
-| `repo.added`, `repo.removed`, `repo.connectionLinked`, `connection.saved`, `connection.removed` | counts or linked/unlinked only |
 | `secrets.discovered` | Shellie looked for a repo's secrets (the import page opened); measurements only: `values` found, `secretLike`, `unassigned` (no environment from the file or profile name), `skipped` (names that cannot be environment variables), and the number of values per source kind (`dotenv`, `appsettings`, `launchSettings`, `userSecrets`, `vscode`, `compose`, `localSettings`, `secretsFolder`, `other`). Never a name, value, path or source |
 | `secrets.imported` | an import saved values; `environments`: the environments it saved values for, from the fixed four (`development`, `test`, `uat`, `production`, comma-separated); `rewriteWorktreeCopies`; measurements `values`, `worktreesRewritten`, `filesChanged` (main-checkout files the import took the keys out of) |
 | `secrets.environmentSwitched` | a running task switched environment; `from`, `to` (the fixed four); `confirmed` (the UAT or Production confirm was given) |
@@ -81,6 +91,9 @@ This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 
 | `secrets.leakDetected` | a stored value showed up; `where` (`agent`: in an agent tab's output or a `shellie run`'s output, once per name per tab; `diff`: in the Changes of a task, once per task and environment per launch; `push`: Finish refused to push a branch that adds one); `environment`: the gravest environment among the values found (the fixed four); for `agent`, `paused` (a Production value paused the tab) |
 | `secrets.runStarted` | an agent's `shellie run` started its tab (after the approve on UAT and Production); `kind` (`run`, `test`, `setup`); `environment` (the fixed four). Never the command's name, line or arguments |
 | `secrets.worktreesCleaned` | Clean worktrees ran; `from` (`secrets`: the Secrets page, `task`: the task bar); measurement `count` (tasks cleaned) |
+| `repo.added`, `repo.removed`, `repo.connectionLinked`, `connection.saved`, `connection.removed` | counts or linked/unlinked only; `repo.added` also has `wroteConfig` (true when Shellie wrote `.shellie.yml`) |
+| `connection.probeFailed` | the Connect page's Test failed: `status`, the HTTP status Azure DevOps answered with (0 when it could not be reached); never the URL, organization or token |
+| `repo.inspected` | a folder was inspected for adding: `remote` (`azure-devops`, `github`, `other` or `none`), `lockfile` (`npm`, `pnpm`, `yarn` or `none`), and `linked`, `dotnet`, `devScript`, `apm`, `existingConfig` (booleans); never paths, URLs or names |
 
 ## Errors
 

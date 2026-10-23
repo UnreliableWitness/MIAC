@@ -48,6 +48,7 @@ const task: TaskView = {
   mainCheckoutEdits: [],
   environment: 'development',
   environmentUntil: null,
+  pendingCleanup: [],
   worktreeMissing: false,
 };
 const state: SetupState = {
@@ -223,6 +224,12 @@ describe('SetupScreen', () => {
           status: 'ok',
           checkedAt: null,
           userUniqueName: null,
+          provider: 'azure-devops' as const,
+          workItemOnStart: {
+            moveToInProgress: true,
+            assignToMe: true,
+            stateOverrides: {},
+          },
         },
       ],
     });

@@ -48,6 +48,7 @@ const task = (id: string, terms: string[]): TaskView => ({
   mainCheckoutEdits: [],
   environment: 'development',
   environmentUntil: null,
+  pendingCleanup: [],
 });
 
 beforeEach(() => {
@@ -62,6 +63,25 @@ beforeEach(() => {
     screen: { kind: 'sprint' },
     previous: null,
     selectedTaskId: null,
+  });
+});
+
+describe('discard (#124)', () => {
+  it('askDiscard opens the task page with its question; leaving the page or the task drops it', () => {
+    useStore.setState({ tasks: [task('a', []), task('b', [])] });
+    const s = () => useStore.getState();
+    s().askDiscard('a');
+    expect(s().selectedTaskId).toBe('a');
+    expect(s().screen).toEqual({ kind: 'task' });
+    expect(s().discardTaskId).toBe('a');
+    s().select('b');
+    expect(s().discardTaskId).toBeNull();
+    s().askDiscard('a');
+    s().go({ kind: 'home' });
+    expect(s().discardTaskId).toBeNull();
+    s().askDiscard('a');
+    s().cancelDiscard();
+    expect(s().discardTaskId).toBeNull();
   });
 });
 
@@ -220,6 +240,12 @@ describe('activeConnection', () => {
     status: 'ok' as const,
     checkedAt: null,
     userUniqueName: null,
+    provider: 'azure-devops' as const,
+    workItemOnStart: {
+      moveToInProgress: true,
+      assignToMe: true,
+      stateOverrides: {},
+    },
   });
   const repo = (id: string, connectionId: string | null) => ({
     id,

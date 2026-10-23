@@ -62,6 +62,7 @@ const task: TaskView = {
   mainCheckoutEdits: [],
   environment: 'development',
   environmentUntil: null,
+  pendingCleanup: [],
   worktreeMissing: false,
 };
 const dirty = {
@@ -490,6 +491,12 @@ describe('FinishScreen AI usage', () => {
         sendTelemetry: true,
         editor: { default: null, repos: {} },
         secrets: { productionMinutes: 60 },
+        onboarding: {
+          dismissedAt: null,
+          agentsCheckedAt: null,
+          tracker: null,
+          migrated: false,
+        },
         defaultTerminals: {
           claude: true,
           copilot: false,
@@ -821,6 +828,12 @@ describe('FinishScreen push that cannot sign in', () => {
     status: 'ok' as const,
     checkedAt: null,
     userUniqueName: null,
+    provider: 'azure-devops' as const,
+    workItemOnStart: {
+      moveToInProgress: true,
+      assignToMe: true,
+      stateOverrides: {},
+    },
   };
 
   it('says to update the token and opens Settings at the connection', async () => {

@@ -38,6 +38,12 @@ const settings = {
   sendTelemetry: true,
   editor: { default: null, repos: {} },
   secrets: { productionMinutes: 60 },
+  onboarding: {
+    dismissedAt: null,
+    agentsCheckedAt: null,
+    tracker: null,
+    migrated: false,
+  },
   defaultTerminals: {
     claude: true,
     copilot: false,
@@ -59,6 +65,12 @@ beforeEach(() => {
         status: 'ok',
         checkedAt: null,
         userUniqueName: null,
+        provider: 'azure-devops' as const,
+        workItemOnStart: {
+          moveToInProgress: true,
+          assignToMe: true,
+          stateOverrides: {},
+        },
       },
     ],
   });
@@ -124,6 +136,12 @@ describe('CostSection', () => {
       sendTelemetry: true,
       editor: { default: null, repos: {} },
       secrets: { productionMinutes: 60 },
+      onboarding: {
+        dismissedAt: null,
+        agentsCheckedAt: null,
+        tracker: null,
+        migrated: false,
+      },
       defaultTerminals: {
         claude: true,
         copilot: false,

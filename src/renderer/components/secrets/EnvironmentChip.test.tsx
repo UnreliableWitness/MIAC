@@ -56,6 +56,7 @@ const task = (over: Partial<TaskView> = {}): TaskView => ({
   mainCheckoutEdits: [],
   environment: 'development',
   environmentUntil: null,
+  pendingCleanup: [],
   worktreeMissing: false,
   ...over,
 });

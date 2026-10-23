@@ -166,6 +166,19 @@ h3 {
   min-width: 0;
   overflow-wrap: anywhere;
 }
+.confirm-bar-details {
+  display: block;
+  margin-top: 4px;
+}
+.confirm-bar-line {
+  display: block;
+}
+.confirm-bar-line + .confirm-bar-line {
+  margin-top: 2px;
+}
+.confirm-bar-warn {
+  font-weight: 600;
+}
 .confirm-bar-actions {
   display: inline-flex;
   gap: 6px;
@@ -520,10 +533,38 @@ fieldset.group legend {
   background: var(--bg-card);
   border-left: 3px solid var(--accent);
   box-shadow: var(--shadow-2);
-  max-width: 420px;
-  display: flex;
+  width: max-content;
+  max-width: min(420px, calc(100vw - 32px));
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
+  align-items: start;
+}
+.notice-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
   align-items: flex-start;
+  gap: 4px;
+}
+.notice-message {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.notice-clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.notice-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  font-size: inherit;
 }
 .notice-error {
   border-left-color: var(--red);
@@ -531,8 +572,8 @@ fieldset.group legend {
 .notice-warn {
   border-left-color: var(--warn);
 }
-.notice > button {
-  margin-left: auto;
+.notice-close {
+  flex-shrink: 0;
   background: none;
   border: none;
   color: var(--muted);

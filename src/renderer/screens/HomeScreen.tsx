@@ -1,11 +1,13 @@
 import { ArrowClockwise16Regular } from '@fluentui/react-icons';
 import { useEffect, useMemo } from 'react';
 import { Band } from '../components/home/Band';
+import { GetStartedBand } from '../components/home/GetStartedBand';
 import { PrBand } from '../components/home/PrBand';
 import { SprintsBand } from '../components/home/SprintsBand';
 import { BudgetBand } from '../components/home/BudgetBand';
 import { StatsBand } from '../components/home/StatsBand';
 import { TasksBand } from '../components/home/TasksBand';
+import { WhatsNewBand } from '../components/home/WhatsNewBand';
 import { PageHeader } from '../components/ui';
 import { ago } from '../format';
 import { useClock } from '../hooks/useClock';
@@ -100,16 +102,10 @@ export function HomeScreen() {
         </p>
       ))}
       <div className="home-bands">
+        <WhatsNewBand />
+        <GetStartedBand />
         <TasksBand snapshot={snapshot} />
-        {connections.length === 0 ? (
-          <button
-            type="button"
-            className="btn btn-primary home-connect"
-            onClick={() => go({ kind: 'settings' })}
-          >
-            Add an Azure DevOps connection
-          </button>
-        ) : (
+        {connections.length > 0 && (
           <>
             {snapshot ? (
               <PrBand snapshot={snapshot} />

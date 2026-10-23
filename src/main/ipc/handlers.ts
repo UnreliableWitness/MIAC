@@ -43,7 +43,12 @@ import {
 } from '../secrets/inject';
 import { SecretStore } from '../secrets/SecretStore';
 import { isAgentKind } from '../../shared/terminalFailure';
-import type { Events, Handlers, PendingUpdate } from '../../shared/ipc';
+import type {
+  Events,
+  Handlers,
+  PendingUpdate,
+  WhatsNew,
+} from '../../shared/ipc';
 import { claudeContext, renderTaskMd, taskSlug } from '../../shared/naming';
 import {
   claudeHasSessionsIn,
@@ -54,9 +59,14 @@ import {
 import { WorkspaceDetector } from '../workspaces/WorkspaceDetector';
 import type {
   Connection,
+  ConnectionInput,
+  DiscardChecks,
+  DiscardedCleanup,
+  DiscardWorkspaceCheck,
   FinishOptions,
   FinishRowResult,
   ShellieConfig,
+  PendingCleanup,
   PullRequestRef,
   SetupEvent,
   SetupState,
@@ -88,6 +98,12 @@ import { HomeService } from '../home/HomeService';
 import { homeStats } from '../home/homeStats';
 import { DocsWatcher } from '../docs/DocsWatcher';
 import { GitDirWatcher } from '../review/GitDirWatcher';
+import type { AgentsDetected } from '../../shared/agents';
+import {
+  detectAgents,
+  runProbe,
+  type ProbeRunner,
+} from '../services/agentDetector';
 import { createEditorHandlers } from '../editors/editorHandlers';
 import {
   detectEditors,
@@ -108,7 +124,7 @@ import type { TimeStore } from '../time/TimeStore';
 import type { Command, Platform } from '../platform/Platform';
 import { OFFICIAL_RATES, OFFICIAL_RATES_AS_OF } from '../pricing/officialRates';
 import { AdoClient, AdoError } from '../services/AdoClient';
-import type { AdoRegistry } from '../services/AdoRegistry';
+import type { TrackerRegistry } from '../trackers/TrackerRegistry';
 import {
   TokenUnavailableError,
   type ConnectionStore,
@@ -123,6 +139,7 @@ import {
 } from '../services/azureRepos';
 import { GitAuthError, type GitClient } from '../services/GitClient';
 import type { RepoRegistry } from '../services/RepoRegistry';
+import { inspectRepo } from '../services/repoInspect';
 import {
   planSteps,
   type ExtraRestore,
@@ -156,6 +173,7 @@ import { renderCostLine } from '../../shared/workItemUsage';
 import type { ColorScheme, ThemeChoice } from '../../shared/theme';
 import { colorFgBg } from '../services/claudeTheme';
 import type { TerminalFailures } from '../services/TerminalFailures';
+import { removeWorkspace, WorktreeCleanup } from '../services/worktreeCleanup';
 import type { TimeBooking } from '../../shared/time';
 import { errorMessage } from '../../shared/errors';
 import { OFFICIAL_USD_TO_EUR } from '../../shared/usage';
@@ -183,7 +201,7 @@ export type Services = {
   repos: RepoRegistry;
   connections: ConnectionStore;
   secrets: SecretStore;
-  ado: AdoRegistry;
+  trackers: TrackerRegistry;
   openExternal: (url: string) => Promise<void>;
   /** Shows a file in Finder or Explorer (main uses shell.showItemInFolder). */
   revealFile?: (absPath: string) => void;
@@ -202,6 +220,8 @@ export type Services = {
   loadConfig: (repoPath: string) => Promise<ShellieConfig>;
   pickFolder: () => Promise<string | null>;
   launch: (cmd: Command) => Promise<void>;
+  /** Runs an agent probe with a timeout; defaults to `execFile` (tests inject a fake). */
+  runProbe?: ProbeRunner;
   /** Editor detection and launch; handlers build one from platform, settings and launch when absent (tests). */
   editors?: EditorService;
   broadcast: <K extends keyof Events>(event: K, payload: Events[K]) => void;
@@ -238,6 +258,11 @@ export type Services = {
   budget?: BudgetService;
   /** Registers a function to run every hour (main uses setInterval; tests capture it). */
   onHourly: (fn: () => void) => void;
+  /**
+   * Registers the retry of finished tasks' leftover worktree folders (#115): main runs it shortly after launch and
+   * every few minutes; tests capture it.
+   */
+  onCleanupRetry?: (retryAll: () => Promise<void>) => void;
   /** How long Finish waits after closing terminals so the last telemetry batch arrives (main 2500, tests 0). */
   finishFlushMs: number;
   /** App telemetry (usage, errors, timings); see docs/telemetry.md. Defaults to sending nothing. */
@@ -274,6 +299,8 @@ export type Services = {
     /** Quits and starts the update; false when none is downloaded. */
     install(): boolean;
   };
+  /** Home's What's new card after an update (#126). Absent in dev and in tests. */
+  whatsNew?: { get(): Promise<WhatsNew | null> };
 };
 
 /** The task's open periods with a new one starting now (reopen). A task from before time tracking keeps creation to finish as its first. */
@@ -348,6 +375,7 @@ export async function pruneDanglingConnectionLinks(
 
 export function createHandlers(s: Services): Handlers {
   const tel = s.telemetry ?? NoopTelemetry;
+  let agentsCache: AgentsDetected | null = null;
   const sessionExists = s.claudeSessionExists ?? claudeSessionExists;
   const hasSessionsIn = s.claudeHasSessionsIn ?? claudeHasSessionsIn;
   const connectionsChanged = () =>
@@ -508,7 +536,7 @@ export function createHandlers(s: Services): Handlers {
     new HomeService({
       file: path.join(s.usageDir, 'home.json'),
       connections: () => s.connections.list(),
-      client: (id) => s.ado.client(id),
+      client: (id) => s.trackers.client(id),
       withConnection,
       onBuilt: (snapshot, info) => {
         s.broadcast('home:updated', snapshot);
@@ -527,7 +555,7 @@ export function createHandlers(s: Services): Handlers {
   ): Promise<Connection> => {
     const c = s.connections.get(connectionId);
     const { user, uniqueName } = await withConnection(connectionId, () =>
-      s.ado.client(connectionId).verify(c.project),
+      s.trackers.tracker(connectionId).probe(c.project),
     );
     const updated = await s.connections.setStatus(
       connectionId,
@@ -537,6 +565,38 @@ export function createHandlers(s: Services): Handlers {
     );
     connectionsChanged();
     return updated;
+  };
+
+  const saveConnection = async (
+    input: ConnectionInput,
+  ): Promise<Connection> => {
+    // Verify with a throwaway client before anything is written, so a bad token never lands on disk.
+    s.connections.assertCanSave(input);
+    const organizationUrl = s.connections.normalizeUrl(input.organizationUrl);
+    const probe = new AdoClient(organizationUrl, async () => input.pat.trim());
+    const { user, uniqueName } = await probe.verify(input.project.trim());
+    const saved = await s.connections.save(input);
+    s.trackers.invalidate(saved.id);
+    dropTypes(saved.id);
+    // The unique name is what "assign to me" writes on start; without it a new connection never assigns.
+    const verified = await s.connections.setStatus(
+      saved.id,
+      'ok',
+      user,
+      uniqueName,
+    );
+    connectionsChanged();
+    tel.event('connection.saved', {
+      connections: s.connections.list().length,
+    });
+    // A tracker after all: the earlier No-tracker choice no longer holds.
+    const current = s.settings.get();
+    if (current.onboarding.tracker === 'none')
+      await s.settings.save({
+        ...current,
+        onboarding: { ...current.onboarding, tracker: null },
+      });
+    return verified;
   };
 
   const allowedExternal = (url: string): boolean => {
@@ -602,6 +662,53 @@ export function createHandlers(s: Services): Handlers {
 
   const patchTask = (id: string, patch: Partial<Task>) =>
     mutateTask(id, (t) => Object.assign(t, patch));
+
+  /** Finished tasks' worktree folders a process still held at Finish, retried until they are gone (#115). */
+  const cleanup = new WorktreeCleanup({
+    git: s.git,
+    tasks: () => s.store.state.tasks,
+    claim: (id) => {
+      if (inFlight.has(id)) return false;
+      inFlight.add(id);
+      return true;
+    },
+    release,
+    mutate: mutateTask,
+    notice: (message) => s.broadcast('notice', { level: 'warn', message }),
+    event: (name, props, m) => tel.event(name, props, m),
+    discarded: {
+      list: () => s.store.state.discardedCleanup,
+      mutate: async (change) => {
+        await s.store.update((st) => {
+          st.discardedCleanup = change(st.discardedCleanup);
+        });
+      },
+    },
+  });
+  s.onCleanupRetry?.(() => cleanup.retryAll());
+
+  /**
+   * Removes a workspace's worktree folder and, when `deleteBranch`, its branch. A failure does not fail Finish:
+   * what is left comes back to be stored on the task and retried in the background (#115).
+   */
+  const removeForFinish = async (
+    w: { id: string; worktreePath: string; branch: string },
+    repoPath: string,
+    deleteBranch: boolean,
+  ): Promise<PendingCleanup | null> => {
+    const left = await removeWorkspace(
+      s.git,
+      {
+        workspaceId: w.id,
+        repoPath,
+        worktreePath: w.worktreePath,
+        branch: deleteBranch ? w.branch : null,
+      },
+      { now: Date.now },
+    );
+    if (left) tel.event('cleanup.deferred', { code: left.code });
+    return left;
+  };
 
   /**
    * Where a workspace's pull request would go (the home's by default): its repo's connection and `origin`
@@ -676,7 +783,7 @@ export function createHandlers(s: Services): Handlers {
     task: taskById,
     tasks: () => s.store.state.tasks,
     target: adoTarget,
-    client: (connectionId) => s.ado.client(connectionId),
+    client: (connectionId) => s.trackers.client(connectionId),
     run: withConnection,
     usage: (taskId) => s.usage.summarize(taskId),
     changedSince: (iso) => s.usage.changedSince(iso),
@@ -703,9 +810,9 @@ export function createHandlers(s: Services): Handlers {
       };
       try {
         const hours = await withConnection(target.connectionId, async () => {
-          const client = s.ado.client(target.connectionId);
+          const client = s.trackers.tracker(target.connectionId);
           const id = Number(workItem.id);
-          const current = await client.workItemEstimate(id);
+          const current = await client.itemEstimate(id);
           const type = (current.type || workItem.type).toLowerCase();
           const fieldsOf = async (refresh: boolean) =>
             (
@@ -723,7 +830,7 @@ export function createHandlers(s: Services): Handlers {
             current,
             fields: fields ?? [],
           });
-          if (plan) await client.updateWorkItemFields(id, plan.patch);
+          if (plan) await client.updateItemFields(id, plan.patch);
           return plan?.hours ?? booking.writtenHours;
         });
         await patchBooking({ writtenHours: hours, syncError: null });
@@ -788,9 +895,9 @@ export function createHandlers(s: Services): Handlers {
     if (!task.workItem || !target) return;
     try {
       const e = await withConnection(target.connectionId, () =>
-        s.ado
-          .client(target.connectionId)
-          .workItemEstimate(Number(task.workItem!.id)),
+        s.trackers
+          .tracker(target.connectionId)
+          .itemEstimate(Number(task.workItem!.id)),
       );
       if (e.originalEstimate === null && e.remainingWork !== null)
         await s.time.recordBaseline(
@@ -1379,6 +1486,7 @@ export function createHandlers(s: Services): Handlers {
         branch: w.branch,
         from: w.reopen.from,
         copy: task.setup.copy ? config.copy : [],
+        copyAgentConfig: task.setup.copy && config.copyAgentConfig !== false,
         commands: config.setup,
       });
     }
@@ -1443,6 +1551,7 @@ export function createHandlers(s: Services): Handlers {
       branch: task.branch,
       baseRef: task.baseRef,
       copy: task.setup.copy ? config.copy : [],
+      copyAgentConfig: task.setup.copy && config.copyAgentConfig !== false,
       commands: task.setup.commands,
       cloneNodeModules:
         Boolean(s.platform.cloneDir) &&
@@ -1567,9 +1676,9 @@ export function createHandlers(s: Services): Handlers {
             const connection = s.connections.get(
               taskConnectionId(task, [repo])!,
             );
-            const client = s.ado.client(connection.id);
+            const client = s.trackers.tracker(connection.id);
             const id = Number(task.workItem!.id);
-            const current = await client.workItemForStart(id);
+            const current = await client.itemForStart(id);
             const states = await client.typeStates(
               connection.project,
               current.type,
@@ -1587,7 +1696,7 @@ export function createHandlers(s: Services): Handlers {
               user,
             );
             if (plan.state || plan.assignTo)
-              await client.updateWorkItem(id, {
+              await client.updateItem(id, {
                 ...(plan.state ? { state: plan.state } : {}),
                 ...(plan.assignTo ? { assignedTo: plan.assignTo } : {}),
               });
@@ -1678,15 +1787,18 @@ export function createHandlers(s: Services): Handlers {
         s.broadcast('docs:watchStopped', { taskId });
       },
     );
-  const review = new ReviewService({
-    git: s.git,
-    store: new ReviewStore(s.reviewDir ?? path.join(s.usageDir, 'review'), () =>
+  const reviewStore = new ReviewStore(
+    s.reviewDir ?? path.join(s.usageDir, 'review'),
+    () =>
       s.broadcast('notice', {
         level: 'warn',
         message:
           'The review notes of a task could not be read and were started again',
       }),
-    ),
+  );
+  const review = new ReviewService({
+    git: s.git,
+    store: reviewStore,
     repoName: (id) => s.repos.list().find((r) => r.id === id)?.name ?? id,
     collapseOf: async (wt) => (await s.loadConfig(wt)).reviewCollapse ?? [],
     leakMatcher: diffMatcher,
@@ -1758,7 +1870,8 @@ export function createHandlers(s: Services): Handlers {
         target: null,
         linksWorkItem: false,
       })),
-      pathExists(w.worktreePath),
+      // A folder an earlier failed cleanup left without its .git file counts as gone: git cannot read it (#115).
+      pathExists(path.join(w.worktreePath, '.git')),
     ]);
     const base = {
       workspaceId: w.id,
@@ -1798,6 +1911,63 @@ export function createHandlers(s: Services): Handlers {
 
   /** Whether Finish may clean up a workspace: only one on the task's own branch. */
   const ownBranch = (task: Task, w: WorkspaceView) => w.branch === task.branch;
+
+  /**
+   * What Discard would lose in one workspace (#124). Git is asked in the repo, so a folder removed by hand still
+   * counts its branch; a git failure counts nothing rather than blocking Discard.
+   */
+  const discardCheck = async (
+    task: Task,
+    w: WorkspaceView,
+  ): Promise<DiscardWorkspaceCheck> => {
+    const repo = s.repos.list().find((r) => r.id === w.repoId);
+    const kept = !ownBranch(task, w);
+    const missing = !(await pathExists(path.join(w.worktreePath, '.git')));
+    const base: DiscardWorkspaceCheck = {
+      workspaceId: w.id,
+      repoName: repo?.name ?? w.repoId,
+      worktreePath: w.worktreePath,
+      branch: w.branch,
+      kept,
+      missing,
+      commits: 0,
+      unpushed: 0,
+      uncommitted: 0,
+    };
+    if (kept || !repo) return base;
+    const start =
+      w.baseSha && (await s.git.commitExists(repo.path, w.baseSha))
+        ? w.baseSha
+        : await s.git.mergeBase(repo.path, w.baseRef, `refs/heads/${w.branch}`);
+    const [commits, uncommitted] = await Promise.all([
+      s.git
+        .branchCommits(repo.path, w.branch, start)
+        .catch(() => ({ commits: 0, unpushed: 0 })),
+      missing
+        ? 0
+        : s.git
+            .summary(w.worktreePath, w.baseRef)
+            .then((x) => x.files.length)
+            .catch(() => 0),
+    ]);
+    return { ...base, ...commits, uncommitted };
+  };
+
+  const discardChecks = async (task: Task): Promise<DiscardChecks> => {
+    const workspaces = await Promise.all(
+      activeWorkspaces(task).map((w) => discardCheck(task, w)),
+    );
+    const gone = workspaces.filter((w) => !w.kept);
+    const sum = (f: (w: DiscardWorkspaceCheck) => number) =>
+      gone.reduce((n, w) => n + f(w), 0);
+    return {
+      workspaces,
+      runningTerminals: s.terminals.runningCount(task.id),
+      commitsLost: sum((w) => w.unpushed),
+      uncommitted: sum((w) => w.uncommitted),
+      blank: sum((w) => w.commits + w.uncommitted) === 0,
+    };
+  };
 
   /** Each row's outcome of the last Finish with workspaces, so the page can show them after a failure. */
   const finishResults = new Map<string, FinishRowResult[]>();
@@ -1848,7 +2018,7 @@ export function createHandlers(s: Services): Handlers {
     const connection = c.connection;
     const { project, repo: repoName } = c.availability.target;
     summary = await pushIfNeeded(task, w, summary, confirmLeak);
-    const client = s.ado.client(connection.id);
+    const client = s.trackers.tracker(connection.id);
     const repositoryId = await client.repositoryId(project, repoName);
     const existing = await client.findActivePullRequest(
       project,
@@ -2186,17 +2356,20 @@ export function createHandlers(s: Services): Handlers {
         if (isGuarded(task.environment) && !killTerminals)
           await stopSecretTabs(taskById(taskId));
         if (killTerminals) await closeTaskTerminals(taskId);
+        const pendingCleanup: PendingCleanup[] = [];
         for (const r of rows) {
           // Never cleaned up: neither its worktree nor its branch belongs to this task.
           if (!ownBranch(task, r.w)) continue;
           const drop = r.action === 'drop';
-          if (
-            (options.removeWorktree || drop) &&
-            (await pathExists(r.w.worktreePath))
-          )
-            await s.git.worktreeRemove(r.repoPath, r.w.worktreePath, true);
-          if (options.deleteBranch || drop) {
-            // A deleted folder leaves a stale registration that blocks branch deletion.
+          if (options.removeWorktree || drop) {
+            const left = await removeForFinish(
+              r.w,
+              r.repoPath,
+              options.deleteBranch || drop,
+            );
+            if (left) pendingCleanup.push(left);
+          } else if (options.deleteBranch) {
+            // The folder stays, so git refuses: that refusal protects uncommitted work.
             await s.git.worktreePrune(r.repoPath);
             await s.git.deleteBranch(r.repoPath, r.w.branch);
           }
@@ -2208,6 +2381,7 @@ export function createHandlers(s: Services): Handlers {
           finishedAt,
           openPeriods: withPeriodClosed(taskById(taskId), finishedAt),
           ...endEnvironment(task),
+          pendingCleanup,
         });
         s.stopRuns?.(taskId, 'The task was finished in Shellie');
         leakWatch.dropTask(taskId);
@@ -2275,10 +2449,36 @@ export function createHandlers(s: Services): Handlers {
       tracker: s.tracker,
     }),
     'repos:list': async () => s.repos.list(),
-    'repos:add': async (folder) => {
-      const repo = await s.repos.add(folder);
+    'repos:inspect': async (folder) => {
+      const r = await inspectRepo(folder, {
+        git: s.git,
+        connections: s.connections.list(),
+      });
+      tel.event('repo.inspected', {
+        remote: r.remote?.provider ?? 'none',
+        linked: r.remote?.connectionId != null,
+        lockfile: r.facts.lockfile ?? 'none',
+        dotnet: r.facts.dotnet.length > 0,
+        devScript: r.facts.devScript !== null,
+        apm: r.facts.apm,
+        existingConfig: r.facts.existing !== null,
+      });
+      return r;
+    },
+    'repos:add': async (folder, options) => {
+      const linked = options?.connectionId
+        ? s.connections.list().find((c) => c.id === options.connectionId)
+        : undefined;
+      // A new repo starts with its connection's on-start options; Settings stays the place to change them.
+      const repo = await s.repos.add(folder, {
+        ...options,
+        workItemOnStart: linked?.workItemOnStart,
+      });
       reposChanged();
-      tel.event('repo.added', { repos: s.repos.list().length });
+      tel.event('repo.added', {
+        repos: s.repos.list().length,
+        wroteConfig: options?.writeConfig !== undefined,
+      });
       return repo;
     },
     'repos:remove': async (id) => {
@@ -2292,10 +2492,26 @@ export function createHandlers(s: Services): Handlers {
       return repo;
     },
     'repos:pickFolder': () => s.pickFolder(),
+    'agents:detect': async (force) => {
+      if (!force && agentsCache) return agentsCache;
+      const result = await detectAgents(s.platform, s.runProbe ?? runProbe);
+      agentsCache = result;
+      tel.event('agents.detected', {
+        claude: result.agents.claude.found,
+        copilot: result.agents.copilot.found,
+        opencode: result.agents.opencode.found,
+      });
+      return result;
+    },
     'repos:config': async (repoId) => {
-      const repo = s.repos.get(repoId);
+      const config = await s.loadConfig(s.repos.get(repoId).path);
+      // A repo kept in Shellie only (no file) starts from the base branch it was added with when that still exists,
+      // else the detected default; refresh corrects the stored value.
+      const repo = config.found
+        ? s.repos.get(repoId)
+        : await s.repos.refresh(repoId);
       return {
-        config: await s.loadConfig(repo.path),
+        config: config.found ? config : { ...config, base: repo.baseBranch },
         worktreeRoot: worktreeRoot(repo.path),
       };
     },
@@ -2380,6 +2596,7 @@ export function createHandlers(s: Services): Handlers {
         environment,
         environmentUntil:
           environment === 'production' ? productionUntil() : null,
+        pendingCleanup: [],
         openPeriods: [{ start: createdAt, end: null }],
         time: null,
       };
@@ -2481,7 +2698,14 @@ export function createHandlers(s: Services): Handlers {
       // A scan error must never keep the user from finishing.
       await workspaces.scan(taskId).catch(() => undefined);
       const task = taskById(taskId);
-      const homeSummary = s.git.summary(task.worktreePath, task.baseRef);
+      const homeSummary = s.git
+        .summary(task.worktreePath, task.baseRef)
+        .catch(async (e: unknown) => {
+          // What an earlier failed cleanup left (no .git file) has nothing git can lose; Finish deletes it (#115).
+          if (!(await pathExists(path.join(task.worktreePath, '.git'))))
+            return { files: [], ahead: 0 };
+          throw e;
+        });
       const [checks, home] = await Promise.all([
         Promise.all(activeWorkspaces(task).map((w) => workspaceCheck(task, w))),
         // The home's own fields, as before #48; with other repos in the task a missing home must not fail the page.
@@ -2497,6 +2721,10 @@ export function createHandlers(s: Services): Handlers {
       };
     },
     'tasks:finishResults': async (taskId) => finishResults.get(taskId) ?? null,
+    'tasks:retryCleanup': async (taskId) => {
+      taskById(taskId);
+      return cleanup.retryTask(taskId);
+    },
     'tasks:prSummary': async (taskId, workspaceId) => {
       const task = taskById(taskId);
       const w = workspaceById(task, workspaceId);
@@ -2606,6 +2834,9 @@ export function createHandlers(s: Services): Handlers {
               `${l.path} is left over from an earlier cleanup and could not be deleted (${errorMessage(e)}). Delete it and reopen again.`,
             );
           });
+        // The task takes its folders back (#115): the background cleanup must never remove them now.
+        if (task.pendingCleanup.length > 0)
+          await patchTask(taskId, { pendingCleanup: [] });
         if (restores.size === 0) {
           // Every worktree was kept: back to ready with the tabs it had.
           const defs =
@@ -2676,7 +2907,7 @@ export function createHandlers(s: Services): Handlers {
                 pushed: true,
                 upstream: `origin/${task.branch}`,
               };
-            const client = s.ado.client(connection.id);
+            const client = s.trackers.tracker(connection.id);
             const repositoryId = await client.repositoryId(project, repoName);
             const existing = await client.findActivePullRequest(
               project,
@@ -2731,14 +2962,25 @@ export function createHandlers(s: Services): Handlers {
         // A terminal running in the folder blocks its removal on Windows (and a terminal without its
         // folder is useless), so removing the worktree closes the terminals even when that was unticked.
         const killTerminals = options.closeTerminals || options.removeWorktree;
+        const pendingCleanup: PendingCleanup[] = [];
         try {
           // UAT and Production end at Finish: tabs holding those values stop even when terminals are kept.
           if (isGuarded(task.environment) && !killTerminals)
             await stopSecretTabs(taskById(taskId));
           if (killTerminals) await closeTaskTerminals(taskId);
-          if (options.removeWorktree && (await pathExists(task.worktreePath)))
-            await s.git.worktreeRemove(repo.path, task.worktreePath, true);
-          if (options.deleteBranch) {
+          if (options.removeWorktree) {
+            // A folder a process still holds is retried in the background; the task is done anyway (#115).
+            const left = await removeForFinish(
+              {
+                id: HOME_ID,
+                worktreePath: task.worktreePath,
+                branch: task.branch,
+              },
+              repo.path,
+              options.deleteBranch,
+            );
+            if (left) pendingCleanup.push(left);
+          } else if (options.deleteBranch) {
             // A deleted folder leaves a stale registration that blocks branch deletion.
             // A folder that still exists keeps the refusal, which protects uncommitted work.
             await s.git.worktreePrune(repo.path);
@@ -2755,6 +2997,7 @@ export function createHandlers(s: Services): Handlers {
           summary,
           openPeriods: withPeriodClosed(taskById(taskId), finishedAt),
           ...endEnvironment(task),
+          pendingCleanup,
         });
         s.stopRuns?.(taskId, 'The task was finished in Shellie');
         leakWatch.dropTask(taskId);
@@ -2794,6 +3037,58 @@ export function createHandlers(s: Services): Handlers {
             s.stopRuns?.(taskId, `${ENVIRONMENT_LABEL[left]} ended`);
         }
         return taskById(taskId);
+      } finally {
+        release(taskId);
+      }
+    },
+    'tasks:discardChecks': async (taskId) => discardChecks(taskById(taskId)),
+    'tasks:discard': async (taskId) => {
+      claim(taskId, ['ready'], 'discard');
+      try {
+        const task = taskById(taskId);
+        // For telemetry only: what was lost must never keep the task from going.
+        const checks = await discardChecks(task).catch(() => null);
+        // Windows will not remove a folder that a running process has as its cwd.
+        docsWatcher.stopTask(taskId);
+        gitDirWatcher.stopTask(taskId);
+        await s.terminals.killAllForTask(taskId);
+        // Secrets: `shellie run` processes end, and nothing about the task's tabs (or its plaintext matcher) is kept.
+        s.stopRuns?.(taskId, 'The task was discarded');
+        for (const d of task.terminals) {
+          spawnedEnv.delete(d.id);
+          runArgs.delete(d.id);
+          leakWatch.forget(d.id);
+        }
+        leakWatch.dropTask(taskId);
+        // Every workspace on the task's branch goes, folder and branch, as at Finish; a held folder is
+        // retried in the background (#115). One on another branch was joined by hand and stays.
+        const left: DiscardedCleanup[] = [];
+        const removed = activeWorkspaces(task).filter((w) =>
+          ownBranch(task, w),
+        );
+        for (const w of removed) {
+          const l = await removeForFinish(w, s.repos.get(w.repoId).path, true);
+          if (l) left.push({ ...l, taskId });
+        }
+        await s.store.update((st) => {
+          st.tasks = st.tasks.filter((t) => t.id !== taskId);
+          st.discardedCleanup.push(...left);
+        });
+        setupStates.delete(taskId);
+        finishResults.delete(taskId);
+        // The AI usage stays: it was spent. The review notes have nothing left to point at.
+        await reviewStore.remove(taskId).catch(() => undefined);
+        await tasksChanged();
+        tel.event(
+          'task.discarded',
+          { blank: checks?.blank ?? false },
+          {
+            commitsLost: checks?.commitsLost ?? 0,
+            workspaces: removed.length,
+            deferred: left.length,
+            ageHours: (Date.now() - Date.parse(task.createdAt)) / 3_600_000,
+          },
+        );
       } finally {
         release(taskId);
       }
@@ -2864,6 +3159,9 @@ export function createHandlers(s: Services): Handlers {
     },
 
     'terminals:open': async (taskId, def) => {
+      // Claimed first, as before secrets: a task that is not ready (finishing, discarded) refuses at once.
+      claim(taskId, ['ready'], 'open a terminal in');
+      release(taskId);
       const full: TerminalDef = {
         id: randomUUID(),
         ...def,
@@ -2871,7 +3169,8 @@ export function createHandlers(s: Services): Handlers {
         ...(def.kind === 'shell' ? { label: s.platform.shellLabel } : {}),
         ...(def.kind === 'claude' ? { sessionId: randomUUID() } : {}),
       };
-      // Prepared outside the claim; when the environment changed meanwhile (a switch, an expiry), prepare again.
+      // The secrets env is prepared outside the claim (two opens at once both go through); it is spawned under a
+      // second claim, and prepared again when the environment changed meanwhile (a switch, an expiry).
       for (let attempt = 0; ; attempt++) {
         const env = taskById(taskId).environment;
         const secrets = await prepareTab(taskById(taskId), full);
@@ -3123,36 +3422,74 @@ export function createHandlers(s: Services): Handlers {
       secretsChanged();
     },
     'connections:list': async () => s.connections.list(),
-    'connections:save': async (input) => {
-      // Verify with a throwaway client before anything is written, so a bad token never lands on disk.
-      s.connections.assertCanSave(input);
-      const organizationUrl = s.connections.normalizeUrl(input.organizationUrl);
-      const probe = new AdoClient(organizationUrl, async () =>
-        input.pat.trim(),
+    'connections:save': saveConnection,
+    'connections:probe': async (input) => {
+      // A stored token only ever goes to its own organization, whatever URL came with it.
+      const organizationUrl = input.connectionId
+        ? s.connections.get(input.connectionId).organizationUrl
+        : s.connections.normalizeUrl(input.organizationUrl);
+      const pat = input.connectionId
+        ? await s.connections.token(input.connectionId)
+        : (input.pat ?? '').trim();
+      if (!pat) throw new Error('Enter a personal access token');
+      const client = new AdoClient(organizationUrl, async () => pat);
+      try {
+        const who = await client.whoAmI();
+        let projects: { id: string; name: string }[] = [];
+        let canListProjects = true;
+        try {
+          projects = await client.projects();
+        } catch (e) {
+          if (
+            !(e instanceof AdoError && (e.status === 401 || e.status === 403))
+          )
+            throw e;
+          canListProjects = false;
+        }
+        return { ...who, projects, canListProjects };
+      } catch (e) {
+        tel.event('connection.probeFailed', {
+          status: e instanceof AdoError ? (e.status ?? 0) : 0,
+        });
+        throw e;
+      }
+    },
+    'connections:saveMany': async (input) => {
+      const organizationUrl = input.connectionId
+        ? s.connections.get(input.connectionId).organizationUrl
+        : s.connections.normalizeUrl(input.organizationUrl);
+      const pat = input.connectionId
+        ? await s.connections.token(input.connectionId)
+        : (input.pat ?? '');
+      const known = new Set(
+        s.connections
+          .list()
+          .filter((c) => c.organizationUrl === organizationUrl)
+          .map((c) => c.project.toLowerCase()),
       );
-      const { user, uniqueName } = await probe.verify(input.project.trim());
-      const saved = await s.connections.save(input);
-      s.ado.invalidate(saved.id);
-      dropTypes(saved.id);
-      // The unique name is what "assign to me" writes on start; without it a new connection never assigns.
-      const verified = await s.connections.setStatus(
-        saved.id,
-        'ok',
-        user,
-        uniqueName,
-      );
-      connectionsChanged();
-      tel.event('connection.saved', {
-        connections: s.connections.list().length,
-      });
-      return verified;
+      const saved: Connection[] = [];
+      for (const raw of input.projects) {
+        const project = raw.trim();
+        if (!project || known.has(project.toLowerCase())) continue;
+        known.add(project.toLowerCase());
+        saved.push(
+          await saveConnection({
+            organizationUrl,
+            project,
+            pat,
+            provider: input.provider,
+            workItemOnStart: input.workItemOnStart,
+          }),
+        );
+      }
+      return saved;
     },
     'connections:remove': async (id) => {
       s.connections.get(id);
       for (const r of s.repos.list())
         if (r.connectionId === id) await s.repos.setConnection(r.id, null);
       await s.connections.remove(id);
-      s.ado.invalidate(id);
+      s.trackers.invalidate(id);
       dropTypes(id);
       connectionsChanged();
       reposChanged();
@@ -3224,8 +3561,8 @@ export function createHandlers(s: Services): Handlers {
         taskConnectionId(task, s.repos.list());
       if (!connectionId) return pr;
       try {
-        const raw = await s.ado
-          .client(connectionId)
+        const raw = await s.trackers
+          .tracker(connectionId)
           .pullRequest(pr.project, pr.repositoryId, pr.id);
         const next = { ...pr, status: raw.status, isDraft: raw.isDraft };
         await patchWorkspace(taskId, w.id, { pullRequest: next });
@@ -3237,7 +3574,7 @@ export function createHandlers(s: Services): Handlers {
     'workItems:currentIteration': async (connectionId) => {
       const c = s.connections.get(connectionId);
       return withConnection(connectionId, () =>
-        s.ado.client(connectionId).currentIteration(c.project),
+        s.trackers.tracker(connectionId).currentIteration(c.project),
       );
     },
     'workItems:search': async (connectionId, search) => {
@@ -3247,13 +3584,13 @@ export function createHandlers(s: Services): Handlers {
         hasText: search.text.trim().length > 0,
       });
       return withConnection(connectionId, async () => {
-        const client = s.ado.client(connectionId);
+        const client = s.trackers.tracker(connectionId);
         const iteration =
           search.scope === 'sprint'
             ? await client.currentIteration(c.project)
             : null;
         if (search.scope === 'sprint' && !iteration) return [];
-        return client.searchWorkItems({
+        return client.searchItems({
           project: c.project,
           scope: search.scope,
           text: search.text,
@@ -3264,16 +3601,16 @@ export function createHandlers(s: Services): Handlers {
     'workItems:sprint': async (connectionId) => {
       const c = s.connections.get(connectionId);
       return withConnection(connectionId, () =>
-        s.ado.client(connectionId).sprint(c.project),
+        s.trackers.tracker(connectionId).iteration(c.project),
       );
     },
     'workItems:types': async (connectionId) => {
       const c = s.connections.get(connectionId);
       let hit = typesCache.get(connectionId);
       if (!hit) {
-        const client = s.ado.client(connectionId);
+        const client = s.trackers.tracker(connectionId);
         hit = withConnection(connectionId, () =>
-          client.workItemTypes(c.project),
+          client.itemTypes(c.project),
         ).then((types) =>
           Promise.all(
             types.map(async ({ iconUrl, ...t }) => ({
@@ -3294,7 +3631,7 @@ export function createHandlers(s: Services): Handlers {
       const n = Number(id);
       if (!Number.isInteger(n) || n < 1) return null;
       const [item] = await withConnection(connectionId, () =>
-        s.ado.client(connectionId).workItems(c.project, [n]),
+        s.trackers.tracker(connectionId).items(c.project, [n]),
       );
       return item ?? null;
     },
@@ -3374,6 +3711,7 @@ export function createHandlers(s: Services): Handlers {
       tel.event('update.restart');
       if (!s.update.install()) throw new Error('No update is ready to install');
     },
+    'app:whatsNew': async () => (await s.whatsNew?.get()) ?? null,
     'app:info': async () => ({
       version: s.appVersion,
       windowsBuild: s.windowsBuild ?? null,

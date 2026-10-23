@@ -12,6 +12,7 @@ import type {
   SecretView,
   SecretsStatus,
 } from './secrets';
+import type { TrackerProvider } from './trackers';
 import type { TerminalFailure } from './terminalFailure';
 
 export type RestartOptions = { withoutProjectConfig?: boolean };
@@ -19,6 +20,7 @@ import type {
   Connection,
   ConnectionInput,
   CreateTaskInput,
+  DiscardChecks,
   FinishChecks,
   FinishOptions,
   FinishRowResult,
@@ -51,6 +53,8 @@ import type {
   SyncResult,
   TaskUsage,
 } from './usage';
+import type { AgentsDetected } from './agents';
+import type { RepoInspection } from './repoInspection';
 import type { EditorChoice, EditorId, EditorOptions } from './editors';
 import type { RendererTelemetry } from './telemetry';
 import type { TitleBarKind } from './titleBar';
@@ -71,10 +75,24 @@ import type {
 /** Request/response channels. `args` is the tuple the renderer passes; `result` is what main resolves. */
 export type Channels = {
   'repos:list': { args: []; result: Repo[] };
-  'repos:add': { args: [folder: string]; result: Repo };
+  /** What Shellie finds in a folder and the `.shellie.yml` it would write; throws when it is not a git repository. */
+  'repos:inspect': { args: [folder: string]; result: RepoInspection };
+  'repos:add': {
+    args: [
+      folder: string,
+      options?: {
+        writeConfig?: string;
+        baseBranch?: string;
+        connectionId?: string | null;
+      },
+    ];
+    result: Repo;
+  };
   'repos:remove': { args: [id: string]; result: void };
   'repos:refresh': { args: [id: string]; result: Repo };
   'repos:pickFolder': { args: []; result: string | null };
+  /** The agent CLIs on this machine; cached per launch unless `force`. */
+  'agents:detect': { args: [force?: boolean]; result: AgentsDetected };
   'repos:config': {
     args: [repoId: string];
     result: { config: ShellieConfig; worktreeRoot: string };
@@ -113,6 +131,33 @@ export type Channels = {
   'connections:save': { args: [input: ConnectionInput]; result: Connection };
   'connections:remove': { args: [id: string]; result: void };
   'connections:verify': { args: [id: string]; result: Connection };
+  /** Signs in with a new token (`pat`) or a connection's stored one (`connectionId`, its own organization) and lists the projects; saves nothing. */
+  'connections:probe': {
+    args: [
+      input: { organizationUrl: string; pat?: string; connectionId?: string },
+    ];
+    result: {
+      user: string;
+      uniqueName: string | null;
+      projects: { id: string; name: string }[];
+      /** False when the token signs in but is refused the project list (no Project and Team: Read). */
+      canListProjects: boolean;
+    };
+  };
+  /** One `connections:save` per project (named `<org>/<project>`), skipping projects the organization already has a connection for. */
+  'connections:saveMany': {
+    args: [
+      input: {
+        organizationUrl: string;
+        pat?: string;
+        connectionId?: string;
+        projects: string[];
+        workItemOnStart: StartSettings;
+        provider: TrackerProvider;
+      },
+    ];
+    result: Connection[];
+  };
   'repos:setConnection': {
     args: [repoId: string, connectionId: string | null];
     result: Repo;
@@ -317,10 +362,19 @@ export type Channels = {
   };
   /** Brings a finished task back: `setup` is true when its worktree is being made again (Setup page). */
   'tasks:reopen': { args: [taskId: string]; result: { setup: boolean } };
+  /** Retries a done task's leftover worktree folders now (#115); true when nothing is left. */
+  'tasks:retryCleanup': { args: [taskId: string]; result: boolean };
   'tasks:finish': {
     args: [taskId: string, options: FinishOptions];
     result: void;
   };
+  /** What Discard would lose (#124): per workspace its commits no remote has and its uncommitted files. */
+  'tasks:discardChecks': { args: [taskId: string]; result: DiscardChecks };
+  /**
+   * Throws a ready task away (#124): closes its terminals, removes its worktrees and branches (a held folder is
+   * retried in the background) and removes the task. Nothing is pushed, booked or written to the work item.
+   */
+  'tasks:discard': { args: [taskId: string]; result: void };
   'tasks:openInEditor': {
     args: [taskId: string, workspaceId?: string];
     result: void;
@@ -393,6 +447,8 @@ export type Channels = {
   'update:status': { args: []; result: PendingUpdate | null };
   /** Quits Shellie and starts the downloaded update. */
   'update:install': { args: []; result: void };
+  /** Home's What's new card for the releases since the last dismissed one; null when none is due (always in dev). */
+  'app:whatsNew': { args: []; result: WhatsNew | null };
   'app:info': {
     args: [];
     /** windowsBuild: the OS build number on Windows (for xterm's ConPTY handling), else null. */
@@ -459,6 +515,20 @@ export type Events = {
 
 /** `version` is null when the release name holds none. */
 export type PendingUpdate = { version: string | null };
+
+/** One GitHub Release on Home's What's new card: its PR titles as short notes. */
+export type ReleaseNote = { version: string; url: string; items: string[] };
+/**
+ * What's new since the version whose card was last dismissed (`whatsNewSeen`), up to the running `version`.
+ * `url` is the release page on GitHub (the long notes), or the releases list when several are covered;
+ * `fetched` is false when GitHub could not be reached, and the card then shows only the link.
+ */
+export type WhatsNew = {
+  version: string;
+  url: string;
+  fetched: boolean;
+  releases: ReleaseNote[];
+};
 
 export type Handlers = {
   [K in keyof Channels]: (

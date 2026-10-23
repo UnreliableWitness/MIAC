@@ -49,6 +49,12 @@ const connection = (
   status: 'ok',
   checkedAt: null,
   userUniqueName: null,
+  provider: 'azure-devops' as const,
+  workItemOnStart: {
+    moveToInProgress: true,
+    assignToMe: true,
+    stateOverrides: {},
+  },
 });
 
 function worktree(repo: string, branch: string, name = 'wt'): string {

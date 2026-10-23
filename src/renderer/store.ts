@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { AttentionSnapshot } from '../shared/attention';
 import type { NewReviewComment, ReviewScope } from '../shared/review';
+import type { AppSettings } from '../shared/usage';
 import type {
   Connection,
   Notice,
@@ -9,7 +10,8 @@ import type {
   WorkItemRef,
 } from '../shared/types';
 import { taskConnectionId } from '../shared/workspaces';
-import { api } from './api';
+import { api, onSettingsSaved } from './api';
+import { firstScreen } from './onboardingState';
 import type { RepoFold } from './review/repoGroups';
 import { track, trackScreen } from './telemetry';
 import { readPrefs, writePref } from './uiPrefs';
@@ -57,11 +59,19 @@ export const DEFAULT_REVIEW_VIEW: ReviewView = {
 /** Every screen is a full page next to the nav; `task` shows the selected task. */
 export type Screen =
   | { kind: 'home' }
+  /** First run: the three setup steps. */
+  | { kind: 'get-started' }
+  /** The Agents step as a page (from Get started; Settings shows the same section inline). */
+  | { kind: 'agents'; from: 'settings' | 'get-started' }
   | { kind: 'sprint' }
   | { kind: 'task' }
   | { kind: 'new-task'; workItem?: WorkItemRef; repoId?: string }
   | { kind: 'setup'; taskId: string }
   | { kind: 'finish'; taskId: string }
+  /** `folder` is a folder already picked, inspected when the page opens. */
+  | { kind: 'add-repo'; from: 'settings' | 'get-started'; folder?: string }
+  /** With `connectionId`, adds projects to that connection's organization with its stored token. */
+  | { kind: 'connect'; from: 'settings' | 'get-started'; connectionId?: string }
   /** `section` is the id of a settings section to scroll to on open. */
   | { kind: 'settings'; section?: string }
   | { kind: 'secrets'; repoId?: string }
@@ -74,6 +84,8 @@ type Store = {
   repos: Repo[];
   tasks: TaskView[];
   connections: Connection[];
+  /** The app settings, null until the boot load; every `saveSettings` updates them. */
+  settings: AppSettings | null;
   /** The project chosen in the nav's project switcher; null follows the selection. */
   connectionId: string | null;
   selectedTaskId: string | null;
@@ -94,6 +106,11 @@ type Store = {
   viewsByTask: Record<string, HtmlView[]>;
   focus: boolean;
   navCollapsed: boolean;
+  /** The task whose Discard confirm shows on its page (#124), else null. */
+  discardTaskId: string | null;
+  /** Opens the task's page with its Discard confirm. */
+  askDiscard(taskId: string): void;
+  cancelDiscard(): void;
   go(screen: Screen): void;
   back(): void;
   select(taskId: string | null): void;
@@ -151,7 +168,13 @@ function showTab(
 }
 
 /** Pages that are a step, not a place: Back never returns to them. */
-const TRANSIENT = new Set<Screen['kind']>(['new-task', 'finish']);
+const TRANSIENT = new Set<Screen['kind']>([
+  'new-task',
+  'finish',
+  'add-repo',
+  'connect',
+  'agents',
+]);
 
 export const useStore = create<Store>((set, get) => ({
   screen: { kind: 'home' },
@@ -159,6 +182,7 @@ export const useStore = create<Store>((set, get) => ({
   repos: [],
   tasks: [],
   connections: [],
+  settings: null,
   connectionId: null,
   selectedTaskId: null,
   attention: {},
@@ -169,6 +193,13 @@ export const useStore = create<Store>((set, get) => ({
   docTarget: {},
   reviewByTask: {},
   viewsByTask: {},
+  discardTaskId: null,
+  askDiscard: (taskId) => {
+    get().select(taskId);
+    get().go({ kind: 'task' });
+    set({ discardTaskId: taskId });
+  },
+  cancelDiscard: () => set({ discardTaskId: null }),
   ...readPrefs(),
   go: (screen) => {
     const current = get().screen;
@@ -179,6 +210,8 @@ export const useStore = create<Store>((set, get) => ({
         current.kind === screen.kind || TRANSIENT.has(current.kind)
           ? get().previous
           : current,
+      // Discard asks on the task's page only: leaving it drops the question.
+      ...(screen.kind === 'task' ? {} : { discardTaskId: null }),
     });
   },
   back: () => {
@@ -190,7 +223,13 @@ export const useStore = create<Store>((set, get) => ({
       previous: null,
     });
   },
-  select: (selectedTaskId) => set({ selectedTaskId }),
+  select: (selectedTaskId) =>
+    set({
+      selectedTaskId,
+      ...(selectedTaskId === get().discardTaskId
+        ? {}
+        : { discardTaskId: null }),
+    }),
   openTask: (taskId) => {
     const task = get().tasks.find((t) => t.id === taskId);
     get().select(taskId);
@@ -214,7 +253,6 @@ export const useStore = create<Store>((set, get) => ({
       track('notice', { level, message: message.slice(0, 200) });
     const id = `n${++noticeSeq}`;
     set({ notices: [...get().notices, { id, level, message }] });
-    if (level !== 'error') setTimeout(() => get().dismiss(id), 6000);
   },
   dismiss: (id) => set({ notices: get().notices.filter((n) => n.id !== id) }),
   setTab: (taskId, tab) => {
@@ -300,17 +338,27 @@ export const useStore = create<Store>((set, get) => ({
     set({ navCollapsed });
   },
   load: async () => {
-    const [repos, tasks, connections] = await Promise.all([
+    const [repos, tasks, connections, settings] = await Promise.all([
       api().invoke('repos:list'),
       api().invoke('tasks:list'),
       api().invoke('connections:list'),
+      api().invoke('settings:get'),
     ]);
     get().setRepos(repos);
     get().setTasks(tasks);
     get().setConnections(connections);
+    set({ settings });
+    // The first page is decided once, here; a page opened meanwhile stays.
+    if (
+      get().screen.kind === 'home' &&
+      firstScreen({ settings, repos }) === 'get-started'
+    )
+      set({ screen: { kind: 'get-started' } });
     trackScreen(get().screen.kind);
   },
 }));
+
+onSettingsSaved((settings) => useStore.setState({ settings }));
 
 /** The connection of a task's repo, for its work item icons and live state. */
 export const useTaskConnectionId = (

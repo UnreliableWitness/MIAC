@@ -104,7 +104,8 @@ export function windowsPlatform(
         command: found,
         args: promptEnv === null ? flags : [...flags, promptEnv],
       };
-    if (!found) return ps(name);
+    // Not on PATH, or an npm shim: the same command line either way, so a missing tool fails in PowerShell
+    // with the flags it was given ("not recognized") instead of a bare name that drops them.
     const line = [`& ${name}`, ...flags.map(psQuote)];
     if (promptEnv !== null)
       return {
@@ -149,6 +150,8 @@ export function windowsPlatform(
         context === null ? flags : [...flags, '--append-system-prompt'],
         context,
       ),
+    probeCommand: (name) =>
+      ps(`(Get-Command ${name} -ErrorAction Stop).Source; & ${name} --version`),
     copilotCommand: () => tool('copilot', []),
     opencodeCommand: () => tool('opencode', []),
     userSecretsDir: (id) => {

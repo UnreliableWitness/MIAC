@@ -28,6 +28,22 @@ describe('SettingsStore', () => {
     expect(s.get().showSplash).toBe(true);
   });
 
+  it('defaults onboarding for files written before it existed', async () => {
+    const f = file();
+    writeFileSync(
+      f,
+      JSON.stringify({ version: 1, receiverPort: 4319, hourlySync: true }),
+    );
+    const s = new SettingsStore(f);
+    await s.load();
+    expect(s.get().onboarding).toEqual({
+      dismissedAt: null,
+      agentsCheckedAt: null,
+      tracker: null,
+      migrated: false,
+    });
+  });
+
   it('defaults, saves and reloads', async () => {
     const f = file();
     const a = new SettingsStore(f);
@@ -75,6 +91,12 @@ describe('SettingsStore', () => {
       sendTelemetry: true,
       editor: { default: null, repos: {} },
       secrets: { productionMinutes: 60 },
+      onboarding: {
+        dismissedAt: null,
+        agentsCheckedAt: null,
+        tracker: null,
+        migrated: false,
+      },
       defaultTerminals: {
         claude: true,
         copilot: false,
@@ -102,6 +124,12 @@ describe('SettingsStore', () => {
       sendTelemetry: true,
       editor: { default: null, repos: {} },
       secrets: { productionMinutes: 60 },
+      onboarding: {
+        dismissedAt: null,
+        agentsCheckedAt: null,
+        tracker: null,
+        migrated: false,
+      },
       defaultTerminals: {
         claude: true,
         copilot: false,

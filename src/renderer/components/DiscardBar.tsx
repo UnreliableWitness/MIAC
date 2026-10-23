@@ -1,0 +1,115 @@
+import { useEffect, useState } from 'react';
+import type { DiscardChecks, TaskView } from '../../shared/types';
+import { api, tryInvoke } from '../api';
+import { plural } from '../format';
+import { useStore } from '../store';
+import { ConfirmBar } from './ui';
+
+/**
+ * The in-page confirm of Discard task (#124), on top of the task's page: what goes (folders, branches,
+ * terminals, the task itself), what is lost (commits no remote has, uncommitted files) and what does not happen.
+ */
+export function DiscardBar({ task }: { task: TaskView }) {
+  const notify = useStore((s) => s.notify);
+  const go = useStore((s) => s.go);
+  const cancelDiscard = useStore((s) => s.cancelDiscard);
+  const [checks, setChecks] = useState<DiscardChecks | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    api()
+      .invoke('tasks:discardChecks', task.id)
+      .then((c) => live && setChecks(c))
+      .catch(() => live && setFailed(true));
+    return () => {
+      live = false;
+    };
+  }, [task.id]);
+
+  const name = task.workItem
+    ? `${task.workItem.id} ${task.workItem.title}`
+    : task.name;
+  const lost = checks
+    ? [
+        checks.commitsLost > 0 &&
+          plural(checks.commitsLost, 'commit') + ' on no remote',
+        checks.uncommitted > 0 &&
+          plural(checks.uncommitted, 'uncommitted file'),
+      ].filter((x): x is string => Boolean(x))
+    : [];
+  const multi = (checks?.workspaces.length ?? 0) > 1;
+
+  const discard = async () => {
+    setBusy(true);
+    const ok = await tryInvoke(async () => {
+      await api().invoke('tasks:discard', task.id);
+      return true;
+    }, notify);
+    setBusy(false);
+    if (!ok) return;
+    cancelDiscard();
+    go({ kind: 'home' });
+    notify('info', `Discarded ${name}`);
+  };
+
+  const details = (
+    <>
+      {!checks && !failed && (
+        <span className="confirm-bar-line muted">
+          Checking what would be lost…
+        </span>
+      )}
+      {checks?.workspaces.map((w) => (
+        <span key={w.workspaceId} className="confirm-bar-line">
+          {multi && !w.kept && `${w.repoName}: `}
+          {w.kept ? (
+            <>
+              {w.repoName} stays as it is (on {w.branch}, not the task&apos;s
+              branch).
+            </>
+          ) : w.missing ? (
+            <>
+              {multi ? 'deletes' : 'Deletes'} the branch <code>{w.branch}</code>{' '}
+              (its folder is gone already).
+            </>
+          ) : (
+            <>
+              {multi ? 'deletes' : 'Deletes'} the folder{' '}
+              <code>{w.worktreePath}</code> and the branch{' '}
+              <code>{w.branch}</code>.
+            </>
+          )}
+        </span>
+      ))}
+      {checks && checks.runningTerminals > 0 && (
+        <span className="confirm-bar-line">
+          Closes its {plural(checks.runningTerminals, 'terminal')}.
+        </span>
+      )}
+      {lost.length > 0 && (
+        <span className="confirm-bar-line confirm-bar-warn" role="status">
+          {lost.join(' and ')} will be lost.
+        </span>
+      )}
+      <span className="confirm-bar-line">
+        The task will not appear under Done. Nothing is pushed, no time is
+        booked, no pull request is made and the work item is not changed. The AI
+        cost stays recorded, since it was spent.
+      </span>
+    </>
+  );
+
+  return (
+    <ConfirmBar
+      message={`Discard ${name}?`}
+      details={details}
+      confirmLabel={lost.length > 0 ? 'Discard anyway' : 'Discard task'}
+      busy={busy}
+      confirmDisabled={!checks && !failed}
+      onConfirm={() => void discard()}
+      onCancel={cancelDiscard}
+    />
+  );
+}

@@ -84,6 +84,7 @@ const task: TaskView = {
   mainCheckoutEdits: [],
   environment: 'development',
   environmentUntil: null,
+  pendingCleanup: [],
   worktreeMissing: false,
 };
 const extra = {

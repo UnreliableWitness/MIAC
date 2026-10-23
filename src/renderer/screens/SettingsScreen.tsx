@@ -11,7 +11,7 @@ import { api, saveSettings, tryInvoke } from '../api';
 import { ConnectionsSection } from '../components/ConnectionsSection';
 import { CostSection } from '../components/CostSection';
 import { EditorSection } from '../components/EditorSection';
-import { TerminalsSection } from '../components/TerminalsSection';
+import { AgentsSection } from '../components/AgentsSection';
 import { TimeSection } from '../components/TimeSection';
 import { BudgetSection } from '../components/BudgetSection';
 import { MindMark, PageHeader } from '../components/ui';
@@ -312,6 +312,19 @@ function AppearanceSection() {
 
 function AboutSection() {
   const [version, setVersion] = useState('');
+  const go = useStore((s) => s.go);
+  const notify = useStore((s) => s.notify);
+
+  const getStarted = async () => {
+    const saved = await tryInvoke(
+      () =>
+        saveSettings((f) => ({
+          onboarding: { ...f.onboarding, dismissedAt: null },
+        })),
+      notify,
+    );
+    if (saved) go({ kind: 'get-started' });
+  };
 
   useEffect(() => {
     let live = true;
@@ -342,6 +355,13 @@ function AboutSection() {
             General Systems Vehicle (accounting division)
           </div>
           {version && <div className="mono small muted">v{version}</div>}
+          <button
+            type="button"
+            className="link"
+            onClick={() => void getStarted()}
+          >
+            Get started
+          </button>
         </div>
       </div>
     </section>
@@ -350,9 +370,8 @@ function AboutSection() {
 
 export function SettingsScreen() {
   const repos = useStore((s) => s.repos);
-  const setRepos = useStore((s) => s.setRepos);
-  const notify = useStore((s) => s.notify);
   const go = useStore((s) => s.go);
+  const notify = useStore((s) => s.notify);
   const section = useStore((s) =>
     s.screen.kind === 'settings' ? s.screen.section : undefined,
   );
@@ -387,11 +406,7 @@ export function SettingsScreen() {
       notify,
     );
     if (!folder) return;
-    const added = await tryInvoke(
-      () => api().invoke('repos:add', folder),
-      notify,
-    );
-    if (added) setRepos(await api().invoke('repos:list'));
+    go({ kind: 'add-repo', from: 'settings', folder });
   };
 
   return (
@@ -412,12 +427,12 @@ export function SettingsScreen() {
           >
             Secrets
           </a>
-          <a href="#ado">Azure DevOps</a>
+          <a href="#ado">Connections</a>
           <a href="#cost">AI cost and invoicing</a>
           <a href="#time">Time tracking</a>
           <a href="#claude-budget">Claude budget</a>
           <a href="#appearance">Appearance</a>
-          <a href="#terminals">Terminals and agents</a>
+          <a href="#terminals">Agents and terminals</a>
         </nav>
         <main className="settings-main">
           <section id="repos" className="section">
@@ -447,7 +462,7 @@ export function SettingsScreen() {
           <CostSection />
           <TimeSection />
           <BudgetSection />
-          <TerminalsSection />
+          <AgentsSection />
           <AppearanceSection />
           <AboutSection />
         </main>

@@ -178,6 +178,52 @@ function DroppedNote({ w }: { w: WorkspaceView }) {
   return <p className="muted done-dropped">{`${name}: no changes, removed`}</p>;
 }
 
+/**
+ * Worktree folders Finish could not remove yet because a process still held files in them (#115). Shellie retries
+ * in the background, so this is a quiet status, not an error.
+ */
+function PendingCleanupStatus({ task }: { task: TaskView }) {
+  const notify = useStore((s) => s.notify);
+  const [retrying, setRetrying] = useState(false);
+  if (task.pendingCleanup.length === 0) return null;
+  const retry = async () => {
+    setRetrying(true);
+    await tryInvoke(() => api().invoke('tasks:retryCleanup', task.id), notify);
+    setRetrying(false);
+  };
+  const stuck = task.pendingCleanup.some((p) => p.notified);
+  return (
+    <div role="status" aria-label="Cleanup" className="done-cleanup">
+      <div className={stuck ? 'text-warn' : 'muted'}>
+        {stuck
+          ? 'Still not removed after a day: a process still holds files in the worktree folder.'
+          : 'Removing the worktree folder: a process still holds files in it. Shellie retries every few minutes.'}{' '}
+        <button
+          type="button"
+          className="btn btn-sm"
+          disabled={retrying}
+          onClick={() => void retry()}
+        >
+          {retrying ? 'Retrying' : 'Retry now'}
+        </button>
+      </div>
+      {task.pendingCleanup.map((p) => (
+        <div key={p.worktreePath} className="small">
+          <span className="mono">{p.worktreePath}</span>
+          <span className="muted">{` · tried ${p.attempts}×, last: ${p.error}`}</span>
+        </div>
+      ))}
+      <div className="muted small">
+        What holds it: on Windows, Resource Monitor (resmon) › CPU › Associated
+        Handles, search for the folder name; on macOS,{' '}
+        <span className="mono">lsof +D &lt;folder&gt;</span>. Often a dev
+        server, an editor or a dotnet build server (
+        <span className="mono">dotnet build-server shutdown</span>).
+      </div>
+    </div>
+  );
+}
+
 /** A finished task: what it was, how long it took, what it changed and pushed, what the AI cost, and its usage. */
 export function DoneTaskPage({ task }: { task: TaskView }) {
   const notify = useStore((s) => s.notify);
@@ -333,6 +379,7 @@ export function DoneTaskPage({ task }: { task: TaskView }) {
           </Fact>
           <Fact label="Logged on work item">{logged}</Fact>
         </dl>
+        <PendingCleanupStatus task={task} />
         {multi ? (
           <>
             {workspaces

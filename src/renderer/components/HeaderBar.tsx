@@ -201,7 +201,12 @@ export function HeaderBar() {
   const home = () => go({ kind: 'sprint' });
 
   const crumbs: ReactNode[] = [];
-  if (connection && screen.kind !== 'settings' && screen.kind !== 'home')
+  if (
+    connection &&
+    screen.kind !== 'settings' &&
+    screen.kind !== 'home' &&
+    screen.kind !== 'get-started'
+  )
     crumbs.push(
       <Crumb key="project" onClick={home}>
         {connection.project}
@@ -243,9 +248,18 @@ export function HeaderBar() {
             ? 'New task'
             : screen.kind === 'settings'
               ? 'Settings'
-              : screen.kind === 'secrets' || screen.kind === 'secrets-import'
-                ? 'Secrets'
-                : null;
+              : screen.kind === 'connect'
+                ? 'Connect'
+                : screen.kind === 'get-started'
+                  ? 'Get started'
+                  : screen.kind === 'agents'
+                    ? 'Agents'
+                    : screen.kind === 'add-repo'
+                      ? 'Add repository'
+                      : screen.kind === 'secrets' ||
+                          screen.kind === 'secrets-import'
+                        ? 'Secrets'
+                        : null;
   if (page)
     crumbs.push(
       <Crumb key="page" current onClick={() => undefined}>

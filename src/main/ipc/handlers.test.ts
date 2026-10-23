@@ -12,13 +12,14 @@ import path from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { Events } from '../../shared/ipc';
 import { LEAK_IN_BRANCH, LEAK_UNCHECKED } from '../../shared/secrets';
+import { LeakWatch } from '../secrets/LeakWatch';
 import type { CreateTaskInput, SetupEvent, Task } from '../../shared/types';
+import { TrackerRegistry } from '../trackers/TrackerRegistry';
 import {
   spawnFailure,
   type TerminalFailure,
   type TerminalKind,
 } from '../../shared/terminalFailure';
-import { AdoRegistry } from '../services/AdoRegistry';
 import { ConnectionStore, type TokenCrypto } from '../services/ConnectionStore';
 import { RunHub, type RunBackend } from '../secrets/RunHub';
 import { SecretStore } from '../secrets/SecretStore';
@@ -175,7 +176,7 @@ async function harness(
     repos: new RepoRegistry(store, git),
     connections,
     secrets,
-    ado: new AdoRegistry(connections),
+    trackers: new TrackerRegistry(connections),
     openExternal: async (url) => {
       opened.push(url);
     },
@@ -303,6 +304,25 @@ describe('handlers: attention', () => {
   });
 });
 
+describe('handlers: agents', () => {
+  it('detects once per launch and again with force', async () => {
+    let runs = 0;
+    const { h } = await harness(undefined, {
+      runProbe: async () => {
+        runs += 1;
+        return { code: 1, stdout: '' };
+      },
+    });
+    const first = await h['agents:detect']();
+    expect(first.agents.claude.found).toBe(false);
+    expect(runs).toBe(3);
+    expect(await h['agents:detect']()).toBe(first);
+    expect(runs).toBe(3);
+    await h['agents:detect'](true);
+    expect(runs).toBe(6);
+  });
+});
+
 describe('handlers: repos', () => {
   it('lists, picks and removes repos', async () => {
     const { h, added } = await harness();
@@ -317,6 +337,58 @@ describe('handlers: repos', () => {
     });
     await h['repos:remove'](added.id);
     expect(await h['repos:list']()).toEqual([]);
+  });
+
+  it('repos:config gives a repo kept in Shellie only the base branch it was added with', async () => {
+    const { h } = await harness();
+    const dir = makeRepo('kept-in-shellie');
+    git(dir, 'branch', 'develop');
+    const repo = await h['repos:add'](dir, {
+      baseBranch: 'develop',
+    });
+    const cfg = await h['repos:config'](repo.id);
+    expect(cfg.config).toMatchObject({ found: false, base: 'develop' });
+  });
+});
+
+describe('handlers: repos:add / repos:inspect telemetry', () => {
+  it('reports wroteConfig and the inspected facts without paths', async () => {
+    const events: [string, unknown][] = [];
+    const { h } = await harness(fakeCrypto(), {
+      telemetry: {
+        ...NoopTelemetry,
+        event: (name, props) => events.push([name, props]),
+      },
+    });
+    const repo = makeRepo('fresh');
+    const inspected = await h['repos:inspect'](repo);
+    expect(inspected.proposal).toContain('base: "main"');
+    expect(events).toContainEqual([
+      'repo.inspected',
+      {
+        remote: 'none',
+        linked: false,
+        lockfile: 'none',
+        dotnet: false,
+        devScript: false,
+        apm: false,
+        existingConfig: false,
+      },
+    ]);
+    const added = await h['repos:add'](repo, {
+      writeConfig: inspected.proposal ?? undefined,
+    });
+    expect(added.configFound).toBe(true);
+    expect(events).toContainEqual([
+      'repo.added',
+      { repos: 2, wroteConfig: true },
+    ]);
+    const other = makeRepo('plain');
+    await h['repos:add'](other);
+    expect(events).toContainEqual([
+      'repo.added',
+      { repos: 3, wroteConfig: false },
+    ]);
   });
 });
 
@@ -671,6 +743,100 @@ describe('handlers: finish', () => {
     expect(existsSync(wt)).toBe(false);
     const repo = services.repos.list()[0].path;
     expect(await services.git.worktreeList(repo)).toHaveLength(1);
+  });
+
+  /** Finish with a worktree a process holds: the removal fails with EPERM and the folder stays. */
+  const finishWithHeldFolder = async () => {
+    const telemetry: Telemetry = { ...NoopTelemetry };
+    const event = vi.spyOn(telemetry, 'event');
+    let retryAll: (() => Promise<void>) | null = null;
+    const hx = await harness(fakeCrypto(), {
+      telemetry,
+      onCleanupRetry: (fn) => {
+        retryAll = fn;
+      },
+    });
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](hx.input());
+    await done;
+    const remove = vi
+      .spyOn(hx.services.git, 'worktreeRemove')
+      .mockRejectedValue(
+        Object.assign(
+          new Error(`Could not delete ${t.worktreePath}: EPERM, unlink`),
+          { code: 'EPERM' },
+        ),
+      );
+    await hx.h['tasks:finish'](t.id, {
+      closeTerminals: true,
+      removeWorktree: true,
+      deleteBranch: true,
+      syncUsage: false,
+    });
+    return { ...hx, t, event, remove, retryAll: () => retryAll!() };
+  };
+
+  it('Finish checks pass on a folder an earlier failed cleanup left without its .git file (#115)', async () => {
+    const { h, input, setupDone, store, terminals } = await harness();
+    const done = setupDone();
+    const t = await h['tasks:create'](input({ openShell: false }));
+    await done;
+    rmSync(path.join(store.state.tasks[0].worktreePath, '.git'));
+    const checks = await h['tasks:finishChecks'](t.id);
+    expect(checks).toMatchObject({ uncommitted: [], unpushed: 0 });
+    await terminals.killAllForTask(t.id);
+  });
+
+  it('a worktree a process still holds does not fail Finish: the task is done and the cleanup waits (#115)', async () => {
+    const hx = await finishWithHeldFolder();
+    const task = hx.store.state.tasks[0];
+    expect(task.status).toBe('done');
+    expect(task.pendingCleanup).toEqual([
+      expect.objectContaining({
+        workspaceId: 'home',
+        worktreePath: hx.t.worktreePath,
+        branch: hx.t.branch,
+        attempts: 1,
+        code: 'EPERM',
+      }),
+    ]);
+    expect(existsSync(hx.t.worktreePath)).toBe(true);
+    // Still checked out there, so the branch waits for the folder.
+    expect(await new GitClient().branchExists(hx.repo, hx.t.branch)).toBe(true);
+    expect(hx.event).toHaveBeenCalledWith('cleanup.deferred', {
+      code: 'EPERM',
+    });
+  });
+
+  it('retries the leftover in the background until it is gone (#115)', async () => {
+    const hx = await finishWithHeldFolder();
+    await hx.retryAll();
+    expect(hx.store.state.tasks[0].pendingCleanup[0].attempts).toBe(2);
+    hx.remove.mockRestore();
+    await hx.retryAll();
+    expect(hx.store.state.tasks[0].pendingCleanup).toEqual([]);
+    expect(existsSync(hx.t.worktreePath)).toBe(false);
+    expect(await new GitClient().branchExists(hx.repo, hx.t.branch)).toBe(
+      false,
+    );
+  });
+
+  it('Retry now on the Done page retries at once and says whether anything is left (#115)', async () => {
+    const hx = await finishWithHeldFolder();
+    expect(await hx.h['tasks:retryCleanup'](hx.t.id)).toBe(false);
+    hx.remove.mockRestore();
+    expect(await hx.h['tasks:retryCleanup'](hx.t.id)).toBe(true);
+    expect(existsSync(hx.t.worktreePath)).toBe(false);
+  });
+
+  it('a reopen takes the folder back, so the background cleanup leaves it alone (#115)', async () => {
+    const hx = await finishWithHeldFolder();
+    hx.remove.mockRestore();
+    await hx.h['tasks:reopen'](hx.t.id);
+    expect(hx.store.state.tasks[0].pendingCleanup).toEqual([]);
+    await hx.retryAll();
+    expect(existsSync(hx.t.worktreePath)).toBe(true);
+    await hx.terminals.killAllForTask(hx.t.id);
   });
 
   it('finish waits for the terminals to exit before removing the worktree', async () => {
@@ -1057,6 +1223,21 @@ describe('handlers: update', () => {
     expect(await h['update:status']()).toEqual({ version: '1.0.3' });
     await h['update:install']();
     expect(install).toHaveBeenCalledTimes(1);
+  });
+
+  it("gives no What's new card in dev, and the service's card in packaged builds", async () => {
+    const { h: dev } = await harness();
+    expect(await dev['app:whatsNew']()).toBeNull();
+    const card = {
+      version: '1.46.0',
+      url: 'https://github.com/UnreliableWitness/Shellie/releases/tag/v1.46.0',
+      fetched: true,
+      releases: [],
+    };
+    const { h } = await harness(fakeCrypto(), {
+      whatsNew: { get: async () => card },
+    });
+    expect(await h['app:whatsNew']()).toEqual(card);
   });
 });
 
@@ -1829,6 +2010,7 @@ describe('handlers: reopen a finished task', () => {
       mainCheckoutEdits: [],
       environment: 'development',
       environmentUntil: null,
+      pendingCleanup: [],
       finishedAt: null,
       baseSha: hx.t.baseSha ?? hx.store.state.tasks[0].baseSha,
     });
@@ -1916,6 +2098,7 @@ describe('handlers: reopen a finished task', () => {
       mainCheckoutEdits: [],
       environment: 'development',
       environmentUntil: null,
+      pendingCleanup: [],
     });
     expect(
       hx.store.state.tasks[0].openPeriods.every((p) => p.end !== null),
@@ -2311,6 +2494,7 @@ describe('recoverInterruptedTasks', () => {
       mainCheckoutEdits: [],
       environment: 'development',
       environmentUntil: null,
+      pendingCleanup: [],
     };
     await store.update((s) => {
       s.tasks.push(
@@ -2514,6 +2698,224 @@ describe('handlers: connections', () => {
     await expect(h['repos:setConnection'](added.id, 'ghost')).rejects.toThrow(
       /Unknown connection/,
     );
+  });
+});
+
+describe('handlers: connections:probe and connections:saveMany', () => {
+  const authFor = (pat: string) =>
+    `Basic ${Buffer.from(`:${pat}`).toString('base64')}`;
+  const routeOrg = (server: AdoServer, org = 'uw') => {
+    server.route('GET', `/${org}/_apis/connectionData`, {
+      body: {
+        authenticatedUser: {
+          providerDisplayName: 'Dries Hoebeke',
+          properties: { Account: { $value: 'dries@example.com' } },
+        },
+      },
+    });
+    server.route('GET', `/${org}/_apis/projects`, {
+      body: {
+        value: [
+          { id: 'p1', name: 'Shellie' },
+          { id: 'p2', name: 'Webshop' },
+          { id: 'p3', name: 'Infra' },
+        ],
+      },
+    });
+  };
+  const onStart = {
+    moveToInProgress: false,
+    assignToMe: true,
+    stateOverrides: {},
+  };
+
+  it('probe returns the user and the projects for a new token', async () => {
+    const { h, server } = await harness();
+    routeOrg(server);
+    expect(
+      await h['connections:probe']({
+        organizationUrl: `${server.url}/uw/`,
+        pat: ' secret-pat ',
+      }),
+    ).toEqual({
+      user: 'Dries Hoebeke',
+      uniqueName: 'dries@example.com',
+      projects: [
+        { id: 'p1', name: 'Shellie' },
+        { id: 'p2', name: 'Webshop' },
+        { id: 'p3', name: 'Infra' },
+      ],
+      canListProjects: true,
+    });
+    expect(server.requests.every((r) => r.auth === authFor('secret-pat'))).toBe(
+      true,
+    );
+    expect(await h['connections:list']()).toEqual([]);
+  });
+
+  it('probe signs in but cannot list projects on a 403 for projects alone', async () => {
+    const { h, server } = await harness();
+    routeOrg(server);
+    server.route('GET', '/uw/_apis/projects', { status: 403, body: {} });
+    expect(
+      await h['connections:probe']({
+        organizationUrl: `${server.url}/uw`,
+        pat: 'p',
+      }),
+    ).toMatchObject({
+      user: 'Dries Hoebeke',
+      projects: [],
+      canListProjects: false,
+    });
+  });
+
+  it('probe reports a refused token with its status only, never the URL or token', async () => {
+    const events: [string, unknown][] = [];
+    const { h, server } = await harness(fakeCrypto(), {
+      telemetry: {
+        ...NoopTelemetry,
+        event: (name, props) => events.push([name, props]),
+      },
+    });
+    server.route('GET', '/uw/_apis/connectionData', { status: 401, body: {} });
+    await expect(
+      h['connections:probe']({
+        organizationUrl: `${server.url}/uw`,
+        pat: 'bad',
+      }),
+    ).rejects.toThrow(/rejected the token/);
+    expect(events).toContainEqual(['connection.probeFailed', { status: 401 }]);
+  });
+
+  it("probe reuses a connection's stored token and organization when given its id", async () => {
+    const { h, server } = await harness();
+    routeHealthyOrg(server, 'uw');
+    routeOrg(server);
+    const c = await h['connections:save']({
+      organizationUrl: `${server.url}/uw`,
+      project: 'Shellie',
+      pat: 'stored-pat',
+    });
+    server.requests.length = 0;
+    const result = await h['connections:probe']({
+      organizationUrl: 'https://dev.azure.com/elsewhere',
+      connectionId: c.id,
+    });
+    expect(result.projects).toHaveLength(3);
+    expect(server.requests.length).toBeGreaterThan(0);
+    expect(server.requests.every((r) => r.auth === authFor('stored-pat'))).toBe(
+      true,
+    );
+  });
+
+  it('saveMany saves one connection per new project with the on-start options and skips existing ones', async () => {
+    const { h, server } = await harness();
+    routeOrg(server);
+    for (const p of ['Shellie', 'Webshop', 'Infra'])
+      server.route('GET', `/uw/_apis/projects/${p}`, { body: { name: p } });
+    const first = await h['connections:saveMany']({
+      organizationUrl: `${server.url}/uw`,
+      pat: 'secret-pat',
+      projects: ['Shellie', 'Webshop'],
+      workItemOnStart: onStart,
+      provider: 'azure-devops',
+    });
+    // The name is the organization; every screen shows the project next to it.
+    expect(first.map((c) => [c.name, c.project])).toEqual([
+      ['uw', 'Shellie'],
+      ['uw', 'Webshop'],
+    ]);
+    expect(first[0]).toMatchObject({
+      project: 'Shellie',
+      status: 'ok',
+      user: 'Dries Hoebeke',
+      userUniqueName: 'dries@example.com',
+      provider: 'azure-devops',
+      workItemOnStart: onStart,
+    });
+    server.requests.length = 0;
+    const again = await h['connections:saveMany']({
+      organizationUrl: `${server.url}/uw`,
+      connectionId: first[0].id,
+      projects: ['Shellie', 'Infra'],
+      workItemOnStart: onStart,
+      provider: 'azure-devops',
+    });
+    expect(again.map((c) => [c.name, c.project])).toEqual([['uw', 'Infra']]);
+    expect(server.requests.every((r) => r.auth === authFor('secret-pat'))).toBe(
+      true,
+    );
+    expect((await h['connections:list']()).map((c) => c.project)).toEqual([
+      'Shellie',
+      'Webshop',
+      'Infra',
+    ]);
+  });
+
+  it('clears a No-tracker choice once a connection is saved, and keeps it when nothing was saved', async () => {
+    const { h, server, settings } = await harness();
+    routeOrg(server);
+    server.route('GET', '/uw/_apis/projects/Shellie', {
+      body: { name: 'Shellie' },
+    });
+    const none = {
+      ...settings.get(),
+      onboarding: { ...settings.get().onboarding, tracker: 'none' as const },
+    };
+    await settings.save(none);
+    expect(
+      await h['connections:saveMany']({
+        organizationUrl: `${server.url}/uw`,
+        pat: 'p',
+        projects: [],
+        workItemOnStart: onStart,
+        provider: 'azure-devops',
+      }),
+    ).toEqual([]);
+    expect(settings.get().onboarding.tracker).toBe('none');
+    await h['connections:saveMany']({
+      organizationUrl: `${server.url}/uw`,
+      pat: 'p',
+      projects: ['Shellie'],
+      workItemOnStart: onStart,
+      provider: 'azure-devops',
+    });
+    expect(settings.get().onboarding.tracker).toBeNull();
+    expect(settings.get().onboarding.agentsCheckedAt).toBe(
+      none.onboarding.agentsCheckedAt,
+    );
+    await settings.save(none);
+    await h['connections:save']({
+      organizationUrl: `${server.url}/uw`,
+      project: 'Shellie',
+      pat: 'p',
+    });
+    expect(settings.get().onboarding.tracker).toBeNull();
+  });
+
+  it("repos:add copies the linked connection's on-start options into the repo", async () => {
+    const { h, server } = await harness();
+    routeOrg(server);
+    server.route('GET', '/uw/_apis/projects/Shellie', {
+      body: { name: 'Shellie' },
+    });
+    const [c] = await h['connections:saveMany']({
+      organizationUrl: `${server.url}/uw`,
+      pat: 'p',
+      projects: ['Shellie'],
+      workItemOnStart: onStart,
+      provider: 'azure-devops',
+    });
+    const repo = await h['repos:add'](makeRepo('onstart'), {
+      connectionId: c.id,
+    });
+    expect(repo.workItemOnStart).toEqual(onStart);
+    const unlinked = await h['repos:add'](makeRepo('onstart-none'));
+    expect(unlinked.workItemOnStart).toEqual({
+      moveToInProgress: true,
+      assignToMe: true,
+      stateOverrides: {},
+    });
   });
 });
 
@@ -3223,7 +3625,7 @@ describe('handlers: work item on start', () => {
     });
     await hx.connections.setStatus(c.id, 'ok', 'Dries Hoebeke', 'me@x.com');
     await hx.h['repos:setConnection'](hx.added.id, c.id);
-    const client = hx.services.ado.client(c.id);
+    const client = hx.services.trackers.client(c.id);
     vi.spyOn(client, 'workItemForStart').mockResolvedValue({
       type: 'Task',
       state: 'To Do',
@@ -3358,7 +3760,7 @@ describe('handlers: finish with a pull request', () => {
     });
     await hx.h['repos:setConnection'](hx.added.id, c.id);
     vi.spyOn(hx.services.git, 'remoteUrl').mockResolvedValue(remote);
-    const client = hx.services.ado.client(c.id);
+    const client = hx.services.trackers.client(c.id);
     const repositoryId = vi
       .spyOn(client, 'repositoryId')
       .mockResolvedValue('repo-1');
@@ -3882,7 +4284,7 @@ describe('handlers: finish with a pull request', () => {
       isDraft: false,
     });
     const taskClient = vi.spyOn(
-      hx.services.ado.client(other.id),
+      hx.services.trackers.client(other.id),
       'pullRequest',
     );
     await hx.h['tasks:prStatus'](hx.t.id, 'x1');
@@ -3929,7 +4331,7 @@ describe('handlers: task-level connection', () => {
   it('refreshes the PR status through the task connection', async () => {
     const hx = await harness();
     const { t } = await linkedTask(hx);
-    const client = hx.services.ado.client(t.connectionId!);
+    const client = hx.services.trackers.client(t.connectionId!);
     const refresh = vi.spyOn(client, 'pullRequest').mockResolvedValue({
       pullRequestId: 7,
       status: 'completed',
@@ -4025,10 +4427,10 @@ describe('handlers: finish every workspace of a task', () => {
     const created: { connectionId: string; repo: string; args: unknown }[] = [];
     const clients = new Map<
       string,
-      ReturnType<typeof hx.services.ado.client>
+      ReturnType<typeof hx.services.trackers.client>
     >();
     for (const id of new Set([c.id, ...repos.map((r) => r.connectionId)])) {
-      const client = hx.services.ado.client(id);
+      const client = hx.services.trackers.client(id);
       clients.set(id, client);
       vi.spyOn(client, 'repositoryId').mockImplementation(
         async (_p, name) => `id-${name}`,
@@ -4496,23 +4898,30 @@ describe('handlers: finish every workspace of a task', () => {
     expect(existsSync(path.join(hx.t.worktreePath, 'draft.txt'))).toBe(true);
   });
 
-  it('keeps the summaries when cleanup fails midway', async () => {
+  it('a folder that cannot be removed yet waits for the background cleanup; the rest finishes (#115)', async () => {
     const hx = await multiHarness([{ name: 'api' }]);
     commitFile(hx.repos[0].wt, 'api.txt', 'a\n', 'API change');
     vi.spyOn(hx.services.git, 'worktreeRemove').mockRejectedValueOnce(
       new Error('folder locked'),
     );
-    await expect(
-      hx.h['tasks:finish'](hx.t.id, {
-        ...opts,
-        workspaces: [
-          { workspaceId: 'home', action: 'keep' },
-          { workspaceId: hx.ids[0], action: 'push' },
-        ],
-      }),
-    ).rejects.toThrow('folder locked');
+    await hx.h['tasks:finish'](hx.t.id, {
+      ...opts,
+      workspaces: [
+        { workspaceId: 'home', action: 'keep' },
+        { workspaceId: hx.ids[0], action: 'push' },
+      ],
+    });
     const task = hx.store.state.tasks[0];
-    expect(task.status).toBe('ready');
+    expect(task.status).toBe('done');
+    expect(task.pendingCleanup).toEqual([
+      expect.objectContaining({
+        workspaceId: 'home',
+        worktreePath: hx.t.worktreePath,
+        error: 'folder locked',
+        code: 'other',
+      }),
+    ]);
+    expect(existsSync(hx.repos[0].wt)).toBe(false);
     expect(task.summary).toMatchObject({ commitCount: 0 });
     expect(ws(hx, hx.ids[0]).summary).toMatchObject({
       commitCount: 1,
@@ -5474,6 +5883,23 @@ describe('handlers: environment per task', () => {
     };
   }
 
+  it('a Production task discarded leaves nothing in RunHub or leak watch', async () => {
+    const e = await envScenario();
+    await e.hx.h['tasks:setEnvironment'](e.task.id, 'production', true);
+    const ids = e.tabs().map((t) => t.id);
+    const forget = vi.spyOn(LeakWatch.prototype, 'forget');
+    const dropTask = vi.spyOn(LeakWatch.prototype, 'dropTask');
+    await e.hx.h['tasks:discard'](e.task.id);
+    expect(e.stopRuns).toHaveBeenCalledWith(
+      e.task.id,
+      'The task was discarded',
+    );
+    expect(dropTask).toHaveBeenCalledWith(e.task.id);
+    for (const id of ids) expect(forget).toHaveBeenCalledWith(id);
+    forget.mockRestore();
+    dropTask.mockRestore();
+  });
+
   it('refuses UAT and Production without a confirm and changes nothing', async () => {
     const e = await envScenario();
     for (const env of ['uat', 'production'] as const) {
@@ -5911,7 +6337,7 @@ describe('handlers: environment per task', () => {
     vi.spyOn(hx.services.git, 'remoteUrl').mockResolvedValue(
       'https://dev.azure.com/contoso/P/_git/R',
     );
-    const client = hx.services.ado.client(c.id);
+    const client = hx.services.trackers.client(c.id);
     vi.spyOn(client, 'repositoryId').mockResolvedValue('repo-1');
     vi.spyOn(client, 'findActivePullRequest').mockResolvedValue(null);
     const create = vi.spyOn(client, 'createPullRequest').mockResolvedValue({
@@ -6432,5 +6858,157 @@ describe('handlers: shellie run', () => {
       denyPaths: ['.env'],
     });
     await plain.terminals.killAllForTask(plain.task.id);
+  });
+});
+
+describe('handlers: discard a task (#124)', () => {
+  async function ready(over: Partial<Services> = {}) {
+    const telemetry: Telemetry = { ...NoopTelemetry };
+    const event = vi.spyOn(telemetry, 'event');
+    let retryAll: (() => Promise<void>) | null = null;
+    const hx = await harness(fakeCrypto(), {
+      telemetry,
+      onCleanupRetry: (fn) => {
+        retryAll = fn;
+      },
+      ...over,
+    });
+    // The copied .env is ignored, as in a real repo: a task nobody worked in has nothing uncommitted.
+    commitFile(hx.repo, '.gitignore', '.env\n');
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](hx.input({ name: 'try' }));
+    await done;
+    return { ...hx, t, event, retryAll: () => retryAll!() };
+  }
+
+  it('a blank task: closes its terminals, removes its worktree and branch, and the task is gone', async () => {
+    const hx = await ready();
+    expect(hx.terminals.runningCount(hx.t.id)).toBeGreaterThan(0);
+    const reviewFile = path.join(hx.usageDir, 'review', `${hx.t.id}.json`);
+    mkdirSync(path.dirname(reviewFile), { recursive: true });
+    writeFileSync(reviewFile, '{}');
+    const checks = await hx.h['tasks:discardChecks'](hx.t.id);
+    expect(checks).toMatchObject({ blank: true, commitsLost: 0 });
+    await hx.h['tasks:discard'](hx.t.id);
+    expect(hx.terminals.runningCount(hx.t.id)).toBe(0);
+    expect(existsSync(hx.t.worktreePath)).toBe(false);
+    expect(await new GitClient().branchExists(hx.repo, hx.t.branch)).toBe(
+      false,
+    );
+    expect(hx.store.state.tasks).toEqual([]);
+    expect(hx.store.state.discardedCleanup).toEqual([]);
+    expect(await hx.h['tasks:list']()).toEqual([]);
+    expect(existsSync(reviewFile)).toBe(false);
+    expect(hx.event).toHaveBeenCalledWith(
+      'task.discarded',
+      { blank: true },
+      expect.objectContaining({ commitsLost: 0 }),
+    );
+    // Nothing else happens: no push, no PR, no booking.
+    expect(hx.opened).toEqual([]);
+    expect(hx.event).not.toHaveBeenCalledWith(
+      'task.finished',
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it('names the commits no remote has and the uncommitted files, which Discard loses', async () => {
+    const hx = await ready();
+    commitFile(hx.t.worktreePath, 'work.txt', 'work');
+    writeFileSync(path.join(hx.t.worktreePath, 'draft.txt'), 'draft');
+    const checks = await hx.h['tasks:discardChecks'](hx.t.id);
+    expect(checks).toMatchObject({
+      blank: false,
+      commitsLost: 1,
+      uncommitted: 1,
+    });
+    expect(checks.workspaces[0]).toMatchObject({
+      workspaceId: 'home',
+      branch: hx.t.branch,
+      kept: false,
+      missing: false,
+      commits: 1,
+      unpushed: 1,
+      uncommitted: 1,
+    });
+    await hx.h['tasks:discard'](hx.t.id);
+    expect(hx.event).toHaveBeenCalledWith(
+      'task.discarded',
+      { blank: false },
+      expect.objectContaining({ commitsLost: 1 }),
+    );
+    expect(await new GitClient().branchExists(hx.repo, hx.t.branch)).toBe(
+      false,
+    );
+  });
+
+  it('is refused while the task sets up or finishes', async () => {
+    const hx = await harness();
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](hx.input({ commands: [sleepCmd(1)] }));
+    await expect(hx.h['tasks:discard'](t.id)).rejects.toThrow(/setting-up/);
+    await done;
+    await hx.store.update((st) => {
+      st.tasks[0].status = 'finishing';
+    });
+    await expect(hx.h['tasks:discard'](t.id)).rejects.toThrow(/finishing/);
+    expect(hx.store.state.tasks).toHaveLength(1);
+    await hx.terminals.killAllForTask(t.id);
+  });
+
+  it('a folder a process holds does not fail Discard: the task is gone and the cleanup is retried', async () => {
+    const hx = await ready();
+    const remove = vi
+      .spyOn(hx.services.git, 'worktreeRemove')
+      .mockRejectedValue(
+        Object.assign(new Error('Could not delete: EPERM'), { code: 'EPERM' }),
+      );
+    await hx.h['tasks:discard'](hx.t.id);
+    expect(hx.store.state.tasks).toEqual([]);
+    expect(hx.store.state.discardedCleanup).toEqual([
+      expect.objectContaining({
+        taskId: hx.t.id,
+        worktreePath: hx.t.worktreePath,
+        branch: hx.t.branch,
+        code: 'EPERM',
+      }),
+    ]);
+    expect(existsSync(hx.t.worktreePath)).toBe(true);
+    expect(hx.event).toHaveBeenCalledWith('cleanup.deferred', {
+      code: 'EPERM',
+    });
+    remove.mockRestore();
+    await hx.retryAll();
+    expect(hx.store.state.discardedCleanup).toEqual([]);
+    expect(existsSync(hx.t.worktreePath)).toBe(false);
+    expect(await new GitClient().branchExists(hx.repo, hx.t.branch)).toBe(
+      false,
+    );
+  });
+
+  it('discards every workspace on the task branch, and leaves one on another branch alone', async () => {
+    const hx = await ready();
+    const other = makeRepo('api');
+    const wt = path.join(path.dirname(other), 'api-wt');
+    git(other, 'worktree', 'add', '-q', '-b', hx.t.branch, wt);
+    const dev = makeRepo('docs');
+    const devWt = path.join(path.dirname(dev), 'docs-wt');
+    git(dev, 'worktree', 'add', '-q', '-b', 'dev', devWt);
+    await hx.h['tasks:addWorkspace'](hx.t.id, wt);
+    await hx.h['tasks:addWorkspace'](hx.t.id, devWt);
+    const checks = await hx.h['tasks:discardChecks'](hx.t.id);
+    expect(checks.workspaces.map((w) => [w.repoName, w.kept])).toEqual([
+      ['webshop', false],
+      ['api', false],
+      ['docs', true],
+    ]);
+    await hx.h['tasks:discard'](hx.t.id);
+    expect(existsSync(hx.t.worktreePath)).toBe(false);
+    expect(existsSync(wt)).toBe(false);
+    expect(await new GitClient().branchExists(other, hx.t.branch)).toBe(false);
+    expect(existsSync(devWt)).toBe(true);
+    expect(await new GitClient().branchExists(dev, 'dev')).toBe(true);
+    expect(hx.store.state.tasks).toEqual([]);
   });
 });

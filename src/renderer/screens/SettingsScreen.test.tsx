@@ -85,48 +85,20 @@ describe('SettingsScreen', () => {
     );
   });
 
-  it('adds a folder through the native picker', async () => {
-    const picked: Repo = {
-      ...webshop,
-      id: 'r9',
-      name: 'picked',
-      path: '/src/picked',
-    };
+  it('opens the Add repository page with the picked folder', async () => {
     const { calls } = installFakeApi({
       'repos:pickFolder': () => '/src/picked',
-      'repos:add': () => picked,
-      'repos:list': () => [picked],
     });
     render(<SettingsScreen />);
     await userEvent.click(screen.getByRole('button', { name: ADD_FOLDER }));
     await waitFor(() =>
-      expect(
-        calls
-          .map((c) => c.channel)
-          .filter((c) => c.startsWith('repos:'))
-          .slice(0, 2),
-      ).toEqual(['repos:pickFolder', 'repos:add']),
+      expect(useStore.getState().screen).toEqual({
+        kind: 'add-repo',
+        from: 'settings',
+        folder: '/src/picked',
+      }),
     );
-    expect(calls.find((c) => c.channel === 'repos:add')?.args).toEqual([
-      '/src/picked',
-    ]);
-    expect(useStore.getState().repos.map((r) => r.name)).toEqual(['picked']);
-  });
-
-  it('shows an error notice when adding fails', async () => {
-    installFakeApi({
-      'repos:pickFolder': () => '/nope',
-      'repos:add': () => {
-        throw new Error('/nope is not a git repository');
-      },
-    });
-    render(<SettingsScreen />);
-    await userEvent.click(screen.getByRole('button', { name: ADD_FOLDER }));
-    await waitFor(() =>
-      expect(useStore.getState().notices[0]?.message).toBe(
-        '/nope is not a git repository',
-      ),
-    );
+    expect(calls.some((c) => c.channel === 'repos:add')).toBe(false);
   });
 
   it('shows the effective config for a repo', async () => {
@@ -169,6 +141,12 @@ describe('SettingsScreen', () => {
           status: 'ok',
           checkedAt: null,
           userUniqueName: null,
+          provider: 'azure-devops' as const,
+          workItemOnStart: {
+            moveToInProgress: true,
+            assignToMe: true,
+            stateOverrides: {},
+          },
         },
       ],
     });
@@ -194,6 +172,12 @@ describe('SettingsScreen', () => {
       status: 'ok' as const,
       checkedAt: null,
       userUniqueName: null,
+      provider: 'azure-devops' as const,
+      workItemOnStart: {
+        moveToInProgress: true,
+        assignToMe: true,
+        stateOverrides: {},
+      },
     };
     const linked: Repo = { ...webshop, connectionId: 'c1' };
     const types = [
@@ -318,6 +302,28 @@ describe('SettingsScreen', () => {
     });
   });
 
+  it('About has a Get started link that brings the page back', async () => {
+    const { defaultSettings } = await import('../../shared/usage');
+    const dismissed = defaultSettings();
+    dismissed.onboarding.dismissedAt = '2026-10-01T00:00:00.000Z';
+    dismissed.onboarding.agentsCheckedAt = '2026-10-01T00:00:00.000Z';
+    const { calls } = installFakeApi({
+      'settings:get': () => dismissed,
+      'settings:save': (next) => next,
+    });
+    render(<SettingsScreen />);
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Get started' }),
+    );
+    await waitFor(() =>
+      expect(useStore.getState().screen).toEqual({ kind: 'get-started' }),
+    );
+    expect(
+      (calls.find((c) => c.channel === 'settings:save')?.args[0] as AppSettings)
+        .onboarding.dismissedAt,
+    ).toBeNull();
+  });
+
   it('turns anonymous usage and error data off', async () => {
     const { calls } = installFakeApi({ 'settings:save': (next) => next });
     render(<SettingsScreen />);
@@ -378,6 +384,12 @@ describe('SettingsScreen', () => {
       sendTelemetry: true,
       editor: { default: null, repos: {} },
       secrets: { productionMinutes: 60 },
+      onboarding: {
+        dismissedAt: null,
+        agentsCheckedAt: '2026-10-22T09:00:00.000Z',
+        tracker: null,
+        migrated: false,
+      },
       defaultTerminals: {
         claude: true,
         copilot: false,
@@ -427,6 +439,12 @@ describe('SettingsScreen', () => {
       sendTelemetry: true,
       editor: { default: null, repos: {} },
       secrets: { productionMinutes: 60 },
+      onboarding: {
+        dismissedAt: null,
+        agentsCheckedAt: '2026-10-22T09:00:00.000Z',
+        tracker: null,
+        migrated: false,
+      },
       defaultTerminals: {
         claude: true,
         copilot: false,
@@ -456,6 +474,12 @@ describe('SettingsScreen', () => {
       sendTelemetry: true,
       editor: { default: null, repos: {} },
       secrets: { productionMinutes: 60 },
+      onboarding: {
+        dismissedAt: null,
+        agentsCheckedAt: '2026-10-22T09:00:00.000Z',
+        tracker: null,
+        migrated: false,
+      },
       defaultTerminals: {
         claude: true,
         copilot: false,
@@ -506,6 +530,12 @@ describe('SettingsScreen', () => {
       sendTelemetry: true,
       editor: { default: null, repos: {} },
       secrets: { productionMinutes: 60 },
+      onboarding: {
+        dismissedAt: null,
+        agentsCheckedAt: '2026-10-22T09:00:00.000Z',
+        tracker: null,
+        migrated: false,
+      },
       defaultTerminals: {
         claude: true,
         copilot: false,

@@ -52,6 +52,8 @@ export function darwinPlatform(env: NodeJS.ProcessEnv): Platform {
           ].map(shellQuote),
         ].join(' '),
       ]),
+    probeCommand: (name) =>
+      login(['-c', `command -v ${name} && ${name} --version`]),
     copilotCommand: () => login(['-c', 'exec copilot']),
     opencodeCommand: () => login(['-c', 'exec opencode']),
     userSecretsDir: (id) =>

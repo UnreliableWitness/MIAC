@@ -48,6 +48,7 @@ const task = (over: Partial<Task> = {}): Task => ({
   mainCheckoutEdits: [],
   environment: 'development',
   environmentUntil: null,
+  pendingCleanup: [],
   ...over,
 });
 const usage: TaskUsage = {

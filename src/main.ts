@@ -55,7 +55,7 @@ import {
 } from './main/budget/claudeTranscripts';
 import { OpenCodeReader, openCodeDbPath } from './main/budget/openCode';
 import { createPlatform } from './main/platform';
-import { AdoRegistry } from './main/services/AdoRegistry';
+import { TrackerRegistry } from './main/trackers/TrackerRegistry';
 import {
   claudeThemeFor,
   fixedScheme,
@@ -67,6 +67,7 @@ import { SecretStore } from './main/secrets/SecretStore';
 import { GitClient } from './main/services/GitClient';
 import { connectionIdForPath, createGitAuth } from './main/services/gitAuth';
 import { loadShellieConfig } from './main/services/ShellieConfig';
+import { RETRY_EVERY_MS as CLEANUP_RETRY_EVERY_MS } from './main/services/worktreeCleanup';
 import { RepoRegistry } from './main/services/RepoRegistry';
 import { taskWorkspaces } from './shared/workspaces';
 import { migrateTaskFolders } from './main/migrate/taskFolders';
@@ -111,8 +112,16 @@ import { schemeOf } from './shared/theme';
 import { TITLE_BAR_HEIGHT, titleBarKind } from './shared/titleBar';
 import { errorMessage } from './shared/errors';
 import { HtmlViews, serveView, VIEW_SCHEME } from './main/htmlView';
+import { migrateOnboarding } from './main/onboardingMigration';
+import { createWhatsNew, seenAtBoot } from './main/releaseNotes';
+import { userDataOverride } from './main/paths';
 
 if (started) app.quit();
+
+// Dev only (ignored when packaged): SHELLIE_USER_DATA points the app at a separate data folder (a fresh profile);
+// set before anything reads it.
+const userDataDir = userDataOverride(process.env, app.isPackaged);
+if (userDataDir) app.setPath('userData', userDataDir);
 
 // HTML files opened in a tab load from shellie-view: (registered before ready, as Electron requires).
 // Not CORS-enabled and no CSP bypass: the pages run in a sandboxed iframe with an opaque origin.
@@ -285,17 +294,20 @@ async function boot(): Promise<void> {
   const userData = app.getPath('userData');
   // First on purpose: before settings load and before any window, copy MIAC's data folder.
   const migrationStart = performance.now();
-  const migration = await migrateDataFolder({
-    from: path.join(app.getPath('appData'), 'miac'),
-    to: userData,
-    platform: process.platform,
-  }).catch((err) => {
-    console.error(
-      'Data migration from MIAC failed; it runs again on the next start.',
-      err,
-    );
-    return null;
-  });
+  // A SHELLIE_USER_DATA profile stays fresh: no copy of MIAC's data into it.
+  const migration = userDataDir
+    ? null
+    : await migrateDataFolder({
+        from: path.join(app.getPath('appData'), 'miac'),
+        to: userData,
+        platform: process.platform,
+      }).catch((err) => {
+        console.error(
+          'Data migration from MIAC failed; it runs again on the next start.',
+          err,
+        );
+        return null;
+      });
   const migrationMs = performance.now() - migrationStart;
   const settings = new SettingsStore(path.join(userData, 'settings.json'));
   const settingsLoaded = await settings.load();
@@ -404,6 +416,22 @@ async function boot(): Promise<void> {
       connections.load(),
       secrets.load(),
     ]);
+    // Once per install: installs that already have repositories skip the first-run page and keep their tabs.
+    const migrated = migrateOnboarding(
+      settings.get(),
+      store.state.repos.length,
+      new Date().toISOString(),
+    );
+    if (migrated)
+      await settings
+        .save(migrated)
+        .catch((err) => console.error('Onboarding migration failed', err));
+    // A fresh install has seen the version it was installed with: What's new shows only after an update.
+    const seen = seenAtBoot(settings.get(), app.getVersion());
+    if (seen)
+      await settings
+        .save({ ...settings.get(), whatsNewSeen: seen })
+        .catch((err) => console.error('Saving whatsNewSeen failed', err));
     const recovered = await recoverInterruptedTasks(store);
     // Fetch and push to Azure Repos sign in with the connection's token, not a credential helper that may not start.
     const git = new GitClient(undefined, {
@@ -702,6 +730,13 @@ async function boot(): Promise<void> {
         pending: () => pendingUpdate,
         install: () => updates?.install() ?? false,
       },
+      // Dev builds keep package.json's fixed version, which has no release.
+      whatsNew: app.isPackaged
+        ? createWhatsNew({
+            version: app.getVersion(),
+            settings: () => settings.get(),
+          })
+        : undefined,
       appVersion: app.getVersion(),
       windowsBuild:
         process.platform === 'win32'
@@ -732,10 +767,16 @@ async function boot(): Promise<void> {
           return () => powerMonitor.off('resume', fn);
         },
       },
+      // Leftover worktree folders of finished tasks (#115): once soon after launch, then every few minutes.
+      onCleanupRetry: (retryAll) => {
+        const run = () => void retryAll().catch(() => undefined);
+        setTimeout(run, 20_000).unref();
+        setInterval(run, CLEANUP_RETRY_EVERY_MS).unref();
+      },
       finishFlushMs: 2500,
       connections,
       secrets,
-      ado: new AdoRegistry(connections, timedFetch(telemetry)),
+      trackers: new TrackerRegistry(connections, timedFetch(telemetry)),
       telemetry,
       rememberSensitive: (values) => {
         for (const v of values) learned.add(v);
@@ -966,8 +1007,12 @@ async function boot(): Promise<void> {
         telemetry.event('update.ready');
         broadcast('update:ready', pendingUpdate);
       },
+      onCheckFailed: () => telemetry.event('update.checkFailed'),
       log: (message, error) => console.error(message, error ?? ''),
     });
+    // A laptop that slept past a check, or a screen locked overnight, checks as soon as it is back (#126).
+    powerMonitor.on('resume', () => updates?.wake());
+    powerMonitor.on('unlock-screen', () => updates?.wake());
   } catch (e) {
     const message = errorMessage(e);
     console.error(e);

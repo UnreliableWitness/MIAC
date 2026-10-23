@@ -63,6 +63,7 @@ const base = {
   mainCheckoutEdits: [],
   environment: 'development' as const,
   environmentUntil: null,
+  pendingCleanup: [],
   worktreeMissing: false,
   baseRef: 'origin/main',
   baseSha: null,
@@ -120,6 +121,7 @@ const tasks: TaskView[] = [
     mainCheckoutEdits: [],
     environment: 'development',
     environmentUntil: null,
+    pendingCleanup: [],
   },
   {
     ...base,
@@ -231,6 +233,12 @@ describe('TaskNav', () => {
           status: 'unauthorized',
           checkedAt: null,
           userUniqueName: null,
+          provider: 'azure-devops' as const,
+          workItemOnStart: {
+            moveToInProgress: true,
+            assignToMe: true,
+            stateOverrides: {},
+          },
         },
       ],
     });
@@ -310,6 +318,12 @@ describe('TaskNav', () => {
       status: 'ok' as const,
       checkedAt: null,
       userUniqueName: null,
+      provider: 'azure-devops' as const,
+      workItemOnStart: {
+        moveToInProgress: true,
+        assignToMe: true,
+        stateOverrides: {},
+      },
     });
     useStore.setState({
       connections: [conn('c1', 'Shellie'), conn('c2', 'DXP')],
@@ -341,6 +355,12 @@ describe('TaskNav', () => {
       status: 'ok' as const,
       checkedAt: null,
       userUniqueName: null,
+      provider: 'azure-devops' as const,
+      workItemOnStart: {
+        moveToInProgress: true,
+        assignToMe: true,
+        stateOverrides: {},
+      },
     });
     useStore.setState({
       connections: [conn('c1', 'Shellie'), conn('c2', 'DXP')],
@@ -472,6 +492,42 @@ describe('TaskNav task actions (#95)', () => {
     });
     render(<TaskNav />);
     expect(screen.getByRole('button', { name: 'Finishing…' })).toBeDisabled();
+  });
+
+  it('has a Discard task button next to Finish that asks on the task page (#124)', async () => {
+    useStore.setState({
+      selectedTaskId: 'a',
+      screen: { kind: 'finish', taskId: 'x' },
+      discardTaskId: null,
+    });
+    const { unmount } = render(<TaskNav />);
+    // Not on another task's page.
+    expect(screen.queryByRole('button', { name: 'Discard task' })).toBeNull();
+    unmount();
+    useStore.setState({ screen: { kind: 'task' } });
+    render(<TaskNav />);
+    const discard = screen.getByRole('button', { name: 'Discard task' });
+    const finish = screen.getByRole('button', { name: 'Finish task' });
+    expect(discard.parentElement).toBe(finish.parentElement);
+    await userEvent.click(discard);
+    expect(useStore.getState().discardTaskId).toBe('a');
+    expect(useStore.getState().screen).toEqual({ kind: 'task' });
+  });
+
+  it('has Discard task under Finish in the collapsed rail, with a tooltip (#124)', async () => {
+    useStore.setState({
+      selectedTaskId: 'a',
+      screen: { kind: 'task' },
+      navCollapsed: true,
+      discardTaskId: null,
+    });
+    render(<TaskNav />);
+    const discard = screen.getByRole('button', { name: 'Discard task' });
+    expect(discard).toHaveAttribute('title', 'Discard task');
+    const finish = screen.getByRole('button', { name: 'Finish task' });
+    expect(finish.nextElementSibling).toBe(discard);
+    await userEvent.click(discard);
+    expect(useStore.getState().discardTaskId).toBe('a');
   });
 
   it('keeps New task and Finish task in the collapsed rail', async () => {
