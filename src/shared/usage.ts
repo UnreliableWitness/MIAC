@@ -5,7 +5,7 @@ import { defaultTerminals, DefaultTerminalsSchema } from './terminals';
 import { THEMES } from './theme';
 import { WorkHoursSchema } from './time';
 
-export type UsageTool = 'claude-code' | 'copilot-cli';
+export type UsageTool = 'claude-code' | 'copilot-cli' | 'opencode';
 
 /** One AI request as captured from telemetry, before pricing. */
 export type UsageEvent = {

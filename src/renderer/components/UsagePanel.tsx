@@ -1,4 +1,4 @@
-import type { ModelTotals } from '../../shared/usage';
+import type { ModelTotals, UsageTool } from '../../shared/usage';
 import {
   hourTicks,
   isLive,
@@ -16,9 +16,24 @@ import { usageModelColor } from '../modelColor';
 import { useStore } from '../store';
 import { TimePanel } from './TimePanel';
 import { RingGauge } from './ui';
-import { TOOL_LABEL } from '../../shared/time';
 
 const DOT = String.fromCharCode(0xb7);
+const USAGE_TOOLS: UsageTool[] = ['claude-code', 'copilot-cli', 'opencode'];
+const USAGE_TOOL_LABEL: Record<UsageTool, string> = {
+  'claude-code': 'Claude Code',
+  'copilot-cli': 'Copilot CLI',
+  opencode: 'OpenCode',
+};
+const BIN_NAME: Record<UsageTool, string> = {
+  'claude-code': 'Claude',
+  'copilot-cli': 'Copilot',
+  opencode: 'OpenCode',
+};
+const TOOL_FILL: Record<UsageTool, string> = {
+  'claude-code': 'var(--chart-claude)',
+  'copilot-cli': 'var(--chart-copilot)',
+  opencode: 'var(--chart-opencode)',
+};
 const ARROW = String.fromCharCode(0x2192);
 const when = (iso: string) =>
   new Date(iso).toLocaleString(undefined, {
@@ -37,9 +52,10 @@ const DASH = String.fromCharCode(0x2013);
 function binTitle(b: Bin): string {
   const range = `${clock(b.start)}${DASH}${clock(b.end)}`;
   if (b.costEur === 0) return `${range} ${DOT} no usage`;
+  const parts = USAGE_TOOLS.filter((t) => b.byTool[t] > 0);
   const both =
-    b.byTool['claude-code'] > 0 && b.byTool['copilot-cli'] > 0
-      ? ` (Claude ${eur(b.byTool['claude-code'])}, Copilot ${eur(b.byTool['copilot-cli'])})`
+    parts.length > 1
+      ? ` (${parts.map((t) => `${BIN_NAME[t]} ${eur(b.byTool[t])}`).join(', ')})`
       : '';
   return `${range} ${DOT} ${eur(b.costEur)}${both}`;
 }
@@ -55,12 +71,9 @@ function Timeline({ bins, live }: { bins: Bin[]; live: boolean }) {
         className="up-timeline"
       >
         {bins.map((b, i) => {
-          const fill =
-            b.dominant === 'claude-code'
-              ? 'var(--chart-claude)'
-              : b.dominant === 'copilot-cli'
-                ? 'var(--chart-copilot)'
-                : 'var(--line-strong)';
+          const fill = b.dominant
+            ? TOOL_FILL[b.dominant]
+            : 'var(--line-strong)';
           const cls = [
             'up-bin',
             live && i === bins.length - 1 ? 'is-live' : '',
@@ -258,8 +271,8 @@ export function UsagePanel({
           <h3>{`Sessions ${DOT} ${usage?.sessions.length ?? 0}`}</h3>
           {usage && usage.sessions.length === 0 ? (
             <div className="empty">
-              No AI usage captured for this task yet. Claude Code and Copilot
-              CLI started in this task&apos;s terminals report here
+              No AI usage captured for this task yet. Claude Code, Copilot CLI
+              and OpenCode started in this task&apos;s terminals report here
               automatically.
             </div>
           ) : (
@@ -287,7 +300,7 @@ export function UsagePanel({
                           <span className="live mono">LIVE</span>
                         )}
                       </td>
-                      <td>{TOOL_LABEL[s.tool]}</td>
+                      <td>{USAGE_TOOL_LABEL[s.tool]}</td>
                       <td className="mono">{s.models.join(', ')}</td>
                       <td className="mono">
                         {compact(

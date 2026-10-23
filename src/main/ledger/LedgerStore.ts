@@ -34,7 +34,7 @@ export class LedgerStore {
   private sent: Record<string, string> = {};
   private queue: Promise<unknown> = Promise.resolve();
 
-  constructor(private readonly dir: string) {}
+  constructor(readonly dir: string) {}
 
   private file(month: string): string {
     return path.join(this.dir, `records-${month}.jsonl`);

@@ -8,6 +8,10 @@ export function modelColor(model: string): string {
   return 'var(--line-strong)';
 }
 
-/** The Usage tab's colour for a model: Copilot CLI's purple for anything used through Copilot, else the family. */
+/** The Usage tab's colour for a model: Copilot CLI's purple for anything used through Copilot, OpenCode's own colour, else the family. */
 export const usageModelColor = (m: ModelTotals): string =>
-  m.tool === 'copilot-cli' ? 'var(--chart-copilot)' : modelColor(m.label);
+  m.tool === 'copilot-cli'
+    ? 'var(--chart-copilot)'
+    : m.tool === 'opencode'
+      ? 'var(--chart-opencode)'
+      : modelColor(m.label);

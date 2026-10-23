@@ -97,6 +97,7 @@ const usage: TaskUsage = {
       tokens: 3_608_000,
     },
     'copilot-cli': { costUsd: 0, costEur: 0, sessions: 1, tokens: 1010 },
+    opencode: { costUsd: 0, costEur: 0, sessions: 0, tokens: 0 },
   },
   byModel: [
     {
@@ -323,6 +324,50 @@ describe('UsagePanel', () => {
     ]);
     const ring = screen.getByRole('img', { name: /Billable/ });
     expect(ring.querySelectorAll('[data-part="segment"]')).toHaveLength(1);
+  });
+  it('shows OpenCode usage in its own colour and name', async () => {
+    const now = Date.parse('2026-10-14T10:07:00.000Z');
+    installFakeApi({
+      'usage:task': () => ({
+        ...usage,
+        sessions: [
+          {
+            ...usage.sessions[0],
+            sessionId: 'o1',
+            tool: 'opencode',
+            models: ['claude-sonnet-5-5'],
+          },
+        ],
+        byModel: [
+          {
+            ...usage.byModel[0],
+            tool: 'opencode',
+            model: 'claude-sonnet-5-5',
+            label: 'Claude Sonnet 5.5',
+          },
+        ],
+        recent: [
+          { at: '2026-10-14T09:20:00.000Z', tool: 'opencode', costEur: 0.5 },
+        ],
+      }),
+    });
+    render(<UsagePanel taskId="t1" now={() => now} />);
+    const ring = await screen.findByRole('img', { name: /Billable/ });
+    expect(
+      ring.querySelector('[data-part="segment"]')?.getAttribute('stroke'),
+    ).toBe('var(--chart-opencode)');
+    const legend = screen.getByRole('list', { name: 'Cost per model' });
+    expect(within(legend).getAllByRole('listitem')[0]).toHaveTextContent(
+      'Sonnet 5.5 (OpenCode)',
+    );
+    const row = screen.getByRole('cell', { name: 'OpenCode' });
+    expect(row).toBeTruthy();
+    const used = [...document.querySelectorAll('[data-part="bin"]')].find((b) =>
+      b.getAttribute('title')?.includes(EURO),
+    );
+    expect(used!.querySelector<HTMLElement>('span')!.style.background).toBe(
+      'var(--chart-opencode)',
+    );
   });
   it('labels the hours under the 6 hour chart on bin edges and titles each bin', async () => {
     const now = Date.parse('2026-10-14T10:07:00.000Z');

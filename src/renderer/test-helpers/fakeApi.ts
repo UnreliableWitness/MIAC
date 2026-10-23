@@ -21,6 +21,7 @@ export const emptyUsage = (taskId: string): TaskUsage => ({
   byTool: {
     'claude-code': { costUsd: 0, costEur: 0, sessions: 0, tokens: 0 },
     'copilot-cli': { costUsd: 0, costEur: 0, sessions: 0, tokens: 0 },
+    opencode: { costUsd: 0, costEur: 0, sessions: 0, tokens: 0 },
   },
 });
 
@@ -72,7 +73,7 @@ const defaults: FakeHandlers = {
     from: '2026-10-12T00:00:00.000Z',
     to: '2026-10-17T09:00:00.000Z',
     costEur: 0,
-    costByTool: { 'claude-code': 0, 'copilot-cli': 0 },
+    costByTool: { 'claude-code': 0, 'copilot-cli': 0, opencode: 0 },
     costByConnection: [],
     activeSeconds: 0,
     agentSeconds: 0,

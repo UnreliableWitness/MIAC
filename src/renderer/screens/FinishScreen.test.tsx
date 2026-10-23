@@ -313,6 +313,7 @@ describe('FinishScreen AI usage', () => {
         byTool: {
           'claude-code': { costUsd: 10, costEur: 9.2, sessions: 2, tokens: 5 },
           'copilot-cli': { costUsd: 0, costEur: 0, sessions: 0, tokens: 0 },
+          opencode: { costUsd: 0, costEur: 0, sessions: 0, tokens: 0 },
         },
       }),
     });

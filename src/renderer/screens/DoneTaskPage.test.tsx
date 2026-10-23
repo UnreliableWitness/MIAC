@@ -72,6 +72,7 @@ const usage = {
   byTool: {
     'claude-code': { costUsd: 1.5, costEur: 1.38, sessions: 1, tokens: 800 },
     'copilot-cli': { costUsd: 0.5, costEur: 0.46, sessions: 1, tokens: 200 },
+    opencode: { costUsd: 0, costEur: 0, sessions: 0, tokens: 0 },
   },
 };
 

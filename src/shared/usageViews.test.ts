@@ -81,7 +81,11 @@ describe('timeline', () => {
       NOW,
     );
     expect(bins[22].costEur).toBeCloseTo(3.5);
-    expect(bins[22].byTool).toEqual({ 'claude-code': 2, 'copilot-cli': 1.5 });
+    expect(bins[22].byTool).toEqual({
+      'claude-code': 2,
+      'copilot-cli': 1.5,
+      opencode: 0,
+    });
     expect(bins[22].dominant).toBe('claude-code');
   });
   it('includes a point at the first bin start and drops older and future points', () => {

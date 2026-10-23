@@ -39,7 +39,7 @@ export function timeline(
     start: from + i * binMs,
     end: from + (i + 1) * binMs,
     costEur: 0,
-    byTool: { 'claude-code': 0, 'copilot-cli': 0 },
+    byTool: { 'claude-code': 0, 'copilot-cli': 0, opencode: 0 },
     dominant: null,
   }));
   for (const p of recent) {
@@ -49,12 +49,12 @@ export function timeline(
     bins[i].costEur += p.costEur;
     bins[i].byTool[p.tool] += p.costEur;
   }
+  const tools = Object.keys(bins[0]?.byTool ?? {}) as UsageTool[];
   for (const b of bins) {
     if (b.costEur > 0)
-      b.dominant =
-        b.byTool['claude-code'] >= b.byTool['copilot-cli']
-          ? 'claude-code'
-          : 'copilot-cli';
+      b.dominant = tools.reduce((best, t) =>
+        b.byTool[t] > b.byTool[best] ? t : best,
+      );
   }
   return bins;
 }
@@ -88,7 +88,9 @@ export function shortModelName(label: string): string {
 export const modelLegendName = (m: ModelTotals): string =>
   m.tool === 'copilot-cli'
     ? `${shortModelName(m.label)} (Copilot)`
-    : shortModelName(m.label);
+    : m.tool === 'opencode'
+      ? `${shortModelName(m.label)} (OpenCode)`
+      : shortModelName(m.label);
 
 /** Each model's share of the priced total, 0..1. */
 export const modelShares = (models: ModelTotals[]): number[] => {

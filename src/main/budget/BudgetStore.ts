@@ -6,8 +6,9 @@ import type {
   BudgetTokens,
 } from '../../shared/budget';
 import { budgetMonth, dayKey, tokensOf, vendorOf } from '../../shared/budget';
-import { OFFICIAL_USD_TO_EUR, type Rate } from '../../shared/usage';
-import { round6, selectRate } from '../pricing/RateTable';
+import type { Rate } from '../../shared/usage';
+import { priceRecord } from '../ledger/price';
+import { round6 } from '../pricing/RateTable';
 import { JsonFileStore } from '../usage/JsonFileStore';
 import type { FileCursor } from './claudeTranscripts';
 
@@ -190,24 +191,7 @@ export function priceTokens(
   /** Input size that picks the price tier; defaults to the tokens' own input total. */
   tierInput?: number,
 ): number | null {
-  const totalIn =
-    tierInput ??
-    t.inputTokens +
-      t.cacheReadTokens +
-      t.cacheWrite5mTokens +
-      t.cacheWrite1hTokens;
-  const rate =
-    selectRate(rates, model, totalIn, fast) ??
-    (fast ? selectRate(rates, model, totalIn, false) : null);
-  if (!rate) return null;
-  const usd =
-    (t.inputTokens * rate.inputPerM +
-      t.outputTokens * rate.outputPerM +
-      t.cacheReadTokens * rate.cachedInputPerM +
-      t.cacheWrite5mTokens * rate.cacheWritePerM +
-      t.cacheWrite1hTokens * (rate.cacheWrite1hPerM ?? rate.cacheWritePerM)) /
-    1e6;
-  return round6(usd * OFFICIAL_USD_TO_EUR);
+  return priceRecord(rates, model, fast, t, tierInput)?.costEur ?? null;
 }
 
 /** The month rollup behind the budget bands: one row per day × tool × model × provider × vendor × in Shellie × fast. Every request is kept; rows with a vendor count against that budget. */

@@ -47,6 +47,7 @@ export function homeStats(d: HomeStatsInput): HomeStats {
   const costByTool: Record<UsageTool, number> = {
     'claude-code': 0,
     'copilot-cli': 0,
+    opencode: 0,
   };
   const byConnection = new Map<string | null, number>();
   let activeMs = 0;
@@ -97,7 +98,10 @@ export function homeStats(d: HomeStatsInput): HomeStats {
     period: d.period,
     from: new Date(from).toISOString(),
     to: new Date(to).toISOString(),
-    costEur: costByTool['claude-code'] + costByTool['copilot-cli'],
+    costEur:
+      costByTool['claude-code'] +
+      costByTool['copilot-cli'] +
+      costByTool.opencode,
     costByTool,
     costByConnection: [...byConnection.entries()]
       .map(([connectionId, costEur]) => ({ connectionId, costEur }))

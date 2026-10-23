@@ -1,0 +1,183 @@
+import type { BudgetRecord } from '../../shared/budget';
+import { tokensOf } from '../../shared/budget';
+import type { Attribution, CostRecord } from '../../shared/ledger';
+import { LEVEL_RANK } from '../../shared/ledger';
+import type { Connection, Repo, Task } from '../../shared/types';
+import { taskWorkspaces } from '../../shared/workspaces';
+import { isInside } from '../paths';
+
+type TaskCtx = {
+  id: string;
+  /** The task-level attribution with the home repo; null when the task has no connection. */
+  base: Extract<Attribution, { level: 'task' }> | null;
+  homeRepo: string;
+  sessions: string[];
+  worktrees: { path: string; repo: string }[];
+  /** Open periods as epoch ms; an open end is Infinity. */
+  periods: [number, number][];
+};
+type RepoCtx = {
+  name: string;
+  organization: string | null;
+  project: string | null;
+  /** The main checkout and every task worktree of the repo. */
+  paths: string[];
+};
+
+/** What attribution needs from the tasks, repos and connections, built once per pass. `key` changes when any of it does. */
+export type AttributionContext = {
+  key: string;
+  tasks: TaskCtx[];
+  byId: Map<string, TaskCtx>;
+  bySession: Map<string, TaskCtx>;
+  repos: RepoCtx[];
+};
+
+const workItemNumber = (id: string | undefined): number | null => {
+  const n = Number(id);
+  return id && Number.isSafeInteger(n) ? n : null;
+};
+
+export function attributionContext(
+  tasks: Task[],
+  repos: Repo[],
+  connections: Connection[],
+): AttributionContext {
+  const repoById = new Map(repos.map((r) => [r.id, r]));
+  const connById = new Map(connections.map((c) => [c.id, c]));
+  const taskCtx: TaskCtx[] = tasks.map((t) => {
+    const home = repoById.get(t.repoId);
+    const conn = connById.get(t.connectionId ?? home?.connectionId ?? '');
+    const homeRepo = home?.name ?? '';
+    const periods: [number, number][] = (
+      t.openPeriods.length > 0
+        ? t.openPeriods
+        : [{ start: t.createdAt, end: t.finishedAt }]
+    ).map((p) => [
+      Date.parse(p.start),
+      p.end === null ? Infinity : Date.parse(p.end),
+    ]);
+    return {
+      id: t.id,
+      base: conn
+        ? {
+            level: 'task',
+            taskId: t.id,
+            organization: conn.organizationUrl,
+            project: conn.project,
+            workItemId: workItemNumber(t.workItem?.id),
+            workItemTitle: t.workItem?.title ?? null,
+            workItemType: t.workItem?.type ?? null,
+            repo: homeRepo,
+          }
+        : null,
+      homeRepo,
+      sessions: [...t.terminals, ...t.closedTerminals].flatMap((x) =>
+        x.sessionId ? [x.sessionId] : [],
+      ),
+      worktrees: taskWorkspaces(t).map((w) => ({
+        path: w.worktreePath,
+        repo: repoById.get(w.repoId)?.name ?? '',
+      })),
+      periods,
+    };
+  });
+  const repoCtx: RepoCtx[] = repos.map((r) => {
+    const conn = r.connectionId ? connById.get(r.connectionId) : undefined;
+    return {
+      name: r.name,
+      organization: conn?.organizationUrl ?? null,
+      project: conn?.project ?? null,
+      paths: [
+        r.path,
+        ...tasks.flatMap((t) =>
+          taskWorkspaces(t)
+            .filter((w) => w.repoId === r.id)
+            .map((w) => w.worktreePath),
+        ),
+      ],
+    };
+  });
+  const bySession = new Map<string, TaskCtx>();
+  for (const t of taskCtx) for (const s of t.sessions) bySession.set(s, t);
+  return {
+    key: JSON.stringify([taskCtx, repoCtx]),
+    tasks: taskCtx,
+    byId: new Map(taskCtx.map((t) => [t.id, t])),
+    bySession,
+    repos: repoCtx,
+  };
+}
+
+/** The task's attribution naming `repo`; a task without a connection is attributed to that repo instead. */
+function forTask(
+  t: TaskCtx,
+  repo: string,
+  ctx: AttributionContext,
+): Attribution {
+  if (t.base) return { ...t.base, repo };
+  const r = ctx.repos.find((x) => x.name === repo);
+  return {
+    level: 'repo',
+    organization: r?.organization ?? null,
+    project: r?.project ?? null,
+    repo,
+  };
+}
+
+/** Task (by task id, Claude tab session, or OpenCode folder within an open period), else repo by folder, else none. */
+export function attribute(
+  r: BudgetRecord,
+  ctx: AttributionContext,
+): Attribution {
+  const byId = r.taskId ? ctx.byId.get(r.taskId) : undefined;
+  if (byId) return forTask(byId, byId.homeRepo, ctx);
+  if (r.tool === 'claude-code') {
+    const t = ctx.bySession.get(r.sessionId);
+    if (t) return forTask(t, t.homeRepo, ctx);
+  }
+  const cwd = r.cwd;
+  if (!cwd) return { level: 'none' };
+  if (r.tool === 'opencode') {
+    const at = Date.parse(r.at);
+    let best: { t: TaskCtx; repo: string; len: number } | null = null;
+    for (const t of ctx.tasks) {
+      if (!t.periods.some(([s, e]) => at >= s && at <= e)) continue;
+      for (const w of t.worktrees)
+        if (isInside(w.path, cwd) && (!best || w.path.length > best.len))
+          best = { t, repo: w.repo, len: w.path.length };
+    }
+    if (best) return forTask(best.t, best.repo, ctx);
+  }
+  let repo: { r: RepoCtx; len: number } | null = null;
+  for (const x of ctx.repos)
+    for (const p of x.paths)
+      if (isInside(p, cwd) && (!repo || p.length > repo.len))
+        repo = { r: x, len: p.length };
+  if (repo)
+    return {
+      level: 'repo',
+      organization: repo.r.organization,
+      project: repo.r.project,
+      repo: repo.r.name,
+    };
+  return { level: 'none' };
+}
+
+/** The stored version and a new one of the same request: attribution never goes down (and is frozen at task), the larger token copy wins, billable is the new one's. */
+export function merge(
+  prev: CostRecord | undefined,
+  next: CostRecord,
+): CostRecord {
+  if (!prev) return next;
+  const body = tokensOf(next) > tokensOf(prev) ? next : prev;
+  const keep =
+    prev.attribution.level === 'task' ||
+    LEVEL_RANK[prev.attribution.level] >= LEVEL_RANK[next.attribution.level];
+  return {
+    ...body,
+    attribution: keep ? prev.attribution : next.attribution,
+    billable: next.billable,
+    developer: next.developer ?? prev.developer,
+  };
+}

@@ -61,6 +61,9 @@ export function StatsBand() {
             title={[
               `Claude Code ${eur(stats.costByTool['claude-code'])}`,
               `Copilot CLI ${eur(stats.costByTool['copilot-cli'])}`,
+              ...(stats.costByTool.opencode > 0
+                ? [`OpenCode ${eur(stats.costByTool.opencode)}`]
+                : []),
               ...stats.costByConnection.map(
                 (c) => `${nameOf(c.connectionId)} ${eur(c.costEur)}`,
               ),

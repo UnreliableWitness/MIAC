@@ -256,3 +256,28 @@ describe('summarize byModel', () => {
     expect(u.byModel[0].tokens).toBe(2 * 13500);
   });
 });
+
+describe('OpenCode usage', () => {
+  it('accepts OpenCode requests and totals them as their own tool', async () => {
+    const s = new UsageStore(dir(), () => OFFICIAL_RATES);
+    await s.load();
+    await s.add(ev({ id: 'a' }));
+    await s.add(
+      ev({
+        id: 'oc:1',
+        tool: 'opencode',
+        sessionId: 'o1',
+        model: 'claude-sonnet-5-5',
+      }),
+    );
+    const u = s.summarize('t1', Date.parse('2026-10-14T11:00:00.000Z'));
+    expect(u.byTool.opencode.sessions).toBe(1);
+    expect(u.byTool.opencode.costEur).toBeGreaterThan(0);
+    expect(u.byTool['claude-code'].sessions).toBe(1);
+    expect(u.sessions.map((x) => x.tool)).toEqual(['claude-code', 'opencode']);
+    expect(u.byModel.find((m) => m.tool === 'opencode')?.label).toBe(
+      'Claude Sonnet 5.5',
+    );
+    expect(u.recent.map((r) => r.tool)).toContain('opencode');
+  });
+});
