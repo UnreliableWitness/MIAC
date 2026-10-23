@@ -27,6 +27,7 @@ describe('loadShellieConfig', () => {
       base: 'main',
       branch: '{type}/{id}-{slug}',
       copy: [],
+      copyAgentConfig: true,
       setup: [],
       run: {},
       found: false,
@@ -61,6 +62,7 @@ describe('loadShellieConfig', () => {
       base: 'develop',
       branch: '{type}/{id}-{slug}',
       copy: ['.env', '.env.local'],
+      copyAgentConfig: true,
       setup: ['npm ci', 'npm run build'],
       run: { dev: 'npm run dev', test: 'npm test', lint: 'npm run lint' },
       found: true,
@@ -73,6 +75,12 @@ describe('loadShellieConfig', () => {
     const c = await loadShellieConfig(r);
     expect(c.setup).toEqual(['npm ci']);
     expect(c.copy).toEqual(['.env']);
+  });
+
+  it('turns the agent config copy off with copyAgentConfig: false', async () => {
+    const r = repo();
+    writeFileSync(path.join(r, '.shellie.yml'), 'copyAgentConfig: false\n');
+    expect((await loadShellieConfig(r)).copyAgentConfig).toBe(false);
   });
 
   it('keeps the lockfile default for setup when the file omits it', async () => {

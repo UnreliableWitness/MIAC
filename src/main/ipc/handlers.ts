@@ -931,6 +931,7 @@ export function createHandlers(s: Services): Handlers {
         branch: w.branch,
         from: w.reopen.from,
         copy: task.setup.copy ? config.copy : [],
+        copyAgentConfig: task.setup.copy && config.copyAgentConfig !== false,
         commands: config.setup,
       });
     }
@@ -994,6 +995,7 @@ export function createHandlers(s: Services): Handlers {
       branch: task.branch,
       baseRef: task.baseRef,
       copy: task.setup.copy ? config.copy : [],
+      copyAgentConfig: task.setup.copy && config.copyAgentConfig !== false,
       commands: task.setup.commands,
       cloneNodeModules:
         Boolean(s.platform.cloneDir) &&

@@ -13,6 +13,7 @@ export const ShellieYmlSchema = z.strictObject({
   base: z.string().optional(),
   branch: z.string().default(DEFAULT_BRANCH_TEMPLATE),
   copy: listOrString.default([]),
+  copyAgentConfig: z.boolean().default(true),
   setup: listOrString.optional(),
   run: z.record(z.string(), z.string()).default({}),
   apm: z.union([z.literal(false), listOrString]).optional(),
