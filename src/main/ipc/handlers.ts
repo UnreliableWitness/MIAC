@@ -2762,6 +2762,7 @@ export function createHandlers(s: Services): Handlers {
                 task.id,
                 s.settings.get().receiverPort,
                 s.usageDir,
+                'pr-summary',
               ),
               ...PR_SUMMARY_ENV,
             },

@@ -20,6 +20,8 @@ export type UsageEvent = {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   fast: boolean;
+  /** Set on Shellie's own `claude -p` run for the PR description. */
+  source?: 'pr-summary';
 };
 
 export type RateSnapshot = {

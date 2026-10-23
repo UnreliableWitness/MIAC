@@ -19,6 +19,11 @@ const ev = (over: Partial<UsageEvent> = {}): UsageEvent => ({
 });
 
 describe('normalizeModel', () => {
+  it('strips the github-copilot/ prefix', () => {
+    expect(normalizeModel('github-copilot/claude-sonnet-4.5')).toBe(
+      'claude-sonnet-4-5',
+    );
+  });
   it('maps provider prefixes, dotted versions and date suffixes', () => {
     expect(normalizeModel('claude-opus-5-5')).toBe('claude-opus-5-5');
     expect(normalizeModel('Claude-Sonnet-4.6')).toBe('claude-sonnet-4-6');

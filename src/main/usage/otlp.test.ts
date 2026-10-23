@@ -51,6 +51,17 @@ const full = [
   kv('session.id', { stringValue: 'sess_1' }),
 ];
 
+describe('parseClaudeLogs source', () => {
+  it('reads shellie.source', () => {
+    const tagged = body(full, [
+      kv('shellie.task.id', { stringValue: 'task-9' }),
+      kv('shellie.source', { stringValue: 'pr-summary' }),
+    ]);
+    expect(parseClaudeLogs(tagged).events[0].source).toBe('pr-summary');
+    expect(parseClaudeLogs(body(full)).events[0].source).toBeUndefined();
+  });
+});
+
 describe('attrMap', () => {
   it('reads every OTLP AnyValue kind, including int64 as string', () => {
     expect(

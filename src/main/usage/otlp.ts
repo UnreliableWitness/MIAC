@@ -107,6 +107,9 @@ export function parseClaudeLogs(body: unknown): {
           cacheReadTokens: int(attrs.cache_read_tokens),
           cacheWriteTokens: int(attrs.cache_creation_tokens),
           fast: attrs.speed === 'fast',
+          ...(str(attrs['shellie.source']) === 'pr-summary' && {
+            source: 'pr-summary' as const,
+          }),
         });
       }
     }

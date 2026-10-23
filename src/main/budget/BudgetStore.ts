@@ -42,7 +42,7 @@ const tokens = {
 };
 const Row = z.object({
   ...tokens,
-  tool: z.enum(['claude-code', 'opencode']),
+  tool: z.enum(['claude-code', 'opencode', 'copilot-cli']),
   model: z.string(),
   provider: z.string(),
   counted: z.boolean(),

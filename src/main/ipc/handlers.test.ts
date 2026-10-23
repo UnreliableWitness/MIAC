@@ -3857,7 +3857,7 @@ describe('handlers: finish with a pull request', () => {
       expect(calls[0].input).toContain('+a');
       // The run's usage counts for the task.
       expect(calls[0].env?.OTEL_RESOURCE_ATTRIBUTES).toBe(
-        `shellie.task.id=${hx.t.id}`,
+        `shellie.task.id=${hx.t.id},shellie.source=pr-summary`,
       );
       expect(calls[0].env?.CLAUDE_CODE_DISABLE_CLAUDE_MDS).toBe('1');
       expect(events).toContainEqual([

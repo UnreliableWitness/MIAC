@@ -25,6 +25,14 @@ describe('telemetryEnv', () => {
       env.COPILOT_OTEL_FILE_EXPORTER_PATH,
     );
   });
+  it('tags the PR summary run', () => {
+    expect(
+      telemetryEnv('t1', 1, '/u', 'pr-summary').OTEL_RESOURCE_ATTRIBUTES,
+    ).toBe('shellie.task.id=t1,shellie.source=pr-summary');
+    expect(telemetryEnv('t1', 1, '/u').OTEL_RESOURCE_ATTRIBUTES).toBe(
+      'shellie.task.id=t1',
+    );
+  });
   it('never turns on prompt or content capture', () => {
     const keys = Object.keys(telemetryEnv('t', 1, '/u'));
     for (const k of [

@@ -18,7 +18,7 @@ export const defaultBudgetSettings = (): BudgetSettings => ({
   alerts: { at80: true, forecastOver: true, at100: true },
 });
 
-export type BudgetTool = 'claude-code' | 'opencode';
+export type BudgetTool = 'claude-code' | 'opencode' | 'copilot-cli';
 
 export type BudgetTokens = {
   inputTokens: number;
@@ -38,6 +38,8 @@ export type BudgetRecord = BudgetTokens & {
   at: string;
   cwd: string | null;
   fast: boolean;
+  /** The Shellie task the request belongs to, when known (Copilot CLI, PR summaries). */
+  taskId?: string;
 };
 
 /** One rollup row: a day x tool x model x provider x counted x inShellie. */
