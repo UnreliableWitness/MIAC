@@ -194,6 +194,9 @@ copy:                             # untracked files copied from the main checkou
   - .env.local
   - appsettings.Development.json
 
+copyAgentConfig: true             # default: also copy untracked opencode.json(c), .opencode/, .mcp.json,
+                                  # .claude/settings.local.json and .vscode/mcp.json; false turns it off
+
 setup:                            # runs in a Setup tab once the terminals are open
   - npm ci
   - npm run build:deps
