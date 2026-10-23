@@ -5,6 +5,11 @@ import path from 'node:path';
 import type { SecretScope } from '../../shared/secrets';
 import { DiscoveryHold, discoverSecrets } from '../secrets/discover';
 import {
+  buildImportPlan,
+  importSecrets,
+  importSources,
+} from '../secrets/importPlan';
+import {
   givenToFor,
   launchProfileArgs,
   secretsEnv,
@@ -2323,6 +2328,44 @@ export function createHandlers(s: Services): Handlers {
         userSecretsDir: (id) => s.platform.userSecretsDir(id),
       });
       return discovery.hold(repoId, r.found, r.skipped);
+    },
+    'secrets:importPlan': async (repoId) => {
+      const r = await discoverSecrets(s.repos.get(repoId).path, {
+        git: s.git,
+        userSecretsDir: (id) => s.platform.userSecretsDir(id),
+      });
+      discovery.hold(repoId, r.found, r.skipped);
+      const held = discovery.entries(repoId);
+      return {
+        rows: buildImportPlan(held, s.secrets.plainValues(repoId)),
+        sources: importSources(held),
+        skipped: r.skipped,
+      };
+    },
+    'secrets:import': async (request) => {
+      const repo = s.repos.get(request.repoId);
+      // Broadcast even after a failure part-way: some secrets may have been saved.
+      try {
+        return await importSecrets(request, {
+          hold: discovery,
+          store: s.secrets,
+          git: s.git,
+          repoPath: repo.path,
+          worktrees: async () => {
+            const copy = await s
+              .loadConfig(repo.path)
+              .then((c) => c.copy)
+              .catch(() => [] as string[]);
+            return s.store.state.tasks
+              .filter((t) => t.status !== 'done')
+              .flatMap((t) => activeWorkspaces(t))
+              .filter((w) => w.repoId === repo.id && existsSync(w.worktreePath))
+              .map((w) => ({ worktreePath: w.worktreePath, copy }));
+          },
+        });
+      } finally {
+        s.broadcast('secrets:changed', null);
+      }
     },
     'secrets:status': async () => ({
       state: 'empty',

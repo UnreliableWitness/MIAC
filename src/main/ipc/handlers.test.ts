@@ -4685,6 +4685,58 @@ describe('handlers: secrets', () => {
     await h['secrets:delete'](saved.id);
     expect(services.secrets.list()).toEqual([]);
   });
+
+  it('plans and imports by key, masks only, and rewrites open worktree copies', async () => {
+    const hx = await harness();
+    writeFileSync(
+      path.join(hx.repo, '.env'),
+      'X=1\nSTRIPE_SECRET_KEY=sk_test_plaintext91c2\n',
+    );
+    const done = hx.setupDone();
+    const task = await hx.h['tasks:create'](hx.input({ openShell: false }));
+    await done;
+    const plan = await hx.h['secrets:importPlan'](hx.added.id);
+    expect(JSON.stringify(plan)).not.toContain('plaintext');
+    const row = plan.rows.find((r) => r.name === 'STRIPE_SECRET_KEY')!;
+    expect(row.cells.development.state).toBe('new');
+    expect(plan.sources).toContainEqual({
+      path: '.env',
+      tracked: false,
+      removable: true,
+    });
+    const result = await hx.h['secrets:import']({
+      repoId: hx.added.id,
+      picks: [
+        {
+          name: 'STRIPE_SECRET_KEY',
+          env: 'development',
+          key: row.cells.development.candidates[0]!.key,
+        },
+      ],
+      rewriteWorktreeCopies: true,
+      removeFromMainCheckout: [],
+    });
+    expect(JSON.stringify(result)).not.toContain('plaintext');
+    expect(result).toEqual({
+      values: 1,
+      worktreesRewritten: 1,
+      filesChanged: [],
+    });
+    expect(readFileSync(path.join(task.worktreePath, '.env'), 'utf8')).toBe(
+      'X=1\n',
+    );
+    expect(
+      hx.services.secrets.valuesFor(hx.added.id, 'development')
+        .STRIPE_SECRET_KEY!.value,
+    ).toBe('sk_test_plaintext91c2');
+    expect(hx.broadcasts.some((b) => b.event === 'secrets:changed')).toBe(true);
+    const again = await hx.h['secrets:importPlan'](hx.added.id);
+    expect(
+      again.rows.find((r) => r.name === 'STRIPE_SECRET_KEY')!.cells.development
+        .state,
+    ).toBe('same');
+    await hx.terminals.killAllForTask(task.id);
+  });
 });
 
 describe('handlers: secrets in tabs', () => {

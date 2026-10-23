@@ -222,4 +222,17 @@ export class DiscoveryHold {
   resolve(repoId: string, key: string): Found | undefined {
     return this.byRepo.get(repoId)?.get(key);
   }
+
+  /** The held values with their keys, in discovery order (main only: the import plan compares them). */
+  entries(repoId: string): (Found & { key: string })[] {
+    return [...(this.byRepo.get(repoId) ?? [])].map(([key, f]) => ({
+      ...f,
+      key,
+    }));
+  }
+
+  /** Forgets a repo's values once they are imported, so plaintext is not kept longer than needed. */
+  drop(repoId: string): void {
+    this.byRepo.delete(repoId);
+  }
 }

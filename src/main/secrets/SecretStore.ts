@@ -207,6 +207,26 @@ export class SecretStore {
     return out;
   }
 
+  /** A repo's own secrets with their values decrypted (null: unreadable), for the import to compare with. Main only. */
+  plainValues(repoId: string): {
+    name: string;
+    values: Partial<
+      Record<Environment, { value: string | null; source: string | null }>
+    >;
+  }[] {
+    return this.current.secrets
+      .filter((s) => s.scope !== 'all' && s.scope.repoId === repoId)
+      .map((s) => ({
+        name: s.name,
+        values: Object.fromEntries(
+          ENVIRONMENTS.filter((env) => s.values[env]).map((env) => [
+            env,
+            { value: this.decrypt(s, env), source: s.values[env]!.source },
+          ]),
+        ),
+      }));
+  }
+
   /** Every stored value that applies to these repos, in every environment (for leak watch). */
   allValues(
     repoIds: string[],

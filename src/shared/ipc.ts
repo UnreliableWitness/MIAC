@@ -2,6 +2,9 @@ import type { ColorScheme } from './theme';
 import type {
   DiscoverResult,
   Environment,
+  ImportPlan,
+  ImportRequest,
+  ImportResult,
   SecretInput,
   SecretView,
   SecretsStatus,
@@ -81,6 +84,10 @@ export type Channels = {
   'secrets:reveal': { args: [id: string, env: Environment]; result: string };
   /** Looks in the repo's known places and .NET user secrets. Masks only; main keeps the values by key for the import. */
   'secrets:discover': { args: [repoId: string]; result: DiscoverResult };
+  /** Discovers again and compares with what the repo has stored: masks and keys only, the values stay in main. */
+  'secrets:importPlan': { args: [repoId: string]; result: ImportPlan };
+  /** Saves the picked keys' values (resolved in main), then the chosen file rewrites; forgets the held values. */
+  'secrets:import': { args: [request: ImportRequest]; result: ImportResult };
   /** The repo's secrets status for the manager's panel. */
   'secrets:status': { args: [repoId: string]; result: SecretsStatus };
   'secrets:setRepoDefault': {

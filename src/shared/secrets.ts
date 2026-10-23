@@ -93,3 +93,67 @@ export type SecretsStatus = {
   reasons: SecretsReason[];
   given: GivenTo[];
 };
+
+/** One found value the import page can pick: a mask and the key main resolves at import. */
+export type ImportCandidate = {
+  source: string;
+  mask: string;
+  key: string;
+  tracked: boolean;
+};
+
+/**
+ * One environment of a found name, against what is stored for the repo: `new` (nothing stored), `changed` (another
+ * value stored; `was` is its source), `same` (that value is stored already) or `missing` (not found).
+ */
+export type ImportCell = {
+  candidates: ImportCandidate[];
+  state: 'new' | 'changed' | 'same' | 'missing';
+  was?: string | null;
+};
+
+export type ImportRow = {
+  name: string;
+  secretLike: boolean;
+  cells: Record<Environment, ImportCell>;
+  /** Values from files or profiles whose names map to no environment. */
+  unassigned: ImportCandidate[];
+};
+
+/** A source the import lists; `removable` when Shellie may take imported keys out of it (untracked `.env` style). */
+export type ImportSource = {
+  path: string;
+  tracked: boolean;
+  removable: boolean;
+};
+
+export type ImportPlan = {
+  rows: ImportRow[];
+  sources: ImportSource[];
+  skipped: number;
+};
+
+export type ImportRequest = {
+  repoId: string;
+  /** Keys only: main resolves each to the value it found. */
+  picks: { name: string; env: Environment; key: string }[];
+  rewriteWorktreeCopies: boolean;
+  /** Repo-relative `.env`-style files (untracked) to take the imported keys out of. */
+  removeFromMainCheckout: string[];
+};
+
+export type ImportResult = {
+  values: number;
+  worktreesRewritten: number;
+  filesChanged: string[];
+};
+
+/** A row with nothing new: every value it found is stored already (re-discovery hides it by default). */
+export function isUnchanged(row: ImportRow): boolean {
+  const states = ENVIRONMENTS.map((e) => row.cells[e].state);
+  return (
+    row.unassigned.length === 0 &&
+    states.includes('same') &&
+    states.every((s) => s === 'same' || s === 'missing')
+  );
+}
