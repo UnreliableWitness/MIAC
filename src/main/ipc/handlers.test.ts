@@ -68,6 +68,8 @@ import {
 type Finished = Extract<SetupEvent, { type: 'finished' }>;
 type Broadcast = { event: keyof Events; payload: unknown };
 
+/** Waits on a terminal's spawn, output or exit: a shell takes seconds to start or end on a Windows runner. */
+const PTY_WAIT = { timeout: 10_000 };
 const allTerminals: TerminalManager[] = [];
 const servers: AdoServer[] = [];
 const connDirs: string[] = [];
@@ -1777,11 +1779,17 @@ describe('handlers: reopen a finished task', () => {
     });
     const rules = denies.at(-1)!;
     expect(rules).toContain('Read(./.env)');
-    const abs = (f: string) => path.join(extra, f).split(path.sep).join('/');
+    // Claude Code matches a Windows path in POSIX form (`C:\\x` is `/c/x`); an absolute rule starts with `//`.
+    const claudePath = (p: string) =>
+      p
+        .split(path.sep)
+        .join('/')
+        .replace(/^([A-Za-z]):/, (_, d: string) => `/${d.toLowerCase()}`);
+    const abs = (f: string) => claudePath(path.join(extra, f));
     expect(rules).toContain(`Read(/${abs('.env')})`);
     expect(rules).toContain(`Read(/${abs('secrets')}/**)`);
     expect(rules).toContain(
-      `Read(/${path.join(us, 'abc', 'secrets.json').split(path.sep).join('/')})`,
+      `Read(/${claudePath(path.join(us, 'abc', 'secrets.json'))})`,
     );
     await hx.terminals.killAllForTask(hx.t.id);
   });
@@ -5981,9 +5989,10 @@ describe('handlers: environment per task', () => {
       await vi.waitFor(() =>
         expect(e.stored().environment).toBe('development'),
       );
-      // The expiry's respawn may still hold the task on a slow machine; switch once it lets go.
-      await vi.waitFor(() =>
-        e.hx.h['tasks:setEnvironment'](e.task.id, 'production', true),
+      // The expiry's respawn holds the task until the shell restarted (seconds on Windows); switch once it lets go.
+      await vi.waitFor(
+        () => e.hx.h['tasks:setEnvironment'](e.task.id, 'production', true),
+        PTY_WAIT,
       );
       await e.hx.h['tasks:finish'](e.task.id, {
         closeTerminals: false,
@@ -6038,6 +6047,14 @@ describe('handlers: environment per task', () => {
       for (const tick of e.ticks) tick();
       await vi.waitFor(() =>
         expect(e.stored().environment).toBe('development'),
+      );
+      // The environment is stored first; the shell is killed and spawned again after it.
+      await vi.waitFor(
+        () =>
+          expect(
+            e.spawn.mock.calls.filter((c) => c[0].id === shell),
+          ).toHaveLength(2),
+        PTY_WAIT,
       );
       expect(e.killedIds()).toContain(shell);
       expect(e.envOf(shell).DB).toBeUndefined();
@@ -6214,8 +6231,9 @@ describe('handlers: environment per task', () => {
       label: 'once',
       command: echoCmd('once'),
     });
-    await vi.waitFor(() =>
-      expect(e.hx.terminals.isRunning(once.id)).toBe(false),
+    await vi.waitFor(
+      () => expect(e.hx.terminals.isRunning(once.id)).toBe(false),
+      PTY_WAIT,
     );
     expect(e.envOf(once.id).DB).toBe('dev-db');
     await e.hx.h['tasks:setEnvironment'](e.task.id, 'uat', true);
@@ -6285,8 +6303,14 @@ describe('handlers: environment per task', () => {
     await vi.waitFor(() =>
       expect(e.stopRuns).toHaveBeenCalledWith(e.task.id, 'Production ended'),
     );
-    await vi.waitFor(() => expect(e.envOf(e.shellId()).DB).toBe('dev-db'));
-    await vi.waitFor(() => expect(e.envOf(e.dev.id).DB).toBe('dev-db'));
+    await vi.waitFor(
+      () => expect(e.envOf(e.shellId()).DB).toBe('dev-db'),
+      PTY_WAIT,
+    );
+    await vi.waitFor(
+      () => expect(e.envOf(e.dev.id).DB).toBe('dev-db'),
+      PTY_WAIT,
+    );
     expect(e.envOf(e.dev.id).STRIPE_SECRET_KEY).toBeUndefined();
     for (const id of agents) {
       expect(e.killedIds()).not.toContain(id);
@@ -6630,10 +6654,12 @@ describe('handlers: leak watch', () => {
 
   it('hides a stored value in agent output as [NAME] and tells the renderer once', async () => {
     const hx = await leakHarness(`stripeKey=${DEV_KEY} and ${DEV_KEY}`);
-    await vi.waitFor(() =>
-      expect(hx.terminals.buffer(hx.claude.id)).toContain(
-        'stripeKey=[STRIPE_SECRET_KEY] and [STRIPE_SECRET_KEY]',
-      ),
+    await vi.waitFor(
+      () =>
+        expect(hx.terminals.buffer(hx.claude.id)).toContain(
+          'stripeKey=[STRIPE_SECRET_KEY] and [STRIPE_SECRET_KEY]',
+        ),
+      PTY_WAIT,
     );
     expect(hx.terminals.buffer(hx.claude.id)).not.toContain(DEV_KEY);
     expect(hx.leaks().map((b) => b.payload)).toEqual([
@@ -6650,10 +6676,12 @@ describe('handlers: leak watch', () => {
 
   it('pauses input to the tab on a Production value until Resume, and Stop ends it', async () => {
     const hx = await leakHarness(`db=${PROD_KEY}`);
-    await vi.waitFor(() =>
-      expect(hx.leaks().map((b) => b.payload)).toEqual([
-        { id: hx.claude.id, names: ['DB_PASSWORD'], paused: true },
-      ]),
+    await vi.waitFor(
+      () =>
+        expect(hx.leaks().map((b) => b.payload)).toEqual([
+          { id: hx.claude.id, names: ['DB_PASSWORD'], paused: true },
+        ]),
+      PTY_WAIT,
     );
     const write = vi.spyOn(hx.terminals, 'write');
     await hx.h['terminals:write'](hx.claude.id, 'go on\r');
@@ -6718,10 +6746,12 @@ describe('handlers: leak watch', () => {
         JSON.stringify({ AppKey: TRACKED_KEY }),
       ),
     );
-    await vi.waitFor(() =>
-      expect(hx.terminals.buffer(hx.claude.id)).toContain(
-        'read appsettings: [APP_KEY]',
-      ),
+    await vi.waitFor(
+      () =>
+        expect(hx.terminals.buffer(hx.claude.id)).toContain(
+          'read appsettings: [APP_KEY]',
+        ),
+      PTY_WAIT,
     );
     expect(hx.leaks()).toEqual([]);
     await hx.terminals.killAllForTask(hx.t.id);
@@ -6736,14 +6766,16 @@ describe('handlers: leak watch', () => {
       undefined,
       tel.telemetry,
     );
-    await vi.waitFor(() =>
-      expect(tel.named('secrets.leakDetected')).toEqual([
-        [
-          'secrets.leakDetected',
-          { where: 'agent', environment: 'development', paused: false },
-          undefined,
-        ],
-      ]),
+    await vi.waitFor(
+      () =>
+        expect(tel.named('secrets.leakDetected')).toEqual([
+          [
+            'secrets.leakDetected',
+            { where: 'agent', environment: 'development', paused: false },
+            undefined,
+          ],
+        ]),
+      PTY_WAIT,
     );
     commitFile(hx.t.worktreePath, 'a.txt', `key=${UAT_KEY}\n`);
     writeFileSync(path.join(hx.t.worktreePath, 'b.txt'), `x ${PROD_KEY}`);

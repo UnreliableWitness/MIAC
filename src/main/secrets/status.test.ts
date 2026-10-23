@@ -184,11 +184,14 @@ describe('cleanWorktree writing', () => {
     const file = path.join(wt, '.env');
     writeFileSync(file, 'API_KEY=abc\nA=b\n');
     chmodSync(file, 0o600);
+    // Windows has no POSIX modes (a writable file reads as 0o666): the mode it had is what must stay.
+    const mode = statSync(file).mode & 0o777;
+    if (process.platform !== 'win32') expect(mode).toBe(0o600);
     await cleanWorktree(wt, ['.env'], ['API_KEY'], git);
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+    expect(statSync(file).mode & 0o777).toBe(mode);
     expect(readFileSync(file, 'utf8')).toBe('A=b\n');
     const { readdirSync } = await import('node:fs');
-    expect(readdirSync(wt).filter((n) => n.includes('.tmp'))).toEqual([]);
+    expect(readdirSync(wt).filter((n) => n.includes('tmp'))).toEqual([]);
   });
 
   it('skips an unreadable file and still cleans the others', async () => {
