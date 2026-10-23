@@ -43,7 +43,12 @@ export function secretsEnv(
     ASPNETCORE_ENVIRONMENT: FRAMEWORK_NAME[env],
     DOTNET_ENVIRONMENT: FRAMEWORK_NAME[env],
   };
-  if (env === 'development' || env === 'production') out.NODE_ENV = env;
+  // Not for Setup (`npm ci` skips devDependencies on production) or Tests (test runners set their own mode).
+  if (
+    (given === 'run' || given === 'shell') &&
+    (env === 'development' || env === 'production')
+  )
+    out.NODE_ENV = env;
   for (const [name, v] of Object.entries(values))
     if (v.givenTo.includes(given)) out[name] = v.value;
   return out;
@@ -151,13 +156,22 @@ export function withLaunchProfile(command: string, args: string[]): string {
   return command.replace(DOTNET_RUN, (m) => `${m} ${quoted.join(' ')}`);
 }
 
-/** How a copied file is stripped of stored keys, by its name; null leaves it alone. */
+/**
+ * How a copied file is stripped of stored keys, by its repo-relative path; null leaves it alone. JSON only for
+ * settings files and files under a `secrets/` folder, so other copied JSON is never rewritten.
+ */
 export function strippableKind(file: string): 'dotenv' | 'json' | null {
-  const base = path.basename(file).toLowerCase();
+  const parts = file.toLowerCase().split(/[\\/]/);
+  const base = parts.at(-1)!;
   if (base === '.env' || base.startsWith('.env.') || base.endsWith('.env'))
     return 'dotenv';
-  if (base.endsWith('.json')) return 'json';
-  return null;
+  if (!base.endsWith('.json')) return null;
+  return /^appsettings\b.*\.json$/.test(base) ||
+    base === 'local.settings.json' ||
+    base.endsWith('.secrets.json') ||
+    parts.slice(0, -1).includes('secrets')
+    ? 'json'
+    : null;
 }
 
 const DOTENV_LINE = /^\s*(?:export\s+)?([^\s=#]+)\s*=\s?(.*)$/;

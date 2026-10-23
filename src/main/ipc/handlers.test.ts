@@ -4798,6 +4798,33 @@ describe('handlers: secrets in tabs', () => {
     await hx.terminals.killAllForTask(task.id);
   });
 
+  it('gives no NODE_ENV to the Setup tab', async () => {
+    const { tabs, envOf, hx, task } = await scenario();
+    const setup = tabs().find((x) => x.setupCommands)!;
+    expect(envOf(setup.id).NODE_ENV).toBeUndefined();
+    expect(envOf(setup.id).ASPNETCORE_ENVIRONMENT).toBe('Development');
+    await hx.terminals.killAllForTask(task.id);
+  });
+
+  it('gives agent tabs no secrets when they restart', async () => {
+    const { hx, task, envOf, tabs } = await scenario();
+    for (const t of tabs().filter((x) =>
+      ['claude', 'copilot', 'opencode'].includes(x.kind),
+    )) {
+      await hx.h['terminals:restart'](t.id);
+      for (const n of NAMES) expect(envOf(t.id)[n]).toBeUndefined();
+    }
+    await hx.terminals.killAllForTask(task.id);
+  });
+
+  it('refuses an unknown environment', async () => {
+    const hx = await harness();
+    await expect(
+      hx.h['tasks:create'](hx.input({ environment: 'staging' as 'uat' })),
+    ).rejects.toThrow('Unknown environment "staging"');
+    expect(hx.store.state.tasks).toEqual([]);
+  });
+
   it('uses the values and framework names of the task environment', async () => {
     const { hx, task, envOf } = await scenario('uat');
     expect(hx.store.state.tasks[0].environment).toBe('uat');

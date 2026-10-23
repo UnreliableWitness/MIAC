@@ -97,6 +97,19 @@ describe('secretsEnv', () => {
     });
   });
 
+  it('sets NODE_ENV for run and shell tabs only, never for Setup or Tests', () => {
+    expect(secretsEnv({}, 'setup', 'production').NODE_ENV).toBeUndefined();
+    expect(secretsEnv({}, 'setup', 'production').ASPNETCORE_ENVIRONMENT).toBe(
+      'Production',
+    );
+    expect(secretsEnv({}, 'tests', 'development').NODE_ENV).toBeUndefined();
+    expect(secretsEnv({}, 'tests', 'development').DOTNET_ENVIRONMENT).toBe(
+      'Development',
+    );
+    expect(secretsEnv({}, 'run', 'development').NODE_ENV).toBe('development');
+    expect(secretsEnv({}, 'shell', 'production').NODE_ENV).toBe('production');
+  });
+
   it('gives agent tabs nothing', () => {
     expect(secretsEnv(v, null, 'development')).toEqual({});
   });
@@ -228,6 +241,12 @@ describe('strippableKind', () => {
     expect(strippableKind('a/.env.local')).toBe('dotenv');
     expect(strippableKind('prod.env')).toBe('dotenv');
     expect(strippableKind('appsettings.Development.json')).toBe('json');
+    expect(strippableKind('Api/appsettings.json')).toBe('json');
+    expect(strippableKind('local.settings.json')).toBe('json');
+    expect(strippableKind('db.secrets.json')).toBe('json');
+    expect(strippableKind('secrets/stripe.json')).toBe('json');
+    expect(strippableKind('config.json')).toBeNull();
+    expect(strippableKind('package.json')).toBeNull();
     expect(strippableKind('README.md')).toBeNull();
   });
 });

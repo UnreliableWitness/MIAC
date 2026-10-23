@@ -38,6 +38,7 @@ import type {
   WorkspaceAction,
   WorkspaceCheck,
 } from '../../shared/types';
+import { EnvironmentSchema } from '../../shared/types';
 import {
   activeHome,
   activeWorkspaces,
@@ -1775,6 +1776,11 @@ export function createHandlers(s: Services): Handlers {
     'tasks:list': listTasks,
     'tasks:create': async (input) => {
       const repo = s.repos.get(input.repoId);
+      if (
+        input.environment !== undefined &&
+        !EnvironmentSchema.safeParse(input.environment).success
+      )
+        throw new Error(`Unknown environment "${String(input.environment)}"`);
       const branch = input.branch.trim();
       if (!(await s.git.validBranchName(repo.path, branch)))
         throw new Error(`"${branch}" is not a valid branch name`);

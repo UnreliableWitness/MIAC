@@ -411,6 +411,16 @@ describe('SetupRunner: copied env files without stored secrets', () => {
     expect(read(p, 'secrets/.env.local')).toBe('KEEP=k\n');
   });
 
+  it('leaves other copied JSON alone', async () => {
+    const text = '{"TOKEN":"t","name":"x"}';
+    const { p } = await run(['TOKEN', 'name'], {
+      'config.json': text,
+      'secrets/stripe.json': text,
+    });
+    expect(read(p, 'config.json')).toBe(text);
+    expect(JSON.parse(read(p, 'secrets/stripe.json'))).toEqual({});
+  });
+
   it('copies every file byte for byte with an empty store', async () => {
     const files = {
       '.env': '\uFEFFAPI_KEY=1\r\n# c\r\n',

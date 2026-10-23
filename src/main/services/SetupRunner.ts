@@ -199,6 +199,7 @@ const excludeLocks = new Map<string, Promise<void>>();
 
 /** Rewrites copied env and JSON files (a file, or those in a copied folder) without the stored secret names. */
 async function stripCopied(
+  root: string,
   target: string,
   names: string[],
   log: (l: string) => void,
@@ -207,10 +208,12 @@ async function stripCopied(
   if (stat.isDirectory()) {
     for (const e of await fs.readdir(target, { withFileTypes: true }))
       if (e.name !== 'node_modules' && e.name !== '.git')
-        await stripCopied(path.join(target, e.name), names, log);
+        await stripCopied(root, path.join(target, e.name), names, log);
     return;
   }
-  const kind = stat.isFile() ? strippableKind(target) : null;
+  const kind = stat.isFile()
+    ? strippableKind(path.relative(root, target))
+    : null;
   if (!kind) return;
   const text = await fs.readFile(target, 'utf8');
   const stripped = stripKeys(text, kind, names);
@@ -436,7 +439,7 @@ export class SetupRunner {
         recursive: true,
       });
       log(`copied ${rel}`);
-      if (names.length > 0) await stripCopied(dest, names, log);
+      if (names.length > 0) await stripCopied(w.worktreePath, dest, names, log);
     }
   }
 
