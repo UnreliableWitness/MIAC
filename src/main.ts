@@ -913,8 +913,12 @@ async function boot(): Promise<void> {
         telemetry.event('update.ready');
         broadcast('update:ready', pendingUpdate);
       },
+      onCheckFailed: () => telemetry.event('update.checkFailed'),
       log: (message, error) => console.error(message, error ?? ''),
     });
+    // A laptop that slept past a check, or a screen locked overnight, checks as soon as it is back (#126).
+    powerMonitor.on('resume', () => updates?.wake());
+    powerMonitor.on('unlock-screen', () => updates?.wake());
   } catch (e) {
     const message = errorMessage(e);
     console.error(e);

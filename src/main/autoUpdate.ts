@@ -7,6 +7,11 @@
  * Squirrel runs the new version on the next start; `quitAndInstall` applies it right away. When a download is
  * ready, `onReady` tells the app, which offers Restart and update in a quiet in-app card (no modal dialog).
  *
+ * Checks keep running after a download (#126): every merge to main is a release, so a newer one often appears
+ * while a downloaded one waits for a restart. Squirrel then downloads the newer package as well, `onReady`
+ * reports the newer version and the restart starts that one. Before #126 the checks stopped at the first
+ * download, so an app left open (Later) never saw the releases after it.
+ *
  * Everything Electron-specific is injected, so this module is testable without Electron.
  */
 
@@ -14,16 +19,31 @@ export const UPDATE_REPO = 'UnreliableWitness/Shellie';
 export const UPDATE_SERVER = 'https://update.electronjs.org';
 /** First check after start: lets the boot and the first terminals settle. */
 export const FIRST_CHECK_DELAY_MS = 30 * 1000;
-export const CHECK_INTERVAL_MS = 60 * 60 * 1000;
+/**
+ * The interval update.electronjs.org's README uses (and update-electron-app's default). The service caches a
+ * repo's latest release for 15 minutes (`CACHE_TTL`), so a new release reaches an open app within about 25.
+ */
+export const CHECK_INTERVAL_MS = 10 * 60 * 1000;
+/** A resume or unlock checks at once, but not more often than this (update-electron-app's minimum interval). */
+export const MIN_WAKE_GAP_MS = 5 * 60 * 1000;
+/**
+ * A check (with its download) that gave no result for this long is treated as lost, so a missed event or a
+ * hung Update.exe can never stop the checks for good.
+ */
+export const STUCK_CHECK_MS = 30 * 60 * 1000;
 /** Squirrel passes this on the launch right after install, while it still holds its update lock. */
 export const SQUIRREL_FIRSTRUN = '--squirrel-firstrun';
 
 /** The subset of Electron's autoUpdater this module uses. */
 export type UpdaterLike = {
   setFeedURL(options: { url: string }): void;
-  checkForUpdates(): void;
+  checkForUpdates(): unknown;
   quitAndInstall(): void;
   on(event: 'error', listener: (error: Error) => void): unknown;
+  on(
+    event: 'checking-for-update' | 'update-available' | 'update-not-available',
+    listener: () => void,
+  ): unknown;
   on(
     event: 'update-downloaded',
     listener: (
@@ -52,14 +72,19 @@ export type AutoUpdateDeps = {
   updater: UpdaterLike;
   /** A downloaded update is ready; `version` is parsed from the release name, null when it has none. */
   onReady(version: string | null): void;
+  /** The first failed check of this launch (later ones are only logged). */
+  onCheckFailed?(): void;
   log(message: string, error?: unknown): void;
   timers?: Timers;
+  now?: () => number;
 };
 
 export type AutoUpdate = {
   stop(): void;
   /** Quits and starts the downloaded update; false (and nothing happens) when none is downloaded. */
   install(): boolean;
+  /** The system resumed or the screen unlocked: check now, unless a check ran in the last few minutes. */
+  wake(): void;
 };
 
 /** "Shellie v1.0.3 (unsigned)" -> "1.0.3"; null when the name holds no version. */
@@ -91,13 +116,18 @@ export function canAutoUpdate(
 
 /**
  * Starts the update checks, or returns null when this build does not update.
- * On a Squirrel first run the start-up check is skipped (Squirrel holds a lock); the hourly check still runs.
+ * On a Squirrel first run the start-up check is skipped (Squirrel holds a lock); the periodic check still runs.
  */
 export function startAutoUpdate(d: AutoUpdateDeps): AutoUpdate | null {
   if (!canAutoUpdate(d)) return null;
   const timers = d.timers ?? realTimers;
-  let downloaded = false;
+  const now = d.now ?? Date.now;
+  let readyVersion: string | null | undefined;
   let stopped = false;
+  let failedOnce = false;
+  /** When the running check started; null when none runs. */
+  let runningSince: number | null = null;
+  let lastCheckAt = -Infinity;
 
   try {
     d.updater.setFeedURL({ url: updateFeedUrl(d.platform, d.arch, d.version) });
@@ -106,19 +136,41 @@ export function startAutoUpdate(d: AutoUpdateDeps): AutoUpdate | null {
     return null;
   }
 
-  d.updater.on('error', (e) => d.log('[update] check failed', e));
+  const finished = () => {
+    runningSince = null;
+  };
+  d.updater.on('update-not-available', finished);
+  d.updater.on('error', (e) => {
+    finished();
+    d.log('[update] check failed', e);
+    if (!failedOnce) {
+      failedOnce = true;
+      d.onCheckFailed?.();
+    }
+  });
   d.updater.on('update-downloaded', (_event, _notes, releaseName) => {
-    if (downloaded || stopped) return;
-    downloaded = true;
-    stop();
-    d.onReady(releaseVersion(releaseName));
+    finished();
+    if (stopped) return;
+    const version = releaseVersion(releaseName);
+    if (readyVersion !== undefined && readyVersion === version) return;
+    readyVersion = version;
+    d.onReady(version);
   });
 
   const check = () => {
-    if (downloaded || stopped) return;
+    if (stopped) return;
+    const at = now();
+    if (runningSince !== null) {
+      if (at - runningSince < STUCK_CHECK_MS) return;
+      d.log('[update] the last check gave no result; checking again');
+    }
+    runningSince = at;
+    lastCheckAt = at;
     try {
+      // Electron's checkForUpdates is async and reports failures through 'error'.
       d.updater.checkForUpdates();
     } catch (e) {
+      finished();
       d.log('[update] check failed', e);
     }
   };
@@ -127,17 +179,21 @@ export function startAutoUpdate(d: AutoUpdateDeps): AutoUpdate | null {
   const first = firstRun
     ? null
     : timers.setTimeout(check, FIRST_CHECK_DELAY_MS);
-  const hourly = timers.setInterval(check, CHECK_INTERVAL_MS);
+  const periodic = timers.setInterval(check, CHECK_INTERVAL_MS);
 
   function stop() {
     stopped = true;
     if (first !== null) timers.clearTimeout(first);
-    timers.clearInterval(hourly);
+    timers.clearInterval(periodic);
   }
   const install = () => {
-    if (!downloaded) return false;
+    if (readyVersion === undefined) return false;
     d.updater.quitAndInstall();
     return true;
   };
-  return { stop, install };
+  const wake = () => {
+    if (now() - lastCheckAt < MIN_WAKE_GAP_MS) return;
+    check();
+  };
+  return { stop, install, wake };
 }

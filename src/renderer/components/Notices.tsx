@@ -9,7 +9,8 @@ import { track } from '../telemetry';
 function UpdateNotice() {
   const notify = useStore((s) => s.notify);
   const [update, setUpdate] = useState<PendingUpdate | null>(null);
-  const [dismissed, setDismissed] = useState(false);
+  /** Later hides the card for that version only: a newer download (checks go on, #126) shows it again. */
+  const [dismissed, setDismissed] = useState<PendingUpdate | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -28,7 +29,8 @@ function UpdateNotice() {
     };
   }, []);
 
-  if (!update || dismissed) return null;
+  if (!update || (dismissed && dismissed.version === update.version))
+    return null;
   const name = update.version
     ? `Shellie ${update.version}`
     : 'A new version of Shellie';
@@ -62,7 +64,7 @@ function UpdateNotice() {
             className="btn btn-ghost btn-sm"
             onClick={() => {
               track('update.later');
-              setDismissed(true);
+              setDismissed(update);
             }}
             disabled={busy}
           >
