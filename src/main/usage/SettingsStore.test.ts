@@ -102,6 +102,11 @@ describe('SettingsStore', () => {
         monthStartDay: 1,
         alerts: { at80: true, forecastOver: true, at100: true },
       },
+      copilotBudget: {
+        monthlyEur: null,
+        monthStartDay: 1,
+        alerts: { at80: true, forecastOver: true, at100: true },
+      },
       sendTelemetry: true,
       editor: { default: null, repos: {} },
       secrets: { productionMinutes: 60 },
@@ -129,6 +134,11 @@ describe('SettingsStore', () => {
       notifyOnDone: true,
       theme: 'system',
       claudeBudget: {
+        monthlyEur: null,
+        monthStartDay: 1,
+        alerts: { at80: true, forecastOver: true, at100: true },
+      },
+      copilotBudget: {
         monthlyEur: null,
         monthStartDay: 1,
         alerts: { at80: true, forecastOver: true, at100: true },

@@ -9,7 +9,7 @@ export function useBudget(monthOffset: number): BudgetView | null {
     setView(null);
     const load = () =>
       api()
-        .invoke('budget:get', monthOffset)
+        .invoke('budget:get', 'claude', monthOffset)
         .then((v) => live && setView(v))
         .catch(() => undefined);
     void load();

@@ -2,6 +2,7 @@ import {
   type AlertKind,
   type BudgetRow,
   type BudgetSettings,
+  type Vendor,
   budgetMonth,
   dayKey,
   tokensOf,
@@ -40,7 +41,7 @@ export type BudgetView = {
   /** Past days and today only. */
   cumulative: { day: string; eur: number }[];
   days: BudgetDay[];
-  /** Counted models, by cost descending. */
+  /** Models counted in this budget, by cost descending. */
   models: ModelTotal[];
   todayEur: number;
   /** What is left of the budget at the start of today, spread over the days left including today. Null without a budget or for a past month. */
@@ -49,6 +50,7 @@ export type BudgetView = {
   weekEur: number;
   /** Share of spentEur spent outside Shellie, 0-1. */
   outsideShare: number;
+  /** Usage in another budget or in none, by provider and model. */
   notCounted: {
     model: string;
     provider: string;
@@ -66,6 +68,8 @@ const round6 = (n: number) => Math.round(n * 1e6) / 1e6;
 
 export function budgetView(input: {
   days: Record<string, BudgetRow[]>;
+  /** The budget to show: its rows are counted, every other row is listed as not counted. */
+  vendor: Vendor;
   settings: BudgetSettings;
   now: Date;
   monthOffset: number;
@@ -107,7 +111,7 @@ export function budgetView(input: {
     for (const row of input.days[day] ?? []) {
       const tokens = tokensOf(row);
       const model = label(row.model);
-      if (!row.counted) {
+      if (row.vendor !== input.vendor) {
         const k = `${row.provider}|${model}`;
         const e = notCounted.get(k) ?? {
           model,

@@ -3672,9 +3672,9 @@ export function createHandlers(s: Services): Handlers {
       const error = await syncTime(taskId);
       if (error) throw new Error(error);
     },
-    'budget:get': async (monthOffset) => {
+    'budget:get': async (vendor, monthOffset) => {
       if (!s.budget) throw new Error('Budget is not available');
-      return s.budget.view(monthOffset);
+      return s.budget.view(vendor, monthOffset);
     },
     'home:get': () => home.get(),
     'home:refresh': () => home.refresh(),

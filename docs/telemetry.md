@@ -32,7 +32,7 @@ This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 
 | `home.refreshed` | the Home page's data was rebuilt; number of connections, number that failed; duration in ms |
 | `home.failed` | a connection failed in a Home rebuild; `kind` (`unauthorized`, `unreachable`, `timeout`, `step`) |
 | `home.clicked` | a click on Home; `band` (`task`, `up-next`, `review`, `team-review`, `my-pr`, `sprint`, `stats-period`, `budget-month`, `budget-settings`) |
-| `budget.alert` | a Claude budget alert fired (main); `kind` (`at80`, `forecastOver`, `at100`) |
+| `budget.alert` | a budget alert fired (main); `vendor` (`claude`, `copilot`), `kind` (`at80`, `forecastOver`, `at100`) |
 | `onboarding.shown` | the Get started page opened; none |
 | `onboarding.dismissed` | Skip for now on Get started, or Dismiss on its Home band; `repos`, `connections` (counts) |
 | `onboarding.step` | a step of first-run setup was left; `step` (`agents`, `connect`, `repository`), `outcome` (`continued`, `skipped`, `back`) |

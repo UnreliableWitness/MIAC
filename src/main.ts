@@ -46,9 +46,10 @@ import {
   readMiacWindowsKey,
   type TokenMigration,
 } from './main/migrate/tokens';
-import { budgetMonth } from './shared/budget';
+import { budgetMonth, VENDORS, type Vendor } from './shared/budget';
 import { BudgetService, inShellieFor } from './main/budget/BudgetService';
 import { BudgetStore } from './main/budget/BudgetStore';
+import { budgetRecordsFromUsage } from './main/budget/usageRecords';
 import {
   ClaudeTranscriptReader,
   claudeProjectsDir,
@@ -644,19 +645,28 @@ async function boot(): Promise<void> {
       () => OFFICIAL_RATES,
     );
     await budgetStore.load();
-    // First reads go back to the start of the previous budget month.
-    const budgetSince = budgetMonth(
-      new Date(),
-      settings.get().claudeBudget.monthStartDay,
-      -1,
-    ).start.getTime();
+    const budgetSettings = (v: Vendor) =>
+      v === 'claude'
+        ? settings.get().claudeBudget
+        : settings.get().copilotBudget;
+    // First reads go back to the start of the earlier of the two budgets' previous months.
+    const budgetSince = Math.min(
+      ...VENDORS.map((v) =>
+        budgetMonth(
+          new Date(),
+          budgetSettings(v).monthStartDay,
+          -1,
+        ).start.getTime(),
+      ),
+    );
     const budget = new BudgetService({
       store: budgetStore,
       claude: new ClaudeTranscriptReader(claudeProjectsDir(), {
         since: budgetSince,
       }),
       openCode: new OpenCodeReader(openCodeDbPath(), { since: budgetSince }),
-      settings: () => settings.get().claudeBudget,
+      settings: budgetSettings,
+      extra: () => budgetRecordsFromUsage(usage.allRecords()),
       inShellie: inShellieFor(
         () => store.state.tasks,
         () =>
@@ -683,7 +693,8 @@ async function boot(): Promise<void> {
           console.error('[budget] could not show a notification', err);
         }
       },
-      telemetry: (kind) => telemetry.event('budget.alert', { kind }),
+      telemetry: (vendor, kind) =>
+        telemetry.event('budget.alert', { vendor, kind }),
     });
     stopBudget = () => budget.stop();
     protocol.handle(VIEW_SCHEME, (req) => serveView(htmlViews, req.url));

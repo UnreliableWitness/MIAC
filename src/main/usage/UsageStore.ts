@@ -109,6 +109,11 @@ export class UsageStore extends EventEmitter<{ changed: [taskId: string] }> {
     );
   }
 
+  /** Every loaded record, across tasks. */
+  allRecords(): UsageRecord[] {
+    return [...this.byId.values()];
+  }
+
   isBillable(taskId: string, sessionId: string): boolean {
     return !this.notBillable.get(taskId)?.has(sessionId);
   }

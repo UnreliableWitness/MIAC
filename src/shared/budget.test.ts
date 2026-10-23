@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { budgetMonth, dayKey, tokensOf } from './budget';
+import { budgetMonth, dayKey, tokensOf, vendorOf } from './budget';
 
 describe('dayKey', () => {
   it('uses local dates', () =>
@@ -38,4 +38,22 @@ describe('tokensOf', () => {
         cacheWrite1hTokens: 5,
       }),
     ).toBe(15));
+});
+
+describe('vendorOf', () => {
+  it('puts Claude Code and Anthropic OpenCode on Claude, Copilot CLI and Copilot OpenCode on Copilot, the rest nowhere', () => {
+    expect(vendorOf({ tool: 'claude-code', provider: 'anthropic' })).toBe(
+      'claude',
+    );
+    expect(vendorOf({ tool: 'opencode', provider: 'anthropic' })).toBe(
+      'claude',
+    );
+    expect(vendorOf({ tool: 'copilot-cli', provider: 'github-copilot' })).toBe(
+      'copilot',
+    );
+    expect(vendorOf({ tool: 'opencode', provider: 'github-copilot' })).toBe(
+      'copilot',
+    );
+    expect(vendorOf({ tool: 'opencode', provider: 'openai' })).toBeNull();
+  });
 });

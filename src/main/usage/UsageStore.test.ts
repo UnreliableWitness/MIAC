@@ -68,6 +68,22 @@ describe('UsageStore', () => {
     ).toHaveLength(1);
   });
 
+  it('lists every record across tasks', async () => {
+    const s = new UsageStore(dir(), () => OFFICIAL_RATES);
+    await s.load();
+    await s.add(ev());
+    await s.add(ev({ id: 'r2', taskId: 't2' }));
+    expect(
+      s
+        .allRecords()
+        .map((r) => [r.id, r.taskId])
+        .sort(),
+    ).toEqual([
+      ['r1', 't1'],
+      ['r2', 't2'],
+    ]);
+  });
+
   it('keeps the rate it was priced with when rates change later', async () => {
     const d = dir();
     let rates = OFFICIAL_RATES;

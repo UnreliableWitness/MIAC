@@ -36,7 +36,7 @@ export const emptyTime = (taskId: string): TaskTime => ({
 });
 
 const defaults: FakeHandlers = {
-  'budget:get': (monthOffset) => ({
+  'budget:get': (_vendor, monthOffset) => ({
     monthOffset,
     startDay: '2026-10-01',
     endDay: '2026-10-31',
@@ -104,6 +104,11 @@ const defaults: FakeHandlers = {
     notifyOnDone: true,
     theme: 'system',
     claudeBudget: {
+      monthlyEur: null,
+      monthStartDay: 1,
+      alerts: { at80: true, forecastOver: true, at100: true },
+    },
+    copilotBudget: {
       monthlyEur: null,
       monthStartDay: 1,
       alerts: { at80: true, forecastOver: true, at100: true },

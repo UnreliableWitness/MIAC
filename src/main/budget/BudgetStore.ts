@@ -5,9 +5,9 @@ import type {
   BudgetRow,
   BudgetTokens,
 } from '../../shared/budget';
-import { budgetMonth, dayKey, tokensOf } from '../../shared/budget';
+import { budgetMonth, dayKey, tokensOf, vendorOf } from '../../shared/budget';
 import { OFFICIAL_USD_TO_EUR, type Rate } from '../../shared/usage';
-import { normalizeModel, round6, selectRate } from '../pricing/RateTable';
+import { round6, selectRate } from '../pricing/RateTable';
 import { JsonFileStore } from '../usage/JsonFileStore';
 import type { FileCursor } from './claudeTranscripts';
 
@@ -18,13 +18,13 @@ export type SeenContribution = BudgetTokens & {
   costEur: number | null;
 };
 export type BudgetFile = {
-  version: 1;
+  version: 2;
   days: Record<string, BudgetRow[]>;
   /** Dedupe: a recent id keeps what it contributed (so a larger copy replaces it); an older id is just its day key (final). */
   seen: Record<string, string | SeenContribution>;
   claudeCursors: Record<string, FileCursor>;
   openCodeCursor: number;
-  /** Budget month start day key → alerts fired in that month. */
+  /** '<vendor>:<budget month start day key>' → alerts fired for that budget in that month. */
   alerts: Record<string, AlertKind[]>;
   sources: { claudeCode: boolean; openCode: boolean };
   /** Local day key of the last maintenance run (compaction, pruning, repricing); '' never. */
@@ -45,7 +45,7 @@ const Row = z.object({
   tool: z.enum(['claude-code', 'opencode', 'copilot-cli']),
   model: z.string(),
   provider: z.string(),
-  counted: z.boolean(),
+  vendor: z.enum(['claude', 'copilot']).nullable(),
   inShellie: z.boolean(),
   requests: z.number(),
   fast: z.boolean(),
@@ -61,30 +61,80 @@ const Seen = z.union([
     costEur: z.number().nullable(),
   }),
 ]);
-const FileSchema: z.ZodType<BudgetFile> = z.object({
-  version: z.literal(1),
-  days: z.record(z.string(), z.array(Row)),
-  seen: z.record(z.string(), Seen),
-  claudeCursors: z.record(
-    z.string(),
-    z.object({
-      offset: z.number(),
-      size: z.number(),
-      mtimeMs: z.number(),
-      ino: z.number(),
-    }),
-  ),
-  openCodeCursor: z.number(),
-  alerts: z.record(
-    z.string(),
-    z.array(z.enum(['at80', 'forecastOver', 'at100'])),
-  ),
-  sources: z.object({ claudeCode: z.boolean(), openCode: z.boolean() }),
-  maintainedOn: z.string().default(''),
-  scanned: z.boolean().default(false),
-});
+/** Version 1 rows had `counted` (Claude or not) instead of a vendor; rows, seen keys, cursors and alerts carry over, so no rescan is needed. */
+function migrateV1(raw: unknown): unknown {
+  if (!raw || typeof raw !== 'object') return raw;
+  const f = raw as Record<string, unknown>;
+  if (f.version !== 1) return raw;
+  const vendor = (counted: unknown, provider: unknown) =>
+    counted === true || counted === 'true'
+      ? 'claude'
+      : provider === 'github-copilot'
+        ? 'copilot'
+        : null;
+  const days: Record<string, unknown[]> = {};
+  for (const [day, rows] of Object.entries(
+    (f.days ?? {}) as Record<string, Record<string, unknown>[]>,
+  )) {
+    days[day] = rows.map(({ counted, ...row }) => ({
+      ...row,
+      vendor: vendor(counted, row.provider),
+    }));
+  }
+  const seen: Record<string, unknown> = {};
+  for (const [id, s] of Object.entries(
+    (f.seen ?? {}) as Record<string, unknown>,
+  )) {
+    if (!s || typeof s !== 'object') {
+      seen[id] = s;
+      continue;
+    }
+    const e = s as { key?: unknown };
+    // key: tool|model|provider|counted|inShellie|fast
+    const parts = typeof e.key === 'string' ? e.key.split('|') : [];
+    if (parts.length !== 6) {
+      seen[id] = s;
+      continue;
+    }
+    parts[3] = vendor(parts[3], parts[2]) ?? '';
+    seen[id] = { ...e, key: parts.join('|') };
+  }
+  const alerts: Record<string, unknown> = {};
+  for (const [month, kinds] of Object.entries(
+    (f.alerts ?? {}) as Record<string, unknown>,
+  ))
+    alerts[`claude:${month}`] = kinds;
+  // An empty maintenance day makes the next pass price the rows that were "not counted".
+  return { ...f, version: 2, days, seen, alerts, maintainedOn: '' };
+}
+
+const FileSchema: z.ZodType<BudgetFile> = z.preprocess(
+  migrateV1,
+  z.object({
+    version: z.literal(2),
+    days: z.record(z.string(), z.array(Row)),
+    seen: z.record(z.string(), Seen),
+    claudeCursors: z.record(
+      z.string(),
+      z.object({
+        offset: z.number(),
+        size: z.number(),
+        mtimeMs: z.number(),
+        ino: z.number(),
+      }),
+    ),
+    openCodeCursor: z.number(),
+    alerts: z.record(
+      z.string(),
+      z.array(z.enum(['at80', 'forecastOver', 'at100'])),
+    ),
+    sources: z.object({ claudeCode: z.boolean(), openCode: z.boolean() }),
+    maintainedOn: z.string().default(''),
+    scanned: z.boolean().default(false),
+  }),
+);
 const empty = (): BudgetFile => ({
-  version: 1,
+  version: 2,
   days: {},
   seen: {},
   claudeCursors: {},
@@ -127,14 +177,10 @@ const COMPACT_AFTER_DAYS = 2;
 export const rowKey = (
   r: Pick<
     BudgetRow,
-    'tool' | 'model' | 'provider' | 'counted' | 'inShellie' | 'fast'
+    'tool' | 'model' | 'provider' | 'vendor' | 'inShellie' | 'fast'
   >,
-) => [r.tool, r.model, r.provider, r.counted, r.inShellie, r.fast].join('|');
-
-export function isCounted(rec: BudgetRecord): boolean | null {
-  if (rec.tool === 'claude-code' || rec.provider === 'anthropic') return true;
-  return normalizeModel(rec.model).startsWith('claude-') ? false : null;
-}
+) =>
+  [r.tool, r.model, r.provider, r.vendor ?? '', r.inShellie, r.fast].join('|');
 
 export function priceTokens(
   rates: Rate[],
@@ -164,7 +210,7 @@ export function priceTokens(
   return round6(usd * OFFICIAL_USD_TO_EUR);
 }
 
-/** The month rollup behind the Claude budget band: one row per day × tool × model × provider × counted × in Shellie × fast. */
+/** The month rollup behind the budget bands: one row per day × tool × model × provider × vendor × in Shellie × fast. Every request is kept; rows with a vendor count against that budget. */
 export class BudgetStore {
   private readonly store: JsonFileStore<BudgetFile>;
   constructor(
@@ -202,9 +248,8 @@ export class BudgetStore {
     );
     const today = dayKey(input.now);
     const cur = this.store.value;
-    // Repeats that cannot change anything (seen, smaller, too old, not Claude) are dropped up front.
+    // Repeats that cannot change anything (seen, smaller, too old) are dropped up front.
     const fresh = input.records.filter((rec) => {
-      if (isCounted(rec) === null) return false;
       const prev = cur.seen[rec.id];
       if (typeof prev === 'string') return false;
       if (prev) return tokensOf(rec) > tokensOf(prev);
@@ -243,7 +288,7 @@ export class BudgetStore {
           row = {
             ...proto,
             requests: 0,
-            costEur: proto.counted ? 0 : null,
+            costEur: 0,
             inputTokens: 0,
             outputTokens: 0,
             cacheReadTokens: 0,
@@ -263,15 +308,12 @@ export class BudgetStore {
       ) => {
         for (const key of TOKEN_KEYS) row[key] += sign * t[key];
         row.requests += sign * requests;
-        if (row.counted)
-          row.costEur =
-            cost === null || row.costEur === null
-              ? null
-              : round6(row.costEur + sign * cost);
+        row.costEur =
+          cost === null || row.costEur === null
+            ? null
+            : round6(row.costEur + sign * cost);
       };
       for (const rec of fresh) {
-        const counted = isCounted(rec);
-        if (counted === null) continue;
         const prev = f.seen[rec.id];
         if (typeof prev === 'string') continue;
         const day = dayKey(new Date(rec.at));
@@ -283,13 +325,11 @@ export class BudgetStore {
           tool: rec.tool,
           model: rec.model,
           provider: rec.provider,
-          counted,
+          vendor: vendorOf(rec),
           inShellie: input.inShellie(rec),
           fast: rec.fast,
         };
-        const cost = counted
-          ? priceTokens(rates, rec.model, rec.fast, rec)
-          : null;
+        const cost = priceTokens(rates, rec.model, rec.fast, rec);
         if (prev) {
           const old = f.days[prev.day]?.find((r) => rowKey(r) === prev.key);
           if (old) {
@@ -325,7 +365,7 @@ export class BudgetStore {
       for (const [day, list] of maintain ? Object.entries(f.days) : []) {
         if (day < keepFrom) continue;
         for (const row of list) {
-          if (!row.counted || row.costEur !== null) continue;
+          if (row.costEur !== null) continue;
           const avgInput =
             (row.inputTokens +
               row.cacheReadTokens +

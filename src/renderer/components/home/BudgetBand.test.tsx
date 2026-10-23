@@ -75,7 +75,7 @@ describe('BudgetBand', () => {
 
   it('hides today for a past month', async () => {
     installFakeApi({
-      'budget:get': (offset) =>
+      'budget:get': (_vendor, offset) =>
         offset < 0
           ? view({ monthOffset: offset, todayEur: 0, todayAllowanceEur: null })
           : view(),
@@ -189,7 +189,7 @@ describe('BudgetBand', () => {
 
   it('names the month for a past month without a budget', async () => {
     installFakeApi({
-      'budget:get': (offset) =>
+      'budget:get': (_vendor, offset) =>
         offset < 0
           ? view({
               monthOffset: offset,
@@ -209,7 +209,7 @@ describe('BudgetBand', () => {
 
   it('steps to the previous month and tracks it', async () => {
     const { calls, tracked } = installFakeApi({
-      'budget:get': (offset) => view({ monthOffset: offset }),
+      'budget:get': (_vendor, offset) => view({ monthOffset: offset }),
     });
     render(<BudgetBand />);
     fireEvent.click(
@@ -219,7 +219,7 @@ describe('BudgetBand', () => {
       await screen.findByRole('button', { name: 'Next month' }),
     ).toBeTruthy();
     expect(
-      calls.some((c) => c.channel === 'budget:get' && c.args[0] === -1),
+      calls.some((c) => c.channel === 'budget:get' && c.args[1] === -1),
     ).toBe(true);
     expect(
       tracked.some(

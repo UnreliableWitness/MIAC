@@ -3309,6 +3309,19 @@ describe('handlers: usage', () => {
     );
   });
 
+  it('gets the budget view for the asked vendor and month', async () => {
+    const view = vi.fn((vendor: string, offset: number) => ({
+      vendor,
+      offset,
+    }));
+    const hx = await harness(undefined, { budget: { view } as never });
+    expect(await hx.h['budget:get']('copilot', -1)).toEqual({
+      vendor: 'copilot',
+      offset: -1,
+    });
+    expect(view).toHaveBeenCalledWith('copilot', -1);
+  });
+
   it('reports the app version', async () => {
     const hx = await harness();
     expect(await hx.h['app:info']()).toEqual({

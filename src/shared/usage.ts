@@ -82,6 +82,8 @@ export const AppSettingsSchema = z.object({
   theme: z.enum(THEMES).default('system'),
   /** The developer's monthly Claude budget (Home's Claude budget band). */
   claudeBudget: BudgetSettingsSchema.default(defaultBudgetSettings()),
+  /** The developer's monthly Copilot budget (Copilot CLI and OpenCode through GitHub Copilot). */
+  copilotBudget: BudgetSettingsSchema.default(defaultBudgetSettings()),
   /** Send anonymous usage and error data (see docs/telemetry.md). */
   sendTelemetry: z.boolean().default(true),
   /** Which editor Open in editor uses, globally and per repo. */

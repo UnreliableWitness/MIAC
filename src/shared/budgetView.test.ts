@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import type { BudgetRow, BudgetSettings } from './budget';
+import type { BudgetRow, BudgetSettings, Vendor } from './budget';
 import { budgetView } from './budgetView';
 
 const row = (o: Partial<BudgetRow> = {}): BudgetRow => ({
   tool: 'claude-code',
   model: 'claude-opus-5-5',
   provider: 'anthropic',
-  counted: true,
+  vendor: 'claude',
   inShellie: true,
   fast: false,
   requests: 1,
@@ -33,9 +33,11 @@ const view = (
     fired?: ('at80' | 'forecastOver' | 'at100')[];
     offset?: number;
     label?: (m: string) => string;
+    vendor?: Vendor;
   } = {},
 ) =>
   budgetView({
+    vendor: o.vendor ?? 'claude',
     days,
     settings: o.s ?? settings(),
     now: o.now ?? new Date(2026, 9, 19, 12),
@@ -148,7 +150,7 @@ describe('budgetView', () => {
     const v = view({
       '2026-10-19': [
         row({
-          counted: false,
+          vendor: 'copilot',
           costEur: null,
           provider: 'github-copilot',
           model: 'claude-sonnet-4.6',
@@ -221,13 +223,13 @@ describe('budgetView', () => {
           row({ model: 'claude-haiku-4-5', costEur: null }),
           row({
             model: 'claude-haiku-4-5-20251001',
-            counted: false,
+            vendor: 'copilot',
             costEur: null,
             provider: 'github-copilot',
           }),
           row({
             model: 'claude-haiku-4-5',
-            counted: false,
+            vendor: 'copilot',
             costEur: null,
             provider: 'github-copilot',
           }),
@@ -245,6 +247,34 @@ describe('budgetView', () => {
     ]);
   });
 
+  it('counts only the asked vendor', () => {
+    const days = {
+      '2026-10-19': [
+        row({ costEur: 10 }),
+        row({
+          tool: 'copilot-cli',
+          vendor: 'copilot',
+          provider: 'github-copilot',
+          model: 'gpt-5-mini',
+          costEur: 3,
+          requests: 4,
+        }),
+      ],
+    };
+    const v = view(days, { vendor: 'copilot' });
+    expect(v.spentEur).toBe(3);
+    expect(v.models.map((m) => m.model)).toEqual(['gpt-5-mini']);
+    expect(v.notCounted).toEqual([
+      {
+        model: 'claude-opus-5-5',
+        provider: 'anthropic',
+        requests: 1,
+        tokens: 100,
+      },
+    ]);
+    expect(view(days).spentEur).toBe(10);
+  });
+
   it('reports whether the first scan finished', () => {
     expect(view({}).scanned).toBe(true);
     expect(
@@ -256,6 +286,7 @@ describe('budgetView', () => {
         fired: [],
         sources,
         scanned: false,
+        vendor: 'claude',
       }).scanned,
     ).toBe(false);
   });
