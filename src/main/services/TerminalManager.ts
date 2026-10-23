@@ -11,7 +11,20 @@ export type SpawnOptions = {
   cols?: number;
   rows?: number;
   env?: Record<string, string>;
+  /** The output goes through the output filter (agent tabs: leak watch). */
+  filtered?: boolean;
 };
+
+/**
+ * Rewrites a filtered tab's output before it is kept or shown (main: leak watch masks stored values). `carry` is
+ * what the last call held back; the returned carry is held until the next chunk, or `final` after a short wait.
+ */
+export type OutputFilter = (
+  o: { id: string; taskId: string },
+  data: string,
+  carry: string,
+  final: boolean,
+) => { text: string; carry: string };
 
 type Entry = {
   options: SpawnOptions;
@@ -26,6 +39,9 @@ type Entry = {
   exit: Promise<void>;
   startedAt: number;
   exitedAt?: number;
+  /** Output the filter held back (the start of what could be a value split over two chunks). */
+  carry: string;
+  flushTimer?: NodeJS.Timeout;
 };
 
 const BUFFER_LIMIT = 200_000;
@@ -50,6 +66,8 @@ export const schemeReport = (s: ColorScheme): string =>
   `\x1b[?997;${s === 'dark' ? 1 : 2}n`;
 /** How long kill waits for the exit before giving up (a process that ignores the kill must not block Finish). */
 const KILL_WAIT_MS = 3000;
+/** How long a held-back tail waits for the next chunk before it is shown anyway. */
+const FLUSH_MS = 50;
 
 /** The exit code reported when the pty closed before the code was known (node-pty with conpty.dll). */
 export const UNKNOWN_EXIT = -1;
@@ -65,11 +83,21 @@ export class TerminalManager extends EventEmitter<{
   private readonly entries = new Map<string, Entry>();
   private readonly killWaitMs: number;
   private readonly now: () => number;
+  private readonly flushMs: number;
+  private filter: OutputFilter | null = null;
 
-  constructor(o: { killWaitMs?: number; now?: () => number } = {}) {
+  constructor(
+    o: { killWaitMs?: number; now?: () => number; flushMs?: number } = {},
+  ) {
     super();
     this.killWaitMs = o.killWaitMs ?? KILL_WAIT_MS;
     this.now = o.now ?? Date.now;
+    this.flushMs = o.flushMs ?? FLUSH_MS;
+  }
+
+  /** Sets the filter that filtered tabs' output goes through. */
+  setOutputFilter(filter: OutputFilter | null): void {
+    this.filter = filter;
   }
 
   spawn(options: SpawnOptions): void {
@@ -112,26 +140,61 @@ export class TerminalManager extends EventEmitter<{
       tail: '',
       exit,
       startedAt: this.now(),
+      carry: '',
     };
     this.entries.set(options.id, entry);
     proc.onData((data) => {
       if (this.entries.get(options.id) !== entry) return;
-      // Trimmed lazily; buffer() returns only the last BUFFER_LIMIT characters.
-      entry.buffer += data;
       const seen = entry.tail + data;
       entry.schemeReports = schemeReportsAfter(entry.schemeReports, seen);
       entry.tail = seen.slice(-TAIL);
-      if (entry.buffer.length > 2 * BUFFER_LIMIT)
-        entry.buffer = entry.buffer.slice(-BUFFER_LIMIT);
-      this.emit('data', options.id, data);
+      this.deliver(entry, this.filtered(entry, data, false));
     });
     proc.onExit(({ exitCode }) => {
       exitResolve();
       if (this.entries.get(options.id) !== entry) return;
+      if (entry.carry) this.deliver(entry, this.filtered(entry, '', true));
       entry.exited = true;
       entry.exitedAt = this.now();
       this.emit('exit', options.id, normaliseExitCode(exitCode));
     });
+  }
+
+  /** Keeps and shows output (already filtered). */
+  private deliver(entry: Entry, text: string): void {
+    if (text === '') return;
+    // Trimmed lazily; buffer() returns only the last BUFFER_LIMIT characters.
+    entry.buffer += text;
+    if (entry.buffer.length > 2 * BUFFER_LIMIT)
+      entry.buffer = entry.buffer.slice(-BUFFER_LIMIT);
+    this.emit('data', entry.options.id, text);
+  }
+
+  /** The chunk as the tab may show it; a held-back tail is shown after flushMs unless more output comes first. */
+  private filtered(entry: Entry, data: string, final: boolean): string {
+    clearTimeout(entry.flushTimer);
+    entry.flushTimer = undefined;
+    const { id, taskId } = entry.options;
+    if (!entry.options.filtered || !this.filter) {
+      const out = entry.carry + data;
+      entry.carry = '';
+      return out;
+    }
+    let r: { text: string; carry: string };
+    try {
+      r = this.filter({ id, taskId }, data, entry.carry, final);
+    } catch {
+      // Never with the output: it may be what the filter was looking for.
+      console.error('[terminals] the output filter failed');
+      r = { text: entry.carry + data, carry: '' };
+    }
+    entry.carry = r.carry;
+    if (r.carry)
+      entry.flushTimer = setTimeout(() => {
+        if (this.entries.get(id) === entry && !entry.exited)
+          this.deliver(entry, this.filtered(entry, '', true));
+      }, this.flushMs);
+    return r.text;
   }
 
   write(id: string, data: string): void {
@@ -166,6 +229,7 @@ export class TerminalManager extends EventEmitter<{
     const e = this.entries.get(id);
     if (!e) return Promise.resolve();
     this.entries.delete(id);
+    clearTimeout(e.flushTimer);
     if (e.exited) return Promise.resolve();
     let timer: NodeJS.Timeout | undefined;
     const fallback = new Promise<void>((r) => {

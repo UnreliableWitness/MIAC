@@ -11,6 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { Events } from '../../shared/ipc';
+import { LEAK_IN_BRANCH } from '../../shared/secrets';
 import type { CreateTaskInput, SetupEvent, Task } from '../../shared/types';
 import {
   spawnFailure,
@@ -3282,6 +3283,34 @@ describe('handlers: finish with a pull request', () => {
     );
   });
 
+  it('refuses to push a branch that adds a stored value unless Finish confirms it', async () => {
+    const hx = await prHarness();
+    await hx.services.secrets.save({
+      scope: 'all',
+      name: 'PROD_DB',
+      givenTo: ['run'],
+      values: { production: { value: 'prod-db-password-9f2c' } },
+    });
+    commitFile(
+      hx.t.worktreePath,
+      'config.txt',
+      'db=prod-db-password-9f2c\n',
+      'Add config',
+    );
+    const push = vi.spyOn(hx.services.git, 'push');
+    const error = await hx.h['tasks:finish'](hx.t.id, finishWithPr).then(
+      () => null,
+      (e: Error) => e.message,
+    );
+    expect(error).toContain(LEAK_IN_BRANCH);
+    expect(error).not.toMatch(/PROD_DB|prod-db/);
+    expect(push).not.toHaveBeenCalled();
+    expect(hx.store.state.tasks[0].status).toBe('ready');
+    await hx.h['tasks:finish'](hx.t.id, { ...finishWithPr, confirmLeak: true });
+    expect(push).toHaveBeenCalledTimes(1);
+    expect(hx.store.state.tasks[0].status).toBe('done');
+  });
+
   describe('tasks:prSummary', () => {
     const result = (text: string) =>
       JSON.stringify({
@@ -3852,6 +3881,37 @@ describe('handlers: finish every workspace of a task', () => {
     expect(task.openPeriods.at(-1)?.end).toBe(task.finishedAt);
     expect(write).toHaveBeenCalledTimes(1);
     expect(write.mock.calls[0][0]).toBe(48231);
+  });
+
+  it('refuses to push a repo whose branch adds a stored value, per row, unless confirmed', async () => {
+    const hx = await multiHarness([{ name: 'api' }]);
+    await hx.services.secrets.save({
+      scope: 'all',
+      name: 'UAT_KEY',
+      givenTo: ['run'],
+      values: { uat: { value: 'uat-api-key-77aa0c' } },
+    });
+    commitFile(hx.repos[0].wt, 'api.txt', 'key=uat-api-key-77aa0c\n', 'API');
+    const finish = (confirmLeak?: boolean) =>
+      hx.h['tasks:finish'](hx.t.id, {
+        ...opts,
+        ...(confirmLeak ? { confirmLeak } : {}),
+        workspaces: [
+          { workspaceId: 'home', action: 'drop' },
+          { workspaceId: hx.ids[0], action: 'push' },
+        ],
+      });
+    await expect(finish()).rejects.toThrow(LEAK_IN_BRANCH);
+    expect(hx.push).not.toHaveBeenCalled();
+    const row = (await hx.h['tasks:finishResults'](hx.t.id))!.find(
+      (r) => r.workspaceId === hx.ids[0],
+    )!;
+    expect(row).toMatchObject({ ok: false, leak: true, pushed: false });
+    expect(row.error).toContain(LEAK_IN_BRANCH);
+    expect(JSON.stringify(row)).not.toMatch(/UAT_KEY|uat-api/);
+    await finish(true);
+    expect(hx.push).toHaveBeenCalledTimes(1);
+    expect(hx.store.state.tasks[0].status).toBe('done');
   });
 
   it('books nothing when a multi-repo Finish fails, and once on its retry', async () => {
@@ -5457,5 +5517,151 @@ describe('handlers: environment per task', () => {
       createPullRequest: true,
     });
     expect(create.mock.calls[0][2].description).toContain('Run against UAT');
+  });
+});
+
+describe('handlers: leak watch', () => {
+  const DEV_KEY = 'sk_test_51HxAbCdEf';
+  const PROD_KEY = 'prod-db-password-9f2c';
+  const UAT_KEY = 'uat-api-key-77aa0c';
+  const TRACKED_KEY = 'tracked-in-git-0001';
+
+  /** A task whose Claude Code tab prints `prints` and then waits, with secrets stored for its repo. */
+  async function leakHarness(prints: string, before?: (repo: string) => void) {
+    const base = testPlatform();
+    const platform = {
+      ...base,
+      claudeCommand: () =>
+        base.runCommand(`${echoCmd(prints)}; ${sleepCmd(30)}`),
+    };
+    const hx = await harness(fakeCrypto(), { platform });
+    before?.(hx.repo);
+    const scope = { repoId: hx.added.id };
+    await hx.services.secrets.save({
+      scope,
+      name: 'STRIPE_SECRET_KEY',
+      givenTo: ['run'],
+      values: { development: { value: DEV_KEY } },
+    });
+    await hx.services.secrets.save({
+      scope,
+      name: 'DB_PASSWORD',
+      givenTo: ['run'],
+      values: { production: { value: PROD_KEY } },
+    });
+    await hx.services.secrets.save({
+      scope,
+      name: 'UAT_KEY',
+      givenTo: ['run'],
+      values: { uat: { value: UAT_KEY } },
+    });
+    await hx.services.secrets.save({
+      scope,
+      name: 'APP_KEY',
+      givenTo: ['run'],
+      values: { development: { value: TRACKED_KEY } },
+    });
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](
+      hx.input({ startClaude: true, openShell: false }),
+    );
+    await done;
+    const claude = hx.store.state.tasks[0].terminals.find(
+      (d) => d.kind === 'claude',
+    )!;
+    const leaks = () =>
+      hx.broadcasts.filter((b) => b.event === 'terminal:leak');
+    const noPlaintext = () => {
+      const all = JSON.stringify(hx.broadcasts);
+      for (const v of [DEV_KEY, PROD_KEY, UAT_KEY])
+        expect(all).not.toContain(v);
+    };
+    return { ...hx, t, claude, leaks, noPlaintext };
+  }
+
+  it('hides a stored value in agent output as [NAME] and tells the renderer once', async () => {
+    const hx = await leakHarness(`stripeKey=${DEV_KEY} and ${DEV_KEY}`);
+    await vi.waitFor(() =>
+      expect(hx.terminals.buffer(hx.claude.id)).toContain(
+        'stripeKey=[STRIPE_SECRET_KEY] and [STRIPE_SECRET_KEY]',
+      ),
+    );
+    expect(hx.terminals.buffer(hx.claude.id)).not.toContain(DEV_KEY);
+    expect(hx.leaks().map((b) => b.payload)).toEqual([
+      { id: hx.claude.id, names: ['STRIPE_SECRET_KEY'], paused: false },
+    ]);
+    expect(await hx.h['terminals:leak'](hx.claude.id)).toEqual({
+      names: ['STRIPE_SECRET_KEY'],
+      paused: false,
+    });
+    hx.noPlaintext();
+    await hx.h['terminals:kill'](hx.claude.id);
+    expect(await hx.h['terminals:leak'](hx.claude.id)).toBeNull();
+  });
+
+  it('pauses input to the tab on a Production value until Resume, and Stop ends it', async () => {
+    const hx = await leakHarness(`db=${PROD_KEY}`);
+    await vi.waitFor(() =>
+      expect(hx.leaks().map((b) => b.payload)).toEqual([
+        { id: hx.claude.id, names: ['DB_PASSWORD'], paused: true },
+      ]),
+    );
+    const write = vi.spyOn(hx.terminals, 'write');
+    await hx.h['terminals:write'](hx.claude.id, 'go on\r');
+    expect(write).not.toHaveBeenCalled();
+    await hx.h['terminals:resume'](hx.claude.id);
+    expect(await hx.h['terminals:leak'](hx.claude.id)).toEqual({
+      names: ['DB_PASSWORD'],
+      paused: false,
+    });
+    await hx.h['terminals:write'](hx.claude.id, 'x');
+    expect(write).toHaveBeenCalledWith(hx.claude.id, 'x');
+    hx.noPlaintext();
+    // Stop ends the process but keeps the tab, so it can be resumed or closed.
+    await hx.h['terminals:stop'](hx.claude.id);
+    expect(await hx.h['terminals:isRunning'](hx.claude.id)).toBe(false);
+    expect(
+      hx.store.state.tasks[0].terminals.some((d) => d.id === hx.claude.id),
+    ).toBe(true);
+    expect(hx.broadcasts.at(-1)).toEqual({
+      event: 'terminal:exit',
+      payload: { id: hx.claude.id, exitCode: -1 },
+    });
+  });
+
+  it('does not alert on a value that is in a file git tracks', async () => {
+    const hx = await leakHarness(`read appsettings: ${TRACKED_KEY}`, (repo) =>
+      commitFile(
+        repo,
+        'appsettings.json',
+        JSON.stringify({ AppKey: TRACKED_KEY }),
+      ),
+    );
+    await vi.waitFor(() =>
+      expect(hx.terminals.buffer(hx.claude.id)).toContain(
+        `read appsettings: ${TRACKED_KEY}`,
+      ),
+    );
+    expect(hx.leaks()).toEqual([]);
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
+  it('flags Changes rows whose added lines hold a value of any environment', async () => {
+    const hx = await leakHarness('hello');
+    expect(hx.t.environment).toBe('development');
+    commitFile(hx.t.worktreePath, 'committed.txt', `key=${UAT_KEY}\n`);
+    commitFile(hx.t.worktreePath, 'clean.txt', 'nothing here\n');
+    writeFileSync(path.join(hx.t.worktreePath, 'new.txt'), `x ${UAT_KEY}`);
+    const files = await hx.h['review:files'](hx.t.id, { kind: 'all' });
+    const flags = Object.fromEntries(
+      files.repos[0].files.map((f) => [f.path, f.secret ?? false]),
+    );
+    expect(flags).toMatchObject({
+      'committed.txt': true,
+      'new.txt': true,
+      'clean.txt': false,
+    });
+    expect(JSON.stringify(files)).not.toContain(UAT_KEY);
+    await hx.terminals.killAllForTask(hx.t.id);
   });
 });

@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import {
   type FileContent,
   type NewReviewComment,
+  type ReviewFile,
   type ReviewFileRef,
   type ReviewFiles,
   type ReviewRepo,
@@ -29,6 +30,8 @@ import {
   readSide,
 } from './reviewGit';
 import { errorMessage } from '../../shared/errors';
+import type { LeakMatcher } from '../secrets/LeakMatcher';
+import { pathsWithLeaks } from '../secrets/leakScan';
 
 export type ReviewServiceDeps = {
   git: GitClient;
@@ -36,6 +39,8 @@ export type ReviewServiceDeps = {
   repoName: (repoId: string) => string;
   /** The repo's `review.collapse` globs, read from the worktree's `.shellie.yml`. */
   collapseOf: (worktree: string) => Promise<string[]>;
+  /** Every stored value of the task's repos, to flag files whose added lines hold one; absent flags nothing. */
+  leakMatcher?: (task: Task) => LeakMatcher;
   now?: () => Date;
   newId?: () => string;
 };
@@ -91,7 +96,9 @@ export class ReviewService {
           const wt = ws.worktreePath;
           const base = await this.base(ws);
           const files = rangeFor(this.d.git, wt, scope, base).then((range) =>
-            listFiles(this.d.git, wt, range),
+            listFiles(this.d.git, wt, range).then((list) =>
+              this.flagSecrets(task, wt, range, list),
+            ),
           );
           // Awaited below, after the rest; this only keeps an early failure from going unhandled.
           files.catch(() => {});
@@ -109,6 +116,34 @@ export class ReviewService {
       }),
     );
     return { repos };
+  }
+
+  /** Marks the files whose added lines hold a stored value. A failed look flags nothing, as before leak watch. */
+  private async flagSecrets(
+    task: Task,
+    wt: string,
+    range: { from: string; to: string | null },
+    list: ReviewFile[],
+  ): Promise<ReviewFile[]> {
+    const matcher = this.d.leakMatcher?.(task);
+    if (!matcher || matcher.empty || list.length === 0) return list;
+    const refs = range.to === null ? [range.from] : [range.from, range.to];
+    try {
+      const hits = await pathsWithLeaks(
+        this.d.git,
+        wt,
+        refs,
+        matcher,
+        // Untracked files are not in the diff: against the working tree, an added file is read whole.
+        range.to === null
+          ? list.filter((f) => f.status === 'A').map((f) => f.path)
+          : [],
+      );
+      return list.map((f) => (hits.has(f.path) ? { ...f, secret: true } : f));
+    } catch {
+      console.warn('[secrets] could not check the changes for stored values');
+      return list;
+    }
   }
 
   async file(

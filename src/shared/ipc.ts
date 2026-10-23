@@ -6,6 +6,7 @@ import type {
   ImportPlan,
   ImportRequest,
   ImportResult,
+  LeakState,
   SecretInput,
   SecretView,
   SecretsStatus,
@@ -337,6 +338,12 @@ export type Channels = {
     result: void;
   };
   'terminals:kill': { args: [id: string]; result: void };
+  /** Ends the tab's process and keeps the tab (its exit bar offers Restart or Resume session). */
+  'terminals:stop': { args: [id: string]; result: void };
+  /** Leak watch: the names that showed up in this agent tab and whether its input is paused; null when none. */
+  'terminals:leak': { args: [id: string]; result: LeakState | null };
+  /** Forwards input again to a tab paused because a Production value showed up. */
+  'terminals:resume': { args: [id: string]; result: void };
   /** `withoutProjectConfig`: OpenCode starts without the repo's own config (#109). */
   'terminals:restart': {
     args: [id: string, options?: RestartOptions];
@@ -404,6 +411,8 @@ export type Events = {
   'terminal:exit': { id: string; exitCode: number; failure?: TerminalFailure };
   /** Main started the terminal again by itself (a Claude Code tab resumed in the new theme): clear and size it. */
   'terminal:reset': { id: string };
+  /** Leak watch in an agent tab: a new name showed up, or input was paused or resumed. Names only. */
+  'terminal:leak': { id: string } & LeakState;
   'tasks:changed': TaskView[];
   'repos:changed': Repo[];
   'connections:changed': Connection[];

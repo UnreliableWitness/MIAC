@@ -7,8 +7,10 @@ import {
   sleepCmd,
   testPlatform,
 } from '../test-helpers/shell';
+import { LeakMatcher } from '../secrets/LeakMatcher';
 import {
   normaliseExitCode,
+  type OutputFilter,
   schemeReport,
   schemeReportsAfter,
   TerminalManager,
@@ -19,7 +21,11 @@ import {
 const sh = (cmd: string) => testPlatform().runCommand(cmd);
 
 const managers: TerminalManager[] = [];
-const create = (o?: { killWaitMs?: number; now?: () => number }) => {
+const create = (o?: {
+  killWaitMs?: number;
+  now?: () => number;
+  flushMs?: number;
+}) => {
   const m = new TerminalManager(o);
   managers.push(m);
   return m;
@@ -438,5 +444,71 @@ describe('TerminalManager run time', () => {
     // Frozen at the exit: the time it ran, not the time since it started.
     expect(m.runMs('t1')).toBe(250);
     expect(m.runMs('unknown')).toBe(0);
+  });
+});
+
+describe('TerminalManager output filter (leak watch)', () => {
+  const KEY = 'sk_test_51HxAbCdEf';
+  const matcher = LeakMatcher.from([
+    { name: 'STRIPE_SECRET_KEY', value: KEY, env: 'development' },
+  ]);
+  const filter: OutputFilter = (_o, data, carry, final) =>
+    matcher.mask(data, carry, final);
+  /** Prints `a`, waits, then prints `b`: two pty chunks. */
+  const twoParts = (a: string, b: string, thenSleep = 0) =>
+    sh(
+      isWindows
+        ? `Write-Host -NoNewline '${a}'; Start-Sleep -Milliseconds 300; Write-Host -NoNewline '${b}'; Start-Sleep -Seconds ${thenSleep}`
+        : `printf '${a}'; sleep 0.3; printf '${b}'; sleep ${thenSleep}`,
+    );
+
+  it('masks a value split over two chunks in the stream and the buffer, for filtered tabs only', async () => {
+    const m = create({ flushMs: 2000 });
+    m.setOutputFilter(filter);
+    const chunks: string[] = [];
+    m.on('data', (id, d) => {
+      if (id === 'f1') chunks.push(d);
+    });
+    const exited = waitFor(m, 'f1');
+    const plain = waitFor(m, 'p1');
+    m.spawn({
+      id: 'f1',
+      taskId: 'task',
+      cwd: os.tmpdir(),
+      filtered: true,
+      ...twoParts(`key=${KEY.slice(0, 9)}`, `${KEY.slice(9)} done`),
+    });
+    m.spawn({
+      id: 'p1',
+      taskId: 'task',
+      cwd: os.tmpdir(),
+      ...sh(echoCmd(`plain ${KEY}`)),
+    });
+    await exited;
+    await plain;
+    const shown = chunks.join('');
+    expect(shown).toContain('key=[STRIPE_SECRET_KEY] done');
+    expect(shown).not.toContain(KEY.slice(0, 9));
+    expect(m.buffer('f1')).toContain('key=[STRIPE_SECRET_KEY] done');
+    expect(m.buffer('f1')).not.toContain('sk_test');
+    // A tab that is not an agent's is shown as it is.
+    expect(m.buffer('p1')).toContain(`plain ${KEY}`);
+  });
+
+  it('shows a held-back tail after a short wait, so the terminal does not stall', async () => {
+    const m = create({ flushMs: 30 });
+    m.setOutputFilter(filter);
+    m.spawn({
+      id: 'f2',
+      taskId: 'task',
+      cwd: os.tmpdir(),
+      filtered: true,
+      ...twoParts('typing sk_', '', 30),
+    });
+    await vi.waitFor(() => expect(m.buffer('f2')).toContain('typing sk_'), {
+      timeout: 3000,
+    });
+    expect(m.isRunning('f2')).toBe(true);
+    m.kill('f2');
   });
 });

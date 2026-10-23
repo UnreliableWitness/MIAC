@@ -179,3 +179,13 @@ export function isUnchanged(row: ImportRow): boolean {
     states.every((s) => s === 'same' || s === 'missing')
   );
 }
+
+/**
+ * Leak watch in an agent tab: the names whose values showed up (shown on screen as `[NAME]`), and whether input is
+ * paused because a Production value did. Names only, never values.
+ */
+export type LeakState = { names: string[]; paused: boolean };
+
+/** Finish's refusal to push a branch whose changes hold a stored value (no name, no value). */
+export const LEAK_IN_BRANCH =
+  "A stored secret appears in this branch's changes";

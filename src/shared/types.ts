@@ -239,6 +239,8 @@ export type FinishOptions = {
   bookedSeconds?: number;
   /** Per workspace id (`home` for a single repo): the "what changed and why" the new PR's description starts with. */
   prSummaries?: Record<string, string>;
+  /** Push even when the branch adds a stored secret's value (the developer confirmed it on the Finish page). */
+  confirmLeak?: boolean;
 };
 
 export type GitFile = { status: string; path: string };
@@ -261,6 +263,8 @@ export type FinishRowResult = {
   error: string | null;
   /** Set when the push could not sign in to the remote. */
   auth?: GitAuthHint;
+  /** Not pushed: the branch adds a stored secret's value (Finish can confirm and push anyway). */
+  leak?: boolean;
 };
 
 /** The Finish page's look at one workspace still in the task. */
