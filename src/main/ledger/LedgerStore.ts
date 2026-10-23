@@ -164,6 +164,13 @@ export class LedgerStore {
       .slice(0, limit);
   }
 
+  /** How many records dirty() would return, without sorting them. */
+  dirtyCount(): number {
+    let n = 0;
+    for (const [id, h] of this.hashes) if (this.sent[id] !== h) n++;
+    return n;
+  }
+
   markSent(recs: CostRecord[]): Promise<void> {
     return this.writeSent((s) => {
       for (const r of recs) s[r.id] = hashOf(r);

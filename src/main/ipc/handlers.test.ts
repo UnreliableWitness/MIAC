@@ -377,6 +377,22 @@ describe('handlers: cost server', () => {
     expect(cs.hello).toHaveBeenCalledTimes(2);
   });
 
+  it('a failed reconnect shows its error without saying the old connection is fine', async () => {
+    const cs = await costServer(async () => ({ email: conn.email, budgets }));
+    await cs.hx.h['costServer:connect'](conn);
+    cs.hello.mockRejectedValueOnce(new CostServerError('network'));
+    const st = await cs.hx.h['costServer:connect']({
+      ...conn,
+      url: 'https://new.example',
+    });
+    expect(st).toMatchObject({
+      connected: false,
+      error: "Can't reach the server.",
+    });
+    // The old connection stays saved.
+    expect(cs.store.get()).toEqual(conn);
+  });
+
   it('connect refuses plain http to a remote host', async () => {
     const cs = await costServer(async () => ({ email: conn.email, budgets }));
     const st = await cs.hx.h['costServer:connect']({

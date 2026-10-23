@@ -73,10 +73,12 @@ describe('LedgerStore', () => {
     expect(s.dirty(500).map((r) => r.id)).toEqual(['cc:a', 'cc:b', 'cc:c']);
     await s.markSent([a, b]);
     expect(s.dirty(500).map((r) => r.id)).toEqual(['cc:c']);
+    expect(s.dirtyCount()).toBe(1);
     await s.upsert([{ ...a, billable: false }]);
     expect(s.dirty(500).map((r) => r.id)).toEqual(['cc:a', 'cc:c']);
     await s.resetSent();
     expect(s.dirty(500)).toHaveLength(3);
+    expect(s.dirtyCount()).toBe(3);
     expect(s.dirty(2)).toHaveLength(2);
   });
 

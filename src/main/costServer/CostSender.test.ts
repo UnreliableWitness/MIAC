@@ -8,7 +8,14 @@ const rec = (id: string, at = '2026-10-01T00:00:00Z') =>
   ({ id, at }) as CostRecord;
 const budgets = { claude: null, copilot: null };
 
-function make(ids: string[], connection: typeof conn | null = conn) {
+/** What cost-server.json keeps between launches. */
+type Persisted = { lastSentAt: string | null; refused: string | null };
+
+function make(
+  ids: string[],
+  connection: typeof conn | null = conn,
+  persisted: Persisted = { lastSentAt: null, refused: null },
+) {
   const sent = new Set<string>();
   const records = ids.map((id, i) =>
     rec(
@@ -24,11 +31,24 @@ function make(ids: string[], connection: typeof conn | null = conn) {
       for (const r of rs) sent.add(r.id);
     }),
     resetSent: vi.fn(async () => sent.clear()),
+    dirtyCount: vi.fn(() => records.filter((r) => !sent.has(r.id)).length),
   };
   const server = {
     get: vi.fn((): typeof conn | null => connection),
     budgets: null as typeof budgets | null,
     setBudgets: vi.fn(async () => {}),
+    get lastSentAt() {
+      return persisted.lastSentAt;
+    },
+    get refused() {
+      return persisted.refused;
+    },
+    setLastSentAt: vi.fn(async (at: string | null) => {
+      persisted.lastSentAt = at;
+    }),
+    setRefused: vi.fn(async (sig: string | null) => {
+      persisted.refused = sig;
+    }),
   };
   const send = vi.fn(async (_c: unknown, rs: CostRecord[]) => rs.length);
   const hello = vi.fn(async () => ({ email: 'a@b.c', budgets }));
@@ -43,7 +63,17 @@ function make(ids: string[], connection: typeof conn | null = conn) {
     notice,
     telemetry,
   });
-  return { sender, ledger, server, send, hello, notice, telemetry, sent };
+  return {
+    sender,
+    ledger,
+    server,
+    send,
+    hello,
+    notice,
+    telemetry,
+    sent,
+    persisted,
+  };
 }
 
 beforeEach(() => vi.useFakeTimers());
@@ -109,6 +139,58 @@ describe('CostSender', () => {
     await vi.advanceTimersByTimeAsync(5_000);
     expect(t.sent.size).toBe(1);
     t.sender.stop();
+  });
+
+  it('remembers the last send and a refused key across a restart', async () => {
+    const t = make(['cc:1', 'cc:2']);
+    t.sender.start();
+    await vi.advanceTimersByTimeAsync(30_000);
+    const at = t.sender.status().lastSentAt;
+    expect(at).not.toBeNull();
+    expect(t.persisted.lastSentAt).toBe(at);
+    t.sender.stop();
+
+    // Relaunch: the same file, the server now refuses the key.
+    const again = make(['cc:1', 'cc:2', 'cc:3'], conn, t.persisted);
+    for (const id of ['cc:1', 'cc:2']) again.sent.add(id);
+    expect(again.sender.status()).toMatchObject({
+      lastSentAt: at,
+      waiting: 1,
+    });
+    again.hello.mockRejectedValue(new CostServerError('auth', 401));
+    again.sender.start();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(again.notice).toHaveBeenCalledTimes(1);
+    // The marker is a hash: never the key itself.
+    expect(again.persisted.refused).toMatch(/^[0-9a-f]{64}$/);
+    expect(again.persisted.refused).not.toContain(conn.key);
+    again.sender.stop();
+
+    // Another relaunch with the same refused key: no notice, nothing tried, the status says why.
+    const third = make(['cc:3'], conn, again.persisted);
+    third.sender.start();
+    await vi.advanceTimersByTimeAsync(2 * 60 * 60_000);
+    expect(third.notice).not.toHaveBeenCalled();
+    expect(third.hello).not.toHaveBeenCalled();
+    expect(third.send).not.toHaveBeenCalled();
+    expect(third.sender.status()).toMatchObject({
+      connected: false,
+      error: 'The server refused the key',
+      lastSentAt: at,
+    });
+    // Connecting again clears the marker.
+    await third.sender.onConnected();
+    expect(third.persisted.refused).toBeNull();
+    third.sender.stop();
+  });
+
+  it('counts what is waiting when asked, not only after a pass', async () => {
+    const t = make(['cc:1', 'cc:2', 'cc:3']);
+    expect(t.sender.status().waiting).toBe(3);
+    t.sent.add('cc:1');
+    expect(t.sender.status().waiting).toBe(2);
+    expect(t.ledger.dirty).not.toHaveBeenCalled();
+    expect(make(['cc:1'], null).sender.status().waiting).toBe(0);
   });
 
   it('skips one bad record without blocking the rest', async () => {

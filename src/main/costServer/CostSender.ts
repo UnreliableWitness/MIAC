@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { CostServerStatus, ServerBudgets } from '../../shared/costServer';
 import type { CostRecord } from '../../shared/ledger';
 import {
@@ -20,11 +21,17 @@ export type CostSenderDeps = {
     dirty: (limit: number) => CostRecord[];
     markSent: (recs: CostRecord[]) => Promise<void>;
     resetSent: () => Promise<void>;
+    dirtyCount: () => number;
   };
   server: {
     get: () => CostServerConnection | null;
     budgets: ServerBudgets | null;
     setBudgets: (b: ServerBudgets | null) => Promise<void>;
+    /** Kept in cost-server.json, so Settings and a refused key survive a relaunch. */
+    readonly lastSentAt: string | null;
+    setLastSentAt: (at: string | null) => Promise<void>;
+    readonly refused: string | null;
+    setRefused: (sig: string | null) => Promise<void>;
   };
   send?: typeof sendImpl;
   hello?: typeof helloImpl;
@@ -34,7 +41,10 @@ export type CostSenderDeps = {
   telemetry: (event: string, props: Record<string, string | number>) => void;
 };
 
-const sig = (c: CostServerConnection) => `${c.url}\n${c.email}\n${c.key}`;
+/** A hash of the connection, so the refused one can be stored without the key. */
+const sig = (c: CostServerConnection) =>
+  createHash('sha256').update(`${c.url}\n${c.email}\n${c.key}`).digest('hex');
+const REFUSED = 'The server refused the key';
 
 /**
  * Sends the ledger's dirty records to the cost server in the background. Never throws and never blocks
@@ -55,12 +65,31 @@ export class CostSender {
   private backoffMs = 0;
   private inBackoff = false;
   /** The connection the server refused; sending resumes when it differs or onConnected() runs. */
-  private blockedOn: string | null = null;
-  private lastSentAt: string | null = null;
+  private blockedOn: string | null;
+  private lastSentAt: string | null;
   private error: string | null = null;
-  private waiting = 0;
 
-  constructor(private readonly d: CostSenderDeps) {}
+  constructor(private readonly d: CostSenderDeps) {
+    this.blockedOn = d.server.refused;
+    this.lastSentAt = d.server.lastSentAt;
+    const c = this.blockedOn ? d.server.get() : null;
+    if (c && sig(c) === this.blockedOn) this.error = REFUSED;
+  }
+
+  private block(on: string | null) {
+    if (this.blockedOn === on) return;
+    this.blockedOn = on;
+    this.d.server
+      .setRefused(on)
+      .catch((err) => console.warn('[costServer] could not save state', err));
+  }
+
+  private sentNow() {
+    this.lastSentAt = (this.d.now?.() ?? new Date()).toISOString();
+    this.d.server
+      .setLastSentAt(this.lastSentAt)
+      .catch((err) => console.warn('[costServer] could not save state', err));
+  }
 
   start() {
     if (this.started) return;
@@ -87,7 +116,7 @@ export class CostSender {
   async onConnected() {
     this.gen++;
     this.helloDue = true;
-    this.blockedOn = null;
+    this.block(null);
     this.inBackoff = false;
     this.backoffMs = 0;
     this.error = null;
@@ -98,6 +127,7 @@ export class CostSender {
     this.schedule(KICK_MS);
   }
 
+  /** The store's clear() has dropped the saved state with the connection. */
   onDisconnected() {
     this.gen++;
     this.helloDue = false;
@@ -118,7 +148,7 @@ export class CostSender {
       url: c?.url ?? null,
       email: c?.email ?? null,
       lastSentAt: this.lastSentAt,
-      waiting: this.waiting,
+      waiting: c ? this.d.ledger.dirtyCount() : 0,
       error: this.error,
       budgets: this.d.server.budgets,
     };
@@ -179,8 +209,8 @@ export class CostSender {
         this.d.notice(
           'Your cost server refused the key. Check Settings › Cost server.',
         );
-      this.blockedOn = sig(c);
-      this.error = 'The server refused the key';
+      this.block(sig(c));
+      this.error = REFUSED;
     } else if (e.kind === 'rejected') {
       this.error = 'The server did not accept the request';
     } else {
@@ -195,13 +225,10 @@ export class CostSender {
 
   private async work() {
     const c = this.d.server.get();
-    if (!c) {
-      this.waiting = 0;
-      return;
-    }
+    if (!c) return;
     if (this.blockedOn) {
       if (this.blockedOn === sig(c)) return;
-      this.blockedOn = null;
+      this.block(null);
     }
     this.inBackoff = false;
     const gen = this.gen;
@@ -225,7 +252,7 @@ export class CostSender {
         await send(c, batch);
         if (gen !== this.gen) return;
         await this.d.ledger.markSent(batch);
-        this.lastSentAt = (this.d.now?.() ?? new Date()).toISOString();
+        this.sentNow();
       } catch (err) {
         if (gen !== this.gen) return;
         const e = err instanceof CostServerError ? err : null;
@@ -245,7 +272,6 @@ export class CostSender {
         break;
       }
     }
-    this.waiting = this.d.ledger.dirty(Number.MAX_SAFE_INTEGER).length;
     if (!failure) {
       this.error = skipped.size > 0 ? this.error : null;
       this.backoffMs = 0;
@@ -280,7 +306,7 @@ export class CostSender {
         await send(c, [r]);
         if (gen !== this.gen) return null;
         await this.d.ledger.markSent([r]);
-        this.lastSentAt = (this.d.now?.() ?? new Date()).toISOString();
+        this.sentNow();
       } catch (err) {
         if (gen !== this.gen) return null;
         if (err instanceof CostServerError && err.kind === 'rejected') {

@@ -3722,8 +3722,10 @@ export function createHandlers(s: Services): Handlers {
       // An empty key keeps the saved one (it never goes to the renderer), but only for the same server.
       const saved = conn.key ? null : cs.store.get();
       if (saved && saved.url === conn.url) conn.key = saved.key;
+      // The error is the attempt's: the old connection (still saved) is not shown as fine next to it.
       const failed = (error: string): CostServerStatus => ({
         ...cs.sender.status(),
+        connected: false,
         error,
       });
       // The client does not check the address, and the key must never go to plain http elsewhere.

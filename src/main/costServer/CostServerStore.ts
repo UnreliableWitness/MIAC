@@ -16,6 +16,10 @@ const FileSchema = z.object({
     .object({ url: z.string(), email: z.string(), keyCiphertext: z.string() })
     .nullable(),
   budgets: BudgetsSchema.nullable(),
+  /** When the server last accepted records; shown in Settings after a relaunch. */
+  lastSentAt: z.string().nullable().optional(),
+  /** A hash of the address, email and key the server refused (never the key): no new notice, no retry, until it changes. */
+  refused: z.string().nullable().optional(),
 });
 type CostServerFile = z.infer<typeof FileSchema>;
 
@@ -72,13 +76,37 @@ export class CostServerStore {
     await this.store.update((f) => {
       f.connection = null;
       f.budgets = null;
+      f.lastSentAt = null;
+      f.refused = null;
     });
     if (had) this.budgetsChanged();
   }
 
-  /** The last `hello` answer. */
+  /** The last `hello` answer; it applies only while the connection can be read (its key decrypts). */
   get budgets(): ServerBudgets | null {
-    return this.store.value.budgets;
+    const b = this.store.value.budgets;
+    return b && this.get() ? b : null;
+  }
+
+  get lastSentAt(): string | null {
+    return this.store.value.lastSentAt ?? null;
+  }
+
+  async setLastSentAt(at: string | null): Promise<void> {
+    await this.store.update((f) => {
+      f.lastSentAt = at;
+    });
+  }
+
+  get refused(): string | null {
+    return this.store.value.refused ?? null;
+  }
+
+  async setRefused(sig: string | null): Promise<void> {
+    if ((this.store.value.refused ?? null) === sig) return;
+    await this.store.update((f) => {
+      f.refused = sig;
+    });
   }
 
   async setBudgets(b: ServerBudgets | null): Promise<void> {

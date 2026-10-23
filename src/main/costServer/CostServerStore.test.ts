@@ -43,6 +43,7 @@ describe('CostServerStore', () => {
   it('caches the last budgets and drops them on clear', async () => {
     const { store } = await make();
     const b = { claude: { monthlyEur: 100, monthStartDay: 1 }, copilot: null };
+    await store.set(conn);
     await store.setBudgets(b);
     expect(store.budgets).toEqual(b);
     await store.clear();
@@ -66,5 +67,34 @@ describe('CostServerStore', () => {
     expect(changed).toHaveBeenCalledTimes(2);
     await store.clear();
     expect(changed).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the last send and the refused-key marker across a restart, and drops them on clear', async () => {
+    const { file, store } = await make();
+    await store.set(conn);
+    await store.setLastSentAt('2026-10-23T10:00:00.000Z');
+    await store.setRefused('ab12');
+    const again = new CostServerStore(file, fakeCrypto());
+    await again.load();
+    expect(again.lastSentAt).toBe('2026-10-23T10:00:00.000Z');
+    expect(again.refused).toBe('ab12');
+    expect(readFileSync(file, 'utf8')).not.toContain(conn.key);
+    await again.clear();
+    expect(again.lastSentAt).toBeNull();
+    expect(again.refused).toBeNull();
+  });
+
+  it('applies the cached budgets only while the connection can be read', async () => {
+    const crypto = fakeCrypto();
+    const { store } = await make(crypto);
+    const b = { claude: { monthlyEur: 100, monthStartDay: 1 }, copilot: null };
+    await store.set(conn);
+    await store.setBudgets(b);
+    expect(store.budgets).toEqual(b);
+    crypto.decrypt = () => {
+      throw new Error('cannot decrypt');
+    };
+    expect(store.get()).toBeNull();
+    expect(store.budgets).toBeNull();
   });
 });
