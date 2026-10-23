@@ -135,6 +135,49 @@ describe('NewTaskScreen', () => {
     });
   });
 
+  it('lists in the confirm only the names that reach a tab setup opens', async () => {
+    const value = { mask: '••••', source: null, changedAt: 'x' };
+    installFakeApi({
+      'repos:config': () => config,
+      'secrets:list': () => [
+        {
+          id: '1',
+          scope: { repoId: 'r1' },
+          name: 'SHELL_KEY',
+          givenTo: ['shell'],
+          values: { uat: value },
+        },
+        {
+          id: '2',
+          scope: { repoId: 'r1' },
+          name: 'RUN_ONLY',
+          givenTo: ['run'],
+          values: { uat: value },
+        },
+        {
+          id: '3',
+          scope: 'all',
+          name: 'DEV_ONLY',
+          givenTo: ['shell'],
+          values: { development: value },
+        },
+      ],
+    });
+    render(<NewTaskScreen />);
+    await userEvent.type(screen.getByLabelText('Work item id'), '48231');
+    await userEvent.type(screen.getByLabelText('Title'), 'Delivery date');
+    await waitFor(() => expect(screen.getByLabelText('npm ci')).toBeChecked());
+    await userEvent.selectOptions(screen.getByLabelText('Environment'), 'uat');
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    const confirm = screen.getByRole('alertdialog', {
+      name: 'Start 48231 on UAT?',
+    });
+    await waitFor(() => expect(confirm).toHaveTextContent('SHELL_KEY'));
+    expect(confirm).not.toHaveTextContent('RUN_ONLY');
+    expect(confirm).not.toHaveTextContent('DEV_ONLY');
+    expect(screen.getByRole('button', { name: 'Use UAT' })).toBeEnabled();
+  });
+
   it('offers the four environments with the repo default selected', async () => {
     const { calls } = installFakeApi({
       'repos:config': () => config,

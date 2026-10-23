@@ -10,6 +10,7 @@ import {
   ENVIRONMENT_LABEL,
   ENVIRONMENTS,
   type Environment,
+  type GivenTo,
   isGuarded,
 } from '../../shared/secrets';
 import { api, tryInvoke } from '../api';
@@ -76,7 +77,9 @@ export function NewTaskScreen({
   const [environment, setEnvironment] = useState<Environment>('development');
   const [asking, setAsking] = useState(false);
   const [askKeys, setAskKeys] = useState<string[] | null>(null);
-  const [productionMinutes, setProductionMinutes] = useState(60);
+  const [productionMinutes, setProductionMinutes] = useState<number | null>(
+    null,
+  );
   useEffect(() => {
     let live = true;
     void tryInvoke(() => api().invoke('settings:get'), notify).then((s) => {
@@ -192,6 +195,12 @@ export function NewTaskScreen({
         ? Boolean(id.trim() && title.trim())
         : Boolean(name.trim());
 
+  /** The tabs setup opens that can hold secrets, as the confirm names them. */
+  const setupTabs = [
+    ...((config?.config.setup ?? []).some((c) => commands[c]) ? ['Setup'] : []),
+    ...(openShell ? ['your shell'] : []),
+  ];
+
   const create = async (confirmed = false) => {
     if (busy) return;
     if (!repo) return notify('error', 'Add a repository in Settings first');
@@ -199,11 +208,22 @@ export function NewTaskScreen({
       setAsking(true);
       setAskKeys(null);
       const env = environment;
+      // Only names that reach a tab setup opens, as the task bar's confirm lists them.
+      const given = new Set<GivenTo>([
+        ...(setupTabs.includes('Setup') ? (['setup'] as const) : []),
+        ...(openShell ? (['shell'] as const) : []),
+      ]);
       void tryInvoke(() => api().invoke('secrets:list', repo.id), notify).then(
         (list) => {
           if (list)
             setAskKeys([
-              ...new Set(list.filter((v) => v.values[env]).map((v) => v.name)),
+              ...new Set(
+                list
+                  .filter(
+                    (v) => v.values[env] && v.givenTo.some((g) => given.has(g)),
+                  )
+                  .map((v) => v.name),
+              ),
             ]);
         },
       );
@@ -463,12 +483,7 @@ export function NewTaskScreen({
             <EnvironmentConfirm
               title={`Start ${(workItem?.id || label.trim() || 'this task').trim()} on ${ENVIRONMENT_LABEL[environment]}?`}
               env={environment as 'uat' | 'production'}
-              tabs={[
-                ...((config?.config.setup ?? []).some((c) => commands[c])
-                  ? ['Setup']
-                  : []),
-                ...(openShell ? ['your shell'] : []),
-              ]}
+              tabs={setupTabs}
               keys={askKeys}
               minutes={productionMinutes}
               busy={busy}

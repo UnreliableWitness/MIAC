@@ -177,6 +177,26 @@ describe('EnvironmentChip', () => {
     );
   });
 
+  it('keeps the confirm disabled until the key names have loaded', async () => {
+    let loaded!: (i: EnvironmentInfo) => void;
+    installFakeApi({
+      'tasks:environmentInfo': () =>
+        new Promise<EnvironmentInfo>((r) => (loaded = r)),
+    });
+    render(<EnvironmentChip task={task()} />);
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Secrets environment: Development' }),
+    );
+    await userEvent.click(
+      screen.getByRole('menuitemradio', { name: 'Production' }),
+    );
+    const go = screen.getByRole('button', { name: /^Use Production/ });
+    expect(go).toBeDisabled();
+    loaded(info);
+    await waitFor(() => expect(go).toBeEnabled());
+    expect(go).toHaveTextContent('Use Production for 60 min');
+  });
+
   it('sends nothing when the confirm is cancelled', async () => {
     const { calls } = await openMenu();
     await userEvent.click(screen.getByRole('menuitemradio', { name: 'UAT' }));

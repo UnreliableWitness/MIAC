@@ -843,6 +843,7 @@ export function createHandlers(s: Services): Handlers {
   /** Stops a tab and tells its view it ended (a kill alone sends no exit). */
   const stopTab = async (id: string) => {
     await s.terminals.kill(id);
+    spawnedEnv.delete(id);
     s.broadcast('terminal:exit', { id, exitCode: -1 });
   };
 
@@ -885,20 +886,35 @@ export function createHandlers(s: Services): Handlers {
    * Development values (the Setup tab stops), its `shellie run` processes stop, and the developer is told. A task
    * that is finishing is left to Finish, which ends it too.
    */
-  const expireEnvironment = async (taskId: string) => {
-    const task = s.store.state.tasks.find((t) => t.id === taskId);
-    if (!task || task.environment !== 'production') return;
-    if (task.status === 'finishing') return;
-    await patchTask(taskId, {
+  const productionOver = (t: Task) =>
+    t.environment === 'production' &&
+    t.environmentUntil !== null &&
+    Date.parse(t.environmentUntil) <= now();
+
+  /** Puts the task back on Development, stops its `shellie run` processes and tells the developer. */
+  const endProduction = async (task: Task) => {
+    await patchTask(task.id, {
       environment: 'development',
       environmentUntil: null,
     });
-    await respawnSecretTabs(taskById(taskId), 'production');
-    s.stopRuns?.(taskId);
+    s.stopRuns?.(task.id);
     s.broadcast('notice', {
       level: 'info',
       message: `Production ended for ${titleOf(task)}`,
     });
+  };
+
+  const expireEnvironment = async (taskId: string) => {
+    const task = s.store.state.tasks.find((t) => t.id === taskId);
+    // A claimed task (setup, Finish, a switch) is left alone: the 30 s check comes back while it stays past its bound.
+    if (!task || !productionOver(task) || inFlight.has(taskId)) return;
+    inFlight.add(taskId);
+    try {
+      await endProduction(task);
+      await respawnSecretTabs(taskById(taskId), 'production');
+    } finally {
+      release(taskId);
+    }
   };
 
   /** Stops the running tabs that hold secrets (Finish on UAT or Production). */
@@ -1173,20 +1189,29 @@ export function createHandlers(s: Services): Handlers {
           await patchTask(taskId, { baseSha });
         },
         startTerminals: async (commands) => {
+          // The environment as it is now, not as it was when setup began: Production may have ended meanwhile.
+          if (productionOver(taskById(taskId)))
+            await endProduction(taskById(taskId));
+          const live = taskById(taskId);
+          const cur: Task = {
+            ...task,
+            environment: live.environment,
+            environmentUntil: live.environmentUntil,
+          };
           const setupTab = commands.length > 0 ? [setupTerminal(commands)] : [];
-          if (isReopening(task)) {
-            const restored = restoredTerminals(task);
-            await startRestored(task, restored);
+          if (isReopening(cur)) {
+            const restored = restoredTerminals(cur);
+            await startRestored(cur, restored);
             for (const def of setupTab) {
-              await spawnTerminal({ ...task, terminals: restored }, def);
+              await spawnTerminal({ ...cur, terminals: restored }, def);
               tel.event('terminal.opened', { kind: def.kind, initial: true });
             }
             await updateTerminals(taskId, () => [...restored, ...setupTab]);
             return;
           }
-          const defs = [...initialTerminals(task), ...setupTab];
+          const defs = [...initialTerminals(cur), ...setupTab];
           for (const def of defs) {
-            await spawnTerminal({ ...task, terminals: defs }, def);
+            await spawnTerminal({ ...cur, terminals: defs }, def);
             tel.event('terminal.opened', { kind: def.kind, initial: true });
           }
           await updateTerminals(taskId, (list) => [...list, ...defs]);
@@ -1546,6 +1571,7 @@ export function createHandlers(s: Services): Handlers {
     docsWatcher.stopTask(taskId);
     gitDirWatcher.stopTask(taskId);
     await s.terminals.killAllForTask(taskId);
+    for (const d of taskById(taskId).terminals) spawnedEnv.delete(d.id);
     await patchTask(taskId, {
       closedTerminals: taskById(taskId).terminals,
       terminals: [],
@@ -2455,12 +2481,20 @@ export function createHandlers(s: Services): Handlers {
         ...(def.kind === 'shell' ? { label: s.platform.shellLabel } : {}),
         ...(def.kind === 'claude' ? { sessionId: randomUUID() } : {}),
       };
-      const secrets = await prepareTab(taskById(taskId), full);
-      claim(taskId, ['ready'], 'open a terminal in');
-      try {
-        startTerminal(taskById(taskId), full, secrets);
-      } finally {
-        release(taskId);
+      // Prepared outside the claim; when the environment changed meanwhile (a switch, an expiry), prepare again.
+      for (let attempt = 0; ; attempt++) {
+        const env = taskById(taskId).environment;
+        const secrets = await prepareTab(taskById(taskId), full);
+        claim(taskId, ['ready'], 'open a terminal in');
+        try {
+          if (taskById(taskId).environment === env) {
+            startTerminal(taskById(taskId), full, secrets);
+            break;
+          }
+          if (attempt >= 2) throw new Error('Task is busy');
+        } finally {
+          release(taskId);
+        }
       }
       await updateTerminals(taskId, (list) => [...list, full]);
       tel.event('terminal.opened', { kind: full.kind, initial: false });
@@ -2474,6 +2508,7 @@ export function createHandlers(s: Services): Handlers {
       s.terminals.resize(id, cols, rows),
     'terminals:kill': async (id) => {
       s.terminals.kill(id);
+      spawnedEnv.delete(id);
       const owner = s.store.state.tasks.find((t) =>
         t.terminals.some((x) => x.id === id),
       );

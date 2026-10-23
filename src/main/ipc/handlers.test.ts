@@ -5301,6 +5301,91 @@ describe('handlers: environment per task', () => {
     await e.hx.terminals.killAllForTask(e.task.id);
   });
 
+  it('never spawns Production values when the bound passes during setup', async () => {
+    const clock = { now: T0 };
+    const ticks: (() => void)[] = [];
+    const stopRuns = vi.fn();
+    const hx = await harness(fakeCrypto(), {
+      now: () => clock.now,
+      expiryTimers: {
+        every: (fn) => {
+          ticks.push(fn);
+          return () => undefined;
+        },
+        onResume: () => () => undefined,
+      },
+      stopRuns,
+    });
+    await hx.services.secrets.save({
+      scope: { repoId: hx.added.id },
+      name: 'DB',
+      givenTo: ['setup', 'shell'],
+      values: {
+        development: { value: 'dev-db' },
+        production: { value: 'prd-db' },
+      },
+    });
+    let open!: () => void;
+    const gate = new Promise<void>((r) => (open = r));
+    const add = hx.services.git.worktreeAdd.bind(hx.services.git);
+    vi.spyOn(hx.services.git, 'worktreeAdd').mockImplementation(
+      async (...a) => {
+        await gate;
+        return add(...a);
+      },
+    );
+    const spawn = vi.spyOn(hx.terminals, 'spawn');
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](
+      hx.input({
+        environment: 'production',
+        environmentConfirmed: true,
+        openShell: true,
+        commands: [echoCmd('setup')],
+      }),
+    );
+    clock.now = T0 + 61 * 60_000;
+    for (const tick of ticks) tick();
+    // Setup holds the task: the expiry waits for it.
+    expect(stopRuns).not.toHaveBeenCalled();
+    open();
+    await done;
+    const task = hx.store.state.tasks.find((x) => x.id === t.id)!;
+    expect(task.environment).toBe('development');
+    expect(task.environmentUntil).toBeNull();
+    expect(stopRuns).toHaveBeenCalledWith(t.id);
+    expect(spawn.mock.calls.length).toBeGreaterThan(0);
+    for (const [opts] of spawn.mock.calls)
+      expect(opts.env?.DB).not.toBe('prd-db');
+    expect(
+      spawn.mock.calls.find((c) => c[0].id === task.terminals[0]!.id)?.[0].env
+        ?.DB,
+    ).toBe('dev-db');
+    await hx.terminals.killAllForTask(t.id);
+  });
+
+  it('leaves a task alone while a switch holds it, so a renewed Production is not expired', async () => {
+    const e = await envScenario();
+    await e.hx.h['tasks:setEnvironment'](e.task.id, 'production', true);
+    e.clock.now = T0 + 61 * 60_000;
+    const renewing = e.hx.h['tasks:setEnvironment'](
+      e.task.id,
+      'production',
+      true,
+    );
+    for (const tick of e.ticks) tick();
+    await renewing;
+    expect(e.stored().environment).toBe('production');
+    expect(e.stored().environmentUntil).toBe(
+      new Date(T0 + 121 * 60_000).toISOString(),
+    );
+    for (const tick of e.ticks) tick();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(e.stored().environment).toBe('production');
+    expect(e.stopRuns).not.toHaveBeenCalled();
+    await e.hx.terminals.killAllForTask(e.task.id);
+  });
+
   it('creates a task on UAT or Production only with a confirm, and bounds Production', async () => {
     const hx = await harness(fakeCrypto(), { now: () => T0 });
     await expect(

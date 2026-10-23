@@ -57,7 +57,8 @@ export function EnvironmentConfirm({
   /** Null while unknown. */
   keys: string[] | null;
   overrides?: { profile: string; names: string[] }[];
-  minutes: number;
+  /** Null while unknown; the confirm stays disabled until the key names and the minutes are known. */
+  minutes: number | null;
   busy?: boolean;
   onCancel: () => void;
   onConfirm: () => void;
@@ -85,8 +86,8 @@ export function EnvironmentConfirm({
       <p id={`${id}-body`} className="env-confirm-body">
         {env === 'production' ? (
           <>
-            These go into {where} for {minutes} minutes, then Shellie stops
-            those tabs and switches back to Development.
+            These go into {where} for {minutes ?? '...'} minutes, then Shellie
+            stops those tabs and switches back to Development.
           </>
         ) : (
           <>
@@ -115,11 +116,11 @@ export function EnvironmentConfirm({
         <button
           type="button"
           className={`btn env-confirm-go env-confirm-go-${env}`}
-          disabled={busy}
+          disabled={busy || keys === null || minutes === null}
           onClick={onConfirm}
         >
           {env === 'production'
-            ? `Use Production for ${minutes} min`
+            ? `Use Production for ${minutes ?? '...'} min`
             : 'Use UAT'}
         </button>
       </div>
@@ -312,7 +313,7 @@ export function EnvironmentChip({ task }: { task: TaskView }) {
             tabs={names}
             keys={info ? info.keys[asking] : null}
             overrides={info?.overrides[asking] ?? []}
-            minutes={info?.productionMinutes ?? 60}
+            minutes={info?.productionMinutes ?? null}
             busy={busy}
             onCancel={() => close(true)}
             onConfirm={() => void switchTo(asking, true)}
