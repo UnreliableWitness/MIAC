@@ -5,12 +5,14 @@ import {
   type ServerResponse,
 } from 'node:http';
 import { gunzipSync } from 'node:zlib';
+import { z } from 'zod';
 import {
   AttentionPostSchema,
   clampMessage,
   type AttentionSignal,
 } from '../../shared/attention';
 import type { UsageEvent } from '../../shared/usage';
+import { RUN_EXIT, type RunHub } from '../secrets/RunHub';
 import {
   type ClaudeActive,
   parseClaudeActiveTime,
@@ -18,9 +20,24 @@ import {
 } from './otlp';
 
 const LIMIT = 5 * 1024 * 1024;
+/** A `shellie run` request is a name and its arguments. */
+const RUN_LIMIT = 1024 * 1024;
+
+const RunPostSchema = z.object({
+  name: z.string().max(200),
+  args: z.array(z.string()).max(200).default([]),
+  workspace: z.string().max(4096).optional(),
+  terminal: z.string().max(200).optional(),
+});
+
+/** The run route's side of RunHub. */
+export type RunRoute = Pick<RunHub, 'taskFor' | 'names' | 'start'>;
 type Status = { listening: boolean; port: number; error: string | null };
 
-/** OTLP/HTTP JSON endpoint on 127.0.0.1 for Claude Code log events, and the attention route for the OpenCode plugin. */
+/**
+ * OTLP/HTTP JSON endpoint on 127.0.0.1 for Claude Code log events, the attention route for the OpenCode plugin,
+ * and `/v1/run` for the `shellie run` shim (a per-task bearer token).
+ */
 export class UsageReceiver {
   private server: Server | null = null;
   private current: Status = { listening: false, port: 0, error: null };
@@ -32,6 +49,7 @@ export class UsageReceiver {
       token: string;
       onSignal: (terminalId: string, s: AttentionSignal) => boolean;
     },
+    private readonly runs?: RunRoute,
   ) {}
 
   get status(): Status {
@@ -74,6 +92,8 @@ export class UsageReceiver {
       res.end(body);
     };
     const path = (req.url ?? '').split('?')[0];
+    if (path === '/v1/run' && this.runs !== undefined)
+      return this.handleRun(req, res, this.runs);
     const isAttention =
       path === '/v1/attention' && this.attention !== undefined;
     if (!isAttention && path !== '/v1/logs' && path !== '/v1/metrics')
@@ -155,6 +175,118 @@ export class UsageReceiver {
         return reply(500);
       }
       reply(200);
+    });
+  }
+
+  /**
+   * `shellie run`: GET lists the task's names, POST runs one. The bearer token says which task; a wrong one is
+   * 401. The body is JSON `{ name, args, workspace?, terminal? }` or a form (`name`, `arg` repeated, ...: the sh
+   * shim cannot build JSON safely). The answer streams as text and ends with the line `\0exit:<code>`.
+   */
+  private handleRun(
+    req: IncomingMessage,
+    res: ServerResponse,
+    runs: RunRoute,
+  ): void {
+    const fail = (status: number, text: string) => {
+      req.resume();
+      if (res.headersSent) return;
+      res.writeHead(status, { 'content-type': 'text/plain; charset=utf-8' });
+      res.end(text ? `${text}\n` : '');
+    };
+    const auth = /^Bearer (.+)$/.exec(req.headers.authorization ?? '');
+    const taskId = auth ? runs.taskFor(auth[1]!) : null;
+    // No body: the shim prints its own message.
+    if (taskId === null) return fail(401, '');
+    let ended = false;
+    let last = '\n';
+    const stream = () =>
+      res.writeHead(200, {
+        'content-type': 'text/plain; charset=utf-8',
+        'cache-control': 'no-store',
+        'x-content-type-options': 'nosniff',
+      });
+    const out = (chunk: string) => {
+      if (ended || chunk === '' || res.destroyed) return;
+      last = chunk;
+      res.write(chunk);
+    };
+    const end = (code: number) => {
+      if (ended || res.destroyed) return;
+      ended = true;
+      res.end(`${last.endsWith('\n') ? '' : '\n'}${RUN_EXIT}${code}\n`);
+    };
+    if (req.method === 'GET') {
+      const folder =
+        new URL(req.url ?? '/', 'http://127.0.0.1').searchParams.get(
+          'workspace',
+        ) ?? undefined;
+      req.resume();
+      void runs.names(taskId, folder).then(
+        (names) => {
+          stream();
+          out(
+            names.length > 0
+              ? `Commands for shellie run: ${names.join(', ')}\n`
+              : 'This task has no commands for shellie run; add them under run: in .shellie.yml\n',
+          );
+          end(0);
+        },
+        () => fail(500, 'Shellie could not read the commands'),
+      );
+      return;
+    }
+    if (req.method !== 'POST') return fail(405, 'Use GET or POST');
+    const type = (req.headers['content-type'] ?? '').toLowerCase();
+    const form = type.startsWith('application/x-www-form-urlencoded');
+    if (!form && !type.startsWith('application/json'))
+      return fail(415, 'Send JSON or a form');
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let tooBig = false;
+    req.on('data', (c: Buffer) => {
+      size += c.length;
+      if (size > RUN_LIMIT) {
+        tooBig = true;
+        fail(413, 'Too large');
+        req.destroy();
+        return;
+      }
+      chunks.push(c);
+    });
+    req.on('end', () => {
+      if (tooBig) return;
+      let body: z.infer<typeof RunPostSchema>;
+      try {
+        const text = Buffer.concat(chunks).toString('utf8');
+        if (form) {
+          const p = new URLSearchParams(text);
+          body = RunPostSchema.parse({
+            name: p.get('name'),
+            args: p.getAll('arg'),
+            workspace: p.get('workspace') ?? undefined,
+            terminal: p.get('terminal') || undefined,
+          });
+        } else body = RunPostSchema.parse(JSON.parse(text));
+      } catch {
+        return fail(400, 'Expected a name and string arguments');
+      }
+      const ac = new AbortController();
+      // The agent cancelled (or the shim died): the run stops.
+      res.on('close', () => {
+        if (!ended) ac.abort();
+      });
+      stream();
+      runs
+        .start(taskId, body.name, body.args, out, {
+          ...(body.workspace ? { workspace: body.workspace } : {}),
+          ...(body.terminal ? { terminal: body.terminal } : {}),
+          signal: ac.signal,
+        })
+        .then(end, () => {
+          out('Shellie could not run the command\n');
+          end(1);
+        });
     });
   }
 }

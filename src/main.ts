@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { promises as fs } from 'node:fs';
+import { promises as fs, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -33,6 +33,9 @@ import {
   OPENCODE_PLUGIN_SOURCE,
   opencodeConfigContent,
 } from './main/attention/opencodePlugin';
+import { RunHub } from './main/secrets/RunHub';
+import { agentRunEnv, writeShims } from './main/secrets/shim';
+import { shellieRunInstruction } from './shared/naming';
 import { DocsWatcher } from './main/docs/DocsWatcher';
 import { GitDirWatcher } from './main/review/GitDirWatcher';
 import { registerIpc } from './main/ipc/register';
@@ -464,6 +467,35 @@ async function boot(): Promise<void> {
       .catch((err) =>
         console.error('[attention] could not write the OpenCode plugin', err),
       );
+    // `shellie run` for agents: a token per task per launch, and the shim first on agent tabs' PATH.
+    const runs = new RunHub();
+    const shimDir = path.join(userData, 'bin');
+    let shimsReady = false;
+    await writeShims(shimDir)
+      .then(() => {
+        shimsReady = true;
+      })
+      .catch((err) =>
+        console.error('[secrets] could not write the shellie run shim', err),
+      );
+    /** OpenCode reads instructions from a file: the `shellie run` line, per task. */
+    const opencodeRunInstructions = (taskId: string, names: string[]) => {
+      try {
+        const file = path.join(
+          userData,
+          'opencode',
+          `shellie-run-${taskId.replace(/[^\w-]/g, '_')}.md`,
+        );
+        writeFileSync(file, `${shellieRunInstruction(names)}\n`);
+        return file;
+      } catch (err) {
+        console.error(
+          '[secrets] could not write the OpenCode instructions',
+          err,
+        );
+        return undefined;
+      }
+    };
     const usage = new UsageStore(usageDir, () => OFFICIAL_RATES);
     const time = new TimeStore(path.join(usageDir, 'time.json'));
     // usageMs covers both stores, loaded together.
@@ -570,6 +602,7 @@ async function boot(): Promise<void> {
         for (const p of points) keep(time.addClaudeActive(p));
       },
       { token: attentionToken, onSignal: (id, s) => attention.signal(id, s) },
+      runs,
     );
     const copilot = new CopilotFileTailer(
       path.join(usageDir, 'copilot'),
@@ -746,15 +779,30 @@ async function boot(): Promise<void> {
           });
         }),
       attention,
-      terminalEnv: (def) => {
+      runs,
+      stopRuns: (taskId, reason) => runs.stopForTask(taskId, reason),
+      terminalEnv: (def, ctx) => {
+        const port = settings.get().receiverPort;
         const env: Record<string, string> = {
-          SHELLIE_ATTENTION_URL: `http://127.0.0.1:${settings.get().receiverPort}/v1/attention`,
+          SHELLIE_ATTENTION_URL: `http://127.0.0.1:${port}/v1/attention`,
           SHELLIE_ATTENTION_TOKEN: attentionToken,
+          // Agent tabs only: their task's `shellie run` link and the shim on PATH.
+          ...(shimsReady
+            ? agentRunEnv(def.kind, {
+                url: `http://127.0.0.1:${port}/v1/run`,
+                token: runs.tokenFor(ctx.taskId),
+                shimDir,
+                env: process.env,
+              })
+            : {}),
         };
         if (def.kind === 'opencode' && opencodePluginReady) {
           const content = opencodeConfigContent(
             process.env.OPENCODE_CONFIG_CONTENT,
             opencodePlugin,
+            ctx.runNames
+              ? opencodeRunInstructions(ctx.taskId, ctx.runNames)
+              : undefined,
           );
           if (content) env.OPENCODE_CONFIG_CONTENT = content;
         }

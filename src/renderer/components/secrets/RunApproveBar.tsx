@@ -1,0 +1,88 @@
+import { Warning16Filled } from '@fluentui/react-icons';
+import { useEffect, useState } from 'react';
+import { ENVIRONMENT_LABEL, type PendingRun } from '../../../shared/secrets';
+import { api, tryInvoke } from '../../api';
+import { useStore } from '../../store';
+
+/** The command line as the developer reads it: arguments with spaces or quotes shown quoted. */
+const commandLine = (r: PendingRun) =>
+  [
+    r.command,
+    ...r.args.map((a) => (/[\s"']|^$/.test(a) ? JSON.stringify(a) : a)),
+  ]
+    .filter((p) => p !== '')
+    .join(' ');
+
+/**
+ * On UAT and Production every `shellie run` waits here: which named command an agent asks to run, with which
+ * arguments and secrets, and Approve or Refuse. A refuse tells the agent "Not approved in Shellie".
+ */
+export function RunApproveBar({ taskId }: { taskId: string }) {
+  const notify = useStore((s) => s.notify);
+  const [pending, setPending] = useState<PendingRun[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    let heard = false;
+    const off = api().on('runs:pending', (list) => {
+      heard = true;
+      setPending(list);
+    });
+    void api()
+      .invoke('runs:pending')
+      .then((list) => {
+        // An event that came first is newer than this answer.
+        if (live && !heard) setPending(list);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+      off();
+    };
+  }, []);
+
+  const mine = pending.filter((r) => r.taskId === taskId);
+  if (mine.length === 0) return null;
+
+  const answer = async (id: string, ok: boolean) => {
+    setBusy(id);
+    await tryInvoke(() => api().invoke('runs:approve', id, ok), notify);
+    setBusy(null);
+  };
+
+  return (
+    <>
+      {mine.map((r) => (
+        <div
+          key={r.id}
+          role="alert"
+          className={`run-approve run-approve-${r.environment}`}
+        >
+          <Warning16Filled aria-hidden="true" />
+          <span className="run-approve-text">
+            {`An agent asks to run ${r.name} with ${ENVIRONMENT_LABEL[r.environment]} secrets`}
+          </span>
+          <code className="run-approve-command">{commandLine(r)}</code>
+          <span className="spacer" />
+          <button
+            type="button"
+            className="btn btn-sm btn-primary"
+            disabled={busy === r.id}
+            onClick={() => void answer(r.id, true)}
+          >
+            Approve
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm"
+            disabled={busy === r.id}
+            onClick={() => void answer(r.id, false)}
+          >
+            Refuse
+          </button>
+        </div>
+      ))}
+    </>
+  );
+}

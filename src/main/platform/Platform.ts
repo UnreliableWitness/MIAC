@@ -18,8 +18,10 @@ export interface Platform {
   /**
    * Run one command line in a terminal (a pty, e.g. the dev server), with the user's PATH loaded. The
    * program keeps the console: no pipe in between, so colour, UTF-8 output and unbuffered logs survive.
+   * `args` (`shellie run <name> -- args`) go after the command's last line as arguments, never through the shell
+   * line: they reach the shell as data (argv, or an environment variable) and are expanded as one word each.
    */
-  runCommand(cmd: string): Command;
+  runCommand(cmd: string, args?: string[]): Command;
   /**
    * Run a task's setup command lines one after another in a terminal (the Setup tab), printing each before it runs
    * and stopping at the first one that fails.

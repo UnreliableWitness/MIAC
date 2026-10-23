@@ -87,6 +87,27 @@ describe('windowsPlatform', () => {
     expect(text).not.toContain('ForEach-Object');
   });
 
+  it('passes a run command its extra arguments through an env var as data, never in the command text', () => {
+    const cmd = make({}).runCommand('npm run dev', ["it's", '$(x); y']);
+    const text = cmd.args.at(-1)!;
+    expect(text).toBe(
+      [
+        '$shellieArgs = [string[]](ConvertFrom-Json $env:SHELLIE_RUN_ARGS)',
+        '& {',
+        'npm run dev @shellieArgs',
+        '}',
+        'if ($LASTEXITCODE) { exit $LASTEXITCODE }',
+      ].join('\n'),
+    );
+    expect(text).not.toContain('$(x)');
+    expect(cmd.env).toEqual({
+      SHELLIE_RUN_ARGS: JSON.stringify(["it's", '$(x); y']),
+    });
+    expect(make({}).runCommand('npm run dev', [])).toEqual(
+      make({}).runCommand('npm run dev'),
+    );
+  });
+
   it('runs setup commands in order in a console, stopping at the first failing exit code', () => {
     const text = make({}).setupCommands(['npm ci', "echo 'x' # y"]).args.at(-1);
     expect(text).toBe(

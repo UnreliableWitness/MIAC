@@ -121,7 +121,19 @@ export function windowsPlatform(
       args: [...BASE_ARGS],
     }),
     shellCommand: (cmd) => nonInteractive(psSetupWrapper(cmd)),
-    runCommand: (cmd) => nonInteractive(psRunWrapper(cmd)),
+    // The arguments travel as JSON in an env var, read as data and splatted: never part of the command text.
+    runCommand: (cmd, args = []) =>
+      args.length === 0
+        ? nonInteractive(psRunWrapper(cmd))
+        : {
+            ...nonInteractive(
+              [
+                '$shellieArgs = [string[]](ConvertFrom-Json $env:SHELLIE_RUN_ARGS)',
+                psRunWrapper(`${cmd} @shellieArgs`),
+              ].join('\n'),
+            ),
+            env: { SHELLIE_RUN_ARGS: JSON.stringify(args) },
+          },
     setupCommands: (cmds) =>
       nonInteractive(
         cmds

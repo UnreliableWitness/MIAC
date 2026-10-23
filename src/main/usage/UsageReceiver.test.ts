@@ -254,3 +254,155 @@ describe('POST /v1/attention', () => {
     expect((signals[0][1] as { message: string }).message).toHaveLength(200);
   });
 });
+
+describe('/v1/run', () => {
+  type Call = {
+    taskId: string;
+    name: string;
+    args: string[];
+    workspace?: string;
+    terminal?: string;
+    signal?: AbortSignal;
+  };
+  const calls: Call[] = [];
+  let base: string;
+  let release: () => void = () => undefined;
+  beforeEach(async () => {
+    calls.length = 0;
+    const r = new UsageReceiver(() => undefined, undefined, undefined, {
+      taskFor: (token) =>
+        token === 'tok-a' ? 'task-a' : token === 'tok-b' ? 'task-b' : null,
+      names: async (taskId, folder) =>
+        taskId === 'task-a' ? ['dev', 'test', folder ?? '-'] : ['other'],
+      start: async (taskId, name, args, out, o) => {
+        calls.push({ taskId, name, args, ...o });
+        if (name === 'hang') {
+          await new Promise<void>((resolve) => {
+            release = resolve;
+            o?.signal?.addEventListener('abort', () => resolve());
+          });
+          return 1;
+        }
+        out('line one\n');
+        out('no newline');
+        return 3;
+      },
+    });
+    receivers.push(r);
+    const port = await freePort();
+    expect((await r.start(port)).listening).toBe(true);
+    base = `http://127.0.0.1:${port}`;
+  });
+
+  const post = (body: string, token = 'tok-a', type = 'application/json') =>
+    fetch(`${base}/v1/run`, {
+      method: 'POST',
+      headers: { 'content-type': type, authorization: `Bearer ${token}` },
+      body,
+    });
+
+  it('streams the output and ends with the exit line', async () => {
+    const res = await post(
+      JSON.stringify({
+        name: 'dev',
+        args: ['--port', '5000'],
+        workspace: '/w/app',
+        terminal: 't1',
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('text/plain; charset=utf-8');
+    expect(await res.text()).toBe('line one\nno newline\n\u0000exit:3\n');
+    expect(calls).toEqual([
+      {
+        taskId: 'task-a',
+        name: 'dev',
+        args: ['--port', '5000'],
+        workspace: '/w/app',
+        terminal: 't1',
+        signal: expect.any(AbortSignal),
+      },
+    ]);
+  });
+
+  it('takes a form body (the sh shim) with repeated arg fields', async () => {
+    const form = new URLSearchParams([
+      ['name', 'dev'],
+      ['arg', 'a b'],
+      ['arg', '$(x)&y'],
+      ['workspace', '/w/app'],
+    ]);
+    const res = await post(
+      form.toString(),
+      'tok-a',
+      'application/x-www-form-urlencoded',
+    );
+    expect(res.status).toBe(200);
+    await res.text();
+    expect(calls[0]).toMatchObject({
+      name: 'dev',
+      args: ['a b', '$(x)&y'],
+      workspace: '/w/app',
+    });
+  });
+
+  it("runs a token's own task only", async () => {
+    await (await post(JSON.stringify({ name: 'dev' }), 'tok-b')).text();
+    expect(calls.map((c) => c.taskId)).toEqual(['task-b']);
+  });
+
+  it('refuses a wrong or missing token with 401 and runs nothing', async () => {
+    expect((await post(JSON.stringify({ name: 'dev' }), 'nope')).status).toBe(
+      401,
+    );
+    const bare = await fetch(`${base}/v1/run`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'dev' }),
+    });
+    expect(bare.status).toBe(401);
+    const list = await fetch(`${base}/v1/run`, {
+      headers: { authorization: 'Bearer nope' },
+    });
+    expect(list.status).toBe(401);
+    expect(calls).toEqual([]);
+  });
+
+  it('refuses a bad body with 400', async () => {
+    expect((await post('{"name": 3}')).status).toBe(400);
+    expect(
+      (await post(JSON.stringify({ name: 'dev', args: [1] }))).status,
+    ).toBe(400);
+    expect((await post('not json')).status).toBe(400);
+    expect((await post('x', 'tok-a', 'text/plain')).status).toBe(415);
+    expect(calls).toEqual([]);
+  });
+
+  it('lists the names on GET', async () => {
+    const res = await fetch(`${base}/v1/run?workspace=%2Fw%2Fapi`, {
+      headers: { authorization: 'Bearer tok-a' },
+    });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe(
+      'Commands for shellie run: dev, test, /w/api\n\u0000exit:0\n',
+    );
+  });
+
+  it('tells the run when the caller goes away', async () => {
+    const ac = new AbortController();
+    const res = fetch(`${base}/v1/run`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: 'Bearer tok-a',
+      },
+      body: JSON.stringify({ name: 'hang' }),
+      signal: ac.signal,
+    }).catch(() => null);
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    ac.abort();
+    await res;
+    await vi.waitFor(() => expect(calls[0]!.signal!.aborted).toBe(true));
+    release();
+  });
+});

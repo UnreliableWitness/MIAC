@@ -7,6 +7,7 @@ import type {
   ImportRequest,
   ImportResult,
   LeakState,
+  PendingRun,
   SecretInput,
   SecretView,
   SecretsStatus,
@@ -344,6 +345,10 @@ export type Channels = {
   'terminals:leak': { args: [id: string]; result: LeakState | null };
   /** Forwards input again to a tab paused because a Production value showed up. */
   'terminals:resume': { args: [id: string]; result: void };
+  /** `shellie run` requests on UAT or Production that wait for the developer's approve. */
+  'runs:pending': { args: []; result: PendingRun[] };
+  /** Approves (true) or refuses a waiting `shellie run`. */
+  'runs:approve': { args: [id: string, ok: boolean]; result: void };
   /** `withoutProjectConfig`: OpenCode starts without the repo's own config (#109). */
   'terminals:restart': {
     args: [id: string, options?: RestartOptions];
@@ -413,6 +418,8 @@ export type Events = {
   'terminal:reset': { id: string };
   /** Leak watch in an agent tab: a new name showed up, or input was paused or resumed. Names only. */
   'terminal:leak': { id: string } & LeakState;
+  /** The `shellie run` requests waiting for an approve changed (all of them, every task). */
+  'runs:pending': PendingRun[];
   'tasks:changed': TaskView[];
   'repos:changed': Repo[];
   'connections:changed': Connection[];

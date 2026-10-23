@@ -15,6 +15,7 @@ import {
 } from '../../shared/secrets';
 import { LeakMatcher } from '../secrets/LeakMatcher';
 import { LeakWatch } from '../secrets/LeakWatch';
+import type { RunHub, RunSpec } from '../secrets/RunHub';
 import { branchLeaks } from '../secrets/leakScan';
 import { type ExpiryTimers, scheduleExpiry } from '../secrets/expiry';
 import { DiscoveryHold, discoverSecrets } from '../secrets/discover';
@@ -153,8 +154,19 @@ import { OFFICIAL_USD_TO_EUR } from '../../shared/usage';
 export type Services = {
   /** What needs the developer's attention (main); absent in tests. */
   attention?: Pick<AttentionHub, 'setView' | 'snapshot'>;
-  /** Extra env per terminal (main: the attention URL and token, OpenCode's plugin). */
-  terminalEnv?: (def: TerminalDef) => Record<string, string>;
+  /**
+   * Extra env per terminal (main: the attention URL and token, OpenCode's plugin, and for agent tabs the task's
+   * `shellie run` link). `runNames`: the names agents are told about, only when the repo has a stored secret.
+   */
+  terminalEnv?: (
+    def: TerminalDef,
+    ctx: { taskId: string; runNames?: string[] },
+  ) => Record<string, string>;
+  /** `shellie run` for agents (main); handlers give it the task's tabs, config and leak watch. Absent in most tests. */
+  runs?: Pick<
+    RunHub,
+    'attach' | 'names' | 'data' | 'exit' | 'tabGone' | 'pendingRuns' | 'approve'
+  >;
   store: TaskStore;
   git: GitClient;
   platform: Platform;
@@ -244,8 +256,8 @@ export type Services = {
   now?: () => number;
   /** Checks Production bounds every 30 s and on resume (main: setInterval, powerMonitor); absent: no expiry. */
   expiryTimers?: ExpiryTimers;
-  /** Stops the task's `shellie run` processes (Task 8's RunHub.stopForTask) when Production ends or at Finish. */
-  stopRuns?: (taskId: string) => void;
+  /** Stops the task's `shellie run` processes (RunHub.stopForTask) when Production ends or at Finish; `reason` is what the agent reads. */
+  stopRuns?: (taskId: string, reason?: string) => void;
   update?: {
     pending(): PendingUpdate | null;
     /** Quits and starts the update; false when none is downloaded. */
@@ -363,6 +375,8 @@ export function createHandlers(s: Services): Handlers {
   s.terminals.setOutputFilter((o, data, carry, final) =>
     leakWatch.filter(o, data, carry, final),
   );
+  /** A `shellie run` tab's extra arguments (passed as arguments, never in its command line); not stored. */
+  const runArgs = new Map<string, string[]>();
   /** Matchers of every stored value per set of repos, for the Changes flags; dropped when secrets change. */
   const diffMatchers = new Map<string, LeakMatcher>();
   const diffMatcher = (task: Task) => {
@@ -786,6 +800,7 @@ export function createHandlers(s: Services): Handlers {
     task: Task,
     def: TerminalDef,
     resume = false,
+    runNames?: string[],
   ): Command => {
     if (def.kind === 'claude') {
       const cwd = terminalWorkspace(task, def).worktreePath;
@@ -808,7 +823,7 @@ export function createHandlers(s: Services): Handlers {
           ...dirs,
           ...theme,
         ]);
-      return s.platform.claudeCommand(claudeContext(task), [
+      return s.platform.claudeCommand(claudeContext(task, runNames), [
         ...(def.sessionId ? ['--session-id', def.sessionId] : []),
         ...dirs,
         ...theme,
@@ -817,7 +832,7 @@ export function createHandlers(s: Services): Handlers {
     if (def.kind === 'run' && def.setupCommands)
       return s.platform.setupCommands(def.setupCommands);
     if (def.kind === 'run' && def.command)
-      return s.platform.runCommand(def.command);
+      return s.platform.runCommand(def.command, runArgs.get(def.id));
     if (def.kind === 'copilot') return s.platform.copilotCommand();
     if (def.kind === 'opencode') return s.platform.opencodeCommand();
     return s.platform.interactiveShell();
@@ -866,14 +881,35 @@ export function createHandlers(s: Services): Handlers {
     };
   };
 
-  type TabSecrets = Awaited<ReturnType<typeof tabSecrets>>;
+  /** `runNames`: what an agent tab is told it can `shellie run` (only when its repo has a stored secret). */
+  type TabSecrets = Awaited<ReturnType<typeof tabSecrets>> & {
+    runNames?: string[];
+  };
+
+  /** The `shellie run` names for an agent tab, when its repo has a stored secret; undefined otherwise. */
+  const agentRunNames = async (
+    task: Task,
+    def: TerminalDef,
+  ): Promise<string[] | undefined> => {
+    const ws = terminalWorkspace(task, def);
+    if (!s.runs || s.secrets.list({ repoId: ws.repoId }).length === 0)
+      return undefined;
+    // An unreadable .shellie.yml only means the agent is not told the names.
+    return s.runs.names(task.id, ws.worktreePath).catch(() => undefined);
+  };
 
   /** The tab's secrets; a failure to read them is the tab's start failure. */
-  const prepareTab = async (task: Task, def: TerminalDef) => {
+  const prepareTab = async (
+    task: Task,
+    def: TerminalDef,
+  ): Promise<TabSecrets> => {
     s.terminalFailures?.clear(def.id);
     // Leak watch knows which values git tracks before the agent's first output.
-    if (isAgentKind(def.kind))
+    if (isAgentKind(def.kind)) {
       await leakWatch.prepare(task.id).catch(() => undefined);
+      const runNames = await agentRunNames(task, def);
+      return runNames ? { env: {}, def, runNames } : { env: {}, def };
+    }
     try {
       return await tabSecrets(task, def);
     } catch (e) {
@@ -901,7 +937,7 @@ export function createHandlers(s: Services): Handlers {
     extraEnv: Record<string, string> = {},
   ) => {
     try {
-      const cmd = terminalCommand(task, secrets.def, resume);
+      const cmd = terminalCommand(task, secrets.def, resume, secrets.runNames);
       s.terminals.spawn({
         id: def.id,
         taskId: task.id,
@@ -915,7 +951,10 @@ export function createHandlers(s: Services): Handlers {
           ...secrets.env,
           ...telemetryEnv(task.id, s.settings.get().receiverPort, s.usageDir),
           ...(s.colorScheme ? { COLORFGBG: colorFgBg(s.colorScheme()) } : {}),
-          ...s.terminalEnv?.(def),
+          ...s.terminalEnv?.(def, {
+            taskId: task.id,
+            ...(secrets.runNames ? { runNames: secrets.runNames } : {}),
+          }),
           ...cmd.env,
           ...extraEnv,
         },
@@ -940,6 +979,96 @@ export function createHandlers(s: Services): Handlers {
   };
 
   /**
+   * `shellie run`: the visible `agent · <name>` run tab, reused when it is there and stopped, spawned with the
+   * task environment's secrets (tabSecrets picks Tests, Setup or Run from the command). Refused when the tab is
+   * running, the task is busy or its environment is no longer the one the run was resolved (and approved) for.
+   */
+  const openRunTab = async (
+    taskId: string,
+    spec: RunSpec,
+    attach: (terminalId: string) => void,
+  ) => {
+    const label = `agent · ${spec.name}`;
+    const old = taskById(taskId).terminals.find(
+      (d) =>
+        d.kind === 'run' &&
+        d.label === label &&
+        (d.workspaceId ?? activeHome(taskById(taskId)).id) === spec.workspaceId,
+    );
+    if (old && s.terminals.isRunning(old.id))
+      throw new Error(`${label} is already running`);
+    const def: TerminalDef = {
+      id: old?.id ?? randomUUID(),
+      kind: 'run',
+      label,
+      workspaceId: spec.workspaceId,
+      ...(spec.setupCommands
+        ? { setupCommands: spec.setupCommands }
+        : { command: spec.command ?? '' }),
+    };
+    runArgs.set(def.id, spec.args);
+    if (old) {
+      await s.terminals.kill(old.id);
+      spawnedEnv.delete(old.id);
+      leakWatch.forget(old.id);
+    }
+    const prepared = await prepareTab(taskById(taskId), def);
+    claim(taskId, ['ready'], 'run a command in');
+    try {
+      if (taskById(taskId).environment !== spec.environment)
+        throw new Error("The task's environment changed; run it again");
+      attach(def.id);
+      startTerminal(taskById(taskId), def, prepared);
+    } finally {
+      release(taskId);
+    }
+    await updateTerminals(taskId, (list) =>
+      old ? list.map((d) => (d.id === def.id ? def : d)) : [...list, def],
+    );
+    if (old) s.broadcast('terminal:reset', { id: def.id });
+  };
+
+  if (s.runs) {
+    const runs = s.runs;
+    runs.attach({
+      task: (taskId) => {
+        const t = s.store.state.tasks.find((x) => x.id === taskId);
+        if (!t) return null;
+        const home = activeHome(t);
+        return {
+          id: t.id,
+          ready: t.status === 'ready',
+          environment: t.environment,
+          setupCommands: t.setup.commands,
+          workspaces: [
+            home,
+            ...activeWorkspaces(t).filter((w) => w.id !== home.id),
+          ].map((w) => ({
+            id: w.id,
+            worktreePath: w.worktreePath,
+            repoPath:
+              s.repos.list().find((r) => r.id === w.repoId)?.path ??
+              w.worktreePath,
+          })),
+          agentTabs: t.terminals
+            .filter((d) => isAgentKind(d.kind))
+            .map((d) => d.id),
+        };
+      },
+      config: (repoPath) => s.loadConfig(repoPath),
+      testCommand: testCommandFor,
+      openTab: openRunTab,
+      kill: (id) => void stopTab(id),
+      // The agent reads what comes back: the same masking, notices and Production pause as its own output.
+      filter: (o, data, carry, final) =>
+        leakWatch.filter(o, data, carry, final),
+      pending: (list) => s.broadcast('runs:pending', list),
+    });
+    s.terminals.on('data', (id, data) => runs.data(id, data));
+    s.terminals.on('exit', (id, code) => runs.exit(id, code));
+  }
+
+  /**
    * After an environment change: each running tab that holds secrets is killed and spawned again with the new
    * environment's values (a fresh env, never the old spawn options). Agent tabs are never touched. The Setup tab
    * never runs again by itself: it is only stopped, when it held UAT or Production values.
@@ -947,6 +1076,15 @@ export function createHandlers(s: Services): Handlers {
   const respawnSecretTabs = async (task: Task, left: Environment) => {
     for (const def of task.terminals) {
       if (!holdsSecrets(def) || !s.terminals.isRunning(def.id)) continue;
+      // A `shellie run` tab ends with its run: the agent asked for a run with the old environment's values.
+      if (runArgs.has(def.id)) {
+        s.runs?.tabGone(
+          def.id,
+          `The task switched to ${ENVIRONMENT_LABEL[task.environment]}`,
+        );
+        await stopTab(def.id);
+        continue;
+      }
       if (def.setupCommands) {
         if (isGuarded(left)) await stopTab(def.id);
         continue;
@@ -989,7 +1127,7 @@ export function createHandlers(s: Services): Handlers {
       environment: 'development',
       environmentUntil: null,
     });
-    s.stopRuns?.(task.id);
+    s.stopRuns?.(task.id, 'Production ended');
     s.broadcast('notice', {
       level: 'info',
       message: `Production ended for ${titleOf(task)}`,
@@ -1949,7 +2087,7 @@ export function createHandlers(s: Services): Handlers {
           openPeriods: withPeriodClosed(taskById(taskId), finishedAt),
           ...endEnvironment(task),
         });
-        s.stopRuns?.(taskId);
+        s.stopRuns?.(taskId, 'The task was finished in Shellie');
         leakWatch.dropTask(taskId);
         reportFinished(task, options, {
           workspaces: rows.length,
@@ -2496,7 +2634,7 @@ export function createHandlers(s: Services): Handlers {
           openPeriods: withPeriodClosed(taskById(taskId), finishedAt),
           ...endEnvironment(task),
         });
-        s.stopRuns?.(taskId);
+        s.stopRuns?.(taskId, 'The task was finished in Shellie');
         leakWatch.dropTask(taskId);
         reportFinished(task, options, {
           workspaces: 1,
@@ -2525,7 +2663,8 @@ export function createHandlers(s: Services): Handlers {
         if (left !== env) {
           await respawnSecretTabs(taskById(taskId), left);
           // `shellie run` processes hold the values they started with.
-          if (isGuarded(left)) s.stopRuns?.(taskId);
+          if (isGuarded(left))
+            s.stopRuns?.(taskId, `${ENVIRONMENT_LABEL[left]} ended`);
         }
         return taskById(taskId);
       } finally {
@@ -2634,6 +2773,8 @@ export function createHandlers(s: Services): Handlers {
       s.terminals.resize(id, cols, rows),
     'terminals:kill': async (id) => {
       s.terminals.kill(id);
+      s.runs?.tabGone(id);
+      runArgs.delete(id);
       spawnedEnv.delete(id);
       leakWatch.forget(id);
       const owner = s.store.state.tasks.find((t) =>
@@ -2649,6 +2790,8 @@ export function createHandlers(s: Services): Handlers {
     'terminals:restart': async (id, options = {}) => {
       // A new process: what showed up in the old one, and its pause, go.
       leakWatch.forget(id);
+      // A `shellie run` it served ends: the agent is not told about a process it did not start.
+      s.runs?.tabGone(id);
       const owner = s.store.state.tasks.find((t) =>
         t.terminals.some((x) => x.id === id),
       );
@@ -2693,7 +2836,12 @@ export function createHandlers(s: Services): Handlers {
         ...(skipConfig ? { withoutProjectConfig: true } : {}),
       });
     },
-    'terminals:stop': async (id) => stopTab(id),
+    'terminals:stop': async (id) => {
+      s.runs?.tabGone(id);
+      await stopTab(id);
+    },
+    'runs:pending': async () => s.runs?.pendingRuns() ?? [],
+    'runs:approve': async (id, ok) => s.runs?.approve(id, ok === true),
     'terminals:leak': async (id) => leakWatch.state(id),
     'terminals:resume': async (id) => leakWatch.resume(id),
     'terminals:failure': async (id) => s.terminalFailures?.get(id) ?? null,

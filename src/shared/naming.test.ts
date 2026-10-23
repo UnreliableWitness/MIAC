@@ -199,3 +199,22 @@ describe('claudeContext', () => {
     );
   });
 });
+
+describe('claudeContext and shellie run', () => {
+  const t = {
+    workItem: null,
+    name: 'Spike',
+    branch: 'feature/spike',
+    slug: 'spike',
+  };
+  it('names the commands that run with secrets when the repo has some', () => {
+    expect(claudeContext(t, ['dev', 'test', 'setup'])).toContain(
+      "Commands that need this project's secrets (tests, the dev server) run through `shellie run <name>`; available: dev, test, setup. Plain commands in your shell run without secrets.",
+    );
+  });
+  it('stays as it was without stored secrets', () => {
+    expect(claudeContext(t, undefined)).toBe(claudeContext(t));
+    expect(claudeContext(t, [])).toBe(claudeContext(t));
+    expect(claudeContext(t)).not.toContain('shellie run');
+  });
+});

@@ -79,9 +79,24 @@ export function otherReposInstruction(
   return `If this task needs changes in another repository, do not edit that repository's main checkout. Create a worktree there on this task's branch: git -C <repo> worktree add <repo>.worktrees/${task.slug} -b ${task.branch} <base> (use the repo's default branch as base, from origin when it exists). Shellie picks it up automatically.`;
 }
 
-/** Appended to Claude Code's system prompt: the task, and that Claude waits for the user before working on it. */
+/**
+ * Tells an agent which commands get the project's secrets (`shellie run`); `names` are the task's run names.
+ * Only for a repo with stored secrets.
+ */
+export function shellieRunInstruction(names: string[]): string {
+  return `Commands that need this project's secrets (tests, the dev server) run through \`shellie run <name>\`; available: ${names.join(', ')}. Plain commands in your shell run without secrets.`;
+}
+
+/**
+ * Appended to Claude Code's system prompt: the task, and that Claude waits for the user before working on it.
+ * `runNames`: the `shellie run` names, given only when the task's repo has a stored secret.
+ */
 export function claudeContext(
   task: Pick<Task, 'workItem' | 'name' | 'branch' | 'slug'>,
+  runNames?: string[],
 ): string {
-  return `This folder is a Shellie task for ${taskTitle(task)}. The details are in .shellie/task.md. Do not start on the task by yourself: wait for the user's instructions. ${otherReposInstruction(task)}`;
+  const base = `This folder is a Shellie task for ${taskTitle(task)}. The details are in .shellie/task.md. Do not start on the task by yourself: wait for the user's instructions. ${otherReposInstruction(task)}`;
+  return runNames && runNames.length > 0
+    ? `${base} ${shellieRunInstruction(runNames)}`
+    : base;
 }

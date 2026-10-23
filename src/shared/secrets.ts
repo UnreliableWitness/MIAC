@@ -186,6 +186,19 @@ export function isUnchanged(row: ImportRow): boolean {
  */
 export type LeakState = { names: string[]; paused: boolean };
 
+/** A `shellie run` on UAT or Production that waits for the developer's approve in Shellie. No values. */
+export type PendingRun = {
+  id: string;
+  taskId: string;
+  /** The named command (`test`, `setup`, a `run:` entry). */
+  name: string;
+  /** What runs: the command line from .shellie.yml, or the setup commands. */
+  command: string;
+  /** Extra arguments the agent passed after `--`. */
+  args: string[];
+  environment: Environment;
+};
+
 /** Finish's refusal to push a branch whose changes hold a stored value (no name, no value). */
 export const LEAK_IN_BRANCH =
   "A stored secret appears in this branch's changes";

@@ -163,6 +163,7 @@ const defaults: FakeHandlers = {
   'terminals:isRunning': () => false,
   'terminals:failure': () => null,
   'terminals:leak': () => null,
+  'runs:pending': () => [],
   'terminals:reportScheme': () => undefined,
   'terminals:write': () => undefined,
   'terminals:resize': () => undefined,

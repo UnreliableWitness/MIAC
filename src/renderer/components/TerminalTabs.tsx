@@ -44,6 +44,7 @@ import { TerminalView } from './TerminalView';
 import { IconButton, MindMark, modKey } from './ui';
 import { UsagePanel } from './UsagePanel';
 import { EnvironmentBand } from './secrets/EnvironmentBand';
+import { RunApproveBar } from './secrets/RunApproveBar';
 import { EnvironmentChip } from './secrets/EnvironmentChip';
 import { ENVIRONMENT_LABEL } from '../../shared/secrets';
 import { TaskMenu, WorkspaceChips } from './WorkspaceChips';
@@ -249,6 +250,7 @@ export function TerminalTabs({
   return (
     <>
       <EnvironmentBand task={task} />
+      <RunApproveBar taskId={task.id} />
       <div className="taskbar">
         <div
           ref={tabrow}

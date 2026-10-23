@@ -58,12 +58,25 @@ export const ShellieAttention = async () => {
 };
 `;
 
-/** OPENCODE_CONFIG_CONTENT with Shellie's plugin added; undefined when the developer's own value is not a JSON object. */
+/**
+ * OPENCODE_CONFIG_CONTENT with Shellie's plugin added, and `instructions` (a file with the `shellie run` line)
+ * when given; undefined when the developer's own value is not a JSON object.
+ */
 export function opencodeConfigContent(
   existing: string | undefined,
   pluginPath: string,
+  instructions?: string,
 ): string | undefined {
-  if (!existing) return JSON.stringify({ plugin: [pluginPath] });
+  const extra = (config: { instructions?: unknown }) =>
+    instructions
+      ? {
+          instructions: [
+            ...(Array.isArray(config.instructions) ? config.instructions : []),
+            instructions,
+          ],
+        }
+      : {};
+  if (!existing) return JSON.stringify({ plugin: [pluginPath], ...extra({}) });
   let parsed: unknown;
   try {
     parsed = JSON.parse(existing);
@@ -72,7 +85,11 @@ export function opencodeConfigContent(
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
     return undefined;
-  const config = parsed as { plugin?: unknown };
+  const config = parsed as { plugin?: unknown; instructions?: unknown };
   const plugins = Array.isArray(config.plugin) ? config.plugin : [];
-  return JSON.stringify({ ...config, plugin: [...plugins, pluginPath] });
+  return JSON.stringify({
+    ...config,
+    plugin: [...plugins, pluginPath],
+    ...extra(config),
+  });
 }

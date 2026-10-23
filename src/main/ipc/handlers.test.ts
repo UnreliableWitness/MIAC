@@ -20,6 +20,7 @@ import {
 } from '../../shared/terminalFailure';
 import { AdoRegistry } from '../services/AdoRegistry';
 import { ConnectionStore, type TokenCrypto } from '../services/ConnectionStore';
+import { RunHub } from '../secrets/RunHub';
 import { SecretStore } from '../secrets/SecretStore';
 import { fakeCrypto } from '../test-helpers/fakeCrypto';
 import { startAdoServer, type AdoServer } from '../test-helpers/adoServer';
@@ -51,6 +52,7 @@ import {
   envRef,
   failCmd,
   isWindows,
+  normaliseEol,
   sleepCmd,
   testPlatform,
   writeLineCmd,
@@ -5354,7 +5356,9 @@ describe('handlers: environment per task', () => {
     for (const tick of e.ticks) tick();
     await vi.waitFor(() => expect(e.stored().environment).toBe('development'));
     expect(e.stored().environmentUntil).toBeNull();
-    await vi.waitFor(() => expect(e.stopRuns).toHaveBeenCalledWith(e.task.id));
+    await vi.waitFor(() =>
+      expect(e.stopRuns).toHaveBeenCalledWith(e.task.id, 'Production ended'),
+    );
     await vi.waitFor(() => expect(e.envOf(e.shellId()).DB).toBe('dev-db'));
     await vi.waitFor(() => expect(e.envOf(e.dev.id).DB).toBe('dev-db'));
     expect(e.envOf(e.dev.id).STRIPE_SECRET_KEY).toBeUndefined();
@@ -5389,7 +5393,7 @@ describe('handlers: environment per task', () => {
     e.clock.now = T0 + 3 * 60 * 60_000;
     for (const resume of e.resumes) resume();
     await vi.waitFor(() => expect(e.stored().environment).toBe('development'));
-    expect(e.stopRuns).toHaveBeenCalledWith(e.task.id);
+    expect(e.stopRuns).toHaveBeenCalledWith(e.task.id, 'Production ended');
     await e.hx.terminals.killAllForTask(e.task.id);
   });
 
@@ -5407,7 +5411,10 @@ describe('handlers: environment per task', () => {
     expect(e.stored().environment).toBe('development');
     expect(e.stored().environmentUntil).toBeNull();
     expect(e.stored().finishedEnvironment).toBe('production');
-    expect(e.stopRuns).toHaveBeenCalledWith(e.task.id);
+    expect(e.stopRuns).toHaveBeenCalledWith(
+      e.task.id,
+      'The task was finished in Shellie',
+    );
     expect(e.hx.terminals.isRunning(e.dev.id)).toBe(false);
     expect(e.hx.terminals.isRunning(e.shellId())).toBe(false);
     for (const id of agents) expect(e.killedIds()).not.toContain(id);
@@ -5466,7 +5473,7 @@ describe('handlers: environment per task', () => {
     const task = hx.store.state.tasks.find((x) => x.id === t.id)!;
     expect(task.environment).toBe('development');
     expect(task.environmentUntil).toBeNull();
-    expect(stopRuns).toHaveBeenCalledWith(t.id);
+    expect(stopRuns).toHaveBeenCalledWith(t.id, 'Production ended');
     expect(spawn.mock.calls.length).toBeGreaterThan(0);
     for (const [opts] of spawn.mock.calls)
       expect(opts.env?.DB).not.toBe('prd-db');
@@ -5762,5 +5769,205 @@ describe('handlers: leak watch', () => {
     });
     expect(JSON.stringify(files)).not.toContain(UAT_KEY);
     await hx.terminals.killAllForTask(hx.t.id);
+  });
+});
+
+describe('handlers: shellie run', () => {
+  const DB_VALUE = 'dev-db-value-1234';
+  const PROD_VALUE = 'prod-db-value-5678';
+
+  /** A ready task whose repo has `run:` entries and DB stored; agents' context and env are recorded. */
+  async function runHarness(o: { secrets?: boolean } = {}) {
+    const base = testPlatform();
+    const contexts: (string | null)[] = [];
+    const platform = {
+      ...base,
+      claudeCommand: (context: string | null) => {
+        contexts.push(context);
+        return base.runCommand(sleepCmd(30));
+      },
+    };
+    const runs = new RunHub();
+    const envCalls: { kind: string; taskId: string; runNames?: string[] }[] =
+      [];
+    const hx = await harness(fakeCrypto(), {
+      platform,
+      runs,
+      terminalEnv: (def, ctx) => {
+        envCalls.push({ kind: def.kind, ...ctx });
+        return {};
+      },
+    });
+    const print = isWindows ? `Write-Output "db=$env:DB"` : `echo "db=$DB"`;
+    const list = isWindows ? 'Write-Output' : `printf '%s\\n'`;
+    writeFileSync(
+      path.join(hx.repo, '.shellie.yml'),
+      [
+        'copy: [.env]',
+        'run:',
+        `  show: ${JSON.stringify(print)}`,
+        `  list: ${JSON.stringify(list)}`,
+        `  fail: ${JSON.stringify(failCmd(3))}`,
+        '',
+      ].join('\n'),
+    );
+    if (o.secrets !== false)
+      await hx.services.secrets.save({
+        scope: { repoId: hx.added.id },
+        name: 'DB',
+        givenTo: ['run'],
+        values: {
+          development: { value: DB_VALUE },
+          production: { value: PROD_VALUE },
+        },
+      });
+    const done = hx.setupDone();
+    const task = await hx.h['tasks:create'](
+      hx.input({ startClaude: true, openShell: false, commands: [] }),
+    );
+    await done;
+    const claude = () =>
+      hx.store.state.tasks
+        .find((t) => t.id === task.id)!
+        .terminals.find((d) => d.kind === 'claude')!;
+    const run = (name: string, args: string[] = []) => {
+      let text = '';
+      const code = runs.start(
+        task.id,
+        name,
+        args,
+        (c) => {
+          text += c;
+        },
+        { terminal: claude().id },
+      );
+      return { code, text: () => normaliseEol(text) };
+    };
+    return { ...hx, runs, task, run, contexts, envCalls, claude };
+  }
+
+  it('runs a named command in a visible agent tab with the secrets, and the agent gets it masked', async () => {
+    const hx = await runHarness();
+    const r = hx.run('show');
+    expect(await r.code).toBe(0);
+    expect(r.text()).toContain('db=[DB]');
+    expect(r.text()).not.toContain(DB_VALUE);
+    const tab = hx.store.state.tasks
+      .find((t) => t.id === hx.task.id)!
+      .terminals.find((d) => d.label === 'agent · show')!;
+    expect(tab).toMatchObject({ kind: 'run' });
+    // The tab itself is the developer's: it shows what ran.
+    expect(hx.terminals.buffer(tab.id)).toContain(`db=${DB_VALUE}`);
+    // The agent tab that asked is told a value showed up.
+    expect(
+      hx.broadcasts.some(
+        (b) =>
+          b.event === 'terminal:leak' &&
+          (b.payload as { id: string }).id === hx.claude().id,
+      ),
+    ).toBe(true);
+    expect(JSON.stringify(hx.broadcasts)).not.toContain(DB_VALUE);
+    // A second run reuses the tab.
+    expect(await hx.run('show').code).toBe(0);
+    expect(
+      hx.store.state.tasks
+        .find((t) => t.id === hx.task.id)!
+        .terminals.filter((d) => d.label === 'agent · show'),
+    ).toHaveLength(1);
+    await hx.terminals.killAllForTask(hx.task.id);
+  });
+
+  it('passes arguments as arguments, never through a shell line', async () => {
+    const hx = await runHarness();
+    const r = hx.run('list', ['a b', '$(echo pwned)', "it's; echo no"]);
+    expect(await r.code).toBe(0);
+    expect(r.text()).toContain("a b\n$(echo pwned)\nit's; echo no\n");
+    expect(r.text()).not.toContain('pwned\npwned');
+    await hx.terminals.killAllForTask(hx.task.id);
+  });
+
+  it('returns the exit code and refuses names that are not in the list', async () => {
+    const hx = await runHarness();
+    expect(await hx.run('fail').code).toBe(3);
+    const refused = hx.run('printenv');
+    expect(await refused.code).toBe(1);
+    expect(refused.text()).toBe(
+      'Unknown command "printenv". Commands for shellie run: show, list, fail\n',
+    );
+    await hx.terminals.killAllForTask(hx.task.id);
+  });
+
+  it('waits for an approve on Production; a refuse returns 1 and starts nothing', async () => {
+    const hx = await runHarness();
+    await hx.h['tasks:setEnvironment'](hx.task.id, 'production', true);
+    const r = hx.run('show');
+    await vi.waitFor(async () =>
+      expect(await hx.h['runs:pending']()).toHaveLength(1),
+    );
+    const [p] = await hx.h['runs:pending']();
+    expect(p).toMatchObject({
+      taskId: hx.task.id,
+      name: 'show',
+      environment: 'production',
+    });
+    expect(hx.broadcasts.some((b) => b.event === 'runs:pending')).toBe(true);
+    await hx.h['runs:approve'](p!.id, false);
+    expect(await r.code).toBe(1);
+    expect(r.text()).toContain('Not approved in Shellie');
+    expect(
+      hx.store.state.tasks
+        .find((t) => t.id === hx.task.id)!
+        .terminals.some((d) => d.label === 'agent · show'),
+    ).toBe(false);
+    // Approved, it runs with the Production value, masked for the agent.
+    const ok = hx.run('show');
+    await vi.waitFor(async () =>
+      expect(await hx.h['runs:pending']()).toHaveLength(1),
+    );
+    await hx.h['runs:approve']((await hx.h['runs:pending']())[0]!.id, true);
+    expect(await ok.code).toBe(0);
+    expect(ok.text()).toContain('db=[DB]');
+    expect(ok.text()).not.toContain(PROD_VALUE);
+    await hx.terminals.killAllForTask(hx.task.id);
+  });
+
+  it('ends a run when its tab is stopped in Shellie', async () => {
+    const hx = await runHarness();
+    writeFileSync(
+      path.join(hx.repo, '.shellie.yml'),
+      `run:\n  wait: ${JSON.stringify(sleepCmd(30))}\n`,
+    );
+    const r = hx.run('wait');
+    let tab: string | undefined;
+    await vi.waitFor(() => {
+      tab = hx.store.state.tasks
+        .find((t) => t.id === hx.task.id)!
+        .terminals.find((d) => d.label === 'agent · wait')?.id;
+      expect(tab && hx.terminals.isRunning(tab)).toBe(true);
+    });
+    await hx.h['terminals:stop'](tab!);
+    expect(await r.code).toBe(1);
+    expect(r.text()).toContain('Stopped in Shellie');
+    await hx.terminals.killAllForTask(hx.task.id);
+  });
+
+  it("tells Claude the names when the repo has a stored secret, and gives agent tabs' env the task", async () => {
+    const hx = await runHarness();
+    expect(hx.contexts.at(-1)).toContain(
+      'run through `shellie run <name>`; available: show, list, fail. Plain commands in your shell run without secrets.',
+    );
+    expect(hx.envCalls.find((c) => c.kind === 'claude')).toEqual({
+      kind: 'claude',
+      taskId: hx.task.id,
+      runNames: ['show', 'list', 'fail'],
+    });
+    await hx.terminals.killAllForTask(hx.task.id);
+    const plain = await runHarness({ secrets: false });
+    expect(plain.contexts.at(-1)).not.toContain('shellie run');
+    expect(plain.envCalls.find((c) => c.kind === 'claude')).toEqual({
+      kind: 'claude',
+      taskId: plain.task.id,
+    });
+    await plain.terminals.killAllForTask(plain.task.id);
   });
 });

@@ -161,3 +161,23 @@ describe('opencodeConfigContent', () => {
     expect(opencodeConfigContent('[1]', '/p.js')).toBeUndefined();
   });
 });
+
+describe('opencodeConfigContent instructions', () => {
+  it("adds the shellie run instructions file next to the developer's own", () => {
+    expect(
+      JSON.parse(opencodeConfigContent(undefined, '/p.js', '/run.md')!),
+    ).toEqual({ plugin: ['/p.js'], instructions: ['/run.md'] });
+    expect(
+      JSON.parse(
+        opencodeConfigContent(
+          '{"instructions":["AGENTS.md"]}',
+          '/p.js',
+          '/run.md',
+        )!,
+      ),
+    ).toEqual({ plugin: ['/p.js'], instructions: ['AGENTS.md', '/run.md'] });
+    expect(opencodeConfigContent(undefined, '/p.js')).toBe(
+      '{"plugin":["/p.js"]}',
+    );
+  });
+});
