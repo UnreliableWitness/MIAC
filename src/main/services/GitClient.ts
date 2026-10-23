@@ -243,6 +243,19 @@ export class GitClient {
         env: ctx.auth.env,
       });
     } catch (e) {
+      if (e instanceof GitError && /couldn't find remote ref/i.test(e.stderr)) {
+        const fallback = await this.defaultBaseRef(cwd);
+        const real = fallback.startsWith(`${split.remote}/`)
+          ? fallback.slice(split.remote.length + 1)
+          : null;
+        const friendly = new GitError(e.args, e.stderr, e.code, e);
+        friendly.message =
+          `${split.remote} has no branch '${split.branch}'.` +
+          (real && real !== split.branch
+            ? ` This repo's default branch is '${real}'; set \`base: ${real}\` in .shellie.yml.`
+            : ' Set `base:` in .shellie.yml to a branch that exists there.');
+        throw friendly;
+      }
       throw this.signInError(e, cwd, split.remote, ctx, (g) => g.message);
     }
     return true;

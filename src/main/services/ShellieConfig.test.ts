@@ -1,7 +1,9 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, describe, expect, it } from 'vitest';
+import { cleanupTempRepos, git, makeRepo } from '../test-helpers/gitRepo';
+import { GitClient } from './GitClient';
 import { loadShellieConfig, ShellieConfigError } from './ShellieConfig';
 
 const tmpDirs: string[] = [];
@@ -188,5 +190,48 @@ describe('loadShellieConfig', () => {
     const dir = repo();
     writeFileSync(path.join(dir, '.miac.yml'), 'nope: 1\n');
     await expect(loadShellieConfig(dir)).rejects.toThrow(/\.miac\.yml/);
+  });
+});
+
+describe('default base branch (#120)', () => {
+  // A repo whose only branch, and origin's default, is `master`.
+  const masterRepo = () => {
+    const r = makeRepo('old');
+    git(r, 'branch', '-m', 'master');
+    const root = path.dirname(r);
+    git(root, 'init', '-q', '--bare', '-b', 'master', 'origin.git');
+    git(r, 'remote', 'add', 'origin', path.join(root, 'origin.git'));
+    git(r, 'push', '-q', '-u', 'origin', 'master');
+    git(r, 'remote', 'set-head', 'origin', 'master');
+    return r;
+  };
+  afterAll(cleanupTempRepos);
+
+  it('uses the repo default branch when there is no .shellie.yml', async () => {
+    const c = await loadShellieConfig(masterRepo());
+    expect(c.base).toBe('master');
+    expect(`origin/${c.base}`).toBe('origin/master');
+  });
+
+  it('uses it when the file does not set base', async () => {
+    const r = masterRepo();
+    writeFileSync(path.join(r, '.shellie.yml'), 'setup: npm ci\n');
+    expect((await loadShellieConfig(r)).base).toBe('master');
+  });
+
+  it('keeps an explicit base', async () => {
+    const r = masterRepo();
+    writeFileSync(path.join(r, '.shellie.yml'), 'base: develop\n');
+    expect((await loadShellieConfig(r)).base).toBe('develop');
+  });
+
+  it('lets setup fetch the detected base, and explains a missing one', async () => {
+    const r = masterRepo();
+    const c = await loadShellieConfig(r);
+    const client = new GitClient();
+    expect(await client.fetch(r, `origin/${c.base}`)).toBe(true);
+    await expect(client.fetch(r, 'origin/main')).rejects.toThrow(
+      /origin has no branch 'main'.*default branch is 'master'.*base: master/,
+    );
   });
 });
