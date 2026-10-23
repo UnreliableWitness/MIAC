@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   argsRefusal,
-  packageScript,
+  packageScripts,
   packageScriptName,
   withScriptSeparator,
 } from './runArgs';
@@ -37,6 +37,9 @@ describe('argsRefusal', () => {
       'run {',
       'npm run a;  \n',
       'npm ci\nnpm run a #',
+      'npm run a >',
+      'npm run a 2>',
+      'npm run a <',
       // Any # outside quotes, to be safe.
       'echo a#b',
     ])
@@ -104,20 +107,36 @@ describe('packageScriptName', () => {
   });
 });
 
-describe('packageScript', () => {
+describe('packageScripts', () => {
   let dir = '';
   afterEach(async () => {
     if (dir) await fs.rm(dir, { recursive: true, force: true });
   });
-  it("reads the worktree's script text", async () => {
+  it("reads the worktree's script with the pre and post scripts that run around it", async () => {
     dir = await fs.mkdtemp(path.join(os.tmpdir(), 'shellie-script-'));
     await fs.writeFile(
       path.join(dir, 'package.json'),
-      JSON.stringify({ scripts: { test: 'vitest run' } }),
+      JSON.stringify({
+        scripts: {
+          pretest: 'node leak.js',
+          test: 'vitest run',
+          posttest: 'echo done',
+          lint: 'eslint .',
+          prebuild: 'x',
+        },
+      }),
     );
-    expect(await packageScript(dir, 'npm test')).toBe('vitest run');
-    expect(await packageScript(dir, 'npm run lint')).toBeNull();
-    expect(await packageScript(dir, 'dotnet test')).toBeNull();
-    expect(await packageScript(path.join(dir, 'nope'), 'npm test')).toBeNull();
+    expect(await packageScripts(dir, 'npm test')).toEqual([
+      { name: 'pretest', text: 'node leak.js' },
+      { name: 'test', text: 'vitest run' },
+      { name: 'posttest', text: 'echo done' },
+    ]);
+    expect(await packageScripts(dir, 'npm run lint')).toEqual([
+      { name: 'lint', text: 'eslint .' },
+    ]);
+    // npm stops at a missing script: its pre script never runs.
+    expect(await packageScripts(dir, 'npm run build')).toBeNull();
+    expect(await packageScripts(dir, 'dotnet test')).toBeNull();
+    expect(await packageScripts(path.join(dir, 'nope'), 'npm test')).toBeNull();
   });
 });

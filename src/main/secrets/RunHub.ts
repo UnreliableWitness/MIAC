@@ -7,7 +7,7 @@ import {
 } from '../../shared/secrets';
 import type { ShellieConfig } from '../../shared/types';
 import { errorMessage } from '../../shared/errors';
-import { argsRefusal, packageScript, withScriptSeparator } from './runArgs';
+import { argsRefusal, packageScripts, withScriptSeparator } from './runArgs';
 
 /** The start of the last line of a `/v1/run` response: `\0exit:<code>`. Output never holds a NUL. */
 export const RUN_EXIT = '\u0000exit:';
@@ -282,13 +282,13 @@ export class RunHub {
     void (async () => {
       if (isGuarded(spec.environment)) {
         const ws = task.workspaces.find((w) => w.id === spec.workspaceId);
-        // What `npm test` really runs: the worktree's script, which the agent can change.
-        const script =
+        // What `npm test` really runs: the worktree's scripts (pre and post too), which the agent can change.
+        const scripts =
           spec.command && ws
-            ? await packageScript(ws.worktreePath, spec.command)
+            ? await packageScripts(ws.worktreePath, spec.command)
             : null;
         if (!this.runs.has(run)) return;
-        const ok = await this.approval(taskId, spec, script, run, o.signal);
+        const ok = await this.approval(taskId, spec, scripts, run, o.signal);
         if (!this.runs.has(run)) return;
         if (ok !== true) {
           if (typeof ok === 'string') run.finish(1, ok);
@@ -368,7 +368,7 @@ export class RunHub {
   private approval(
     taskId: string,
     spec: RunSpec,
-    script: string | null,
+    scripts: { name: string; text: string }[] | null,
     run: Running,
     signal: AbortSignal | undefined,
   ): Promise<boolean | string> {
@@ -390,7 +390,7 @@ export class RunHub {
         command: spec.setupCommands
           ? spec.setupCommands.join(' && ')
           : (spec.command ?? ''),
-        ...(script !== null ? { script } : {}),
+        ...(scripts !== null ? { scripts } : {}),
         args: spec.args,
         environment: spec.environment,
         decide: done,

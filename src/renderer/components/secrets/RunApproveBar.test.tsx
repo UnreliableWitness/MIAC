@@ -44,17 +44,45 @@ describe('RunApproveBar', () => {
   it('shows the script npm test really runs and that the worktree can change it', async () => {
     installFakeApi({
       'runs:pending': () => [
-        run({ script: 'vitest run', args: ['--', '--watch=false'] }),
+        run({
+          scripts: [
+            { name: 'pretest', text: 'node pre.js' },
+            { name: 'test', text: 'vitest run' },
+            { name: 'posttest', text: 'echo done' },
+          ],
+          args: ['--', '--watch=false'],
+        }),
       ],
     });
     render(<RunApproveBar taskId="t1" />);
     const bar = await screen.findByRole('alert');
     expect(within(bar).getByText('npm test -- --watch=false')).toBeTruthy();
-    expect(within(bar).getByText('vitest run')).toBeTruthy();
-    expect(bar).toHaveTextContent('runs the script');
+    expect(within(bar).getByText('pretest: node pre.js')).toBeTruthy();
+    expect(within(bar).getByText('test: vitest run')).toBeTruthy();
+    expect(within(bar).getByText('posttest: echo done')).toBeTruthy();
+    expect(bar).toHaveTextContent('runs the scripts');
     expect(bar).toHaveTextContent(
       'Files in this worktree changed since the base can change what this runs.',
     );
+  });
+
+  it('marks bidi override and isolate characters in what it shows', async () => {
+    installFakeApi({
+      'runs:pending': () => [
+        run({
+          command: 'npm run a\u202e',
+          scripts: [{ name: 'a', text: 'echo ok \u2066# hidden\u2069' }],
+          args: [],
+        }),
+      ],
+    });
+    render(<RunApproveBar taskId="t1" />);
+    const bar = await screen.findByRole('alert');
+    expect(bar.textContent).not.toMatch(/[\u202a-\u202e\u2066-\u2069]/);
+    expect(within(bar).getByText('npm run a<U+202E>')).toBeTruthy();
+    expect(
+      within(bar).getByText('a: echo ok <U+2066># hidden<U+2069>'),
+    ).toBeTruthy();
   });
 
   it('shows the full command of a run: entry', async () => {
@@ -66,7 +94,7 @@ describe('RunApproveBar', () => {
     render(<RunApproveBar taskId="t1" />);
     const bar = await screen.findByRole('alert');
     expect(within(bar).getByText('node tools/seed.mjs --all')).toBeTruthy();
-    expect(bar).not.toHaveTextContent('runs the script');
+    expect(bar).not.toHaveTextContent('runs the scripts');
   });
 
   it('approves or refuses through main', async () => {

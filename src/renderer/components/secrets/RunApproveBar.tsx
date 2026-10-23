@@ -4,19 +4,28 @@ import { ENVIRONMENT_LABEL, type PendingRun } from '../../../shared/secrets';
 import { api, tryInvoke } from '../../api';
 import { useStore } from '../../store';
 
+/** Bidi overrides and isolates (U+202A-U+202E, U+2066-U+2069) shown as `<U+202E>`: they can make text read differently. */
+const visible = (text: string) =>
+  text.replace(
+    /[\u202a-\u202e\u2066-\u2069]/g,
+    (c) => `<U+${c.codePointAt(0)!.toString(16).toUpperCase()}>`,
+  );
+
 /** The command line as the developer reads it: arguments with spaces or quotes shown quoted. */
 const commandLine = (r: PendingRun) =>
-  [
-    r.command,
-    ...r.args.map((a) => (/[\s"']|^$/.test(a) ? JSON.stringify(a) : a)),
-  ]
-    .filter((p) => p !== '')
-    .join(' ');
+  visible(
+    [
+      r.command,
+      ...r.args.map((a) => (/[\s"']|^$/.test(a) ? JSON.stringify(a) : a)),
+    ]
+      .filter((p) => p !== '')
+      .join(' '),
+  );
 
 /**
  * On UAT and Production every `shellie run` waits here: which named command an agent asks to run, with which
  * arguments and secrets, and Approve or Refuse. A refuse tells the agent "Not approved in Shellie". It shows what
- * really runs (the package.json script behind `npm test`), since an agent can edit that script in the worktree.
+ * really runs (the package.json scripts behind `npm test`, pre and post too), since an agent can edit that script in the worktree.
  */
 export function RunApproveBar({ taskId }: { taskId: string }) {
   const notify = useStore((s) => s.notify);
@@ -65,10 +74,14 @@ export function RunApproveBar({ taskId }: { taskId: string }) {
             {`An agent asks to run ${r.name} with ${ENVIRONMENT_LABEL[r.environment]} secrets`}
           </span>
           <code className="run-approve-command">{commandLine(r)}</code>
-          {r.script !== undefined && (
+          {r.scripts !== undefined && (
             <>
-              <span>runs the script</span>
-              <code className="run-approve-command">{r.script}</code>
+              <span>runs the scripts</span>
+              {r.scripts.map((sc) => (
+                <code key={sc.name} className="run-approve-command">
+                  {visible(`${sc.name}: ${sc.text}`)}
+                </code>
+              ))}
             </>
           )}
           <span className="spacer" />

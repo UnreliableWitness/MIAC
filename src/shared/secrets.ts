@@ -194,8 +194,11 @@ export type PendingRun = {
   name: string;
   /** What runs: the command line from .shellie.yml, or the setup commands. */
   command: string;
-  /** For `npm test`, `npm run <x>` and the like: the worktree package.json's script text, what really runs. */
-  script?: string;
+  /**
+   * For `npm test`, `npm run <x>` and the like: the worktree package.json's scripts that run, in order (`pretest`,
+   * `test`, `posttest`), what really runs.
+   */
+  scripts?: { name: string; text: string }[];
   /** Extra arguments the agent passed after `--`. */
   args: string[];
   environment: Environment;

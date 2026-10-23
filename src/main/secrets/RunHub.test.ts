@@ -459,14 +459,19 @@ describe('RunHub approvals (UAT and Production)', () => {
     try {
       await fs.writeFile(
         path.join(home, 'package.json'),
-        JSON.stringify({ scripts: { test: 'vitest run' } }),
+        JSON.stringify({
+          scripts: { pretest: 'node pre.js', test: 'vitest run' },
+        }),
       );
       const { pending, run, waiting } = setup({ environment: 'uat', home });
       void run('test', ['--watch']);
       await waiting();
       expect(pending.at(-1)![0]).toMatchObject({
         command: 'npm test',
-        script: 'vitest run',
+        scripts: [
+          { name: 'pretest', text: 'node pre.js' },
+          { name: 'test', text: 'vitest run' },
+        ],
         args: ['--', '--watch'],
       });
     } finally {

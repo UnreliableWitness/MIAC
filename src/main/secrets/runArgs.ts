@@ -27,8 +27,8 @@ function hasUnquotedHash(line: string): boolean {
 const CMD_META = /[&|<>^%!"\r\n]/;
 
 /**
- * Why the arguments cannot go after `command` (null when they can): its last line ends in an operator, a line
- * continuation or an opening bracket, or has a comment, so they would become a command or vanish; on Windows an
+ * Why the arguments cannot go after `command` (null when they can): its last line ends in an operator, a redirect,
+ * a line continuation or an opening bracket, or has a comment, so they would become a command or vanish; on Windows an
  * argument with cmd.exe metacharacters. The message names the command only, never an argument.
  */
 export function argsRefusal(
@@ -39,7 +39,7 @@ export function argsRefusal(
 ): string | null {
   if (args.length === 0) return null;
   const last = command.trimEnd().split(/\r?\n/).at(-1)!.trim();
-  if (/[;&|({\\]$/.test(last) || hasUnquotedHash(last))
+  if (/[;&|({\\<>]$/.test(last) || hasUnquotedHash(last))
     return `${name} takes no extra arguments in Shellie: its command line ends in an operator or comment`;
   if (platform === 'win32' && args.some((a) => CMD_META.test(a)))
     return 'On Windows an argument for shellie run cannot hold & | < > ^ % ! " or a line break';
@@ -74,11 +74,15 @@ export function withScriptSeparator(
   return ['--', ...args];
 }
 
-/** The text of the package.json script `command` runs, from the worktree (what really runs), else null. */
-export async function packageScript(
+/**
+ * The package.json scripts `command` runs, from the worktree (what really runs): `pre<x>`, `<x>` and `post<x>` in
+ * order, those that exist. npm runs the pre and post scripts; pnpm and yarn may not, and showing them is the safe
+ * side. Null when the command is no script or the script is missing (npm then runs nothing).
+ */
+export async function packageScripts(
   worktreePath: string,
   command: string,
-): Promise<string | null> {
+): Promise<{ name: string; text: string }[] | null> {
   const name = packageScriptName(command);
   if (name === null) return null;
   try {
@@ -87,9 +91,16 @@ export async function packageScript(
     );
     const scripts =
       isRecord(pkg) && isRecord(pkg.scripts) ? pkg.scripts : undefined;
-    const script =
-      scripts && Object.hasOwn(scripts, name) ? scripts[name] : undefined;
-    return typeof script === 'string' ? script : null;
+    if (!scripts) return null;
+    const text = (n: string) => {
+      const v = Object.hasOwn(scripts, n) ? scripts[n] : undefined;
+      return typeof v === 'string' ? v : null;
+    };
+    if (text(name) === null) return null;
+    return [`pre${name}`, name, `post${name}`].flatMap((n) => {
+      const t = text(n);
+      return t === null ? [] : [{ name: n, text: t }];
+    });
   } catch {
     // No package.json, or not JSON.
     return null;
