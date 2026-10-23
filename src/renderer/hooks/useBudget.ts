@@ -1,15 +1,19 @@
 import { useEffect, useState } from 'react';
+import type { Vendor } from '../../shared/budget';
 import type { BudgetView } from '../../shared/budgetView';
 import { api } from '../api';
 
-export function useBudget(monthOffset: number): BudgetView | null {
+export function useBudget(
+  vendor: Vendor,
+  monthOffset: number,
+): BudgetView | null {
   const [view, setView] = useState<BudgetView | null>(null);
   useEffect(() => {
     let live = true;
     setView(null);
     const load = () =>
       api()
-        .invoke('budget:get', 'claude', monthOffset)
+        .invoke('budget:get', vendor, monthOffset)
         .then((v) => live && setView(v))
         .catch(() => undefined);
     void load();
@@ -18,6 +22,6 @@ export function useBudget(monthOffset: number): BudgetView | null {
       live = false;
       off();
     };
-  }, [monthOffset]);
+  }, [vendor, monthOffset]);
   return view;
 }

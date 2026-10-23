@@ -430,7 +430,7 @@ export function SettingsScreen() {
           <a href="#ado">Connections</a>
           <a href="#cost">AI cost and invoicing</a>
           <a href="#time">Time tracking</a>
-          <a href="#claude-budget">Claude budget</a>
+          <a href="#budgets">Budgets</a>
           <a href="#appearance">Appearance</a>
           <a href="#terminals">Agents and terminals</a>
         </nav>

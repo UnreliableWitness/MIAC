@@ -50,7 +50,7 @@ export type BudgetView = {
   weekEur: number;
   /** Share of spentEur spent outside Shellie, 0-1. */
   outsideShare: number;
-  /** Usage in another budget or in none, by provider and model. */
+  /** Usage in no budget (no vendor), by provider and model. */
   notCounted: {
     model: string;
     provider: string;
@@ -68,7 +68,7 @@ const round6 = (n: number) => Math.round(n * 1e6) / 1e6;
 
 export function budgetView(input: {
   days: Record<string, BudgetRow[]>;
-  /** The budget to show: its rows are counted, every other row is listed as not counted. */
+  /** The budget to show: its rows are counted; rows of no vendor are listed as not counted, the other vendor's rows are left out. */
   vendor: Vendor;
   settings: BudgetSettings;
   now: Date;
@@ -112,6 +112,8 @@ export function budgetView(input: {
       const tokens = tokensOf(row);
       const model = label(row.model);
       if (row.vendor !== input.vendor) {
+        // Another vendor's usage has its own band; only usage in no budget is listed.
+        if (row.vendor !== null) continue;
         const k = `${row.provider}|${model}`;
         const e = notCounted.get(k) ?? {
           model,

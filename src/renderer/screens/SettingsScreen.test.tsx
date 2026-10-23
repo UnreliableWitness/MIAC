@@ -570,17 +570,15 @@ describe('SettingsScreen', () => {
     await waitFor(() => expect(about).toHaveTextContent('1.0.0'));
   });
 
-  it('has a Claude budget entry in the side nav after Time tracking', () => {
+  it('has a Budgets entry in the side nav after Time tracking', () => {
     installFakeApi();
     render(<SettingsScreen />);
     const nav = screen.getByRole('navigation', { name: 'Settings sections' });
     const links = [...nav.querySelectorAll('a')].map((a) => a.textContent);
-    expect(links.indexOf('Claude budget')).toBe(
-      links.indexOf('Time tracking') + 1,
-    );
-    expect(screen.getByRole('link', { name: 'Claude budget' })).toHaveAttribute(
+    expect(links.indexOf('Budgets')).toBe(links.indexOf('Time tracking') + 1);
+    expect(screen.getByRole('link', { name: 'Budgets' })).toHaveAttribute(
       'href',
-      '#claude-budget',
+      '#budgets',
     );
   });
 
@@ -592,13 +590,11 @@ describe('SettingsScreen', () => {
     proto.scrollIntoView = scroll;
     try {
       useStore.setState({
-        screen: { kind: 'settings', section: 'claude-budget' },
+        screen: { kind: 'settings', section: 'budgets' },
       });
       const { container } = render(<SettingsScreen />);
       await waitFor(() => expect(scroll).toHaveBeenCalled());
-      expect(scroll.mock.contexts[0]).toBe(
-        container.querySelector('#claude-budget'),
-      );
+      expect(scroll.mock.contexts[0]).toBe(container.querySelector('#budgets'));
     } finally {
       proto.scrollIntoView = original;
     }
@@ -626,7 +622,7 @@ describe('SettingsScreen', () => {
     } as unknown as typeof ResizeObserver;
     try {
       useStore.setState({
-        screen: { kind: 'settings', section: 'claude-budget' },
+        screen: { kind: 'settings', section: 'budgets' },
       });
       const { container } = render(<SettingsScreen />);
       await waitFor(() => expect(scroll).toHaveBeenCalled());
@@ -635,7 +631,7 @@ describe('SettingsScreen', () => {
       [...callbacks].forEach((cb) => cb());
       expect(scroll.mock.calls.length).toBe(before + 1);
       expect(scroll.mock.contexts.at(-1)).toBe(
-        container.querySelector('#claude-budget'),
+        container.querySelector('#budgets'),
       );
       window.dispatchEvent(new Event('wheel'));
       [...callbacks].forEach((cb) => cb());

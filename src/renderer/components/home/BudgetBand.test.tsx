@@ -1,5 +1,11 @@
 import { useStore } from '../../store';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { BudgetView } from '../../../shared/budgetView';
 import { installFakeApi } from '../../test-helpers/fakeApi';
@@ -35,7 +41,7 @@ const view = (o: Partial<BudgetView> = {}): BudgetView => ({
 describe('BudgetBand', () => {
   it('shows spend of budget and an on-track forecast', async () => {
     installFakeApi({ 'budget:get': () => view() });
-    render(<BudgetBand />);
+    render(<BudgetBand vendor="claude" />);
     expect(await screen.findByText('€312.00')).toBeTruthy();
     expect(screen.getByText('of €500.00')).toBeTruthy();
     expect(screen.getByText('On track: about €470.00 by Oct 31')).toBeTruthy();
@@ -46,7 +52,7 @@ describe('BudgetBand', () => {
 
   it('shows today against its daily allowance', async () => {
     installFakeApi({ 'budget:get': () => view() });
-    const { container } = render(<BudgetBand />);
+    const { container } = render(<BudgetBand vendor="claude" />);
     expect(await screen.findByText('€14.00')).toBeTruthy();
     expect(screen.getByText('today of €20.00')).toBeTruthy();
     expect(screen.getByText('€6.00 left today')).toBeTruthy();
@@ -57,7 +63,7 @@ describe('BudgetBand', () => {
     installFakeApi({
       'budget:get': () => view({ todayEur: 26.5, todayAllowanceEur: 20 }),
     });
-    const { container } = render(<BudgetBand />);
+    const { container } = render(<BudgetBand vendor="claude" />);
     expect(await screen.findByText('€6.50 over today')).toBeTruthy();
     expect(container.querySelector('.budget-today.is-over')).toBeTruthy();
   });
@@ -67,7 +73,7 @@ describe('BudgetBand', () => {
       'budget:get': () =>
         view({ budgetEur: null, status: 'none', todayAllowanceEur: null }),
     });
-    render(<BudgetBand />);
+    render(<BudgetBand vendor="claude" />);
     expect(await screen.findByText('€14.00')).toBeTruthy();
     expect(screen.getByText('today')).toBeTruthy();
     expect(screen.queryByText(/left today|over today/)).toBeNull();
@@ -80,7 +86,7 @@ describe('BudgetBand', () => {
           ? view({ monthOffset: offset, todayEur: 0, todayAllowanceEur: null })
           : view(),
     });
-    const { container } = render(<BudgetBand />);
+    const { container } = render(<BudgetBand vendor="claude" />);
     fireEvent.click(
       await screen.findByRole('button', { name: 'Previous month' }),
     );
@@ -92,7 +98,7 @@ describe('BudgetBand', () => {
     installFakeApi({
       'budget:get': () => view({ status: 'paceOver', forecastEur: 510 }),
     });
-    render(<BudgetBand />);
+    render(<BudgetBand vendor="claude" />);
     expect(
       await screen.findByText('On pace for €510.00, €10.00 over'),
     ).toBeTruthy();
@@ -103,7 +109,7 @@ describe('BudgetBand', () => {
       'budget:get': () =>
         view({ status: 'over', spentEur: 530, forecastEur: 800 }),
     });
-    render(<BudgetBand />);
+    render(<BudgetBand vendor="claude" />);
     expect(await screen.findByText('Over budget by €30.00')).toBeTruthy();
   });
 
@@ -111,24 +117,18 @@ describe('BudgetBand', () => {
     installFakeApi({
       'budget:get': () => view({ budgetEur: null, status: 'none' }),
     });
-    render(<BudgetBand />);
+    render(<BudgetBand vendor="claude" />);
     expect(await screen.findByText('€312.00 this month')).toBeTruthy();
     expect(
       screen.getByRole('button', { name: 'Set a monthly budget' }),
     ).toBeTruthy();
   });
 
-  it('lists not-counted and unpriced usage', async () => {
+  it('lists usage in no budget and unpriced usage', async () => {
     installFakeApi({
       'budget:get': () =>
         view({
           notCounted: [
-            {
-              model: 'Claude Sonnet 4.6 / 4.5 / 4',
-              provider: 'github-copilot',
-              requests: 59,
-              tokens: 700_000,
-            },
             {
               model: 'gpt-claude-ish',
               provider: 'openai',
@@ -139,17 +139,62 @@ describe('BudgetBand', () => {
           unpriced: [{ model: 'claude-mystery-9', tokens: 2_000, requests: 2 }],
         }),
     });
-    render(<BudgetBand />);
+    render(<BudgetBand vendor="claude" />);
     expect(
       await screen.findByText(
-        'Not counted: Claude Sonnet 4.6 / 4.5 / 4 via GitHub Copilot, 59 requests',
+        'Not in a budget: gpt-claude-ish via OpenAI, 1 requests',
       ),
     ).toBeTruthy();
     expect(
-      screen.getByText('Not counted: gpt-claude-ish via OpenAI, 1 requests'),
-    ).toBeTruthy();
-    expect(
       screen.getByText('Unpriced: claude-mystery-9, 2k tokens'),
+    ).toBeTruthy();
+  });
+
+  it('titles the Copilot band', async () => {
+    const { calls } = installFakeApi({ 'budget:get': () => view() });
+    render(<BudgetBand vendor="copilot" />);
+    expect(
+      await screen.findByRole('heading', { name: 'Copilot budget' }),
+    ).toBeTruthy();
+    expect(calls.find((c) => c.channel === 'budget:get')?.args[0]).toBe(
+      'copilot',
+    );
+    expect(screen.getByLabelText(/GitHub Copilot list prices/)).toBeTruthy();
+  });
+
+  it('says in the Claude band that Copilot Claude counts elsewhere', async () => {
+    installFakeApi({ 'budget:get': () => view() });
+    render(<BudgetBand vendor="claude" />);
+    expect(
+      await screen.findByLabelText(
+        /through GitHub Copilot count in the Copilot budget/,
+      ),
+    ).toBeTruthy();
+  });
+
+  it('hides a Copilot band with no spend and no budget', async () => {
+    const { calls } = installFakeApi({
+      'budget:get': () =>
+        view({ spentEur: 0, budgetEur: null, status: 'none' }),
+    });
+    render(<BudgetBand vendor="copilot" />);
+    await waitFor(() =>
+      expect(calls.some((c) => c.channel === 'budget:get')).toBe(true),
+    );
+    await act(async () => {});
+    expect(
+      screen.queryByRole('heading', { name: 'Copilot budget' }),
+    ).toBeNull();
+  });
+
+  it('keeps the Claude band with no spend and no budget', async () => {
+    installFakeApi({
+      'budget:get': () =>
+        view({ spentEur: 0, budgetEur: null, status: 'none' }),
+    });
+    render(<BudgetBand vendor="claude" />);
+    expect(
+      await screen.findByRole('heading', { name: 'Claude budget' }),
     ).toBeTruthy();
   });
 
@@ -162,7 +207,7 @@ describe('BudgetBand', () => {
           models: [],
         }),
     });
-    render(<BudgetBand />);
+    render(<BudgetBand vendor="claude" />);
     expect(
       await screen.findByText(
         'No Claude Code or OpenCode usage found on this computer.',
@@ -178,7 +223,7 @@ describe('BudgetBand', () => {
           sources: { claudeCode: false, openCode: false },
         }),
     });
-    render(<BudgetBand />);
+    render(<BudgetBand vendor="claude" />);
     expect(await screen.findByText('Reading Claude usage…')).toBeTruthy();
     expect(
       screen.queryByText(
@@ -201,7 +246,7 @@ describe('BudgetBand', () => {
             })
           : view({ budgetEur: null, status: 'none' }),
     });
-    render(<BudgetBand />);
+    render(<BudgetBand vendor="claude" />);
     expect(await screen.findByText('€312.00 this month')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Previous month' }));
     expect(await screen.findByText('€2862.42 in Sep')).toBeTruthy();
@@ -211,7 +256,7 @@ describe('BudgetBand', () => {
     const { calls, tracked } = installFakeApi({
       'budget:get': (_vendor, offset) => view({ monthOffset: offset }),
     });
-    render(<BudgetBand />);
+    render(<BudgetBand vendor="claude" />);
     fireEvent.click(
       await screen.findByRole('button', { name: 'Previous month' }),
     );
@@ -236,7 +281,7 @@ describe('BudgetBand', () => {
     const { emit } = installFakeApi({
       'budget:get': () => view({ spentEur: spent }),
     });
-    render(<BudgetBand />);
+    render(<BudgetBand vendor="claude" />);
     expect(await screen.findByText('€1.00')).toBeTruthy();
     spent = 2;
     act(() => emit('budget:changed', {}));
@@ -255,7 +300,7 @@ describe('BudgetBand details', () => {
           ],
         }),
     });
-    const { container } = render(<BudgetBand />);
+    const { container } = render(<BudgetBand vendor="claude" />);
     await screen.findByText('€312.00');
     const titles = [
       ...container.querySelectorAll(
@@ -275,7 +320,7 @@ describe('BudgetBand details', () => {
           ],
         }),
     });
-    const { container } = render(<BudgetBand />);
+    const { container } = render(<BudgetBand vendor="claude" />);
     await screen.findByText('€312.00');
     const rects = container.querySelectorAll('[data-part="burn-hit"]');
     // 31 days on a 600 wide chart: points 20 apart, so day 1 spans -10..10.
@@ -299,7 +344,7 @@ describe('BudgetBand details', () => {
           ],
         }),
     });
-    const { container } = render(<BudgetBand />);
+    const { container } = render(<BudgetBand vendor="claude" />);
     await screen.findByText('€312.00');
     const outline = container.querySelector('[data-part="today-outline"]')!;
     expect(outline.getAttribute('stroke')).toBe('var(--text)');
@@ -320,7 +365,7 @@ describe('BudgetBand details', () => {
       'budget:get': () =>
         view({ days: [day('2026-10-18', false), day('2026-10-19', true)] }),
     });
-    const { container } = render(<BudgetBand />);
+    const { container } = render(<BudgetBand vendor="claude" />);
     await screen.findByText('€312.00');
     const groups = container.querySelectorAll('[data-part="day"]');
     expect(groups[0].querySelector('[data-part="today-outline"]')).toBeNull();
@@ -333,7 +378,7 @@ describe('BudgetBand details', () => {
     installFakeApi({
       'budget:get': () => view({ budgetEur: null, status: 'none' }),
     });
-    render(<BudgetBand />);
+    render(<BudgetBand vendor="claude" />);
     expect(await screen.findByText('About €470.00 by Oct 31')).toBeTruthy();
     expect(screen.queryByText(/On track/)).toBeNull();
   });
@@ -342,13 +387,13 @@ describe('BudgetBand details', () => {
     const { tracked } = installFakeApi({
       'budget:get': () => view({ budgetEur: null, status: 'none' }),
     });
-    render(<BudgetBand />);
+    render(<BudgetBand vendor="claude" />);
     fireEvent.click(
       await screen.findByRole('button', { name: 'Set a monthly budget' }),
     );
     expect(useStore.getState().screen).toEqual({
       kind: 'settings',
-      section: 'claude-budget',
+      section: 'budgets',
     });
     expect(
       tracked.some(
