@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import type { Notice } from '../../shared/types';
 import type { PendingUpdate } from '../../shared/ipc';
 import { api, tryInvoke } from '../api';
 import { useStore } from '../store';
@@ -73,22 +74,68 @@ function UpdateNotice() {
   );
 }
 
+export const NOTICE_MS = { info: 6000, warn: 10000, error: 12000 } as const;
+/** Messages longer than this get a 4-line clamp and a Show all toggle. */
+export const LONG_NOTICE = 200;
+
+function NoticeItem({ notice }: { notice: Notice }) {
+  const dismiss = useStore((s) => s.dismiss);
+  const [paused, setPaused] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const long = notice.message.length > LONG_NOTICE;
+
+  useEffect(() => {
+    if (paused || expanded) return;
+    const t = setTimeout(() => dismiss(notice.id), NOTICE_MS[notice.level]);
+    return () => clearTimeout(t);
+  }, [paused, expanded, notice.id, notice.level, dismiss]);
+
+  return (
+    <div
+      className={`notice notice-${notice.level}`}
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+      onFocus={() => setPaused(true)}
+      onBlur={() => setPaused(false)}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') dismiss(notice.id);
+      }}
+    >
+      <div className="notice-text">
+        <span
+          className={`notice-message${long && !expanded ? ' notice-clamped' : ''}`}
+        >
+          {notice.message}
+        </span>
+        {long && (
+          <button
+            type="button"
+            className="notice-toggle"
+            aria-expanded={expanded}
+            onClick={() => setExpanded((v) => !v)}
+          >
+            {expanded ? 'Show less' : 'Show all'}
+          </button>
+        )}
+      </div>
+      <button
+        type="button"
+        className="notice-close"
+        aria-label="Dismiss"
+        onClick={() => dismiss(notice.id)}
+      >
+        &times;
+      </button>
+    </div>
+  );
+}
+
 export function Notices() {
   const notices = useStore((s) => s.notices);
-  const dismiss = useStore((s) => s.dismiss);
   return (
     <div className="notices" role="status">
       {notices.map((n) => (
-        <div key={n.id} className={`notice notice-${n.level}`}>
-          <span>{n.message}</span>
-          <button
-            type="button"
-            aria-label="Dismiss"
-            onClick={() => dismiss(n.id)}
-          >
-            &times;
-          </button>
-        </div>
+        <NoticeItem key={n.id} notice={n} />
       ))}
       <UpdateNotice />
     </div>
