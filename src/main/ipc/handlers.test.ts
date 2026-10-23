@@ -12,12 +12,12 @@ import path from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { Events } from '../../shared/ipc';
 import type { CreateTaskInput, SetupEvent, Task } from '../../shared/types';
+import { TrackerRegistry } from '../trackers/TrackerRegistry';
 import {
   spawnFailure,
   type TerminalFailure,
   type TerminalKind,
 } from '../../shared/terminalFailure';
-import { AdoRegistry } from '../services/AdoRegistry';
 import { ConnectionStore, type TokenCrypto } from '../services/ConnectionStore';
 import { fakeCrypto } from '../test-helpers/fakeCrypto';
 import { startAdoServer, type AdoServer } from '../test-helpers/adoServer';
@@ -156,7 +156,7 @@ async function harness(
     terminals,
     repos: new RepoRegistry(store, git),
     connections,
-    ado: new AdoRegistry(connections),
+    trackers: new TrackerRegistry(connections),
     openExternal: async (url) => {
       opened.push(url);
     },
@@ -284,6 +284,25 @@ describe('handlers: attention', () => {
   });
 });
 
+describe('handlers: agents', () => {
+  it('detects once per launch and again with force', async () => {
+    let runs = 0;
+    const { h } = await harness(undefined, {
+      runProbe: async () => {
+        runs += 1;
+        return { code: 1, stdout: '' };
+      },
+    });
+    const first = await h['agents:detect']();
+    expect(first.agents.claude.found).toBe(false);
+    expect(runs).toBe(3);
+    expect(await h['agents:detect']()).toBe(first);
+    expect(runs).toBe(3);
+    await h['agents:detect'](true);
+    expect(runs).toBe(6);
+  });
+});
+
 describe('handlers: repos', () => {
   it('lists, picks and removes repos', async () => {
     const { h, added } = await harness();
@@ -298,6 +317,56 @@ describe('handlers: repos', () => {
     });
     await h['repos:remove'](added.id);
     expect(await h['repos:list']()).toEqual([]);
+  });
+
+  it('repos:config gives a repo kept in Shellie only the base branch it was added with', async () => {
+    const { h } = await harness();
+    const repo = await h['repos:add'](makeRepo('kept-in-shellie'), {
+      baseBranch: 'develop',
+    });
+    const cfg = await h['repos:config'](repo.id);
+    expect(cfg.config).toMatchObject({ found: false, base: 'develop' });
+  });
+});
+
+describe('handlers: repos:add / repos:inspect telemetry', () => {
+  it('reports wroteConfig and the inspected facts without paths', async () => {
+    const events: [string, unknown][] = [];
+    const { h } = await harness(fakeCrypto(), {
+      telemetry: {
+        ...NoopTelemetry,
+        event: (name, props) => events.push([name, props]),
+      },
+    });
+    const repo = makeRepo('fresh');
+    const inspected = await h['repos:inspect'](repo);
+    expect(inspected.proposal).toContain('base: "main"');
+    expect(events).toContainEqual([
+      'repo.inspected',
+      {
+        remote: 'none',
+        linked: false,
+        lockfile: 'none',
+        dotnet: false,
+        devScript: false,
+        apm: false,
+        existingConfig: false,
+      },
+    ]);
+    const added = await h['repos:add'](repo, {
+      writeConfig: inspected.proposal ?? undefined,
+    });
+    expect(added.configFound).toBe(true);
+    expect(events).toContainEqual([
+      'repo.added',
+      { repos: 2, wroteConfig: true },
+    ]);
+    const other = makeRepo('plain');
+    await h['repos:add'](other);
+    expect(events).toContainEqual([
+      'repo.added',
+      { repos: 3, wroteConfig: false },
+    ]);
   });
 });
 
@@ -2417,6 +2486,224 @@ describe('handlers: connections', () => {
   });
 });
 
+describe('handlers: connections:probe and connections:saveMany', () => {
+  const authFor = (pat: string) =>
+    `Basic ${Buffer.from(`:${pat}`).toString('base64')}`;
+  const routeOrg = (server: AdoServer, org = 'uw') => {
+    server.route('GET', `/${org}/_apis/connectionData`, {
+      body: {
+        authenticatedUser: {
+          providerDisplayName: 'Dries Hoebeke',
+          properties: { Account: { $value: 'dries@example.com' } },
+        },
+      },
+    });
+    server.route('GET', `/${org}/_apis/projects`, {
+      body: {
+        value: [
+          { id: 'p1', name: 'Shellie' },
+          { id: 'p2', name: 'Webshop' },
+          { id: 'p3', name: 'Infra' },
+        ],
+      },
+    });
+  };
+  const onStart = {
+    moveToInProgress: false,
+    assignToMe: true,
+    stateOverrides: {},
+  };
+
+  it('probe returns the user and the projects for a new token', async () => {
+    const { h, server } = await harness();
+    routeOrg(server);
+    expect(
+      await h['connections:probe']({
+        organizationUrl: `${server.url}/uw/`,
+        pat: ' secret-pat ',
+      }),
+    ).toEqual({
+      user: 'Dries Hoebeke',
+      uniqueName: 'dries@example.com',
+      projects: [
+        { id: 'p1', name: 'Shellie' },
+        { id: 'p2', name: 'Webshop' },
+        { id: 'p3', name: 'Infra' },
+      ],
+      canListProjects: true,
+    });
+    expect(server.requests.every((r) => r.auth === authFor('secret-pat'))).toBe(
+      true,
+    );
+    expect(await h['connections:list']()).toEqual([]);
+  });
+
+  it('probe signs in but cannot list projects on a 403 for projects alone', async () => {
+    const { h, server } = await harness();
+    routeOrg(server);
+    server.route('GET', '/uw/_apis/projects', { status: 403, body: {} });
+    expect(
+      await h['connections:probe']({
+        organizationUrl: `${server.url}/uw`,
+        pat: 'p',
+      }),
+    ).toMatchObject({
+      user: 'Dries Hoebeke',
+      projects: [],
+      canListProjects: false,
+    });
+  });
+
+  it('probe reports a refused token with its status only, never the URL or token', async () => {
+    const events: [string, unknown][] = [];
+    const { h, server } = await harness(fakeCrypto(), {
+      telemetry: {
+        ...NoopTelemetry,
+        event: (name, props) => events.push([name, props]),
+      },
+    });
+    server.route('GET', '/uw/_apis/connectionData', { status: 401, body: {} });
+    await expect(
+      h['connections:probe']({
+        organizationUrl: `${server.url}/uw`,
+        pat: 'bad',
+      }),
+    ).rejects.toThrow(/rejected the token/);
+    expect(events).toContainEqual(['connection.probeFailed', { status: 401 }]);
+  });
+
+  it("probe reuses a connection's stored token and organization when given its id", async () => {
+    const { h, server } = await harness();
+    routeHealthyOrg(server, 'uw');
+    routeOrg(server);
+    const c = await h['connections:save']({
+      organizationUrl: `${server.url}/uw`,
+      project: 'Shellie',
+      pat: 'stored-pat',
+    });
+    server.requests.length = 0;
+    const result = await h['connections:probe']({
+      organizationUrl: 'https://dev.azure.com/elsewhere',
+      connectionId: c.id,
+    });
+    expect(result.projects).toHaveLength(3);
+    expect(server.requests.length).toBeGreaterThan(0);
+    expect(server.requests.every((r) => r.auth === authFor('stored-pat'))).toBe(
+      true,
+    );
+  });
+
+  it('saveMany saves one connection per new project with the on-start options and skips existing ones', async () => {
+    const { h, server } = await harness();
+    routeOrg(server);
+    for (const p of ['Shellie', 'Webshop', 'Infra'])
+      server.route('GET', `/uw/_apis/projects/${p}`, { body: { name: p } });
+    const first = await h['connections:saveMany']({
+      organizationUrl: `${server.url}/uw`,
+      pat: 'secret-pat',
+      projects: ['Shellie', 'Webshop'],
+      workItemOnStart: onStart,
+      provider: 'azure-devops',
+    });
+    // The name is the organization; every screen shows the project next to it.
+    expect(first.map((c) => [c.name, c.project])).toEqual([
+      ['uw', 'Shellie'],
+      ['uw', 'Webshop'],
+    ]);
+    expect(first[0]).toMatchObject({
+      project: 'Shellie',
+      status: 'ok',
+      user: 'Dries Hoebeke',
+      userUniqueName: 'dries@example.com',
+      provider: 'azure-devops',
+      workItemOnStart: onStart,
+    });
+    server.requests.length = 0;
+    const again = await h['connections:saveMany']({
+      organizationUrl: `${server.url}/uw`,
+      connectionId: first[0].id,
+      projects: ['Shellie', 'Infra'],
+      workItemOnStart: onStart,
+      provider: 'azure-devops',
+    });
+    expect(again.map((c) => [c.name, c.project])).toEqual([['uw', 'Infra']]);
+    expect(server.requests.every((r) => r.auth === authFor('secret-pat'))).toBe(
+      true,
+    );
+    expect((await h['connections:list']()).map((c) => c.project)).toEqual([
+      'Shellie',
+      'Webshop',
+      'Infra',
+    ]);
+  });
+
+  it('clears a No-tracker choice once a connection is saved, and keeps it when nothing was saved', async () => {
+    const { h, server, settings } = await harness();
+    routeOrg(server);
+    server.route('GET', '/uw/_apis/projects/Shellie', {
+      body: { name: 'Shellie' },
+    });
+    const none = {
+      ...settings.get(),
+      onboarding: { ...settings.get().onboarding, tracker: 'none' as const },
+    };
+    await settings.save(none);
+    expect(
+      await h['connections:saveMany']({
+        organizationUrl: `${server.url}/uw`,
+        pat: 'p',
+        projects: [],
+        workItemOnStart: onStart,
+        provider: 'azure-devops',
+      }),
+    ).toEqual([]);
+    expect(settings.get().onboarding.tracker).toBe('none');
+    await h['connections:saveMany']({
+      organizationUrl: `${server.url}/uw`,
+      pat: 'p',
+      projects: ['Shellie'],
+      workItemOnStart: onStart,
+      provider: 'azure-devops',
+    });
+    expect(settings.get().onboarding.tracker).toBeNull();
+    expect(settings.get().onboarding.agentsCheckedAt).toBe(
+      none.onboarding.agentsCheckedAt,
+    );
+    await settings.save(none);
+    await h['connections:save']({
+      organizationUrl: `${server.url}/uw`,
+      project: 'Shellie',
+      pat: 'p',
+    });
+    expect(settings.get().onboarding.tracker).toBeNull();
+  });
+
+  it("repos:add copies the linked connection's on-start options into the repo", async () => {
+    const { h, server } = await harness();
+    routeOrg(server);
+    server.route('GET', '/uw/_apis/projects/Shellie', {
+      body: { name: 'Shellie' },
+    });
+    const [c] = await h['connections:saveMany']({
+      organizationUrl: `${server.url}/uw`,
+      pat: 'p',
+      projects: ['Shellie'],
+      workItemOnStart: onStart,
+      provider: 'azure-devops',
+    });
+    const repo = await h['repos:add'](makeRepo('onstart'), {
+      connectionId: c.id,
+    });
+    expect(repo.workItemOnStart).toEqual(onStart);
+    const unlinked = await h['repos:add'](makeRepo('onstart-none'));
+    expect(unlinked.workItemOnStart).toEqual({
+      moveToInProgress: true,
+      assignToMe: true,
+      stateOverrides: {},
+    });
+  });
+});
+
 describe('handlers: connection robustness', () => {
   it('validates before any network call', async () => {
     const { h, server } = await harness();
@@ -3123,7 +3410,7 @@ describe('handlers: work item on start', () => {
     });
     await hx.connections.setStatus(c.id, 'ok', 'Dries Hoebeke', 'me@x.com');
     await hx.h['repos:setConnection'](hx.added.id, c.id);
-    const client = hx.services.ado.client(c.id);
+    const client = hx.services.trackers.client(c.id);
     vi.spyOn(client, 'workItemForStart').mockResolvedValue({
       type: 'Task',
       state: 'To Do',
@@ -3258,7 +3545,7 @@ describe('handlers: finish with a pull request', () => {
     });
     await hx.h['repos:setConnection'](hx.added.id, c.id);
     vi.spyOn(hx.services.git, 'remoteUrl').mockResolvedValue(remote);
-    const client = hx.services.ado.client(c.id);
+    const client = hx.services.trackers.client(c.id);
     const repositoryId = vi
       .spyOn(client, 'repositoryId')
       .mockResolvedValue('repo-1');
@@ -3679,7 +3966,7 @@ describe('handlers: finish with a pull request', () => {
       isDraft: false,
     });
     const taskClient = vi.spyOn(
-      hx.services.ado.client(other.id),
+      hx.services.trackers.client(other.id),
       'pullRequest',
     );
     await hx.h['tasks:prStatus'](hx.t.id, 'x1');
@@ -3726,7 +4013,7 @@ describe('handlers: task-level connection', () => {
   it('refreshes the PR status through the task connection', async () => {
     const hx = await harness();
     const { t } = await linkedTask(hx);
-    const client = hx.services.ado.client(t.connectionId!);
+    const client = hx.services.trackers.client(t.connectionId!);
     const refresh = vi.spyOn(client, 'pullRequest').mockResolvedValue({
       pullRequestId: 7,
       status: 'completed',
@@ -3822,10 +4109,10 @@ describe('handlers: finish every workspace of a task', () => {
     const created: { connectionId: string; repo: string; args: unknown }[] = [];
     const clients = new Map<
       string,
-      ReturnType<typeof hx.services.ado.client>
+      ReturnType<typeof hx.services.trackers.client>
     >();
     for (const id of new Set([c.id, ...repos.map((r) => r.connectionId)])) {
-      const client = hx.services.ado.client(id);
+      const client = hx.services.trackers.client(id);
       clients.set(id, client);
       vi.spyOn(client, 'repositoryId').mockImplementation(
         async (_p, name) => `id-${name}`,

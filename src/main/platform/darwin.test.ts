@@ -52,6 +52,13 @@ describe('darwinPlatform', () => {
     expect(cmd?.args[3]).toContain('$.clonefile(argv[0], argv[1], 0)');
     expect(cmd?.args.slice(4)).toEqual(['/r/node_modules', '/w/node_modules']);
   });
+  it('probes an agent CLI through the login shell', () => {
+    expect(p.probeCommand('claude')).toEqual({
+      command: '/bin/zsh',
+      args: ['-l', '-c', 'command -v claude && claude --version'],
+    });
+  });
+
   it.runIf(process.platform === 'darwin')(
     'clones a real folder, and fails when the target exists',
     () => {

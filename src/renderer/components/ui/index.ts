@@ -7,3 +7,4 @@ export { PopupMenu } from './PopupMenu';
 export { StateDot } from './StateDot';
 export { TimeBar } from './TimeBar';
 export { WorkItemTypeIcon } from './WorkItemTypeIcon';
+export { StepStrip } from './StepStrip';

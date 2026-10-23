@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { aspectRatio, parsePrompts } from './prompts.mjs';
 
@@ -40,5 +41,18 @@ describe('aspectRatio', () => {
     expect(aspectRatio('x. Portrait.')).toBe('9:16');
     expect(aspectRatio('x. Landscape.')).toBe('16:9');
     expect(aspectRatio('x.')).toBe('1:1');
+  });
+});
+
+describe('prompts.md', () => {
+  it('has the onboarding image with its own style block, landscape', () => {
+    const p = parsePrompts(
+      readFileSync(new URL('./prompts.md', import.meta.url), 'utf8'),
+    );
+    const prompt = p.get('get-started');
+    expect(prompt).toBeDefined();
+    expect(prompt).toContain('#dbeafb');
+    expect(prompt).not.toContain('amber');
+    expect(aspectRatio(prompt as string)).toBe('16:9');
   });
 });

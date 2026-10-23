@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { HomeSnapshot } from '../../shared/home';
 import type { Connection } from '../../shared/types';
+import { defaultSettings } from '../../shared/usage';
 import { Shell } from '../App';
 import { useStore } from '../store';
 import { installFakeApi } from '../test-helpers/fakeApi';
@@ -18,6 +19,12 @@ export const connection: Connection = {
   status: 'ok',
   checkedAt: null,
   userUniqueName: null,
+  provider: 'azure-devops' as const,
+  workItemOnStart: {
+    moveToInProgress: true,
+    assignToMe: true,
+    stateOverrides: {},
+  },
 };
 
 export const snapshot = (over: Partial<HomeSnapshot> = {}): HomeSnapshot => ({
@@ -193,18 +200,60 @@ describe('Home page', () => {
     expect(calls.filter((c) => c.channel === 'home:refresh')).toHaveLength(0);
   });
 
-  it('without connections it asks for one', async () => {
-    useStore.setState({ connections: [] });
+  it('without connections it shows the Get started band with Connect your tracker', async () => {
+    useStore.setState({ connections: [], settings: defaultSettings() });
     installFakeApi();
     render(<Shell />);
+    const band = await screen.findByRole('region', { name: 'Get started' });
     expect(
-      await screen.findByRole('button', {
-        name: 'Add an Azure DevOps connection',
-      }),
+      within(band).getByRole('region', { name: '2 · Connect your tracker' }),
     ).toBeTruthy();
+    expect(
+      screen.queryByRole('button', { name: 'Add an Azure DevOps connection' }),
+    ).toBeNull();
     expect(screen.getByRole('region', { name: 'My tasks' })).toBeTruthy();
     expect(screen.getByRole('region', { name: 'Stats' })).toBeTruthy();
     expect(screen.queryByRole('region', { name: 'My sprints' })).toBeNull();
+  });
+
+  it('the band shows only unfinished steps and goes once dismissed', async () => {
+    const s = defaultSettings();
+    useStore.setState({
+      connections: [],
+      settings: { ...s, onboarding: { ...s.onboarding, agentsCheckedAt: 'x' } },
+    });
+    const { tracked } = installFakeApi({
+      'settings:get': () => useStore.getState().settings!,
+      'settings:save': (next) => next,
+    });
+    render(<Shell />);
+    const band = await screen.findByRole('region', { name: 'Get started' });
+    expect(
+      within(band).queryByRole('region', { name: '1 · Agents' }),
+    ).toBeNull();
+    await userEvent.click(
+      within(band).getByRole('button', { name: 'Dismiss' }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole('region', { name: 'Get started' })).toBeNull(),
+    );
+    expect(tracked).toContainEqual({
+      type: 'event',
+      name: 'onboarding.dismissed',
+      props: { repos: 0, connections: 0 },
+    });
+  });
+
+  it('no band once dismissed', async () => {
+    const s = defaultSettings();
+    useStore.setState({
+      connections: [],
+      settings: { ...s, onboarding: { ...s.onboarding, dismissedAt: 'x' } },
+    });
+    installFakeApi();
+    render(<Shell />);
+    await screen.findByRole('region', { name: 'My tasks' });
+    expect(screen.queryByRole('region', { name: 'Get started' })).toBeNull();
   });
 
   it('the nav has Home above Sprint and the app header goes Home', async () => {

@@ -56,6 +56,12 @@ const conn = (id: string, cipher: Buffer): Stored => ({
   status: 'ok',
   checkedAt: null,
   userUniqueName: null,
+  provider: 'azure-devops' as const,
+  workItemOnStart: {
+    moveToInProgress: true,
+    assignToMe: true,
+    stateOverrides: {},
+  },
   tokenCiphertext: cipher.toString('base64'),
 });
 

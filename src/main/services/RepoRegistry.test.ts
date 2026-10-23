@@ -1,6 +1,7 @@
 import {
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   realpathSync,
   rmSync,
   symlinkSync,
@@ -248,5 +249,69 @@ describe('RepoRegistry', () => {
     await expect(reg.setConnection('nope', 'c1')).rejects.toThrow(
       /Unknown repo/,
     );
+  });
+});
+
+describe('RepoRegistry.add options', () => {
+  it('writes the given .shellie.yml first and registers with configFound', async () => {
+    const reg = await registry();
+    const repo = makeRepo('cfg');
+    const text = 'base: develop\nbranch: "{type}/{id}-{slug}"\n';
+    const added = await reg.add(repo, {
+      writeConfig: text,
+      connectionId: 'c1',
+    });
+    expect(readFileSync(path.join(repo, '.shellie.yml'), 'utf8')).toBe(text);
+    expect(added).toMatchObject({
+      configFound: true,
+      baseBranch: 'develop',
+      connectionId: 'c1',
+    });
+  });
+
+  it('fails without registering when .shellie.yml already exists', async () => {
+    const reg = await registry();
+    const repo = makeRepo('has');
+    writeFileSync(path.join(repo, '.shellie.yml'), 'base: x\n');
+    await expect(reg.add(repo, { writeConfig: 'base: y\n' })).rejects.toThrow(
+      '.shellie.yml already exists',
+    );
+    expect(readFileSync(path.join(repo, '.shellie.yml'), 'utf8')).toBe(
+      'base: x\n',
+    );
+    expect(reg.list()).toHaveLength(0);
+  });
+
+  it('starts with the on-start options it is given', async () => {
+    const reg = await registry();
+    const options = {
+      moveToInProgress: false,
+      assignToMe: false,
+      stateOverrides: {},
+    };
+    const added = await reg.add(makeRepo('onstart'), {
+      connectionId: 'c1',
+      workItemOnStart: options,
+    });
+    expect(added.workItemOnStart).toEqual(options);
+    expect(reg.list()[0].workItemOnStart).toEqual(options);
+  });
+
+  it('keeps a given base branch across refresh when there is no file', async () => {
+    const reg = await registry();
+    const repo = makeRepo('nofile');
+    const added = await reg.add(repo, { baseBranch: 'develop' });
+    expect(added).toMatchObject({ baseBranch: 'develop', configFound: false });
+    expect((await reg.refresh(added.id)).baseBranch).toBe('develop');
+    writeFileSync(path.join(repo, '.shellie.yml'), 'base: release\n');
+    expect((await reg.refresh(added.id)).baseBranch).toBe('release');
+  });
+
+  it("a .shellie.yml's base wins over the inspected base branch", async () => {
+    const reg = await registry();
+    const repo = makeRepo('withfile');
+    writeFileSync(path.join(repo, '.shellie.yml'), 'base: release\n');
+    const added = await reg.add(repo, { baseBranch: 'develop' });
+    expect(added).toMatchObject({ baseBranch: 'release', configFound: true });
   });
 });

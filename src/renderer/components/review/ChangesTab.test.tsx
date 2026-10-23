@@ -214,14 +214,19 @@ describe('ChangesTab', () => {
   it('shows another file when clicked, and reloads the open file on a change', async () => {
     const api = mount();
     fireEvent.click(await screen.findByText('b.ts'));
-    await waitFor(() =>
-      expect(screen.getByTestId('after').textContent).toBe('new src/b.ts'),
+    // The Windows CI runner needs more than waitFor's default second here.
+    await waitFor(
+      () =>
+        expect(screen.getByTestId('after').textContent).toBe('new src/b.ts'),
+      { timeout: 5000 },
     );
     const reads = () =>
       api.calls.filter((c) => c.channel === 'review:file').length;
     const before = reads();
     act(() => api.emit('docs:changed', { taskId: 't1', paths: ['src/b.ts'] }));
-    await waitFor(() => expect(reads()).toBeGreaterThan(before));
+    await waitFor(() => expect(reads()).toBeGreaterThan(before), {
+      timeout: 5000,
+    });
   });
 
   it('switches to Uncommitted and to one commit', async () => {

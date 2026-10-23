@@ -65,9 +65,6 @@
   text-decoration: underline;
   cursor: pointer;
 }
-.home-connect {
-  align-self: flex-start;
-}
 .is-stale-data {
   opacity: 0.55;
 }

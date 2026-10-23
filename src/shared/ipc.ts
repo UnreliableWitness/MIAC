@@ -1,4 +1,5 @@
 import type { ColorScheme } from './theme';
+import type { TrackerProvider } from './trackers';
 import type { TerminalFailure } from './terminalFailure';
 
 export type RestartOptions = { withoutProjectConfig?: boolean };
@@ -38,6 +39,8 @@ import type {
   SyncResult,
   TaskUsage,
 } from './usage';
+import type { AgentsDetected } from './agents';
+import type { RepoInspection } from './repoInspection';
 import type { EditorChoice, EditorId, EditorOptions } from './editors';
 import type { RendererTelemetry } from './telemetry';
 import type { TitleBarKind } from './titleBar';
@@ -58,10 +61,24 @@ import type {
 /** Request/response channels. `args` is the tuple the renderer passes; `result` is what main resolves. */
 export type Channels = {
   'repos:list': { args: []; result: Repo[] };
-  'repos:add': { args: [folder: string]; result: Repo };
+  /** What Shellie finds in a folder and the `.shellie.yml` it would write; throws when it is not a git repository. */
+  'repos:inspect': { args: [folder: string]; result: RepoInspection };
+  'repos:add': {
+    args: [
+      folder: string,
+      options?: {
+        writeConfig?: string;
+        baseBranch?: string;
+        connectionId?: string | null;
+      },
+    ];
+    result: Repo;
+  };
   'repos:remove': { args: [id: string]; result: void };
   'repos:refresh': { args: [id: string]; result: Repo };
   'repos:pickFolder': { args: []; result: string | null };
+  /** The agent CLIs on this machine; cached per launch unless `force`. */
+  'agents:detect': { args: [force?: boolean]; result: AgentsDetected };
   'repos:config': {
     args: [repoId: string];
     result: { config: ShellieConfig; worktreeRoot: string };
@@ -70,6 +87,33 @@ export type Channels = {
   'connections:save': { args: [input: ConnectionInput]; result: Connection };
   'connections:remove': { args: [id: string]; result: void };
   'connections:verify': { args: [id: string]; result: Connection };
+  /** Signs in with a new token (`pat`) or a connection's stored one (`connectionId`, its own organization) and lists the projects; saves nothing. */
+  'connections:probe': {
+    args: [
+      input: { organizationUrl: string; pat?: string; connectionId?: string },
+    ];
+    result: {
+      user: string;
+      uniqueName: string | null;
+      projects: { id: string; name: string }[];
+      /** False when the token signs in but is refused the project list (no Project and Team: Read). */
+      canListProjects: boolean;
+    };
+  };
+  /** One `connections:save` per project (named `<org>/<project>`), skipping projects the organization already has a connection for. */
+  'connections:saveMany': {
+    args: [
+      input: {
+        organizationUrl: string;
+        pat?: string;
+        connectionId?: string;
+        projects: string[];
+        workItemOnStart: StartSettings;
+        provider: TrackerProvider;
+      },
+    ];
+    result: Connection[];
+  };
   'repos:setConnection': {
     args: [repoId: string, connectionId: string | null];
     result: Repo;
