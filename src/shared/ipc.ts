@@ -7,6 +7,7 @@ import type {
   Connection,
   ConnectionInput,
   CreateTaskInput,
+  DiscardChecks,
   FinishChecks,
   FinishOptions,
   FinishRowResult,
@@ -314,6 +315,13 @@ export type Channels = {
     args: [taskId: string, options: FinishOptions];
     result: void;
   };
+  /** What Discard would lose (#124): per workspace its commits no remote has and its uncommitted files. */
+  'tasks:discardChecks': { args: [taskId: string]; result: DiscardChecks };
+  /**
+   * Throws a ready task away (#124): closes its terminals, removes its worktrees and branches (a held folder is
+   * retried in the background) and removes the task. Nothing is pushed, booked or written to the work item.
+   */
+  'tasks:discard': { args: [taskId: string]; result: void };
   'tasks:openInEditor': {
     args: [taskId: string, workspaceId?: string];
     result: void;
