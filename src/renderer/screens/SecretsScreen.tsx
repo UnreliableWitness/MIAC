@@ -4,7 +4,6 @@ import type {
   Environment,
   SecretScope,
   SecretView,
-  SecretsReason,
   SecretsStatus,
 } from '../../shared/secrets';
 import { api, tryInvoke } from '../api';
@@ -18,26 +17,17 @@ type Editing =
   | { kind: 'new'; env?: Environment }
   | { kind: 'edit'; secret: SecretView; env?: Environment };
 
-function reasonText(r: SecretsReason): string {
-  const files = (r as { files?: string[] }).files;
-  switch (r.kind) {
-    case 'copy':
-      return `It still copies ${files?.join(', ')} into every worktree (copy: in its .shellie.yml), where agents can read it.`;
-    case 'tracked':
-      return `${files?.join(', ')} ${files?.length === 1 ? 'is' : 'are'} committed to git with values in them.`;
-    case 'worktrees':
-      return `${r.taskIds.length} ${r.taskIds.length === 1 ? 'task' : 'tasks'} still ${r.taskIds.length === 1 ? 'has' : 'have'} a worktree with a .env file from before.`;
-  }
-}
+const plural = (n: number, one: string, many: string) =>
+  `${n} ${n === 1 ? one : many}`;
 
 function StatusPanel({
-  repoName,
-  repoId,
+  repo,
   status,
+  onClean,
 }: {
-  repoName: string;
-  repoId: string;
+  repo: { id: string; name: string };
   status: SecretsStatus | null;
+  onClean: () => void;
 }) {
   const go = useStore((s) => s.go);
   if (!status || status.state === 'empty') return null;
@@ -46,33 +36,74 @@ function StatusPanel({
       <div className="secret-panel secret-panel-ok">
         <Shield16Filled aria-hidden="true" />
         <div>
-          <strong>{repoName} is protected.</strong>{' '}
+          <strong>{repo.name} is protected.</strong>{' '}
           {status.given.length > 0
             ? `Its secrets reach the ${status.given.map((g) => GIVEN_LABEL[g]).join(' and ')} tabs only. `
             : ''}
-          Claude Code, Copilot and OpenCode tabs run without them.
+          Claude Code, Copilot and OpenCode tabs run without them, and their
+          file tools are denied the secret files.
         </div>
       </div>
     );
   return (
-    <div className="secret-panel secret-panel-warn">
-      <Warning16Regular aria-hidden="true" />
-      <div>
-        <strong>{repoName} still needs attention.</strong>
-        <ul>
-          {status.reasons.map((r, i) => (
-            <li key={i}>{reasonText(r)}</li>
-          ))}
-        </ul>
-      </div>
-      <button
-        type="button"
-        className="btn btn-sm"
-        onClick={() => go({ kind: 'secrets-import', repoId })}
-      >
-        Move values into Shellie…
-      </button>
-    </div>
+    <>
+      {status.reasons.map((r) => (
+        <div key={r.kind} className="secret-panel secret-panel-warn">
+          <Warning16Regular aria-hidden="true" />
+          <div>
+            {r.kind === 'copy' && (
+              <>
+                <strong>
+                  {repo.name} still copies {r.files.join(', ')} into every
+                  worktree
+                </strong>{' '}
+                (<code>copy:</code> in its .shellie.yml), where agents can read
+                it.
+              </>
+            )}
+            {r.kind === 'tracked' && (
+              <>
+                <strong>
+                  Secrets are committed in{' '}
+                  {plural(r.files.length, 'file', 'files')}
+                </strong>{' '}
+                — move them out of git. Shellie never edits tracked files.
+                <ul>
+                  {r.files.map((f) => (
+                    <li key={f}>
+                      <code>{f}</code>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            {r.kind === 'worktrees' && (
+              <>
+                <strong>
+                  {plural(r.taskIds.length, 'open task', 'open tasks')} still{' '}
+                  {r.taskIds.length === 1 ? 'has' : 'have'} the old copied file
+                </strong>
+                , with the secrets still in it.
+              </>
+            )}
+          </div>
+          {r.kind === 'copy' && (
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() => go({ kind: 'secrets-import', repoId: repo.id })}
+            >
+              Move values into Shellie…
+            </button>
+          )}
+          {r.kind === 'worktrees' && (
+            <button type="button" className="btn btn-sm" onClick={onClean}>
+              Clean {plural(r.taskIds.length, 'worktree', 'worktrees')}
+            </button>
+          )}
+        </div>
+      ))}
+    </>
   );
 }
 
@@ -144,6 +175,16 @@ export function SecretsScreen({ repoId }: { repoId?: string }) {
     if (saved) await load();
   };
 
+  const clean = async () => {
+    if (!repo) return;
+    // TODO(telemetry): secrets.worktreesCleaned is counted in main (Task 11).
+    await tryInvoke(
+      () => api().invoke('secrets:cleanWorktrees', repo.id),
+      notify,
+    );
+    await load();
+  };
+
   const remove = async () => {
     if (!deleting) return;
     const id = deleting.id;
@@ -210,9 +251,9 @@ export function SecretsScreen({ repoId }: { repoId?: string }) {
         <div className="secrets-main">
           {repo && (
             <StatusPanel
-              repoName={repo.name}
-              repoId={repo.id}
+              repo={repo}
               status={status}
+              onClean={() => void clean()}
             />
           )}
           {editing && (

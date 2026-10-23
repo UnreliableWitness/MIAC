@@ -19,6 +19,7 @@ import type { RunHub, RunSpec } from '../secrets/RunHub';
 import { branchLeaks } from '../secrets/leakScan';
 import { type ExpiryTimers, scheduleExpiry } from '../secrets/expiry';
 import { DiscoveryHold, discoverSecrets } from '../secrets/discover';
+import { cleanWorktree, computeStatus, storedNames } from '../secrets/status';
 import { denyRulesFor, denyTargets, inWorktree } from '../secrets/deny';
 import {
   buildImportPlan,
@@ -345,6 +346,20 @@ export function createHandlers(s: Services): Handlers {
   const connectionsChanged = () =>
     s.broadcast('connections:changed', s.connections.list());
   const discovery = new DiscoveryHold();
+  const copyOf = (repoPath: string) =>
+    s
+      .loadConfig(repoPath)
+      .then((c) => c.copy)
+      .catch(() => [] as string[]);
+  /** Open (not done) tasks' worktrees of a repo that still exist, with the task id. */
+  const openWorktrees = (repoId: string) =>
+    s.store.state.tasks
+      .filter((t) => t.status !== 'done')
+      .flatMap((t) =>
+        activeWorkspaces(t)
+          .filter((w) => w.repoId === repoId && existsSync(w.worktreePath))
+          .map((w) => ({ taskId: t.id, worktreePath: w.worktreePath })),
+      );
   const now = s.now ?? Date.now;
   /** The environment a new task gets from its repo: Development or Test, whatever the secrets file says. */
   const repoDefaultOf = (repoId: string): Environment => {
@@ -1146,15 +1161,16 @@ export function createHandlers(s: Services): Handlers {
    * environment's values (a fresh env, never the old spawn options). Agent tabs are never touched. The Setup tab
    * never runs again by itself: it is only stopped, when it held UAT or Production values.
    */
-  const respawnSecretTabs = async (task: Task, left: Environment) => {
+  const respawnSecretTabs = async (
+    task: Task,
+    left: Environment,
+    why = `The task switched to ${ENVIRONMENT_LABEL[task.environment]}`,
+  ) => {
     for (const def of task.terminals) {
       if (!holdsSecrets(def) || !s.terminals.isRunning(def.id)) continue;
       // A `shellie run` tab ends with its run: the agent asked for a run with the old environment's values.
       if (runArgs.has(def.id)) {
-        s.runs?.tabGone(
-          def.id,
-          `The task switched to ${ENVIRONMENT_LABEL[task.environment]}`,
-        );
+        s.runs?.tabGone(def.id, why);
         await stopTab(def.id);
         continue;
       }
@@ -2982,11 +2998,44 @@ export function createHandlers(s: Services): Handlers {
         secretsChanged();
       }
     },
-    'secrets:status': async () => ({
-      state: 'empty',
-      reasons: [],
-      given: [],
-    }),
+    'secrets:status': async (repoId) => {
+      const repo = s.repos.get(repoId);
+      return computeStatus({
+        repoId,
+        repoPath: repo.path,
+        copy: await copyOf(repo.path),
+        store: s.secrets,
+        git: s.git,
+        userSecretsDir: (id) => s.platform.userSecretsDir(id),
+        worktrees: openWorktrees(repoId),
+      });
+    },
+    'secrets:cleanWorktrees': async (repoId, taskId) => {
+      const repo = s.repos.get(repoId);
+      const copy = await copyOf(repo.path);
+      const names = storedNames(s.secrets, repoId);
+      const cleaned: string[] = [];
+      for (const w of openWorktrees(repoId)) {
+        if (taskId !== undefined && w.taskId !== taskId) continue;
+        if (cleaned.includes(w.taskId)) continue;
+        if (!(await cleanWorktree(w.worktreePath, copy, names, s.git)))
+          continue;
+        cleaned.push(w.taskId);
+      }
+      // Only the cleaned tasks' secret tabs start again, now without the old file next to them.
+      for (const id of cleaned) {
+        const task = s.store.state.tasks.find((t) => t.id === id);
+        if (task)
+          await respawnSecretTabs(
+            task,
+            'development',
+            'The worktree was cleaned',
+          );
+      }
+      // TODO(telemetry): secrets.worktreesCleaned (count) in Task 11.
+      secretsChanged();
+      return cleaned;
+    },
     'secrets:repoDefault': async (repoId) => repoDefaultOf(repoId),
     'secrets:setRepoDefault': async (repoId, env) => {
       await s.secrets.setRepoDefault(repoId, env);

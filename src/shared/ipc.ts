@@ -95,6 +95,14 @@ export type Channels = {
   'secrets:forget': { args: [repoId: string]; result: void };
   /** The repo's secrets status for the manager's panel. */
   'secrets:status': { args: [repoId: string]; result: SecretsStatus };
+  /**
+   * Rewrites the copied env files of the repo's open tasks (one task with `taskId`) without the stored keys and
+   * starts their secret-holding tabs again; agent tabs are never touched. Returns the cleaned task ids.
+   */
+  'secrets:cleanWorktrees': {
+    args: [repoId: string, taskId?: string];
+    result: string[];
+  };
   /** The environment Start uses for the repo: Development or Test, never UAT or Production. */
   'secrets:repoDefault': { args: [repoId: string]; result: Environment };
   'secrets:setRepoDefault': {

@@ -5445,6 +5445,36 @@ describe('handlers: environment per task', () => {
     await e.hx.terminals.killAllForTask(e.task.id);
   });
 
+  it('reports an old worktree copy and cleans it, restarting only the secret tabs', async () => {
+    const e = await envScenario();
+    const envFile = path.join(e.task.worktreePath, '.env');
+    writeFileSync(envFile, 'PORT=1\nDB=old-plaintext\n');
+    const repoId = e.hx.added.id;
+    const before = await e.hx.h['secrets:status'](repoId);
+    expect(before.state).toBe('attention');
+    expect(before.reasons).toContainEqual({
+      kind: 'worktrees',
+      taskIds: [e.task.id],
+    });
+    const spawned = e.spawnedIds().length;
+    const cleaned = await e.hx.h['secrets:cleanWorktrees'](repoId);
+    expect(cleaned).toEqual([e.task.id]);
+    expect(readFileSync(envFile, 'utf8')).toBe('PORT=1\n');
+    const again = e.spawnedIds().slice(spawned);
+    expect(again.sort()).toEqual([e.dev.id, e.shellId()].sort());
+    for (const id of e.agentIds()) expect(e.killedIds()).not.toContain(id);
+    expect(
+      (await e.hx.h['secrets:status'](repoId)).reasons.some(
+        (r) => r.kind === 'worktrees',
+      ),
+    ).toBe(false);
+    // Nothing left to clean: nothing restarts.
+    const after = e.spawnedIds().length;
+    expect(await e.hx.h['secrets:cleanWorktrees'](repoId)).toEqual([]);
+    expect(e.spawnedIds()).toHaveLength(after);
+    await e.hx.terminals.killAllForTask(e.task.id);
+  });
+
   it('switches to Development or Test without a confirm', async () => {
     const e = await envScenario();
     const t = await e.hx.h['tasks:setEnvironment'](e.task.id, 'test');

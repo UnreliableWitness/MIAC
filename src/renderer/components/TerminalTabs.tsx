@@ -46,6 +46,7 @@ import { UsagePanel } from './UsagePanel';
 import { EnvironmentBand } from './secrets/EnvironmentBand';
 import { RunApproveBar } from './secrets/RunApproveBar';
 import { EnvironmentChip } from './secrets/EnvironmentChip';
+import { CleanWorktreeButton } from './secrets/CleanWorktreeButton';
 import { ENVIRONMENT_LABEL } from '../../shared/secrets';
 import { TaskMenu, WorkspaceChips } from './WorkspaceChips';
 
@@ -390,6 +391,7 @@ export function TerminalTabs({
         </div>
         <div className="taskbar-right">
           {ready && <EnvironmentChip task={task} />}
+          {ready && <CleanWorktreeButton task={task} />}
           <WorkspaceChips task={task} />
           <span className="mono taskbar-git" title={home.branch}>
             <Branch16Regular aria-hidden="true" />

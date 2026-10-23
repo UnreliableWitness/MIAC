@@ -240,13 +240,62 @@ describe('Secrets page', () => {
     const second = render(<SecretsScreen repoId="r1" />);
     expect(await screen.findByText(/still copies/)).toBeInTheDocument();
     expect(screen.getByText(/appsettings\.json/)).toBeInTheDocument();
-    expect(screen.getByText(/1 task/)).toBeInTheDocument();
+    expect(screen.getByText(/committed in 1 file/)).toBeInTheDocument();
+    expect(screen.getByText(/1 open task still has/)).toBeInTheDocument();
     second.unmount();
     installFakeApi({ 'secrets:list': list });
     render(<SecretsScreen repoId="r1" />);
     await screen.findByText('STRIPE_SECRET_KEY');
     expect(screen.queryByText(/is protected/)).toBeNull();
     expect(screen.queryByText(/still copies/)).toBeNull();
+  });
+
+  it('cleans the old worktrees from the card and reloads', async () => {
+    let dirty = true;
+    const api = installFakeApi({
+      'secrets:list': list,
+      'secrets:status': () =>
+        dirty
+          ? {
+              state: 'attention',
+              reasons: [{ kind: 'worktrees', taskIds: ['t1', 't2'] }],
+              given: [],
+            }
+          : { state: 'protected', reasons: [], given: ['run'] },
+      'secrets:cleanWorktrees': () => {
+        dirty = false;
+        return ['t1', 't2'];
+      },
+    });
+    const user = userEvent.setup();
+    render(<SecretsScreen repoId="r1" />);
+    await user.click(
+      await screen.findByRole('button', { name: 'Clean 2 worktrees' }),
+    );
+    expect(
+      api.calls.find((c) => c.channel === 'secrets:cleanWorktrees')?.args,
+    ).toEqual(['r1']);
+    expect(await screen.findByText(/webshop is protected/)).toBeInTheDocument();
+  });
+
+  it('offers to move values for a copy: file and never edits tracked files', async () => {
+    installFakeApi({
+      'secrets:list': list,
+      'secrets:status': () => ({
+        state: 'attention',
+        reasons: [{ kind: 'copy', files: ['.env'] }],
+        given: [],
+      }),
+    });
+    const user = userEvent.setup();
+    render(<SecretsScreen repoId="r1" />);
+    await user.click(
+      await screen.findByRole('button', { name: /Move values into Shellie/ }),
+    );
+    expect(useStore.getState().screen).toEqual({
+      kind: 'secrets-import',
+      repoId: 'r1',
+    });
   });
 
   it('reloads on secrets:changed', async () => {
