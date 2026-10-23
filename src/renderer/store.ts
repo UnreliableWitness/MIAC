@@ -212,7 +212,6 @@ export const useStore = create<Store>((set, get) => ({
       track('notice', { level, message: message.slice(0, 200) });
     const id = `n${++noticeSeq}`;
     set({ notices: [...get().notices, { id, level, message }] });
-    if (level !== 'error') setTimeout(() => get().dismiss(id), 6000);
   },
   dismiss: (id) => set({ notices: get().notices.filter((n) => n.id !== id) }),
   setTab: (taskId, tab) => {
