@@ -268,7 +268,7 @@ describe('BudgetStore.apply', () => {
       ['github-copilot', 'copilot'],
     ]);
     expect(s.value.claudeCursors).toEqual(cursors);
-    expect(s.value.openCodeCursor).toBe(42);
+    expect(s.value.openCodeCursor).toBe(0);
     expect(s.value.scanned).toBe(true);
     expect(s.value.alerts).toEqual({ 'claude:2026-10-01': ['at80'] });
     const claudeTotal = recentDay(s)
@@ -278,6 +278,88 @@ describe('BudgetStore.apply', () => {
     const seen = s.value.seen['cc:m1'];
     expect(typeof seen === 'object' && seen.key).toBe(rowKey(recentDay(s)[0]));
     expect(s.value.seen['cc:old']).toBe('2026-10-01');
+  });
+
+  it('reads OpenCode again after a v1 migration, so Copilot usage it dropped is added once', async () => {
+    const file = path.join(
+      mkdtempSync(path.join(os.tmpdir(), 'bs-')),
+      'budget.json',
+    );
+    const at = new Date(2026, 9, 18, 10).toISOString();
+    const claudeOc = rec({
+      id: 'oc:c1',
+      tool: 'opencode',
+      sessionId: 'ses',
+      at,
+    });
+    const gptOc = rec({
+      id: 'oc:g1',
+      tool: 'opencode',
+      sessionId: 'ses',
+      model: 'gpt-5',
+      provider: 'github-copilot',
+      at,
+    });
+    const eur = 4 * OFFICIAL_USD_TO_EUR;
+    writeFileSync(
+      file,
+      JSON.stringify({
+        version: 1,
+        days: {
+          '2026-10-18': [
+            {
+              tool: 'opencode',
+              model: 'claude-opus-5-5',
+              provider: 'anthropic',
+              counted: true,
+              inShellie: false,
+              requests: 1,
+              fast: false,
+              costEur: eur,
+              inputTokens: 1_000_000,
+              outputTokens: 0,
+              cacheReadTokens: 0,
+              cacheWrite5mTokens: 0,
+              cacheWrite1hTokens: 0,
+            },
+          ],
+        },
+        seen: {
+          'oc:c1': {
+            inputTokens: 1_000_000,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWrite5mTokens: 0,
+            cacheWrite1hTokens: 0,
+            day: '2026-10-18',
+            key: 'opencode|claude-opus-5-5|anthropic|true|false|false',
+            requests: 1,
+            costEur: eur,
+          },
+        },
+        claudeCursors: {},
+        // v1 read past the GPT-through-Copilot request and dropped it.
+        openCodeCursor: 42,
+        alerts: {},
+        sources: { claudeCode: true, openCode: true },
+        maintainedOn: '2026-10-19',
+        scanned: true,
+      }),
+    );
+    const s = new BudgetStore(file, () => [opus]);
+    await s.load();
+    expect(s.value.openCodeCursor).toBe(0);
+    await s.apply({ ...base, records: [claudeOc, gptOc], openCodeCursor: 43 });
+    const rows = recentDay(s);
+    const total = (v: string) =>
+      rows
+        .filter((r) => r.vendor === v)
+        .reduce((a, r) => a + (r.costEur ?? 0), 0);
+    expect(total('claude')).toBeCloseTo(eur, 6);
+    expect(rows.filter((r) => r.vendor === 'claude')).toHaveLength(1);
+    expect(rows.filter((r) => r.vendor === 'copilot')).toMatchObject([
+      { provider: 'github-copilot', model: 'gpt-5', requests: 1 },
+    ]);
   });
 
   it('stores an unknown model unpriced and prices it once a rate exists', async () => {
@@ -513,7 +595,7 @@ describe('BudgetStore.apply', () => {
     const old = new BudgetStore(file, () => [opus]);
     await old.load();
     expect(old.value).toMatchObject({
-      openCodeCursor: 3,
+      openCodeCursor: 0,
       scanned: false,
       maintainedOn: '',
     });

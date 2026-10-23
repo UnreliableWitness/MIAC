@@ -62,7 +62,7 @@ const Seen = z.union([
     costEur: z.number().nullable(),
   }),
 ]);
-/** Version 1 rows had `counted` (Claude or not) instead of a vendor; rows, seen keys, cursors and alerts carry over, so no rescan is needed. */
+/** Version 1 rows had `counted` (Claude or not) instead of a vendor; rows, seen keys, Claude cursors and alerts carry over, so no transcript rescan is needed. */
 function migrateV1(raw: unknown): unknown {
   if (!raw || typeof raw !== 'object') return raw;
   const f = raw as Record<string, unknown>;
@@ -105,8 +105,18 @@ function migrateV1(raw: unknown): unknown {
     (f.alerts ?? {}) as Record<string, unknown>,
   ))
     alerts[`claude:${month}`] = kinds;
-  // An empty maintenance day makes the next pass price the rows that were "not counted".
-  return { ...f, version: 2, days, seen, alerts, maintainedOn: '' };
+  // An empty maintenance day makes the next pass price the rows that were "not counted". OpenCode is read again
+  // from the start: v1 dropped its requests without a vendor-counted provider (GPT through Copilot), and `seen`
+  // keeps the ones it had from counting twice.
+  return {
+    ...f,
+    version: 2,
+    days,
+    seen,
+    alerts,
+    maintainedOn: '',
+    openCodeCursor: 0,
+  };
 }
 
 const FileSchema: z.ZodType<BudgetFile> = z.preprocess(
