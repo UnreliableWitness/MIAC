@@ -108,6 +108,24 @@ describe('windowsPlatform', () => {
     });
   });
 
+  it('keeps the flags when the tool is not on PATH, so PowerShell reports the real command line', () => {
+    // The CI runner has no claude: `claude -p` must still reach PowerShell (it answers "not recognized"),
+    // not a bare `claude` that drops the print flag (tasks:prSummary asserts on it).
+    expect(
+      make({}).claudeCommand(null, ['-p', '--output-format', 'json']),
+    ).toEqual({
+      command: 'powershell.exe',
+      args: [
+        '-NoLogo',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-NoProfile',
+        '-Command',
+        "& claude '-p' '--output-format' 'json'",
+      ],
+    });
+  });
+
   it('starts an npm shim through PowerShell with the context in an env var', () => {
     const prompt = `it's "quoted" & <b> | 50% ^x`;
     expect(
@@ -153,7 +171,7 @@ describe('windowsPlatform', () => {
     expect(resume.env).toBeUndefined();
   });
 
-  it('lets PowerShell report a missing claude', () => {
+  it('lets PowerShell report a missing claude, with the context it would have had', () => {
     expect(make({}).claudeCommand('x')).toEqual({
       command: 'powershell.exe',
       args: [
@@ -162,8 +180,9 @@ describe('windowsPlatform', () => {
         'Bypass',
         '-NoProfile',
         '-Command',
-        'claude',
+        "& claude '--append-system-prompt' $env:SHELLIE_CLAUDE_PROMPT",
       ],
+      env: { SHELLIE_CLAUDE_PROMPT: 'x' },
     });
   });
 
