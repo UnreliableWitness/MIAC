@@ -300,6 +300,23 @@ describe('LedgerService', () => {
     ).toEqual(['cp:trace:span', 'sh:req1']);
   });
 
+  it('prices a stored unpriced Copilot record once its model has a rate', async () => {
+    const s = setup({ usage: [usageRec({ id: 'trace:span' })] });
+    s.state.tasks = [task1];
+    await s.svc.pass();
+    const priced = s.store.get('cp:trace:span')!;
+    expect(priced.costEur).not.toBeNull();
+    // As stored by a Shellie that had no rate for the model yet.
+    await s.store.upsert([
+      { ...priced, costUsd: null, costEur: null, rateId: null },
+    ]);
+    await s.svc.pass();
+    expect(s.store.get('cp:trace:span')).toMatchObject({
+      costEur: priced.costEur,
+      rateId: priced.rateId,
+    });
+  });
+
   it('keeps a record not billable when its task is gone and it is read again', async () => {
     const s = setup({ usage: [usageRec({ id: 'trace:span' })] });
     s.state.tasks = [task1];

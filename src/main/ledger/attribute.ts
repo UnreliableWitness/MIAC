@@ -176,15 +176,32 @@ export function raises(prev: Attribution, next: Attribution): boolean {
   );
 }
 
-/** The stored version and a new one of the same request: attribution never goes down (and is frozen at task), the larger token copy wins, billable is the new one's. */
+/**
+ * The stored version and a new one of the same request: attribution never goes down (and is frozen at task), the
+ * larger token copy wins, billable is the new one's. An unpriced stored copy takes the new copy's price when the
+ * tokens are the same (a Shellie update brought a rate for its model).
+ */
 export function merge(
   prev: CostRecord | undefined,
   next: CostRecord,
 ): CostRecord {
   if (!prev) return next;
   const body = tokensOf(next) > tokensOf(prev) ? next : prev;
+  const price =
+    body === prev &&
+    prev.costEur === null &&
+    next.costEur !== null &&
+    tokensOf(next) === tokensOf(prev)
+      ? {
+          costUsd: next.costUsd,
+          costEur: next.costEur,
+          rateId: next.rateId,
+          modelLabel: next.modelLabel,
+        }
+      : {};
   return {
     ...body,
+    ...price,
     attribution: raises(prev.attribution, next.attribution)
       ? next.attribution
       : prev.attribution,

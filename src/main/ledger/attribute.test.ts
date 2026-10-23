@@ -266,4 +266,28 @@ describe('merge', () => {
     expect(m.costEur).toBe(4.6);
     expect(merge(small, big).outputTokens).toBe(500);
   });
+
+  it('takes a fresh price for an unpriced copy with the same tokens', () => {
+    const unpriced = cost({
+      costUsd: null,
+      costEur: null,
+      rateId: null,
+      modelLabel: 'gpt-x',
+    });
+    const priced = cost({
+      costUsd: 2,
+      costEur: 1.84,
+      rateId: 'r-new',
+      modelLabel: 'GPT X',
+    });
+    const m = merge(unpriced, priced);
+    expect(m).toMatchObject({
+      costUsd: 2,
+      costEur: 1.84,
+      rateId: 'r-new',
+      modelLabel: 'GPT X',
+    });
+    // A priced copy is never replaced by an unpriced one.
+    expect(merge(priced, unpriced).costEur).toBe(1.84);
+  });
 });
