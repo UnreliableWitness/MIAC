@@ -146,9 +146,6 @@ describe('DoneTaskPage', () => {
         '€1.84 (Claude €1.38, Copilot €0.46)',
       ),
     );
-    expect(fact('Logged on work item')).toHaveTextContent(
-      'Yes, 15 Oct 2026, 12:02',
-    );
     const commits = screen.getByRole('region', { name: 'Commits' });
     expect(
       within(commits)
@@ -172,18 +169,13 @@ describe('DoneTaskPage', () => {
 
   it('without a summary, says so instead of the commit and change facts', async () => {
     installFakeApi({ 'workItems:get': () => null });
-    render(
-      <DoneTaskPage
-        task={{ ...task, usageCommentId: null, usageSyncError: 'offline' }}
-      />,
-    );
+    render(<DoneTaskPage task={task} />);
     expect(
       screen.getByText('Finished before Shellie recorded summaries.'),
     ).toBeInTheDocument();
     expect(screen.queryByText('Changes', { selector: 'dt' })).toBeNull();
     expect(screen.queryByRole('region', { name: 'Commits' })).toBeNull();
     expect(fact('Branch')).toHaveTextContent(task.branch);
-    expect(fact('Logged on work item')).toHaveTextContent('No: offline');
     expect(
       await screen.findByRole('region', { name: 'AI usage' }),
     ).toBeInTheDocument();
@@ -313,7 +305,6 @@ describe('DoneTaskPage', () => {
       />,
     );
     expect(fact('Branch')).toHaveTextContent('local only');
-    expect(fact('Logged on work item')).toHaveTextContent('No work item');
   });
 
   it('says commits are unavailable when the branch start was not found', () => {

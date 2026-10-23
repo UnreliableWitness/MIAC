@@ -1,13 +1,11 @@
 import { useEffect, useState } from 'react';
-import type { FieldsStatus, Rate, ReceiverStatus } from '../../shared/usage';
+import type { Rate, ReceiverStatus } from '../../shared/usage';
 import { OFFICIAL_USD_TO_EUR } from '../../shared/usage';
 import { api, saveSettings, tryInvoke } from '../api';
 import { useStore } from '../store';
 
 type SettingsDraft = {
   receiverPort: string;
-  hourlySync: boolean;
-  writeCostToAdo: boolean;
 };
 
 /** A number typed in a field, or null when it is blank or not a number (Number('') would be 0). */
@@ -40,8 +38,6 @@ function InvoicingPart() {
       if (live && s)
         setDraft({
           receiverPort: String(s.receiverPort),
-          hourlySync: s.hourlySync,
-          writeCostToAdo: s.writeCostToAdo,
         });
     });
     const load = () =>
@@ -71,8 +67,6 @@ function InvoicingPart() {
       () =>
         saveSettings({
           receiverPort,
-          hourlySync: draft.hourlySync,
-          writeCostToAdo: draft.writeCostToAdo,
         }),
       notify,
     );
@@ -96,35 +90,6 @@ function InvoicingPart() {
             }
           />
           <span />
-          <div className="cost-write">
-            <label className="checkbox">
-              <input
-                type="checkbox"
-                checked={draft.writeCostToAdo}
-                onChange={(e) =>
-                  setDraft({ ...draft, writeCostToAdo: e.target.checked })
-                }
-              />
-              Write AI cost to Azure DevOps
-            </label>
-            <span className="small muted">
-              The AI cost fields and a usage comment on the work item, and the
-              cost line in draft pull requests. Off: the cost stays in Shellie
-              (Usage tab, CSV export).
-            </span>
-          </div>
-          <span />
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={draft.writeCostToAdo && draft.hourlySync}
-              disabled={!draft.writeCostToAdo}
-              onChange={(e) =>
-                setDraft({ ...draft, hourlySync: e.target.checked })
-              }
-            />
-            Sync totals to work items every hour
-          </label>
           <div className="actions">
             <button type="button" className="btn btn-primary" onClick={save}>
               Save settings
@@ -217,74 +182,7 @@ function RatesPart() {
   );
 }
 
-function FieldsRow({ id, name }: { id: string; name: string }) {
-  const notify = useStore((s) => s.notify);
-  const [status, setStatus] = useState<FieldsStatus | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const check = async () => {
-    setBusy(true);
-    try {
-      const result = await tryInvoke(
-        () => api().invoke('usage:fieldsStatus', id),
-        notify,
-      );
-      if (result) setStatus(result);
-    } finally {
-      setBusy(false);
-    }
-  };
-  const withFields = status?.types.filter((t) => t.present.length > 0) ?? [];
-
-  return (
-    <>
-      <div className="list-row">
-        <div className="grow">
-          <span style={{ fontWeight: 600 }}>{name}</span>
-        </div>
-        <button
-          type="button"
-          className="btn btn-ghost btn-sm"
-          aria-label={`Check fields of ${name}`}
-          onClick={check}
-          disabled={busy}
-        >
-          Check fields
-        </button>
-      </div>
-      {status && withFields.length > 0 && (
-        <div style={{ padding: '10px 16px' }}>
-          {withFields.map((t) => (
-            <div key={t.type} className="small">
-              {`${t.type}: ${t.present.length} of 4 fields${t.missing.length > 0 ? ` (missing ${t.missing.join(', ')})` : ''}`}
-            </div>
-          ))}
-        </div>
-      )}
-      {status && withFields.length === 0 && (
-        <div style={{ padding: '10px 16px' }} className="small">
-          <div>No AI cost fields found. To set up the project:</div>
-          <ol>
-            <li>Create an inherited process from the project process.</li>
-            <li>
-              Add the fields AI Cost, AI Cost Claude and AI Cost Copilot
-              (Decimal) and AI Tokens (Integer) to Issue.
-            </li>
-            <li>
-              Add the same four fields to Task and Epic with &quot;Use an
-              existing field&quot;.
-            </li>
-            <li>Change the project to the inherited process.</li>
-          </ol>
-          <div>The token needs Work Items: Read &amp; write.</div>
-        </div>
-      )}
-    </>
-  );
-}
-
 export function CostSection() {
-  const connections = useStore((s) => s.connections);
   return (
     <section id="cost" className="section">
       <div className="section-head">
@@ -292,17 +190,6 @@ export function CostSection() {
       </div>
       <InvoicingPart />
       <RatesPart />
-      <div className="section-head">
-        <h3>Work item fields</h3>
-      </div>
-      <div className="list">
-        {connections.length === 0 && (
-          <div className="empty">Add an Azure DevOps connection first.</div>
-        )}
-        {connections.map((c) => (
-          <FieldsRow key={c.id} id={c.id} name={c.name} />
-        ))}
-      </div>
     </section>
   );
 }

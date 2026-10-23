@@ -368,11 +368,9 @@ describe('SettingsScreen', () => {
     const stored: AppSettings = {
       version: 1 as const,
       receiverPort: 4319,
-      hourlySync: true,
       writeTimeToAdo: false,
       idleMinutes: 5,
       workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
-      writeCostToAdo: true,
       showSplash: true,
       notifyOnDone: true,
       theme: 'light',
@@ -423,11 +421,9 @@ describe('SettingsScreen', () => {
     expect(calls.find((c) => c.channel === 'settings:save')?.args[0]).toEqual({
       version: 1,
       receiverPort: 4319,
-      hourlySync: true,
       writeTimeToAdo: false,
       idleMinutes: 5,
       workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
-      writeCostToAdo: true,
       showSplash: false,
       notifyOnDone: true,
       theme: 'system',
@@ -458,11 +454,9 @@ describe('SettingsScreen', () => {
     let stored: AppSettings = {
       version: 1 as const,
       receiverPort: 4319,
-      hourlySync: true,
       writeTimeToAdo: false,
       idleMinutes: 5,
       workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
-      writeCostToAdo: true,
       showSplash: true,
       notifyOnDone: true,
       theme: 'system',
@@ -498,9 +492,9 @@ describe('SettingsScreen', () => {
     await userEvent.click(
       await screen.findByRole('checkbox', { name: 'Show splash on start' }),
     );
-    await userEvent.click(
-      await screen.findByRole('checkbox', { name: /every hour/ }),
-    );
+    const port = await screen.findByLabelText('Usage receiver port');
+    await userEvent.clear(port);
+    await userEvent.type(port, '4400');
     await userEvent.click(
       screen.getByRole('button', { name: 'Save settings' }),
     );
@@ -513,12 +507,10 @@ describe('SettingsScreen', () => {
       calls.filter((c) => c.channel === 'settings:save')[1]?.args[0],
     ).toEqual({
       version: 1,
-      receiverPort: 4319,
-      hourlySync: false,
+      receiverPort: 4400,
       writeTimeToAdo: false,
       idleMinutes: 5,
       workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
-      writeCostToAdo: true,
       showSplash: false,
       notifyOnDone: true,
       theme: 'system',

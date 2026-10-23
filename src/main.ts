@@ -753,9 +753,6 @@ async function boot(): Promise<void> {
       receiver,
       copilot,
       usageDir,
-      onHourly: (fn) => {
-        setInterval(fn, 60 * 60 * 1000);
-      },
       // Production ends at its bound: checked every 30 s and when the machine wakes.
       expiryTimers: {
         every: (fn, ms) => {

@@ -42,7 +42,7 @@ This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 
 | `whatsNew.shown` | Home showed the What's new card after an update (#126); `releases` (count covered), `fetched` (whether GitHub's release notes loaded) |
 | `whatsNew.dismissed`, `whatsNew.opened` | Dismiss on the What's new card, or its Release notes on GitHub link; none |
 | `task.created` | has a work item; copy files, start Claude, open shell, open Copilot, open OpenCode (booleans); number of setup commands |
-| `task.finished` | remove worktree, delete branch, close terminals, sync usage, has a work item (booleans); task age in hours, number of workspaces finished, pull requests asked for and workspaces dropped |
+| `task.finished` | remove worktree, delete branch, close terminals, has a work item (booleans); task age in hours, number of workspaces finished, pull requests asked for and workspaces dropped |
 | `task.discarded` | a ready task was thrown away with Discard task (#124); `blank` (no commits since the base and nothing uncommitted in any workspace); measurements `commitsLost` (commits on the removed branches that no remote has), `workspaces` (worktrees removed), `deferred` (folders left to the background retry) and `ageHours`. Never names or paths |
 | `cleanup.deferred` | Finish (or Discard task) could not remove a worktree folder yet and left it to the background retry (#115); the error code only (`EPERM`, `EBUSY`, another fs code, `in-use`, `git` or `other`), no path |
 | `cleanup.done` | a background retry removed a leftover folder (and its branch); the code it first failed with; attempts in all and minutes since Finish |
@@ -66,7 +66,6 @@ This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 
 | `terminal.failed` | an agent tab (`claude`, `copilot`, `opencode`) whose exit needed explaining (#109); `kind`; `reason` (`missing-cli`: the program is not installed or not on PATH, `invalid-config`: OpenCode refused its configuration, `crashed`: a non-zero exit within 30 s of the start, `spawn-failed`: the pty could not start it); `exitCode` (`none` for a spawn failure); measurement `runMs`. Never the terminal output or the config file's name |
 | `terminal.exitedEarly` | any other tab (`shell`, `run`) that exited non-zero within 30 s of its start; `kind`, `exitCode`; measurement `runMs` |
 | `usage.opened` | via the tab or the task strip |
-| `usage.synced` | ok; on finish or by hand |
 | `time.booked` | Finish booked time; `closest`: the measure the booked time is closest to (`measured`, `realistic`, `wallClock`), or `custom` when it is more than 5 minutes from all of them |
 | `docs.opened` | view (`rendered`, `source`); from (`list`, `link`, `terminal`); the file opened automatically with the tab is not tracked |
 | `docs.sessionView` | mode chosen in the Docs file list (`session`: the task's session docs, `all`: every doc in the worktree) |

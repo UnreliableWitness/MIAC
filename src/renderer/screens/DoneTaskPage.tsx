@@ -13,7 +13,6 @@ import { useLiveWorkItem } from '../hooks/useLiveWorkItem';
 import { useTaskTime } from '../hooks/useTaskTime';
 import { formatDuration } from '../../shared/time';
 import { useTaskUsage } from '../hooks/useTaskUsage';
-import { useWriteCostToAdo } from '../hooks/useWriteCostToAdo';
 import { useStore, useTaskConnectionId } from '../store';
 
 const MINUS = String.fromCharCode(0x2212);
@@ -262,16 +261,6 @@ export function DoneTaskPage({ task }: { task: TaskView }) {
   const took = task.finishedAt
     ? duration(task.createdAt, task.finishedAt)
     : null;
-  const writeCost = useWriteCostToAdo();
-  const logged = !wi
-    ? 'No work item'
-    : task.usageCommentId !== null
-      ? `Yes, ${task.usageSyncedAt ? dateTime(task.usageSyncedAt) : 'on finish'}`
-      : task.usageSyncError
-        ? `No: ${task.usageSyncError}`
-        : writeCost === false
-          ? 'No (off in Settings)'
-          : 'No';
   return (
     <div className="page page-done">
       <PageHeader
@@ -377,7 +366,6 @@ export function DoneTaskPage({ task }: { task: TaskView }) {
               'Not booked'
             )}
           </Fact>
-          <Fact label="Logged on work item">{logged}</Fact>
         </dl>
         <PendingCleanupStatus task={task} />
         {multi ? (

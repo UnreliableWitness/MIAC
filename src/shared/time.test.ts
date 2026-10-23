@@ -157,7 +157,6 @@ describe('schemas', () => {
     const s = AppSettingsSchema.parse({
       version: 1,
       receiverPort: 4319,
-      hourlySync: true,
     });
     expect(s.writeTimeToAdo).toBe(false);
     expect(s.idleMinutes).toBe(5);
@@ -168,7 +167,6 @@ describe('schemas', () => {
       AppSettingsSchema.safeParse({
         version: 1,
         receiverPort: 4319,
-        hourlySync: true,
         workHours: { start: '17:00', end: '09:00', days: [1] },
       }).success,
     ).toBe(false);

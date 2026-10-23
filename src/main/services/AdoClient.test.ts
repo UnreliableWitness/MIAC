@@ -832,7 +832,7 @@ describe('AdoClient writes', () => {
             name: 'Issue',
             fields: [
               { referenceName: 'System.Title' },
-              { referenceName: 'Custom.AICost' },
+              { referenceName: 'Custom.Cost' },
             ],
           },
           { name: 'Old', isDisabled: true, fields: [] },
@@ -840,7 +840,7 @@ describe('AdoClient writes', () => {
       },
     });
     expect(await client.workItemTypeFields('Shellie')).toEqual([
-      { type: 'Issue', fields: ['System.Title', 'Custom.AICost'] },
+      { type: 'Issue', fields: ['System.Title', 'Custom.Cost'] },
     ]);
   });
   it('patches fields with a JSON Patch document', async () => {
@@ -848,16 +848,16 @@ describe('AdoClient writes', () => {
       body: { id: 7 },
     });
     await client.updateWorkItemFields(7, {
-      'Custom.AICost': 23.85,
-      'Custom.AITokens': 1200,
+      'Custom.Cost': 23.85,
+      'Custom.Tokens': 1200,
     });
     const req = server.requests.at(-1)!;
     expect(req.path).toBe(
       '/unreliablewitness/_apis/wit/workitems/7?api-version=7.1',
     );
     expect(JSON.parse(req.body)).toEqual([
-      { op: 'add', path: '/fields/Custom.AICost', value: 23.85 },
-      { op: 'add', path: '/fields/Custom.AITokens', value: 1200 },
+      { op: 'add', path: '/fields/Custom.Cost', value: 23.85 },
+      { op: 'add', path: '/fields/Custom.Tokens', value: 1200 },
     ]);
     expect(req.auth).toBe(authFor('secret-pat'));
   });
@@ -880,7 +880,7 @@ describe('AdoClient writes', () => {
       body: {},
     });
     await expect(
-      client.updateWorkItemFields(7, { 'Custom.AICost': 1 }),
+      client.updateWorkItemFields(7, { 'Custom.Cost': 1 }),
     ).rejects.toMatchObject({
       kind: 'unauthorized',
       message:

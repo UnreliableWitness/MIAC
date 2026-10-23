@@ -17,6 +17,23 @@ const file = () => {
 };
 
 describe('SettingsStore', () => {
+  it('ignores writeCostToAdo and hourlySync from an old settings.json', async () => {
+    const f = file();
+    writeFileSync(
+      f,
+      JSON.stringify({
+        version: 1,
+        receiverPort: 4319,
+        hourlySync: true,
+        writeCostToAdo: true,
+      }),
+    );
+    const s = new SettingsStore(f);
+    await s.load();
+    expect('writeCostToAdo' in s.get()).toBe(false);
+    expect('hourlySync' in s.get()).toBe(false);
+  });
+
   it('defaults showSplash to true for files written before sub-project 6', async () => {
     const f = file();
     writeFileSync(
@@ -51,12 +68,11 @@ describe('SettingsStore', () => {
     expect(a.get()).toEqual(defaultSettings());
     await a.save({
       ...defaultSettings(),
-      hourlySync: false,
       receiverPort: 5000,
     });
     const b = new SettingsStore(f);
     await b.load();
-    expect(b.get()).toMatchObject({ hourlySync: false, receiverPort: 5000 });
+    expect(b.get()).toMatchObject({ receiverPort: 5000 });
   });
   it('loads a settings file from sub-project 3 and drops the old keys on save', async () => {
     const f = file();
@@ -75,8 +91,6 @@ describe('SettingsStore', () => {
     expect(s.get()).toEqual({
       version: 1,
       receiverPort: 5000,
-      hourlySync: false,
-      writeCostToAdo: false,
       writeTimeToAdo: false,
       idleMinutes: 5,
       workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
@@ -104,12 +118,10 @@ describe('SettingsStore', () => {
         shell: true,
       },
     });
-    await s.save({ ...s.get(), hourlySync: true });
+    await s.save({ ...s.get(), receiverPort: 5001 });
     expect(JSON.parse(readFileSync(f, 'utf8'))).toEqual({
       version: 1,
-      receiverPort: 5000,
-      hourlySync: true,
-      writeCostToAdo: false,
+      receiverPort: 5001,
       writeTimeToAdo: false,
       idleMinutes: 5,
       workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },

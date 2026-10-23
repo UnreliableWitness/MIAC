@@ -22,11 +22,9 @@ const rates: Rate[] = [
 const settings = {
   version: 1 as const,
   receiverPort: 4319,
-  hourlySync: true,
   writeTimeToAdo: false,
   idleMinutes: 5,
   workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
-  writeCostToAdo: true,
   showSplash: true,
   notifyOnDone: true,
   theme: 'system' as const,
@@ -77,32 +75,19 @@ beforeEach(() => {
 });
 
 describe('CostSection', () => {
-  it('turns on writing cost to Azure DevOps; hourly sync needs it', async () => {
-    const { calls } = installFakeApi({
-      'settings:get': () => ({ ...settings, writeCostToAdo: false }),
-      'settings:save': (s) => s,
+  it('has no controls for writing cost to Azure DevOps', async () => {
+    installFakeApi({
+      'settings:get': () => settings,
       'rates:list': () => ({ rates, officialAsOf: '2026-10-14' }),
     });
     render(<CostSection />);
-    const write = await screen.findByRole('checkbox', {
-      name: 'Write AI cost to Azure DevOps',
-    });
-    const hourly = screen.getByRole('checkbox', { name: /every hour/ });
-    expect(write).not.toBeChecked();
-    expect(hourly).toBeDisabled();
-    expect(hourly).not.toBeChecked();
-    await userEvent.click(write);
-    expect(hourly).toBeEnabled();
-    expect(hourly).toBeChecked();
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Save settings' }),
-    );
-    expect(
-      calls.find((c) => c.channel === 'settings:save')?.args[0],
-    ).toMatchObject({ writeCostToAdo: true, hourlySync: true });
+    await screen.findByLabelText('Usage receiver port');
+    expect(screen.queryByRole('checkbox')).toBeNull();
+    expect(screen.queryByText(/Azure DevOps/)).toBeNull();
+    expect(screen.queryByText(/Work item fields/)).toBeNull();
   });
 
-  it('saves the port and hourly sync, and has no exchange rate or markup inputs', async () => {
+  it('saves the port, and has no exchange rate or markup inputs', async () => {
     const { calls } = installFakeApi({
       'settings:get': () => settings,
       'settings:save': (s) => s,
@@ -113,18 +98,15 @@ describe('CostSection', () => {
     expect(screen.queryByLabelText('USD to EUR')).toBeNull();
     expect(screen.queryByLabelText('Markup %')).toBeNull();
     expect(screen.getByText('EUR at 0.92 per USD (built in)')).toBeTruthy();
-    await userEvent.click(screen.getByRole('checkbox', { name: /every hour/ }));
     await userEvent.click(
       screen.getByRole('button', { name: 'Save settings' }),
     );
     expect(calls.find((c) => c.channel === 'settings:save')?.args[0]).toEqual({
       version: 1,
       receiverPort: 4319,
-      hourlySync: false,
       writeTimeToAdo: false,
       idleMinutes: 5,
       workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
-      writeCostToAdo: true,
       showSplash: true,
       notifyOnDone: true,
       theme: 'system',
@@ -217,37 +199,5 @@ describe('CostSection', () => {
       await screen.findByText('Usage receiver port must be a number'),
     ).toBeTruthy();
     expect(calls.some((c) => c.channel === 'settings:save')).toBe(false);
-  });
-  it('checks the work item fields of a connection', async () => {
-    installFakeApi({
-      'settings:get': () => settings,
-      'rates:list': () => ({ rates, officialAsOf: '2026-10-14' }),
-      'usage:fieldsStatus': () => ({
-        connectionId: 'c1',
-        types: [
-          {
-            type: 'Issue',
-            present: ['Custom.AICost'],
-            missing: [
-              'Custom.AICostClaude',
-              'Custom.AICostCopilot',
-              'Custom.AITokens',
-            ],
-          },
-          { type: 'Task', present: [], missing: [] },
-        ],
-      }),
-    });
-    render(<CostSection />);
-    await userEvent.click(
-      await screen.findByRole('button', {
-        name: 'Check fields of unreliablewitness',
-      }),
-    );
-    expect(
-      await screen.findByText(
-        'Issue: 1 of 4 fields (missing Custom.AICostClaude, Custom.AICostCopilot, Custom.AITokens)',
-      ),
-    ).toBeTruthy();
   });
 });

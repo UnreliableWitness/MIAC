@@ -264,7 +264,6 @@ export type FinishOptions = {
   closeTerminals: boolean;
   removeWorktree: boolean;
   deleteBranch: boolean;
-  syncUsage: boolean;
   createPullRequest?: boolean;
   /** One entry per workspace; absent is the single-repo Finish (home: `pr` when createPullRequest, else `keep`). */
   workspaces?: {

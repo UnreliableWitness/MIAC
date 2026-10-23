@@ -45,14 +45,7 @@ import type {
   WorkItemTypeMeta,
   Workspace,
 } from './types';
-import type {
-  AppSettings,
-  FieldsStatus,
-  Rate,
-  ReceiverStatus,
-  SyncResult,
-  TaskUsage,
-} from './usage';
+import type { AppSettings, Rate, ReceiverStatus, TaskUsage } from './usage';
 import type { AgentsDetected } from './agents';
 import type { RepoInspection } from './repoInspection';
 import type { EditorChoice, EditorId, EditorOptions } from './editors';
@@ -438,9 +431,7 @@ export type Channels = {
     args: [taskId: string, sessionId: string, billable: boolean];
     result: TaskUsage;
   };
-  'usage:sync': { args: [taskId: string]; result: SyncResult };
   'usage:exportCsv': { args: [taskId: string]; result: string };
-  'usage:fieldsStatus': { args: [connectionId: string]; result: FieldsStatus };
   'usage:receiverStatus': { args: []; result: ReceiverStatus };
   'rates:list': { args: []; result: { rates: Rate[]; officialAsOf: string } };
   /** A downloaded update waiting for a restart; null when there is none (always in dev and on macOS). */
