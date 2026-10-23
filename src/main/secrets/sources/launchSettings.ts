@@ -3,7 +3,7 @@ import { isRecord, type Item } from './types';
 
 const ENV_VARS = ['ASPNETCORE_ENVIRONMENT', 'DOTNET_ENVIRONMENT'];
 
-/** Each profile's `environmentVariables`; the profile's environment is its name's, else its ASPNETCORE_ENVIRONMENT's. */
+/** Each profile's `environmentVariables`; the profile's environment is its ASPNETCORE_ENVIRONMENT's when set, else its name's. */
 export function parseLaunchSettings(text: string): Item[] {
   let json: unknown;
   try {
@@ -20,7 +20,7 @@ export function parseLaunchSettings(text: string): Item[] {
     );
     const named = vars.find(([k]) => ENV_VARS.includes(k));
     const env =
-      environmentOf(profile) ?? (named ? environmentOf(named[1]) : null);
+      (named ? environmentOf(named[1]) : null) ?? environmentOf(profile);
     for (const [name, value] of vars)
       items.push({ name, value, env, source: `launch profile ${profile}` });
   }

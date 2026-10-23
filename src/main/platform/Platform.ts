@@ -37,8 +37,8 @@ export interface Platform {
   copilotCommand(): Command;
   /** Start OpenCode (no AI cost tracking). */
   opencodeCommand(): Command;
-  /** Where .NET stores a project's user secrets (`secrets.json` inside); the folder may not exist. */
-  userSecretsDir(id: string): string;
+  /** Where .NET stores a project's user secrets (`secrets.json` inside); the folder may not exist; null when the home folder is unknown. */
+  userSecretsDir(id: string): string | null;
   /** Open a folder in the editor. */
   editorCommand(path: string): Command;
   /** Open a file in the editor at a line (and column), in the worktree's window. */

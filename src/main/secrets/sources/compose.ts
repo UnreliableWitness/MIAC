@@ -12,7 +12,7 @@ export function parseCompose(
   const out = { items: [] as Item[], envFiles: [] as string[] };
   let doc: unknown;
   try {
-    doc = parse(text);
+    doc = parse(text, { merge: true });
   } catch {
     return out;
   }

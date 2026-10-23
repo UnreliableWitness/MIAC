@@ -22,6 +22,8 @@ import { parseUserSecrets, userSecretsId } from './sources/userSecrets';
 import { parseVscodeLaunch } from './sources/vscodeLaunch';
 
 const MAX_DEPTH = 2;
+/** A `secrets/` folder is read all the way down, to this depth. */
+const MAX_SECRETS_DEPTH = 8;
 const MAX_FILE_BYTES = 1024 * 1024;
 const SKIP_DIRS = new Set([
   '.git',
@@ -55,9 +57,10 @@ function dotenvEnvironment(file: string): Environment | null {
  */
 export async function discoverSecrets(
   repoPath: string,
-  deps: { git: GitClient; userSecretsDir: (id: string) => string },
-): Promise<Found[]> {
+  deps: { git: GitClient; userSecretsDir: (id: string) => string | null },
+): Promise<{ found: Found[]; skipped: number }> {
   const root = path.resolve(repoPath);
+  const realRoot = await fs.realpath(root).catch(() => root);
   const tracked = new Set<string>();
   try {
     const out = await deps.git.run(root, ['ls-files', '-z']);
@@ -67,8 +70,9 @@ export async function discoverSecrets(
   }
 
   const found: Found[] = [];
+  let skipped = 0;
   const seen = new Set<string>();
-  const read = async (file: string): Promise<string | null> => {
+  const readFile = async (file: string): Promise<string | null> => {
     try {
       const st = await fs.stat(file);
       if (!st.isFile() || st.size > MAX_FILE_BYTES) return null;
@@ -77,9 +81,22 @@ export async function discoverSecrets(
       return null;
     }
   };
+  /** A file of the repo, after following symlinks: one that points outside is not read. */
+  const readInRepo = async (file: string): Promise<string | null> => {
+    try {
+      if (!isInside(realRoot, await fs.realpath(file))) return null;
+    } catch {
+      return null;
+    }
+    return readFile(file);
+  };
   const add = (items: Item[], isTracked: boolean) => {
     for (const it of items) {
-      if (!SECRET_NAME.test(it.name)) continue;
+      if (it.value === '') continue;
+      if (!SECRET_NAME.test(it.name)) {
+        skipped++;
+        continue;
+      }
       const key = `${it.source}\0${it.env ?? ''}\0${it.name}\0${it.value}`;
       if (seen.has(key)) continue;
       seen.add(key);
@@ -95,7 +112,7 @@ export async function discoverSecrets(
     const r = rel(root, file);
     if (visited.has(r) || !isInside(root, file)) return;
     visited.add(r);
-    const text = await read(file);
+    const text = await readInRepo(file);
     if (text !== null)
       add(parseDotenv(text, r, dotenvEnvironment(file)), tracked.has(r));
   };
@@ -103,6 +120,7 @@ export async function discoverSecrets(
     for (const f of files) await dotenvFile(path.resolve(dir, f));
   };
 
+  /** What a file is, from its name and folder alone, so only files that can hold values are read. */
   const handle = async (file: string, inSecrets: boolean) => {
     const base = path.basename(file);
     const dir = path.dirname(file);
@@ -110,34 +128,53 @@ export async function discoverSecrets(
     const isTracked = tracked.has(r);
     if (TEMPLATE.test(base)) return;
     if (/^\.env(\..+)?$/.test(base)) return dotenvFile(file);
-    const text = await read(file);
+    const parent = path.basename(dir);
+    const kind = /^appsettings(\..+)?\.json$/i.test(base)
+      ? 'appsettings'
+      : base === 'launchSettings.json' && parent === 'Properties'
+        ? 'launchSettings'
+        : base === 'launch.json' && parent === '.vscode'
+          ? 'vscode'
+          : /^(docker-)?compose(\..+)?\.ya?ml$/i.test(base)
+            ? 'compose'
+            : base === 'local.settings.json'
+              ? 'local'
+              : /\.csproj$/i.test(base)
+                ? 'csproj'
+                : inSecrets || /\.secrets\.json$/i.test(base)
+                  ? 'secrets'
+                  : null;
+    if (kind === null) return;
+    const text = await readInRepo(file);
     if (text === null) return;
-    if (/^appsettings(\..+)?\.json$/i.test(base))
-      add(parseAppsettings(text, r, environmentOf(base)), isTracked);
-    else if (
-      base === 'launchSettings.json' &&
-      path.basename(dir) === 'Properties'
-    )
-      add(parseLaunchSettings(text), isTracked);
-    else if (base === 'launch.json' && path.basename(dir) === '.vscode') {
-      const v = parseVscodeLaunch(text, r);
-      add(v.items, isTracked);
-      await envFiles(root, v.envFiles);
-    } else if (/^(docker-)?compose(\..+)?\.ya?ml$/i.test(base)) {
-      const c = parseCompose(text, r);
-      add(c.items, isTracked);
-      await envFiles(dir, c.envFiles);
-    } else if (base === 'local.settings.json')
-      add(parseLocalSettings(text, r), isTracked);
-    else if (/\.csproj$/i.test(base)) {
-      const id = userSecretsId(text);
-      if (id === null) return;
-      const secrets = await read(
-        path.join(deps.userSecretsDir(id), 'secrets.json'),
-      );
-      if (secrets !== null) add(parseUserSecrets(secrets), false);
-    } else if (inSecrets || /\.secrets\.json$/i.test(base))
-      add(parseSecretsFile(text, r), isTracked);
+    switch (kind) {
+      case 'appsettings':
+        return add(parseAppsettings(text, r, environmentOf(base)), isTracked);
+      case 'launchSettings':
+        return add(parseLaunchSettings(text), isTracked);
+      case 'vscode': {
+        const v = parseVscodeLaunch(text, r);
+        add(v.items, isTracked);
+        return envFiles(root, v.envFiles);
+      }
+      case 'compose': {
+        const c = parseCompose(text, r);
+        add(c.items, isTracked);
+        return envFiles(dir, c.envFiles);
+      }
+      case 'local':
+        return add(parseLocalSettings(text, r), isTracked);
+      case 'csproj': {
+        const id = userSecretsId(text);
+        const folder = id === null ? null : deps.userSecretsDir(id);
+        if (folder === null) return;
+        const secrets = await readFile(path.join(folder, 'secrets.json'));
+        if (secrets !== null) add(parseUserSecrets(secrets), false);
+        return;
+      }
+      case 'secrets':
+        return add(parseSecretsFile(text, r), isTracked);
+    }
   };
 
   const walk = async (dir: string, depth: number, inSecrets: boolean) => {
@@ -151,19 +188,23 @@ export async function discoverSecrets(
     for (const e of entries) {
       const full = path.join(dir, e.name);
       if (e.isFile()) await handle(full, inSecrets);
-      else if (e.isDirectory() && depth < MAX_DEPTH && !SKIP_DIRS.has(e.name))
-        await walk(full, depth + 1, e.name === 'secrets');
+      else if (
+        e.isDirectory() &&
+        (depth < MAX_DEPTH || (inSecrets && depth < MAX_SECRETS_DEPTH)) &&
+        !SKIP_DIRS.has(e.name)
+      )
+        await walk(full, depth + 1, inSecrets || e.name === 'secrets');
     }
   };
   await walk(root, 0, false);
-  return found;
+  return { found, skipped };
 }
 
 /** Holds each repo's last discovery in main, so the renderer only ever gets masks and a key to pick by. */
 export class DiscoveryHold {
   private readonly byRepo = new Map<string, Map<string, Found>>();
 
-  hold(repoId: string, found: Found[]): DiscoverResult {
+  hold(repoId: string, found: Found[], skipped = 0): DiscoverResult {
     const keyed = new Map<string, Found>();
     const view = found.map(({ value, ...rest }) => {
       const key = randomUUID();
@@ -171,7 +212,11 @@ export class DiscoveryHold {
       return { ...rest, key, mask: maskValue(value) };
     });
     this.byRepo.set(repoId, keyed);
-    return { found: view, sources: [...new Set(found.map((f) => f.source))] };
+    return {
+      found: view,
+      sources: [...new Set(found.map((f) => f.source))],
+      skipped,
+    };
   }
 
   resolve(repoId: string, key: string): Found | undefined {

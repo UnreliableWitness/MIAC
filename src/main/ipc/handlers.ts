@@ -2234,14 +2234,13 @@ export function createHandlers(s: Services): Handlers {
       s.broadcast('secrets:changed', null);
     },
     'secrets:reveal': async (id, env) => s.secrets.reveal(id, env),
-    'secrets:discover': async (repoId) =>
-      discovery.hold(
-        repoId,
-        await discoverSecrets(s.repos.get(repoId).path, {
-          git: s.git,
-          userSecretsDir: (id) => s.platform.userSecretsDir(id),
-        }),
-      ),
+    'secrets:discover': async (repoId) => {
+      const r = await discoverSecrets(s.repos.get(repoId).path, {
+        git: s.git,
+        userSecretsDir: (id) => s.platform.userSecretsDir(id),
+      });
+      return discovery.hold(repoId, r.found, r.skipped);
+    },
     'secrets:setRepoDefault': async (repoId, env) => {
       await s.secrets.setRepoDefault(repoId, env);
       s.broadcast('secrets:changed', null);

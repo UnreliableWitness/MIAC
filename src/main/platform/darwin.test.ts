@@ -12,6 +12,9 @@ import { describe, expect, it } from 'vitest';
 import { darwinPlatform } from './darwin';
 
 describe('darwinPlatform', () => {
+  it('has no user secrets folder without a home folder', () => {
+    expect(darwinPlatform({}).userSecretsDir('abc')).toBeNull();
+  });
   it('keeps .NET user secrets under ~/.microsoft/usersecrets', () => {
     expect(darwinPlatform({ HOME: '/Users/me' }).userSecretsDir('abc')).toBe(
       '/Users/me/.microsoft/usersecrets/abc',

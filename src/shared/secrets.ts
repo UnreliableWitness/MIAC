@@ -71,4 +71,9 @@ export type Found = {
 /** A `Found` as the renderer sees it: a mask and a key that main resolves back to the value at import. */
 export type FoundView = Omit<Found, 'value'> & { key: string; mask: string };
 
-export type DiscoverResult = { found: FoundView[]; sources: string[] };
+/** `skipped`: values whose names cannot be environment variables. */
+export type DiscoverResult = {
+  found: FoundView[];
+  sources: string[];
+  skipped: number;
+};

@@ -139,14 +139,16 @@ export function windowsPlatform(
       ),
     copilotCommand: () => tool('copilot', []),
     opencodeCommand: () => tool('opencode', []),
-    userSecretsDir: (id) =>
-      path.win32.join(
+    userSecretsDir: (id) => {
+      const appData =
         env.APPDATA ??
-          path.win32.join(env.USERPROFILE ?? '', 'AppData', 'Roaming'),
-        'Microsoft',
-        'UserSecrets',
-        id,
-      ),
+        (env.USERPROFILE
+          ? path.win32.join(env.USERPROFILE, 'AppData', 'Roaming')
+          : null);
+      return appData === null
+        ? null
+        : path.win32.join(appData, 'Microsoft', 'UserSecrets', id);
+    },
     editorCommand: (p) => vscode([p]),
     editorGotoCommand: (wt, f, line, col) =>
       vscode([wt, '-g', `${f}:${line ?? 1}:${col ?? 1}`]),

@@ -21,6 +21,11 @@ const make = (found: Record<string, string>) =>
   windowsPlatform({}, { which: (n) => found[n] ?? null });
 
 describe('windowsPlatform', () => {
+  it('has no user secrets folder without APPDATA or USERPROFILE', () => {
+    expect(
+      windowsPlatform({}, { which: () => null }).userSecretsDir('abc'),
+    ).toBeNull();
+  });
   it('keeps .NET user secrets under %APPDATA%\\Microsoft\\UserSecrets', () => {
     const p = windowsPlatform(
       { APPDATA: 'C:\\Users\\me\\AppData\\Roaming' },

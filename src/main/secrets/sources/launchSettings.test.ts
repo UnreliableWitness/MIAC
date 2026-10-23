@@ -7,12 +7,13 @@ const text = `{
     "Prd": { "commandName": "Project", "environmentVariables": { "Db": "a=b", "X": "1" } },
     "https": { "environmentVariables": { "ASPNETCORE_ENVIRONMENT": "Staging", "Key": "k" } },
     "Plain": { "environmentVariables": { "Y": "2" } },
+    "Explicit": { "environmentVariables": { "DOTNET_ENVIRONMENT": "Test", "Z": "1" } },
     "NoVars": {},
   }
 }`;
 
 describe('parseLaunchSettings', () => {
-  it('maps a profile by name, else by ASPNETCORE_ENVIRONMENT', () => {
+  it('maps a profile by ASPNETCORE_ENVIRONMENT when set, else by name', () => {
     const r = parseLaunchSettings(text);
     const by = (n: string) => r.find((i) => i.name === n);
     expect(by('Db')).toEqual({
@@ -25,6 +26,7 @@ describe('parseLaunchSettings', () => {
       env: 'uat',
       source: 'launch profile https',
     });
+    expect(by('Z')).toMatchObject({ env: 'test' });
     expect(by('Y')).toMatchObject({
       env: null,
       source: 'launch profile Plain',
