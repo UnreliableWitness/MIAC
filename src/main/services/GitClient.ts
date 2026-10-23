@@ -60,7 +60,7 @@ export class GitAuthError extends Error {
 }
 
 /** How Windows reports a folder that a process (a shell, a dev server, an indexer) still holds open. */
-const FOLDER_IN_USE =
+export const FOLDER_IN_USE =
   /Permission denied|Directory not empty|being used by another process|EBUSY/i;
 
 /**
@@ -369,9 +369,13 @@ export class GitClient {
       try {
         await removeTree(worktreePath, this.wait);
       } catch (rm) {
-        throw new Error(
-          `Could not delete ${worktreePath}: ${errorMessage(rm)}. Close what has files open there and try again.`,
-          { cause: e },
+        // The fs code (EPERM, EBUSY) stays on the error: Finish tells a held file from other failures by it.
+        throw Object.assign(
+          new Error(
+            `Could not delete ${worktreePath}: ${errorMessage(rm)}. Close what has files open there and try again.`,
+            { cause: e },
+          ),
+          { code: (rm as NodeJS.ErrnoException).code },
         );
       }
       await this.worktreePrune(cwd);

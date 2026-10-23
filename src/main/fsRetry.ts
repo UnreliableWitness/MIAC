@@ -49,37 +49,77 @@ export async function renameWithRetry(
  * Deletes a folder and everything in it without following links. On Windows every path goes through the
  * `\\?\` namespace, so names the Win32 layer rejects (`nul`, `con`, a trailing dot or space) and long
  * paths can be deleted too; read-only files are made writable first. Locks are retried like a rename.
+ *
+ * An entry that stays locked does not stop the rest: everything else goes, then the first error is thrown
+ * with its own code (EPERM, EBUSY), so a caller can tell "a process holds a file" from anything else.
  */
 export async function removeTree(
   dir: string,
   wait: Wait = realWait,
+  ops: TreeOps = fs,
 ): Promise<void> {
   const ns = (p: string) => path.toNamespacedPath(path.resolve(p));
-  const retry = <T>(fn: () => Promise<T>) =>
+  const retry = <T>(fn: () => Promise<T>, extra?: string) =>
     withRetry(
       fn,
-      (e) => RETRYABLE.has((e as NodeJS.ErrnoException).code ?? ''),
+      (e) => {
+        const code = (e as NodeJS.ErrnoException).code ?? '';
+        return RETRYABLE.has(code) || code === extra;
+      },
       wait,
     );
   const unlink = async (p: string) => {
     try {
-      await fs.unlink(ns(p));
+      await ops.unlink(ns(p));
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'EPERM') throw e;
       // A read-only file on Windows; a link to a folder is removed with rmdir.
-      await fs.chmod(ns(p), 0o666).catch(() => undefined);
-      await fs.unlink(ns(p)).catch(() => fs.rmdir(ns(p)));
+      await ops.chmod(ns(p), 0o666).catch(() => undefined);
+      try {
+        await ops.unlink(ns(p));
+      } catch (again) {
+        // rmdir on a file says ENOENT or ENOTDIR on Windows (#115), which would hide that a process holds it.
+        await ops.rmdir(ns(p)).catch(() => {
+          throw again;
+        });
+      }
     }
   };
-  const walk = async (p: string): Promise<void> => {
-    const st = await fs.lstat(ns(p)).catch((e: NodeJS.ErrnoException) => {
-      if (e.code === 'ENOENT') return null;
-      throw e;
-    });
-    if (!st) return;
-    if (!st.isDirectory() || st.isSymbolicLink()) return retry(() => unlink(p));
-    for (const name of await fs.readdir(ns(p))) await walk(path.join(p, name));
-    await retry(() => fs.rmdir(ns(p)));
+  let first: unknown = null;
+  /** False when something under `p` is left. */
+  const walk = async (p: string): Promise<boolean> => {
+    try {
+      const st = await ops.lstat(ns(p)).catch((e: NodeJS.ErrnoException) => {
+        if (e.code === 'ENOENT') return null;
+        throw e;
+      });
+      if (!st) return true;
+      if (!st.isDirectory() || st.isSymbolicLink()) {
+        await retry(() => unlink(p));
+        return true;
+      }
+      let all = true;
+      for (const name of await ops.readdir(ns(p)))
+        if (!(await walk(path.join(p, name)))) all = false;
+      if (!all) return false;
+      // ENOTEMPTY: a child Windows has marked for deletion but not yet let go of.
+      await retry(() => ops.rmdir(ns(p)), 'ENOTEMPTY');
+      return true;
+    } catch (e) {
+      first ??= e;
+      return false;
+    }
   };
-  await walk(dir);
+  if (!(await walk(dir))) throw first;
 }
+
+/** The fs calls removeTree makes (tests pass fakes). */
+export type TreeOps = {
+  lstat(
+    p: string,
+  ): Promise<{ isDirectory(): boolean; isSymbolicLink(): boolean }>;
+  readdir(p: string): Promise<string[]>;
+  unlink(p: string): Promise<void>;
+  chmod(p: string, mode: number): Promise<void>;
+  rmdir(p: string): Promise<void>;
+};

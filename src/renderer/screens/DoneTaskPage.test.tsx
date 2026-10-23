@@ -48,6 +48,7 @@ const task: TaskView = {
   homeDropped: false,
   connectionId: null,
   mainCheckoutEdits: [],
+  pendingCleanup: [],
   worktreeMissing: false,
 };
 const summary: TaskSummary = {
@@ -233,6 +234,56 @@ describe('DoneTaskPage', () => {
       ).toBe(true),
     );
     expect(screen.getByRole('button', { name: /Reopen/ })).toBeEnabled();
+  });
+
+  it('shows a worktree still being removed as a quiet status with Retry now, not an error (#115)', async () => {
+    const { calls } = installFakeApi({
+      'workItems:get': () => null,
+      'tasks:retryCleanup': () => false,
+    });
+    render(
+      <DoneTaskPage
+        task={{
+          ...task,
+          pendingCleanup: [
+            {
+              workspaceId: 'home',
+              repoPath: '/r',
+              worktreePath: '/w/a',
+              branch: task.branch,
+              since: finished.toISOString(),
+              attempts: 3,
+              error: 'Could not delete /w/a: EPERM, unlink',
+              code: 'EPERM',
+              notified: false,
+            },
+          ],
+        }}
+      />,
+    );
+    const status = screen.getByRole('status', { name: 'Cleanup' });
+    expect(status).toHaveTextContent(
+      'Removing the worktree folder: a process still holds files in it',
+    );
+    expect(status).toHaveTextContent('/w/a');
+    expect(status).toHaveTextContent(/Resource Monitor/);
+    await userEvent.click(
+      within(status).getByRole('button', { name: 'Retry now' }),
+    );
+    await waitFor(() =>
+      expect(
+        calls.find((c) => c.channel === 'tasks:retryCleanup')?.args,
+      ).toEqual([task.id]),
+    );
+    expect(
+      useStore.getState().notices.some((n) => n.message.includes('EPERM')),
+    ).toBe(false);
+  });
+
+  it('shows no cleanup status when everything was removed', () => {
+    installFakeApi({ 'workItems:get': () => null });
+    render(<DoneTaskPage task={task} />);
+    expect(screen.queryByRole('status', { name: 'Cleanup' })).toBeNull();
   });
 
   it('marks a local branch and a task without a work item', () => {

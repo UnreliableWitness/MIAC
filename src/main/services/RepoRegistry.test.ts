@@ -233,6 +233,7 @@ describe('RepoRegistry', () => {
         homeDropped: false,
         connectionId: null,
         mainCheckoutEdits: [],
+        pendingCleanup: [],
       });
     });
     await expect(reg.remove(again.id)).rejects.toThrow(/open task/);

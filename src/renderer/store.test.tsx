@@ -46,6 +46,7 @@ const task = (id: string, terms: string[]): TaskView => ({
   homeDropped: false,
   connectionId: null,
   mainCheckoutEdits: [],
+  pendingCleanup: [],
 });
 
 beforeEach(() => {
