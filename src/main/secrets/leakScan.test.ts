@@ -1,5 +1,9 @@
+import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { parseAddedLines } from './leakScan';
+import { LeakMatcher } from './LeakMatcher';
+import { branchLeaks, parseAddedLines } from './leakScan';
 
 describe('parseAddedLines', () => {
   it('collects added lines per new path, never removed lines or headers', () => {
@@ -47,4 +51,24 @@ describe('parseAddedLines', () => {
       ]),
     );
   });
+});
+
+describe('branchLeaks', () => {
+  it.skipIf(process.platform === 'win32')(
+    'gives up on a git that never answers, so Finish fails closed instead of hanging',
+    async () => {
+      const dir = mkdtempSync(path.join(os.tmpdir(), 'shellie-hung-git-'));
+      const git = path.join(dir, 'git');
+      writeFileSync(git, '#!/bin/sh\nexec sleep 30\n');
+      chmodSync(git, 0o755);
+      const matcher = LeakMatcher.from([
+        { name: 'DB', value: 'prod-db-value-5678', env: 'production' },
+      ]);
+      const started = Date.now();
+      await expect(
+        branchLeaks(dir, 'base', matcher, { timeoutMs: 200, git }),
+      ).rejects.toThrow(/timed out/);
+      expect(Date.now() - started).toBeLessThan(5_000);
+    },
+  );
 });

@@ -17,6 +17,7 @@ import { isInside } from '../paths';
 import type { GitClient } from '../services/GitClient';
 import { fileEnvironment, type DiscoveryHold } from './discover';
 import { DEFAULT_GIVEN_TO, strippableKind, stripKeys } from './inject';
+import { replaceFile } from './replaceFile';
 import type { SecretStore } from './SecretStore';
 
 export type KeyedFound = Found & { key: string };
@@ -137,6 +138,17 @@ export type ImportDeps = {
 };
 
 /**
+ * Two picked names differ only in case. The message reaches notices and telemetry, so it names no secret; the
+ * names are in `names` (the Import page finds the clash itself and shows them before sending).
+ */
+export class CaseClashError extends Error {
+  constructor(readonly names: [string, string]) {
+    super('Two picked names differ only in case; import one of them');
+    this.name = 'CaseClashError';
+  }
+}
+
+/**
  * Saves the picked values (resolved by key from what main holds, never sent by the renderer) into the repo's
  * secrets, with the default given-to for new ones. Then, when asked, rewrites open worktrees' copied files and
  * the chosen `.env`-style files of the main checkout without the imported keys, and forgets the held values.
@@ -175,10 +187,7 @@ export async function importSecrets(
   const lower = new Map<string, string>();
   for (const name of byName.keys()) {
     const other = lower.get(name.toLowerCase());
-    if (other !== undefined)
-      throw new Error(
-        `${other} and ${name} differ only in case; import one of them`,
-      );
+    if (other !== undefined) throw new CaseClashError([other, name]);
     lower.set(name.toLowerCase(), name);
   }
 
@@ -239,7 +248,7 @@ export async function importSecrets(
       imported.map((f) => f.name),
     );
     if (stripped === text) continue;
-    await fs.writeFile(target, stripped, 'utf8');
+    await replaceFile(target, stripped);
     filesChanged.push(file);
   }
 
@@ -283,6 +292,6 @@ async function stripTree(
   const text = await fs.readFile(target, 'utf8');
   const stripped = stripKeys(text, kind, names(fileEnvironment(rel)));
   if (stripped === text) return false;
-  await fs.writeFile(target, stripped, 'utf8');
+  await replaceFile(target, stripped);
   return true;
 }

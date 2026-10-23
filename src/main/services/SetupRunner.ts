@@ -9,6 +9,7 @@ import { GitAuthError, type GitClient } from './GitClient';
 import { nodeModulesMatch } from './nodeModules';
 import { errorMessage } from '../../shared/errors';
 import { strippableKind, stripKeys } from '../secrets/inject';
+import { replaceFile } from '../secrets/replaceFile';
 
 /** Untracked agent config copied into new worktrees by default (`copyAgentConfig: false` turns it off). */
 export const AGENT_CONFIG_PATHS = [
@@ -234,7 +235,7 @@ async function stripCopied(
   const text = await fs.readFile(target, 'utf8');
   const stripped = stripKeys(text, kind, names);
   if (stripped === text) return;
-  await fs.writeFile(target, stripped, 'utf8');
+  await replaceFile(target, stripped);
   log(`left stored secrets out of ${path.basename(target)}`);
 }
 

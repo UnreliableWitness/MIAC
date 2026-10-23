@@ -7,7 +7,8 @@ import {
 } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { promises as fsp } from 'node:fs';
+import { describe, expect, it, vi } from 'vitest';
 import type { Found } from '../../shared/secrets';
 import { GitClient } from '../services/GitClient';
 import { fakeCrypto } from '../test-helpers/fakeCrypto';
@@ -23,6 +24,23 @@ import { DEFAULT_GIVEN_TO } from './inject';
 import { SecretStore } from './SecretStore';
 
 let n = 0;
+/** The files renamed into place from a `.shellie-tmp-` file next to them (a crash never leaves half a file). */
+function renamedInPlace() {
+  const spy = vi.spyOn(fsp, 'rename');
+  return {
+    targets: () =>
+      spy.mock.calls
+        .filter(
+          ([from, to]) =>
+            path.dirname(String(from)) === path.dirname(String(to)) &&
+            path.basename(String(from)) ===
+              `.shellie-tmp-${process.pid}-${path.basename(String(to))}`,
+        )
+        .map(([, to]) => String(to)),
+    restore: () => spy.mockRestore(),
+  };
+}
+
 const f = (over: Partial<Found> & { name: string; value: string }) =>
   ({
     env: 'development',
@@ -402,7 +420,13 @@ describe('importSecrets', () => {
         },
         { hold, store, git, repoPath: repo, worktrees: () => [] },
       ),
-    ).rejects.toThrow(/Key and KEY/);
+    ).rejects.toSatisfy((e: unknown) => {
+      // The message reaches notices and telemetry: no secret name in it, the names go in a field.
+      expect((e as Error).message).toMatch(/differ only in case/);
+      expect((e as Error).message).not.toMatch(/Key|KEY/);
+      expect((e as { names?: string[] }).names).toEqual(['Key', 'KEY']);
+      return true;
+    });
     expect(store.list()).toEqual([]);
   });
 
@@ -494,6 +518,7 @@ describe('importSecrets', () => {
     writeFileSync(path.join(repo, '.env'), 'K=from-env\n');
     writeFileSync(path.join(repo, '.env.local'), 'K=from-local\n');
     const local = view.found.find((x) => x.source === '.env.local')!.key;
+    const renamed = renamedInPlace();
     await importSecrets(
       {
         repoId: 'r1',
@@ -505,6 +530,8 @@ describe('importSecrets', () => {
     );
     expect(readFileSync(path.join(repo, '.env'), 'utf8')).toBe('K=from-env\n');
     expect(readFileSync(path.join(repo, '.env.local'), 'utf8')).toBe('');
+    expect(renamed.targets()).toEqual([path.join(repo, '.env.local')]);
+    renamed.restore();
   });
 
   it('rewrites copied files in open worktrees without the imported keys, never tracked ones', async () => {
@@ -519,6 +546,7 @@ describe('importSecrets', () => {
     );
     commitFile(repo, 'tracked.env', 'STRIPE_KEY=z\n');
     writeFileSync(path.join(wt, 'tracked.env'), 'STRIPE_KEY=z\n');
+    const renamed = renamedInPlace();
     const result = await importSecrets(
       {
         repoId: 'r1',
@@ -562,5 +590,9 @@ describe('importSecrets', () => {
     expect(
       readFileSync(path.join(wt, 'appsettings.Production.json'), 'utf8'),
     ).toBe('{"STRIPE_KEY":"live"}');
+    expect(renamed.targets().sort()).toEqual(
+      [path.join(wt, '.env'), path.join(wt, 'conf', 'app.env')].sort(),
+    );
+    renamed.restore();
   });
 });

@@ -7,6 +7,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
+import { promises as fsp } from 'node:fs';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import type { SetupEvent } from '../../shared/types';
 import {
@@ -410,6 +411,22 @@ describe('SetupRunner: copied env files without stored secrets', () => {
       Port: 1,
     });
     expect(read(p, 'secrets/.env.local')).toBe('KEEP=k\n');
+  });
+
+  it('rewrites a copied file through a temp file next to it', async () => {
+    const spy = vi.spyOn(fsp, 'rename');
+    const { p } = await run(['API_KEY'], {
+      '.env': 'PORT=5000\nAPI_KEY=sk_live_abc\n',
+    });
+    const target = path.join(p.worktreePath, '.env');
+    expect(
+      spy.mock.calls.some(
+        ([from, to]) =>
+          String(to) === target &&
+          path.basename(String(from)) === `.shellie-tmp-${process.pid}-.env`,
+      ),
+    ).toBe(true);
+    spy.mockRestore();
   });
 
   it('leaves other copied JSON alone', async () => {

@@ -291,3 +291,12 @@ export class SecretStore {
     };
   }
 }
+
+/** The start-up notice for a secrets file that could not be read (the store moved it aside); null when it was read. */
+export function secretsLoadNotice(loaded: {
+  recovered: boolean;
+  backup?: string;
+}): string | null {
+  if (!loaded.recovered) return null;
+  return `Shellie couldn't read its secrets file; a backup was kept at ${loaded.backup ?? 'its folder'}. Secrets start empty.`;
+}

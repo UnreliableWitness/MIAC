@@ -383,6 +383,31 @@ describe('Import page', () => {
     expect(document.body.innerHTML).not.toMatch(/sk_(test|live)_[^•]/);
   });
 
+  it('names two picked names that differ only in case on the page, never in a notice, and holds the import', async () => {
+    const { sent } = setup({
+      ...plan,
+      rows: [
+        row('ApiKey', {
+          development: { candidates: [cand('k1', '.env', '••••1')] },
+        }),
+        row('APIKEY', {
+          development: { candidates: [cand('k2', '.env.local', '••••2')] },
+        }),
+      ],
+    });
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('ApiKey and APIKEY differ only in case');
+    const go = screen.getByRole('button', { name: /^Import/ });
+    expect(go).toBeDisabled();
+    await userEvent.click(within(rowOf('APIKEY')).getByRole('checkbox'));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    await userEvent.click(screen.getByRole('button', { name: /^Import/ }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(
+      useStore.getState().notices.some((n) => /ApiKey/.test(n.message)),
+    ).toBe(false);
+  });
+
   it('goes back to the Secrets page on Cancel', async () => {
     const user = userEvent.setup();
     setup();

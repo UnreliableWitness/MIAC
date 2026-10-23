@@ -4,7 +4,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { maskValue } from '../../shared/secrets';
 import { fakeCrypto } from '../test-helpers/fakeCrypto';
-import { SecretStore } from './SecretStore';
+import { SecretStore, secretsLoadNotice } from './SecretStore';
 
 async function make() {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'shellie-secrets-'));
@@ -221,5 +221,20 @@ describe('SecretStore', () => {
     await store.setRepoDefault('r1', 'test');
     expect(store.repoDefault('r1')).toBe('test');
     await expect(store.setRepoDefault('r1', 'production')).rejects.toThrow();
+  });
+});
+
+describe('an unreadable secrets file', () => {
+  it('is moved to a backup, and the notice says where', async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'shellie-secrets-bad-'));
+    const file = path.join(dir, 'secrets.json');
+    writeFileSync(file, '{ not json');
+    const s = new SecretStore(file, fakeCrypto());
+    const loaded = await s.load();
+    expect(loaded.recovered).toBe(true);
+    expect(secretsLoadNotice(loaded)).toBe(
+      `Shellie couldn't read its secrets file; a backup was kept at ${loaded.backup}. Secrets start empty.`,
+    );
+    expect(secretsLoadNotice({ recovered: false })).toBeNull();
   });
 });

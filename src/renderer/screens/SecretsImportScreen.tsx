@@ -124,6 +124,16 @@ export function SecretsImportScreen({ repoId }: { repoId: string }) {
   })();
 
   const envCount = new Set(picks.map((p) => p.env)).size;
+  /** Two picked names that differ only in case (main refuses them): shown on the page, never in a notice. */
+  const clash = (() => {
+    const seen = new Map<string, string>();
+    for (const name of new Set(picks.map((p) => p.name))) {
+      const other = seen.get(name.toLowerCase());
+      if (other !== undefined) return [other, name] as const;
+      seen.set(name.toLowerCase(), name);
+    }
+    return null;
+  })();
   const removable = (plan?.sources ?? []).filter((s) => s.removable);
 
   const submit = async () => {
@@ -414,6 +424,11 @@ export function SecretsImportScreen({ repoId }: { repoId: string }) {
           Agents run tests and the dev server through <code>shellie run</code>;
           plain <code>npm test</code> in an agent tab runs without secrets.
         </p>
+        {clash && (
+          <p role="alert" className="small text-red import-clash">
+            {`${clash[0]} and ${clash[1]} differ only in case; import one of them`}
+          </p>
+        )}
         <div className="import-footer">
           <button type="button" className="btn" onClick={back}>
             Cancel
@@ -426,7 +441,7 @@ export function SecretsImportScreen({ repoId }: { repoId: string }) {
           <button
             type="button"
             className="btn btn-primary"
-            disabled={picks.length === 0 || busy}
+            disabled={picks.length === 0 || busy || clash !== null}
             onClick={() => void submit()}
           >
             Import {plural(picks.length, 'value', 'values')}

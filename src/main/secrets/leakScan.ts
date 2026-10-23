@@ -141,22 +141,26 @@ export async function pathsWithLeaks(
 /** A file's added lines are scanned at the latest at this size, keeping the end so a value is not cut. */
 const SCAN_AT = 4 * 1024 * 1024;
 const KEEP = 64 * 1024;
+/** A `git log` that has not answered by then is given up on: Finish treats it as an unchecked branch. */
+const GIT_LOG_TIMEOUT_MS = 60_000;
 
 /**
  * Whether any commit a push would send (`base..HEAD`, merges left out) adds a stored value, also one a later
  * commit removed again: the push sends the history, not the net diff. `git log -p` is streamed, so a big branch
  * does not hit a buffer limit, and stops at the first file with a hit. Resolves with the gravest environment of
- * that file's hits (null for none). Rejects (without git's output) when git fails.
+ * that file's hits (null for none). Rejects (without git's output) when git fails or does not finish within
+ * `timeoutMs` (the push is then refused as unchecked, never let through).
  */
 export function branchLeaks(
   worktree: string,
   base: string,
   matcher: LeakMatcher,
+  opts: { timeoutMs?: number; git?: string } = {},
 ): Promise<Environment | null> {
   if (matcher.empty) return Promise.resolve(null);
   return new Promise((resolve, reject) => {
     const child = spawn(
-      'git',
+      opts.git ?? 'git',
       [
         '--no-optional-locks',
         '-c',
@@ -183,6 +187,14 @@ export function branchLeaks(
     );
     let found: Environment | null = null;
     let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill();
+      reject(new Error('git log timed out'));
+    }, opts.timeoutMs ?? GIT_LOG_TIMEOUT_MS);
+    timer.unref?.();
+    child.on('exit', () => clearTimeout(timer));
     let text = '';
     let rest = '';
     const scan = () => {
@@ -190,6 +202,7 @@ export function branchLeaks(
       if (env !== null) {
         found = env;
         settled = true;
+        clearTimeout(timer);
         child.kill();
         resolve(env);
       }
@@ -214,11 +227,13 @@ export function branchLeaks(
       }
     });
     child.on('error', () => {
+      clearTimeout(timer);
       if (settled) return;
       settled = true;
       reject(new Error('git log could not start'));
     });
     child.on('close', (code) => {
+      clearTimeout(timer);
       if (settled) return;
       settled = true;
       if (code !== 0) return reject(new Error(`git log failed (${code})`));

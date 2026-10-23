@@ -63,7 +63,7 @@ import {
   readClaudeTheme,
 } from './main/services/claudeTheme';
 import { ConnectionStore } from './main/services/ConnectionStore';
-import { SecretStore } from './main/secrets/SecretStore';
+import { SecretStore, secretsLoadNotice } from './main/secrets/SecretStore';
 import { GitClient } from './main/services/GitClient';
 import { connectionIdForPath, createGitAuth } from './main/services/gitAuth';
 import { loadShellieConfig } from './main/services/ShellieConfig';
@@ -411,7 +411,7 @@ async function boot(): Promise<void> {
       encrypt: (plain) => safeStorage.encryptString(plain),
       decrypt: (cipher) => safeStorage.decryptString(cipher),
     });
-    const [loaded, connectionsLoaded] = await Promise.all([
+    const [loaded, connectionsLoaded, secretsLoaded] = await Promise.all([
       store.load(),
       connections.load(),
       secrets.load(),
@@ -946,6 +946,7 @@ async function boot(): Promise<void> {
           `state.json was unreadable and was moved to ${path.basename(loaded.backup ?? '')}. Starting empty.`,
         connectionsLoaded.recovered &&
           `connections.json was unreadable and was moved to ${path.basename(connectionsLoaded.backup ?? '')}; add your connections again.`,
+        secretsLoadNotice(secretsLoaded),
         !receiverStarted.listening &&
           `AI usage capture is off: ${receiverStarted.error}. Pick another port in Settings > AI cost and invoicing.`,
         usageLoaded.damagedLines > 0 &&
