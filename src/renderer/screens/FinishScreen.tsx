@@ -12,7 +12,7 @@ import {
   HOME_ID,
 } from '../../shared/workspaces';
 import { gitAuthHintFromText, remoteHost } from '../../shared/gitAuth';
-import { LEAK_IN_BRANCH } from '../../shared/secrets';
+import { LEAK_IN_BRANCH, LEAK_UNCHECKED } from '../../shared/secrets';
 import { api, tryInvoke } from '../api';
 import { GitAuthNotice } from '../components/GitAuthNotice';
 import {
@@ -39,7 +39,9 @@ import { TOOL_LABEL } from '../../shared/time';
 
 const ELLIPSIS = String.fromCharCode(0x2026);
 const PR_FAILED = 'Pull request not created: ';
-const PUSH_ANYWAY = `${LEAK_IN_BRANCH}. Push anyway?`;
+/** What main refused a push for: a stored secret in the branch, or a branch it could not check. */
+const pushAnyway = (kind: 'found' | 'unchecked') =>
+  `${kind === 'found' ? LEAK_IN_BRANCH : LEAK_UNCHECKED}. Push anyway?`;
 
 type Choices = Record<string, boolean>;
 
@@ -137,12 +139,18 @@ export function FinishScreen({ taskId }: { taskId: string }) {
   const [rowChoice, setRowChoice] = useState<Choices>({});
   // Each row's outcome of a Finish that stopped before cleanup.
   const [results, setResults] = useState<FinishRowResult[] | null>(null);
-  /** Ticked after main refused a push for a stored secret: the next Finish pushes anyway. */
+  /** Single repo: ticked after main refused the push for a stored secret, so the next Finish pushes anyway. */
   const [confirmLeak, setConfirmLeak] = useState(false);
-  /** Main refused a push because the branch adds a stored secret (single repo: the error; several: a row). */
-  const leakRefused =
-    Boolean(finishError?.includes(LEAK_IN_BRANCH)) ||
-    Boolean(results?.some((r) => !r.ok && r.leak));
+  /** Several repos: the same, per workspace whose row was refused. */
+  const [confirmRows, setConfirmRows] = useState<Choices>({});
+  /** Why main refused the single-repo push, read from its error. */
+  const singleLeak: 'found' | 'unchecked' | null = finishError?.includes(
+    LEAK_IN_BRANCH,
+  )
+    ? 'found'
+    : finishError?.includes(LEAK_UNCHECKED)
+      ? 'unchecked'
+      : null;
   const ready = task?.status === 'ready';
   const usage = useTaskUsage(ready ? taskId : null);
   const writeCost = useWriteCostToAdo();
@@ -365,11 +373,11 @@ export function FinishScreen({ taskId }: { taskId: string }) {
     setFinishError(null);
     let failed = false;
     // Only while the refusal is on the page: a confirm never carries over to a Finish that has not been refused.
-    const pushAnyway = leakRefused && confirmLeak;
+    const confirmed = singleLeak !== null && confirmLeak;
     const ok = await tryInvoke(async () => {
       try {
         await api().invoke('tasks:finish', taskId, {
-          ...(pushAnyway ? { confirmLeak: true } : {}),
+          ...(confirmed ? { confirmLeak: true } : {}),
           closeTerminals: closeTerminals && nTerm > 0,
           removeWorktree,
           deleteBranch,
@@ -477,6 +485,11 @@ export function FinishScreen({ taskId }: { taskId: string }) {
         ? rows.map((c) => ({
             workspaceId: c.workspaceId,
             action: actionOf(c, choices, taskBranch),
+            // Only a row whose push was refused, and only once ticked under it.
+            ...(confirmRows[c.workspaceId] &&
+            results?.some((r) => r.workspaceId === c.workspaceId && r.leak)
+              ? { confirmLeak: true }
+              : {}),
           }))
         : // Without checks nothing is pushed: every workspace is kept and cleaned up per the options.
           activeWorkspaces(task).map((w) => ({
@@ -610,6 +623,10 @@ export function FinishScreen({ taskId }: { taskId: string }) {
                 onToggle={(on) => setRow(c.workspaceId, on)}
                 openGit={openGit}
                 result={results?.find((r) => r.workspaceId === c.workspaceId)}
+                confirmLeak={confirmRows[c.workspaceId] ?? false}
+                onConfirmLeak={(on) =>
+                  setConfirmRows((m) => ({ ...m, [c.workspaceId]: on }))
+                }
                 prField={
                   actionOf(c, rowChoice, taskBranch) === 'pr'
                     ? prField(c.workspaceId)
@@ -906,7 +923,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
             {finishError}
           </Check>
         )}
-        {leakRefused && (
+        {singleLeak && (
           <label className="checkbox">
             <input
               type="checkbox"
@@ -914,7 +931,7 @@ export function FinishScreen({ taskId }: { taskId: string }) {
               disabled={busy}
               onChange={(e) => setConfirmLeak(e.target.checked)}
             />
-            {PUSH_ANYWAY}
+            {pushAnyway(singleLeak)}
           </label>
         )}
         {singleAuth && <GitAuthNotice hint={singleAuth} command="git push" />}
@@ -982,6 +999,8 @@ function WorkspaceRow({
   onRemove,
   otherBranch,
   prField,
+  confirmLeak,
+  onConfirmLeak,
 }: {
   check: WorkspaceCheck;
   on: boolean;
@@ -997,6 +1016,9 @@ function WorkspaceRow({
   onRemove?: () => void;
   /** The PR's description field, when Finish opens a PR for this repo. */
   prField?: ReactNode;
+  /** Push anyway, after main refused this row's push for a stored secret. */
+  confirmLeak: boolean;
+  onConfirmLeak: (on: boolean) => void;
 }) {
   const done = result?.ok
     ? result.pullRequest
@@ -1042,6 +1064,17 @@ function WorkspaceRow({
       )}
       {result && !result.ok && result.auth && (
         <GitAuthNotice hint={result.auth} command="git push" />
+      )}
+      {result && !result.ok && result.leak && (
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={confirmLeak}
+            disabled={busy}
+            onChange={(e) => onConfirmLeak(e.target.checked)}
+          />
+          {pushAnyway(result.leak)}
+        </label>
       )}
       {c.missing ? (
         <div className="muted small">Folder missing, skipped</div>

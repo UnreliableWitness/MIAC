@@ -77,20 +77,26 @@ describe('LeakWatch', () => {
     expect(watch.state('t2')).toBeNull();
     watch.forget('t1');
     expect(watch.state('t1')).toBeNull();
+    // The view clears its notice.
+    expect(leaks.at(-1)).toEqual({ id: 't1', names: [], paused: false });
+    const n = leaks.length;
+    watch.forget('t1');
+    expect(leaks).toHaveLength(n);
     // Nothing the renderer gets carries a value.
     expect(JSON.stringify(leaks)).not.toMatch(/sk_test|prod-db/);
   });
 
-  it('does not alert on or mask values that are in a tracked file of the repo', async () => {
+  it('masks values that are in a tracked file of the repo but raises nothing for them', async () => {
     const { watch, leaks, show, tracked } = setup({
       tracked: { 'repo-1': [TRACKED.value] },
     });
     await watch.prepare('task');
     expect(tracked).toHaveBeenCalledWith('repo-1');
     expect(show('t1', `cat appsettings: ${TRACKED.value}`)).toBe(
-      `cat appsettings: ${TRACKED.value}`,
+      'cat appsettings: [APP_KEY]',
     );
     expect(leaks).toEqual([]);
+    expect(watch.state('t1')).toBeNull();
   });
 
   it('builds the matcher once per task and again after secrets change or the repos change', async () => {
@@ -107,6 +113,16 @@ describe('LeakWatch', () => {
     show('t1', 'd');
     expect(values).toHaveBeenLastCalledWith(['repo-1', 'repo-2']);
     await vi.waitFor(() => expect(tracked).toHaveBeenCalledWith('repo-2'));
+  });
+
+  it("drops a finished task's matcher", async () => {
+    const { watch, values, show } = setup();
+    await watch.prepare('task');
+    show('t1', 'a');
+    const before = values.mock.calls.length;
+    watch.dropTask('task');
+    show('t1', 'b');
+    expect(values).toHaveBeenCalledTimes(before + 1);
   });
 
   it('with nothing stored passes output through and never looks for tracked files', async () => {

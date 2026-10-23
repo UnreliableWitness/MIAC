@@ -11,7 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { Events } from '../../shared/ipc';
-import { LEAK_IN_BRANCH } from '../../shared/secrets';
+import { LEAK_IN_BRANCH, LEAK_UNCHECKED } from '../../shared/secrets';
 import type { CreateTaskInput, SetupEvent, Task } from '../../shared/types';
 import {
   spawnFailure,
@@ -3311,6 +3311,54 @@ describe('handlers: finish with a pull request', () => {
     expect(hx.store.state.tasks[0].status).toBe('done');
   });
 
+  it('refuses a value one commit added and a later one removed: the push sends the history', async () => {
+    const hx = await prHarness();
+    await hx.services.secrets.save({
+      scope: 'all',
+      name: 'PROD_DB',
+      givenTo: ['run'],
+      values: { production: { value: 'prod-db-password-9f2c' } },
+    });
+    commitFile(
+      hx.t.worktreePath,
+      'config.txt',
+      'db=prod-db-password-9f2c\n',
+      'Add',
+    );
+    commitFile(hx.t.worktreePath, 'config.txt', 'db=from-env\n', 'Remove');
+    const push = vi.spyOn(hx.services.git, 'push');
+    await expect(hx.h['tasks:finish'](hx.t.id, finishWithPr)).rejects.toThrow(
+      LEAK_IN_BRANCH,
+    );
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it('refuses a branch it cannot check (no base, or git failing) unless confirmed', async () => {
+    const hx = await prHarness();
+    await hx.services.secrets.save({
+      scope: 'all',
+      name: 'PROD_DB',
+      givenTo: ['run'],
+      values: { production: { value: 'prod-db-password-9f2c' } },
+    });
+    commitFile(hx.t.worktreePath, 'feature.txt', 'a\n', 'Add the feature');
+    const push = vi.spyOn(hx.services.git, 'push');
+    const base = vi.spyOn(hx.services.git, 'resolveBase');
+    base.mockResolvedValue(null);
+    await expect(hx.h['tasks:finish'](hx.t.id, finishWithPr)).rejects.toThrow(
+      LEAK_UNCHECKED,
+    );
+    // A base git does not know: `git log` fails.
+    base.mockResolvedValue('0'.repeat(40));
+    await expect(hx.h['tasks:finish'](hx.t.id, finishWithPr)).rejects.toThrow(
+      LEAK_UNCHECKED,
+    );
+    expect(push).not.toHaveBeenCalled();
+    await hx.h['tasks:finish'](hx.t.id, { ...finishWithPr, confirmLeak: true });
+    expect(push).toHaveBeenCalledTimes(1);
+    expect(hx.store.state.tasks[0].status).toBe('done');
+  });
+
   describe('tasks:prSummary', () => {
     const result = (text: string) =>
       JSON.stringify({
@@ -3895,10 +3943,15 @@ describe('handlers: finish every workspace of a task', () => {
     const finish = (confirmLeak?: boolean) =>
       hx.h['tasks:finish'](hx.t.id, {
         ...opts,
-        ...(confirmLeak ? { confirmLeak } : {}),
+        // The page-wide flag is the single-repo one: a row is confirmed on its own.
+        confirmLeak: true,
         workspaces: [
           { workspaceId: 'home', action: 'drop' },
-          { workspaceId: hx.ids[0], action: 'push' },
+          {
+            workspaceId: hx.ids[0],
+            action: 'push',
+            ...(confirmLeak ? { confirmLeak } : {}),
+          },
         ],
       });
     await expect(finish()).rejects.toThrow(LEAK_IN_BRANCH);
@@ -3906,7 +3959,7 @@ describe('handlers: finish every workspace of a task', () => {
     const row = (await hx.h['tasks:finishResults'](hx.t.id))!.find(
       (r) => r.workspaceId === hx.ids[0],
     )!;
-    expect(row).toMatchObject({ ok: false, leak: true, pushed: false });
+    expect(row).toMatchObject({ ok: false, leak: 'found', pushed: false });
     expect(row.error).toContain(LEAK_IN_BRANCH);
     expect(JSON.stringify(row)).not.toMatch(/UAT_KEY|uat-api/);
     await finish(true);
@@ -5527,12 +5580,19 @@ describe('handlers: leak watch', () => {
   const TRACKED_KEY = 'tracked-in-git-0001';
 
   /** A task whose Claude Code tab prints `prints` and then waits, with secrets stored for its repo. */
-  async function leakHarness(prints: string, before?: (repo: string) => void) {
+  async function leakHarness(
+    prints: string,
+    before?: (repo: string) => void,
+    /** A raw command line instead of echoing `prints`. */
+    line?: string,
+    /** A Production value stored as WRAPPED_KEY. */
+    wrapped?: string,
+  ) {
     const base = testPlatform();
     const platform = {
       ...base,
       claudeCommand: () =>
-        base.runCommand(`${echoCmd(prints)}; ${sleepCmd(30)}`),
+        base.runCommand(`${line ?? echoCmd(prints)}; ${sleepCmd(30)}`),
     };
     const hx = await harness(fakeCrypto(), { platform });
     before?.(hx.repo);
@@ -5561,6 +5621,13 @@ describe('handlers: leak watch', () => {
       givenTo: ['run'],
       values: { development: { value: TRACKED_KEY } },
     });
+    if (wrapped)
+      await hx.services.secrets.save({
+        scope,
+        name: 'WRAPPED_KEY',
+        givenTo: ['run'],
+        values: { production: { value: wrapped } },
+      });
     const done = hx.setupDone();
     const t = await hx.h['tasks:create'](
       hx.input({ startClaude: true, openShell: false }),
@@ -5627,9 +5694,41 @@ describe('handlers: leak watch', () => {
       event: 'terminal:exit',
       payload: { id: hx.claude.id, exitCode: -1 },
     });
+    // The stopped process's notices go with it.
+    expect(await hx.h['terminals:leak'](hx.claude.id)).toBeNull();
+    expect(hx.leaks().at(-1)?.payload).toEqual({
+      id: hx.claude.id,
+      names: [],
+      paused: false,
+    });
   });
 
-  it('does not alert on a value that is in a file git tracks', async () => {
+  // printf with escapes is the POSIX shell's; the matcher's own tests cover the same on every OS.
+  it.skipIf(isWindows)(
+    'masks a long value the agent wrapped across lines and pauses on it',
+    async () => {
+      const LONG = `prod-${'4eC39HqLyjWDarjtT1zdp7dc'.repeat(4)}`;
+      const hx = await leakHarness(
+        '',
+        undefined,
+        // printf: the value as Ink draws it wrapped, with a colour reset and an indent inside.
+        `printf '${LONG.slice(0, 40)}\\033[39m\\r\\n    ${LONG.slice(40)}\\n'`,
+        LONG,
+      );
+      await vi.waitFor(() =>
+        expect(hx.leaks().map((b) => b.payload)).toEqual([
+          { id: hx.claude.id, names: ['WRAPPED_KEY'], paused: true },
+        ]),
+      );
+      expect(hx.terminals.buffer(hx.claude.id)).toContain('[WRAPPED_KEY]');
+      expect(hx.terminals.buffer(hx.claude.id)).not.toContain(
+        LONG.slice(0, 40),
+      );
+      await hx.terminals.killAllForTask(hx.t.id);
+    },
+  );
+
+  it('masks a value that is in a file git tracks but raises no notice for it', async () => {
     const hx = await leakHarness(`read appsettings: ${TRACKED_KEY}`, (repo) =>
       commitFile(
         repo,
@@ -5639,7 +5738,7 @@ describe('handlers: leak watch', () => {
     );
     await vi.waitFor(() =>
       expect(hx.terminals.buffer(hx.claude.id)).toContain(
-        `read appsettings: ${TRACKED_KEY}`,
+        'read appsettings: [APP_KEY]',
       ),
     );
     expect(hx.leaks()).toEqual([]);

@@ -182,7 +182,8 @@ export class TerminalManager extends EventEmitter<{
     }
     let r: { text: string; carry: string };
     try {
-      r = this.filter({ id, taskId }, data, entry.carry, final);
+      // After the exit no next chunk comes (a last chunk can arrive after onExit): nothing is held.
+      r = this.filter({ id, taskId }, data, entry.carry, final || entry.exited);
     } catch {
       // Never with the output: it may be what the filter was looking for.
       console.error('[terminals] the output filter failed');

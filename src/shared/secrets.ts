@@ -189,3 +189,6 @@ export type LeakState = { names: string[]; paused: boolean };
 /** Finish's refusal to push a branch whose changes hold a stored value (no name, no value). */
 export const LEAK_IN_BRANCH =
   "A stored secret appears in this branch's changes";
+/** Finish's refusal to push a branch it could not check for stored values (no base, git failing). */
+export const LEAK_UNCHECKED =
+  'Shellie could not check this branch for stored secrets';

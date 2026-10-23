@@ -139,6 +139,7 @@ export class ReviewService {
           ? list.filter((f) => f.status === 'A').map((f) => f.path)
           : [],
       );
+      // TODO(telemetry): secrets.leakDetected where=diff
       return list.map((f) => (hits.has(f.path) ? { ...f, secret: true } : f));
     } catch {
       console.warn('[secrets] could not check the changes for stored values');

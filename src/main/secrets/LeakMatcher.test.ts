@@ -87,9 +87,48 @@ describe('LeakMatcher', () => {
     });
   });
 
-  it('does not match exempt values (in a tracked file already)', () => {
-    const m = LeakMatcher.from(values, { exempt: [KEY] });
-    expect(stream(m, [`${KEY} ${PROD}`]).out).toBe(`${KEY} [DB_PASSWORD]`);
+  it('masks quiet values (in a tracked file already) but marks their hits quiet', () => {
+    const m = LeakMatcher.from(values, { quiet: [KEY] });
+    const r = stream(m, [`${KEY} ${PROD}`]);
+    expect(r.out).toBe('[STRIPE_SECRET_KEY] [DB_PASSWORD]');
+    expect(r.hits).toEqual([
+      { name: 'STRIPE_SECRET_KEY', env: 'development', quiet: true },
+      { name: 'DB_PASSWORD', env: 'production' },
+    ]);
+  });
+
+  describe('a long value the agent wrapped at the terminal width', () => {
+    const LONG = `sk_live_${'4eC39HqLyjWDarjtT1zdp7dc'.repeat(5)}`;
+    const m = LeakMatcher.from([
+      { name: 'STRIPE_SECRET_KEY', value: LONG, env: 'production' },
+    ]);
+    const cases: [string, string][] = [
+      ['CRLF and indent', '\r\n    '],
+      ['an SGR reset', '\x1b[39m'],
+      ['a cursor move', '\x1b[1B\x1b[5G'],
+      ['erase and CRLF with colour', '\x1b[K\r\n\x1b[2m  \x1b[22m'],
+      ['an OSC link end', '\x1b]8;;\x07'],
+    ];
+    for (const [what, noise] of cases)
+      it(`masks it across ${what}, in one chunk or split at every point`, () => {
+        const raw = `{"key":"${LONG.slice(0, 50)}${noise}${LONG.slice(50, 120)}${noise}${LONG.slice(120)}"}\x1b[0m\r\n`;
+        const whole = stream(m, [raw]);
+        expect(whole.out).toBe('{"key":"[STRIPE_SECRET_KEY]"}\x1b[0m\r\n');
+        expect(whole.hits).toEqual([
+          { name: 'STRIPE_SECRET_KEY', env: 'production' },
+        ]);
+        for (let i = 1; i < raw.length; i += 7) {
+          const r = stream(m, [raw.slice(0, i), raw.slice(i)]);
+          expect(r.out).toBe(whole.out);
+          expect(r.hits).toHaveLength(1);
+        }
+      });
+
+    it('leaves terminal sequences and line breaks outside a value as they are', () => {
+      const raw = '\x1b[1mhello\x1b[0m\r\n    world\x1b]0;title\x07\r\n';
+      expect(stream(m, [raw]).out).toBe(raw);
+      expect(m.mask(raw, '')).toEqual({ text: raw, carry: '', hits: [] });
+    });
   });
 
   it('reports the gravest environment when two share a value, and prefers the longest match', () => {
@@ -123,7 +162,7 @@ describe('LeakMatcher', () => {
       env: 'test' as const,
     }));
     const m = LeakMatcher.from(many);
-    const chunk = `${'lorem ipsum dolor sit amet '.repeat(40_000)}value-499-${'q'.repeat(30)}-499`;
+    const chunk = `${'\x1b[32mlorem\x1b[0m ipsum dolor sit\r\n  amet '.repeat(25_000)}value-499-${'q'.repeat(30)}-499`;
     const t0 = performance.now();
     const r = stream(m, [chunk, chunk]);
     const ms = performance.now() - t0;

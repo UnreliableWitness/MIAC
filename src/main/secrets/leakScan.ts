@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { GitClient } from '../services/GitClient';
@@ -40,22 +41,40 @@ function unquote(p: string): string {
   return Buffer.from(bytes).toString('utf8');
 }
 
+/**
+ * Reads a unified diff (made with `a/` and `b/` prefixes) line by line: `added` gets each added line with its path
+ * on the new side, `fileEnd` is called before each new file's header.
+ */
+class DiffReader {
+  private file: string | null = null;
+  private inHunk = false;
+
+  constructor(
+    private readonly added: (file: string, line: string) => void,
+    private readonly fileEnd: () => void = () => {},
+  ) {}
+
+  line(line: string): void {
+    if (line.startsWith('diff --git ')) {
+      this.fileEnd();
+      this.file = null;
+      this.inHunk = false;
+    } else if (!this.inHunk && line.startsWith('+++ ')) {
+      const p = unquote(line.slice(4));
+      this.file = p === '/dev/null' ? null : p.replace(/^b\//, '');
+    } else if (line.startsWith('@@')) this.inHunk = true;
+    else if (this.inHunk && this.file !== null && line.startsWith('+'))
+      this.added(this.file, line.slice(1));
+  }
+}
+
 /** The added lines of a unified diff (made with `a/` and `b/` prefixes), per path on the new side. */
 export function parseAddedLines(diff: string): Map<string, string> {
   const out = new Map<string, string>();
-  let file: string | null = null;
-  let inHunk = false;
-  for (const line of diff.split('\n')) {
-    if (line.startsWith('diff --git ')) {
-      file = null;
-      inHunk = false;
-    } else if (!inHunk && line.startsWith('+++ ')) {
-      const p = unquote(line.slice(4));
-      file = p === '/dev/null' ? null : p.replace(/^b\//, '');
-    } else if (line.startsWith('@@')) inHunk = true;
-    else if (inHunk && file !== null && line.startsWith('+'))
-      out.set(file, `${out.get(file) ?? ''}${line.slice(1)}\n`);
-  }
+  const reader = new DiffReader((file, line) =>
+    out.set(file, `${out.get(file) ?? ''}${line}\n`),
+  );
+  for (const line of diff.split('\n')) reader.line(line);
   return out;
 }
 
@@ -110,15 +129,91 @@ export async function pathsWithLeaks(
   return found;
 }
 
-/** Whether the commits a push would send (`base...HEAD`) add a stored value. */
-export async function branchLeaks(
-  git: GitClient,
+/** A file's added lines are scanned at the latest at this size, keeping the end so a value is not cut. */
+const SCAN_AT = 4 * 1024 * 1024;
+const KEEP = 64 * 1024;
+
+/**
+ * Whether any commit a push would send (`base..HEAD`, merges left out) adds a stored value, also one a later
+ * commit removed again: the push sends the history, not the net diff. `git log -p` is streamed, so a big branch
+ * does not hit a buffer limit, and stops at the first hit. Rejects (without git's output) when git fails.
+ */
+export function branchLeaks(
   worktree: string,
   base: string,
   matcher: LeakMatcher,
 ): Promise<boolean> {
-  if (matcher.empty) return false;
-  return (
-    (await pathsWithLeaks(git, worktree, [`${base}...HEAD`], matcher)).size > 0
-  );
+  if (matcher.empty) return Promise.resolve(false);
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      'git',
+      [
+        '--no-optional-locks',
+        '-c',
+        'core.quotepath=off',
+        'log',
+        '-p',
+        '-U0',
+        '--no-merges',
+        '--format=',
+        '--no-color',
+        '--no-ext-diff',
+        '--no-textconv',
+        '--src-prefix=a/',
+        '--dst-prefix=b/',
+        `${base}..HEAD`,
+        '--',
+      ],
+      {
+        cwd: worktree,
+        env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      },
+    );
+    let found = false;
+    let settled = false;
+    let text = '';
+    let rest = '';
+    const scan = () => {
+      if (!found && text && matcher.find(text).length > 0) {
+        found = true;
+        settled = true;
+        child.kill();
+        resolve(true);
+      }
+      text = '';
+    };
+    const reader = new DiffReader((_file, line) => {
+      text += `${line}\n`;
+      if (text.length > SCAN_AT) {
+        const tail = text.slice(-KEEP);
+        scan();
+        text = tail;
+      }
+    }, scan);
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (chunk: string) => {
+      if (found) return;
+      const lines = (rest + chunk).split('\n');
+      rest = lines.pop() ?? '';
+      for (const line of lines) {
+        reader.line(line);
+        if (found) return;
+      }
+    });
+    child.on('error', () => {
+      if (settled) return;
+      settled = true;
+      reject(new Error('git log could not start'));
+    });
+    child.on('close', (code) => {
+      if (settled) return;
+      settled = true;
+      if (code !== 0) return reject(new Error(`git log failed (${code})`));
+      reader.line(rest);
+      scan();
+      resolve(found);
+    });
+  });
 }

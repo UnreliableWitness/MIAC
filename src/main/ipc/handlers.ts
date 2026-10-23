@@ -9,6 +9,7 @@ import {
   type EnvironmentInfo,
   isGuarded,
   LEAK_IN_BRANCH,
+  LEAK_UNCHECKED,
   type SecretScope,
   type SecretView,
 } from '../../shared/secrets';
@@ -290,8 +291,9 @@ export async function recoverInterruptedTasks(
 
 /** Finish refused a push: the branch adds a stored value. Names neither the value nor the secret. */
 class LeakError extends Error {
-  constructor() {
-    super(`${LEAK_IN_BRANCH}; not pushed`);
+  /** `found`: the branch adds a stored value; `unchecked`: Shellie could not look, so it does not push either. */
+  constructor(readonly kind: 'found' | 'unchecked') {
+    super(`${kind === 'found' ? LEAK_IN_BRANCH : LEAK_UNCHECKED}; not pushed`);
     this.name = 'LeakError';
   }
 }
@@ -380,8 +382,8 @@ export function createHandlers(s: Services): Handlers {
   };
 
   /**
-   * Before a push: refuses when the commits it would send (`base...HEAD`) add a stored value of any environment,
-   * unless Finish confirmed it. A branch that cannot be compared is pushed as before.
+   * Before a push: refuses when any commit it would send (`base..HEAD`) adds a stored value of any environment, and
+   * when the branch cannot be checked (no base, git failing), unless Finish confirmed the push for this workspace.
    */
   const assertNoLeak = async (
     task: Task,
@@ -394,15 +396,16 @@ export function createHandlers(s: Services): Handlers {
     const matcher = LeakMatcher.from(values);
     if (matcher.empty) return;
     const base = await s.git.resolveBase(w.worktreePath, w).catch(() => null);
-    if (!base) return;
-    let leaks = false;
+    if (!base) throw new LeakError('unchecked');
+    let leaks: boolean;
     try {
-      leaks = await branchLeaks(s.git, w.worktreePath, base, matcher);
+      leaks = await branchLeaks(w.worktreePath, base, matcher);
     } catch {
       // Never with the error: git's output could hold the lines it was reading.
-      console.warn('[secrets] could not check the branch before the push');
+      throw new LeakError('unchecked');
     }
-    if (leaks) throw new LeakError();
+    // TODO(telemetry): secrets.leakDetected where=diff
+    if (leaks) throw new LeakError('found');
   };
 
   /** Work item types per connection, with icons, for the session. A failed load is not kept, so the next call retries. */
@@ -932,6 +935,7 @@ export function createHandlers(s: Services): Handlers {
   const stopTab = async (id: string) => {
     await s.terminals.kill(id);
     spawnedEnv.delete(id);
+    leakWatch.forget(id);
     s.broadcast('terminal:exit', { id, exitCode: -1 });
   };
 
@@ -1664,7 +1668,10 @@ export function createHandlers(s: Services): Handlers {
     docsWatcher.stopTask(taskId);
     gitDirWatcher.stopTask(taskId);
     await s.terminals.killAllForTask(taskId);
-    for (const d of taskById(taskId).terminals) spawnedEnv.delete(d.id);
+    for (const d of taskById(taskId).terminals) {
+      spawnedEnv.delete(d.id);
+      leakWatch.forget(d.id);
+    }
     await patchTask(taskId, {
       closedTerminals: taskById(taskId).terminals,
       terminals: [],
@@ -1746,7 +1753,7 @@ export function createHandlers(s: Services): Handlers {
   const finishWorkspaces = async (
     taskId: string,
     options: FinishOptions,
-    wanted: { workspaceId: string; action: WorkspaceAction }[],
+    wanted: NonNullable<FinishOptions['workspaces']>,
   ) => {
     claim(taskId, ['ready'], 'finish');
     // PRs the previous attempt of this Finish made or linked; a retry keeps those instead of looking again.
@@ -1774,10 +1781,15 @@ export function createHandlers(s: Services): Handlers {
         repoName: string;
         repoPath: string;
         summary: TaskSummary | null;
+        /** The developer confirmed pushing this workspace although its branch holds (or may hold) a secret. */
+        confirmLeak: boolean;
       };
       const rows: Row[] = [];
       try {
         const actionOf = new Map(wanted.map((r) => [r.workspaceId, r.action]));
+        const confirmed = new Set(
+          wanted.filter((r) => r.confirmLeak).map((r) => r.workspaceId),
+        );
         for (const w of activeWorkspaces(task)) {
           const action = actionOf.get(w.id);
           if (!action || !(await pathExists(w.worktreePath))) continue;
@@ -1789,6 +1801,7 @@ export function createHandlers(s: Services): Handlers {
             repoName: repo.name,
             repoPath: repo.path,
             summary,
+            confirmLeak: confirmed.has(w.id),
           });
         }
         const withChanges = rows.filter(
@@ -1834,12 +1847,12 @@ export function createHandlers(s: Services): Handlers {
                 task,
                 r.w,
                 r.summary,
-                options.confirmLeak,
+                r.confirmLeak,
               );
               result.pushed = true;
             } catch (e) {
               const message = errorMessage(e);
-              if (e instanceof LeakError) result.leak = true;
+              if (e instanceof LeakError) result.leak = e.kind;
               else tel.event('pr.failed', { kind: 'git' });
               if (e instanceof GitAuthError) result.auth = e.hint;
               fail(message, `Branch not pushed for ${r.repoName}: ${message}`);
@@ -1853,7 +1866,7 @@ export function createHandlers(s: Services): Handlers {
                   task,
                   r.w,
                   r.summary,
-                  options.confirmLeak,
+                  r.confirmLeak,
                 );
                 result.pullRequest = {
                   id: stored.id,
@@ -1867,7 +1880,7 @@ export function createHandlers(s: Services): Handlers {
                   r.summary,
                   costScope,
                   options.prSummaries?.[r.w.id],
-                  options.confirmLeak,
+                  r.confirmLeak,
                 );
                 r.summary = pr.summary;
                 await patchWorkspace(taskId, r.w.id, { pullRequest: pr.ref });
@@ -1881,7 +1894,7 @@ export function createHandlers(s: Services): Handlers {
               result.pushed = true;
             } catch (e) {
               const message = errorMessage(e);
-              if (e instanceof LeakError) result.leak = true;
+              if (e instanceof LeakError) result.leak = e.kind;
               else
                 tel.event('pr.failed', {
                   kind: e instanceof AdoError ? e.kind : 'git',
@@ -1937,6 +1950,7 @@ export function createHandlers(s: Services): Handlers {
           ...endEnvironment(task),
         });
         s.stopRuns?.(taskId);
+        leakWatch.dropTask(taskId);
         reportFinished(task, options, {
           workspaces: rows.length,
           prs: rows.filter((r) => r.action === 'pr').length,
@@ -2483,6 +2497,7 @@ export function createHandlers(s: Services): Handlers {
           ...endEnvironment(task),
         });
         s.stopRuns?.(taskId);
+        leakWatch.dropTask(taskId);
         reportFinished(task, options, {
           workspaces: 1,
           prs: options.createPullRequest ? 1 : 0,
@@ -2632,6 +2647,8 @@ export function createHandlers(s: Services): Handlers {
       if (def) tel.event('terminal.closed', { kind: def.kind });
     },
     'terminals:restart': async (id, options = {}) => {
+      // A new process: what showed up in the old one, and its pause, go.
+      leakWatch.forget(id);
       const owner = s.store.state.tasks.find((t) =>
         t.terminals.some((x) => x.id === id),
       );
@@ -2676,10 +2693,7 @@ export function createHandlers(s: Services): Handlers {
         ...(skipConfig ? { withoutProjectConfig: true } : {}),
       });
     },
-    'terminals:stop': async (id) => {
-      leakWatch.resume(id);
-      await stopTab(id);
-    },
+    'terminals:stop': async (id) => stopTab(id),
     'terminals:leak': async (id) => leakWatch.state(id),
     'terminals:resume': async (id) => leakWatch.resume(id),
     'terminals:failure': async (id) => s.terminalFailures?.get(id) ?? null,

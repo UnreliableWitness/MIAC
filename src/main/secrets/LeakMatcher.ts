@@ -3,7 +3,8 @@ import type { Environment } from '../../shared/secrets';
 /** Shorter values are not matched: they turn up in ordinary output by chance. */
 export const MIN_LEAK_LENGTH = 8;
 
-export type LeakHit = { name: string; env: Environment };
+/** `quiet`: the value is in a file git tracks, so it is masked but raises nothing. */
+export type LeakHit = { name: string; env: Environment; quiet?: boolean };
 type Value = { name: string; value: string; env: Environment };
 
 const SEVERITY: Record<Environment, number> = {
@@ -36,6 +37,74 @@ function formsOf(value: string): string[] {
 type Match = { start: number; end: number; hit: LeakHit };
 
 const isHighSurrogate = (c: number) => c >= 0xd800 && c <= 0xdbff;
+
+/** An OSC longer than this without its end is not one: the ESC ] alone is skipped. */
+const MAX_OSC = 4096;
+// eslint-disable-next-line no-control-regex -- the escape, CR and LF are what is looked for
+const NOISE = /[\x1b\r\n]/;
+
+/** Where the escape sequence starting at `i` ends; an unfinished one runs to the end of `s`. */
+function escapeEnd(s: string, i: number): number {
+  const len = s.length;
+  if (i + 1 >= len) return len;
+  const next = s.charCodeAt(i + 1);
+  if (next === 0x5b) {
+    // CSI: parameters and intermediates (0x20-0x3f), then one final byte.
+    let j = i + 2;
+    while (j < len && s.charCodeAt(j) >= 0x20 && s.charCodeAt(j) <= 0x3f) j++;
+    return j < len ? j + 1 : len;
+  }
+  if (next === 0x5d) {
+    // OSC: up to BEL or ESC \.
+    for (let j = i + 2; j < len && j < i + MAX_OSC; j++) {
+      const c = s.charCodeAt(j);
+      if (c === 0x07) return j + 1;
+      if (c === 0x1b && s.charCodeAt(j + 1) === 0x5c) return j + 2;
+    }
+    return len - i < MAX_OSC ? len : i + 2;
+  }
+  // ESC ( B and the like: an intermediate and a final byte; else ESC and one byte.
+  if (next >= 0x20 && next <= 0x2f) return Math.min(i + 3, len);
+  return i + 2;
+}
+
+/**
+ * The text as a person reads it: escape sequences, CR, LF and the spaces that indent a wrapped line left out, so a
+ * value an agent's renderer wrapped at the terminal width reads as one again. `at[k]` is where the k-th kept
+ * character is in `s`; null when nothing was left out.
+ */
+export function readable(s: string): { text: string; at: Int32Array | null } {
+  if (!NOISE.test(s)) return { text: s, at: null };
+  const at = new Int32Array(s.length);
+  const parts: string[] = [];
+  let k = 0;
+  let run = -1;
+  let afterBreak = false;
+  const endRun = (i: number) => {
+    if (run >= 0) parts.push(s.slice(run, i));
+    run = -1;
+  };
+  for (let i = 0; i < s.length; ) {
+    const c = s.charCodeAt(i);
+    if (c === 0x1b) {
+      endRun(i);
+      i = escapeEnd(s, i);
+    } else if (c === 0x0d || c === 0x0a) {
+      endRun(i);
+      afterBreak = true;
+      i++;
+    } else if (c === 0x20 && afterBreak) {
+      endRun(i);
+      i++;
+    } else {
+      afterBreak = false;
+      if (run < 0) run = i;
+      at[k++] = i++;
+    }
+  }
+  endRun(s.length);
+  return { text: parts.join(''), at: at.subarray(0, k) };
+}
 
 /**
  * Finds stored values (and their base64) in text with one Aho-Corasick automaton, so a chunk is scanned once
@@ -97,18 +166,21 @@ export class LeakMatcher {
   }
 
   /**
-   * A matcher of these values (every environment given), skipping values under 8 characters and the `exempt`
-   * ones. When two values share a form, the graver environment's hit is reported.
+   * A matcher of these values (every environment given), skipping values under 8 characters. `quiet` values are
+   * masked but their hits say so (in git already). When two values share a form, the graver hit is reported.
    */
-  static from(values: Value[], o: { exempt?: Iterable<string> } = {}) {
-    const exempt = new Set(o.exempt ?? []);
+  static from(values: Value[], o: { quiet?: Iterable<string> } = {}) {
+    const quiet = new Set(o.quiet ?? []);
+    const grave = (h: LeakHit) => SEVERITY[h.env] + (h.quiet ? 0 : 10);
     const patterns = new Map<string, LeakHit>();
     for (const v of values) {
-      if (v.value.length < MIN_LEAK_LENGTH || exempt.has(v.value)) continue;
+      if (v.value.length < MIN_LEAK_LENGTH) continue;
+      const hit: LeakHit = quiet.has(v.value)
+        ? { name: v.name, env: v.env, quiet: true }
+        : { name: v.name, env: v.env };
       for (const form of formsOf(v.value)) {
         const had = patterns.get(form);
-        if (!had || SEVERITY[v.env] > SEVERITY[had.env])
-          patterns.set(form, { name: v.name, env: v.env });
+        if (!had || grave(hit) > grave(had)) patterns.set(form, hit);
       }
     }
     return new LeakMatcher(patterns);
@@ -155,7 +227,9 @@ export class LeakMatcher {
   }
 
   /**
-   * Masks a chunk of a stream: `carry` is what the previous call held back. The end of the chunk that could still
+   * Masks a chunk of a terminal stream: `carry` is what the previous call held back. Values are looked for in the
+   * readable text (see `readable`), so one wrapped by the agent's renderer is still found; the raw span it covers,
+   * escape sequences and line breaks inside it included, becomes `[NAME]`. The end of the chunk that could still
    * become a value with the next chunk is held back as the new carry; `final` (no next chunk) holds nothing.
    */
   mask(
@@ -165,13 +239,21 @@ export class LeakMatcher {
   ): { text: string; carry: string; hits: LeakHit[] } {
     const s = carry + text;
     if (this.empty || s === '') return { text: s, carry: '', hits: [] };
-    const { matches, node } = this.scan(s);
+    const r = readable(s);
+    const raw = (k: number) => (r.at ? r.at[k]! : k);
+    const { matches: found, node } = this.scan(r.text);
+    const matches = found.map((m) => ({
+      start: raw(m.start),
+      end: raw(m.end - 1) + 1,
+      hit: m.hit,
+    }));
     let cut = s.length;
     if (!final) {
-      // The longest end of s that some value can still grow from.
+      // The longest end of the readable text that some value can still grow from, held from its first character.
       let n = node;
       while (n !== 0 && !this.hasChildren[n]) n = this.fail[n]!;
-      cut = s.length - this.depth[n]!;
+      const held = this.depth[n]!;
+      if (held > 0) cut = raw(r.text.length - held);
       // A match running into the held part is held whole, so it is masked once it is complete.
       for (const m of matches)
         if (m.end > cut) {

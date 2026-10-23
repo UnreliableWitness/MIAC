@@ -17,7 +17,7 @@ export type LeakWatchDeps = {
 /**
  * Watches agent tabs' output for stored values: masks them as `[NAME]`, tells the renderer once per name per tab,
  * and pauses a tab's input when a Production value shows up. Values come from every environment of the task's
- * repos, less the ones git tracks already. The matchers hold plaintext in memory only.
+ * repos; values git tracks already are masked but raise nothing. The matchers hold plaintext in memory only.
  */
 export class LeakWatch {
   private readonly matchers = new Map<
@@ -56,7 +56,10 @@ export class LeakWatch {
     final: boolean,
   ): { text: string; carry: string } {
     const r = this.matcherFor(o.taskId).mask(data, carry, final);
-    if (r.hits.length > 0) this.hit(o.id, r.hits);
+    // Values in a tracked file are masked like any other but raise nothing: they are in git already.
+    const loud = r.hits.filter((h) => !h.quiet);
+    // TODO(telemetry): secrets.leakDetected where=agent
+    if (loud.length > 0) this.hit(o.id, loud);
     return { text: r.text, carry: r.carry };
   }
 
@@ -76,9 +79,15 @@ export class LeakWatch {
     this.d.onLeak(terminalId, this.state(terminalId)!);
   }
 
-  /** The tab is closed: its notices go with it. */
+  /** The tab is closed, stopped or started again: its notices go with it, and its view clears them. */
   forget(terminalId: string): void {
-    this.states.delete(terminalId);
+    if (this.states.delete(terminalId))
+      this.d.onLeak(terminalId, { names: [], paused: false });
+  }
+
+  /** The task finished: its matcher (plaintext) is not kept. */
+  dropTask(taskId: string): void {
+    this.matchers.delete(taskId);
   }
 
   private hit(id: string, hits: { name: string; env: Environment }[]): void {
@@ -104,19 +113,19 @@ export class LeakWatch {
     const cached = this.matchers.get(taskId);
     if (cached && cached.key === key) return cached.matcher;
     const values = this.d.values(repoIds);
-    const exempt = new Set<string>();
+    const quiet = new Set<string>();
     if (values.length > 0)
       for (const r of repoIds) {
         const t = this.trackedByRepo.get(r);
-        if (t) for (const v of t) exempt.add(v);
+        if (t) for (const v of t) quiet.add(v);
         else
-          // Until it is known, every value is watched; the matcher is built again once it is.
+          // Until it is known, every value raises a notice; the matcher is built again once it is.
           void this.loadTracked(r).then(() => {
             if (this.matchers.get(taskId)?.matcher === matcher)
               this.matchers.delete(taskId);
           });
       }
-    const matcher = LeakMatcher.from(values, { exempt });
+    const matcher = LeakMatcher.from(values, { quiet });
     this.matchers.set(taskId, { key, matcher });
     return matcher;
   }

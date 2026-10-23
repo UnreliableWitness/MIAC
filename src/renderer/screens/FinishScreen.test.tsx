@@ -679,6 +679,45 @@ describe('FinishScreen push refused for a stored secret', () => {
   });
 });
 
+describe('FinishScreen push refused for an unchecked branch', () => {
+  it('asks to push anyway when Shellie could not check the branch', async () => {
+    let n = 0;
+    const { calls } = installFakeApi({
+      'tasks:prAvailability': () => ({
+        available: true,
+        reason: null,
+        target: 'main',
+      }),
+      'tasks:finishChecks': () => clean,
+      'tasks:finish': () => {
+        if (n++ < 1)
+          throw new Error(
+            'Pull request not created: Shellie could not check this branch for stored secrets; not pushed',
+          );
+        return undefined;
+      },
+    });
+    render(<FinishScreen taskId="a" />);
+    await userEvent.click(
+      await screen.findByLabelText('Create a draft pull request into main'),
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Finish and clean up' }),
+    );
+    await userEvent.click(
+      await screen.findByLabelText(
+        'Shellie could not check this branch for stored secrets. Push anyway?',
+      ),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() =>
+      expect(
+        calls.filter((c) => c.channel === 'tasks:finish')[1]?.args[1],
+      ).toMatchObject({ confirmLeak: true }),
+    );
+  });
+});
+
 describe('FinishScreen pull request description', () => {
   const available = {
     'tasks:prAvailability': () => ({
@@ -1689,7 +1728,7 @@ describe('FinishScreen with several repos', () => {
         ok('home', 'drop'),
         ok('w2', 'pr', {
           ok: false,
-          leak: true,
+          leak: 'found',
           error: "A stored secret appears in this branch's changes; not pushed",
         }),
         ok('w3', 'keep'),
@@ -1708,7 +1747,17 @@ describe('FinishScreen with several repos', () => {
     );
     await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
     await waitFor(() => expect(finishArgs(calls)).toHaveLength(2));
-    expect(finishArgs(calls)[1]).toMatchObject({ confirmLeak: true });
+    // Confirmed for that row only, not page-wide.
+    expect(finishArgs(calls)[1]).not.toHaveProperty('confirmLeak');
+    expect(finishArgs(calls)[1]).toMatchObject({
+      workspaces: expect.arrayContaining([
+        expect.objectContaining({ workspaceId: 'w2', confirmLeak: true }),
+      ]),
+    });
+    const others = (
+      finishArgs(calls)[1] as { workspaces: { workspaceId: string }[] }
+    ).workspaces.filter((w) => w.workspaceId !== 'w2');
+    for (const w of others) expect(w).not.toHaveProperty('confirmLeak');
   });
 
   it('under a row whose push could not sign in, says how to sign in', async () => {
