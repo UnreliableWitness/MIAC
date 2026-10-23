@@ -1,3 +1,5 @@
+import { opencodePermission } from '../secrets/deny';
+
 /**
  * The OpenCode plugin Shellie writes to `<userData>/opencode/shellie-attention.js` and loads through
  * OPENCODE_CONFIG_CONTENT. It reports when the main session waits on the developer. Plain JS, no imports: OpenCode
@@ -58,24 +60,51 @@ export const ShellieAttention = async () => {
 };
 `;
 
+const isObject = (v: unknown): v is Record<string, unknown> =>
+  !!v && typeof v === 'object' && !Array.isArray(v);
+
+/** A permission entry as a pattern map: a plain action ("allow") becomes `{"*": "allow"}`. */
+const patterns = (v: unknown): Record<string, unknown> =>
+  isObject(v) ? v : typeof v === 'string' ? { '*': v } : {};
+
+/** The developer's own `permission` with the deny entries for the secret files added to `read` and `bash`. */
+function withDeny(existing: unknown, paths: string[]) {
+  const own = isObject(existing)
+    ? existing
+    : typeof existing === 'string'
+      ? { '*': existing }
+      : {};
+  const deny = opencodePermission(paths);
+  return {
+    ...own,
+    read: { ...patterns(own.read), ...deny.read },
+    bash: { ...patterns(own.bash), ...deny.bash },
+  };
+}
+
 /**
  * OPENCODE_CONFIG_CONTENT with Shellie's plugin added, and `instructions` (a file with the `shellie run` line)
- * when given; undefined when the developer's own value is not a JSON object.
+ * when given, and `permission` deny entries for `denyPaths` (untracked secret files); undefined when the developer's own value is not a JSON object.
  */
 export function opencodeConfigContent(
   existing: string | undefined,
   pluginPath: string,
   instructions?: string,
+  denyPaths: string[] = [],
 ): string | undefined {
-  const extra = (config: { instructions?: unknown }) =>
-    instructions
+  const extra = (config: { instructions?: unknown; permission?: unknown }) => ({
+    ...(instructions
       ? {
           instructions: [
             ...(Array.isArray(config.instructions) ? config.instructions : []),
             instructions,
           ],
         }
-      : {};
+      : {}),
+    ...(denyPaths.length > 0
+      ? { permission: withDeny(config.permission, denyPaths) }
+      : {}),
+  });
   if (!existing) return JSON.stringify({ plugin: [pluginPath], ...extra({}) });
   let parsed: unknown;
   try {
@@ -85,7 +114,11 @@ export function opencodeConfigContent(
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
     return undefined;
-  const config = parsed as { plugin?: unknown; instructions?: unknown };
+  const config = parsed as {
+    plugin?: unknown;
+    instructions?: unknown;
+    permission?: unknown;
+  };
   const plugins = Array.isArray(config.plugin) ? config.plugin : [];
   return JSON.stringify({
     ...config,

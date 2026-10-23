@@ -1132,6 +1132,49 @@ describe('handlers: Claude Code sessions', () => {
     });
   });
 
+  it('denies agent tabs the untracked secret files of the task, never the tracked ones', async () => {
+    const { platform } = recording();
+    const denies: string[][] = [];
+    const envCtx: { kind: string; denyPaths?: string[] }[] = [];
+    const hx = await harness(fakeCrypto(), {
+      platform,
+      claudeThemeSettings: (deny) => {
+        denies.push(deny ?? []);
+        return null;
+      },
+      terminalEnv: (def, ctx) => {
+        envCtx.push({ kind: def.kind, ...ctx });
+        return {};
+      },
+    });
+    const done = hx.setupDone();
+    await hx.h['tasks:create'](
+      hx.input({ openShell: true, startClaude: true, openOpencode: true }),
+    );
+    await done;
+    const wt = hx.store.state.tasks[0].worktreePath;
+    // A tracked config file with a secret-looking value stays readable.
+    writeFileSync(
+      path.join(wt, 'appsettings.json'),
+      '{"Db":"Server=h;Password=pw1"}',
+    );
+    git(wt, 'add', 'appsettings.json');
+    const claude = hx.store.state.tasks[0].terminals.find(
+      (x) => x.kind === 'claude',
+    )!;
+    await hx.h['terminals:restart'](claude.id);
+    expect(denies.at(-1)).toEqual([
+      'Read(./.env)',
+      'Bash(cat .env)',
+      'Bash(type .env)',
+      'Bash(Get-Content .env)',
+    ]);
+    const forKind = (k: string) => envCtx.filter((c) => c.kind === k).at(-1);
+    expect(forKind('opencode')?.denyPaths).toEqual(['.env']);
+    expect(forKind('claude')?.denyPaths).toEqual(['.env']);
+    expect(forKind('shell')?.denyPaths).toBeUndefined();
+  });
+
   it('starts and resumes Claude Code with the theme settings file and every terminal with COLORFGBG', async () => {
     const { platform, calls } = recording();
     let scheme: 'light' | 'dark' = 'light';
@@ -6001,6 +6044,7 @@ describe('handlers: shellie run', () => {
       kind: 'claude',
       taskId: hx.task.id,
       runNames: ['show', 'list', 'fail'],
+      denyPaths: ['.env'],
     });
     await hx.terminals.killAllForTask(hx.task.id);
     const plain = await runHarness({ secrets: false });
@@ -6008,6 +6052,8 @@ describe('handlers: shellie run', () => {
     expect(plain.envCalls.find((c) => c.kind === 'claude')).toEqual({
       kind: 'claude',
       taskId: plain.task.id,
+      // The copied .env is a secret file whether or not a secret is stored.
+      denyPaths: ['.env'],
     });
     await plain.terminals.killAllForTask(plain.task.id);
   });

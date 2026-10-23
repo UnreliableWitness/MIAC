@@ -59,7 +59,7 @@ import { AdoRegistry } from './main/services/AdoRegistry';
 import {
   claudeThemeFor,
   fixedScheme,
-  claudeThemeSettingsFile,
+  claudeSettingsFile,
   readClaudeTheme,
 } from './main/services/claudeTheme';
 import { ConnectionStore } from './main/services/ConnectionStore';
@@ -681,12 +681,13 @@ async function boot(): Promise<void> {
         nativeTheme.themeSource = theme;
       },
       colorScheme: scheme,
-      claudeThemeSettings: () => {
+      claudeThemeSettings: (deny) => {
         const theme = claudeThemeFor(readClaudeTheme(), scheme());
         try {
-          return theme
-            ? claudeThemeSettingsFile(path.join(userData, 'claude'), theme)
-            : null;
+          return claudeSettingsFile(path.join(userData, 'claude'), {
+            theme,
+            deny,
+          });
         } catch (e) {
           console.error('[terminals] could not write the Claude theme file', e);
           return null;
@@ -803,6 +804,7 @@ async function boot(): Promise<void> {
             ctx.runNames
               ? opencodeRunInstructions(ctx.taskId, ctx.runNames)
               : undefined,
+            ctx.denyPaths,
           );
           if (content) env.OPENCODE_CONFIG_CONTENT = content;
         }

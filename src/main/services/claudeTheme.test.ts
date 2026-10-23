@@ -4,6 +4,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   claudeThemeFor,
+  claudeSettingsFile,
   claudeThemeSettingsFile,
   colorFgBg,
   fixedScheme,
@@ -79,6 +80,46 @@ describe('claudeThemeSettingsFile', () => {
     writeFileSync(p, '{}');
     claudeThemeSettingsFile(d, 'auto');
     expect(JSON.parse(readFileSync(p, 'utf8'))).toEqual({ theme: 'auto' });
+  });
+});
+
+describe('claudeSettingsFile', () => {
+  const dir = () => mkdtempSync(path.join(os.tmpdir(), 'shellie-csf-'));
+
+  it('is the theme file itself when nothing is denied', () => {
+    const d = dir();
+    expect(claudeSettingsFile(d, { theme: 'auto', deny: [] })).toBe(
+      claudeThemeSettingsFile(d, 'auto'),
+    );
+    expect(
+      readFileSync(claudeSettingsFile(d, { theme: 'auto' })!, 'utf8'),
+    ).toBe('{"theme":"auto"}\n');
+  });
+
+  it('adds permissions.deny next to the theme, in a file of its own', () => {
+    const d = dir();
+    const p = claudeSettingsFile(d, { theme: 'auto', deny: ['Read(./.env)'] })!;
+    expect(p).not.toBe(claudeThemeSettingsFile(d, 'auto'));
+    expect(JSON.parse(readFileSync(p, 'utf8'))).toEqual({
+      theme: 'auto',
+      permissions: { deny: ['Read(./.env)'] },
+    });
+    // Same rules, same file; other rules, another file.
+    expect(
+      claudeSettingsFile(d, { theme: 'auto', deny: ['Read(./.env)'] }),
+    ).toBe(p);
+    expect(
+      claudeSettingsFile(d, { theme: 'auto', deny: ['Read(./x)'] }),
+    ).not.toBe(p);
+  });
+
+  it('writes only the deny rules for a custom theme, and nothing when both are absent', () => {
+    const d = dir();
+    const p = claudeSettingsFile(d, { theme: null, deny: ['Read(./.env)'] })!;
+    expect(JSON.parse(readFileSync(p, 'utf8'))).toEqual({
+      permissions: { deny: ['Read(./.env)'] },
+    });
+    expect(claudeSettingsFile(d, { theme: null, deny: [] })).toBeNull();
   });
 });
 

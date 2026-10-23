@@ -181,3 +181,34 @@ describe('opencodeConfigContent instructions', () => {
     );
   });
 });
+
+describe('opencodeConfigContent deny', () => {
+  it('is unchanged without paths', () => {
+    expect(opencodeConfigContent(undefined, '/p.js', undefined, [])).toBe(
+      opencodeConfigContent(undefined, '/p.js'),
+    );
+  });
+
+  it('adds permission deny entries', () => {
+    const c = JSON.parse(
+      opencodeConfigContent(undefined, '/p.js', undefined, ['.env'])!,
+    );
+    expect(c.permission.read).toEqual({ '.env': 'deny' });
+    expect(c.permission.bash['cat .env*']).toBe('deny');
+  });
+
+  it("keeps the developer's own permissions, turning a plain action into a pattern map", () => {
+    const c = JSON.parse(
+      opencodeConfigContent(
+        '{"permission":{"read":"allow","bash":{"git *":"allow"},"edit":"ask"}}',
+        '/p.js',
+        undefined,
+        ['.env'],
+      )!,
+    );
+    expect(c.permission.edit).toBe('ask');
+    expect(c.permission.read).toEqual({ '*': 'allow', '.env': 'deny' });
+    expect(c.permission.bash['git *']).toBe('allow');
+    expect(c.permission.bash['type .env*']).toBe('deny');
+  });
+});

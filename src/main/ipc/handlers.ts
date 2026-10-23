@@ -19,6 +19,7 @@ import type { RunHub, RunSpec } from '../secrets/RunHub';
 import { branchLeaks } from '../secrets/leakScan';
 import { type ExpiryTimers, scheduleExpiry } from '../secrets/expiry';
 import { DiscoveryHold, discoverSecrets } from '../secrets/discover';
+import { denyRulesFor, untrackedSecretFiles } from '../secrets/deny';
 import {
   buildImportPlan,
   importSecrets,
@@ -156,11 +157,12 @@ export type Services = {
   attention?: Pick<AttentionHub, 'setView' | 'snapshot'>;
   /**
    * Extra env per terminal (main: the attention URL and token, OpenCode's plugin, and for agent tabs the task's
-   * `shellie run` link). `runNames`: the names agents are told about, only when the repo has a stored secret.
+   * `shellie run` link). `runNames`: the names agents are told about, only when the repo has a stored secret. `denyPaths`: the untracked
+   * secret files an agent tab must not read (relative to its folder, absolute for another repo's worktree).
    */
   terminalEnv?: (
     def: TerminalDef,
-    ctx: { taskId: string; runNames?: string[] },
+    ctx: { taskId: string; runNames?: string[]; denyPaths?: string[] },
   ) => Record<string, string>;
   /** `shellie run` for agents (main); handlers give it the task's tabs, config and leak watch. Absent in most tests. */
   runs?: Pick<
@@ -207,9 +209,10 @@ export type Services = {
   colorScheme?: () => ColorScheme;
   /**
    * The settings file Claude Code tabs pass with --settings to pick a theme that suits the scheme on screen
-   * (main: claudeTheme.ts), null to leave the user's theme; absent in tests.
+   * (main: claudeTheme.ts), null to leave the user's theme; absent in tests. `deny`: Claude Code permission rules
+   * for the task's untracked secret files, merged into the same file.
    */
-  claudeThemeSettings?: () => string | null;
+  claudeThemeSettings?: (deny?: string[]) => string | null;
   /** A Claude Code tab was started (or resumed) with the theme claudeThemeSettings gave. */
   claudeSpawned?: (terminalId: string) => void;
   /** Explains and logs agent tabs that fail to start (#109); absent in tests that don't care. */
@@ -801,6 +804,7 @@ export function createHandlers(s: Services): Handlers {
     def: TerminalDef,
     resume = false,
     runNames?: string[],
+    denyPaths: string[] = [],
   ): Command => {
     if (def.kind === 'claude') {
       const cwd = terminalWorkspace(task, def).worktreePath;
@@ -808,7 +812,8 @@ export function createHandlers(s: Services): Handlers {
         // A folder removed by hand would make Claude refuse to start.
         .filter((w) => w.worktreePath !== cwd && existsSync(w.worktreePath))
         .flatMap((w) => ['--add-dir', w.worktreePath]);
-      const themeFile = s.claudeThemeSettings?.() ?? null;
+      const themeFile =
+        s.claudeThemeSettings?.(denyRulesFor(denyPaths)) ?? null;
       const theme = themeFile ? ['--settings', themeFile] : [];
       if (resume && !def.sessionId)
         return s.platform.claudeCommand(null, [
@@ -881,9 +886,45 @@ export function createHandlers(s: Services): Handlers {
     };
   };
 
-  /** `runNames`: what an agent tab is told it can `shellie run` (only when its repo has a stored secret). */
+  /**
+   * `runNames`: what an agent tab is told it can `shellie run` (only when its repo has a stored secret).
+   * `denyPaths`: the untracked secret files it must not read.
+   */
   type TabSecrets = Awaited<ReturnType<typeof tabSecrets>> & {
     runNames?: string[];
+    denyPaths?: string[];
+  };
+
+  /**
+   * The untracked secret files in the task's worktrees, for an agent tab: relative to the tab's own folder, absolute
+   * for another repo's worktree (Claude's --add-dir). Tracked config stays readable. Never throws; the paths are
+   * not secret, but nothing about what they hold is logged.
+   */
+  const agentDenyPaths = async (
+    task: Task,
+    def: TerminalDef,
+  ): Promise<string[]> => {
+    const own = terminalWorkspace(task, def);
+    const lists = await Promise.all(
+      activeWorkspaces(task).map(async (w) => {
+        if (!existsSync(w.worktreePath)) return [];
+        try {
+          const r = await discoverSecrets(w.worktreePath, {
+            git: s.git,
+            userSecretsDir: (id) => s.platform.userSecretsDir(id),
+          });
+          const files = untrackedSecretFiles(r.found).filter((f) =>
+            existsSync(path.join(w.worktreePath, f)),
+          );
+          return w.id === own.id
+            ? files
+            : files.map((f) => path.join(w.worktreePath, f));
+        } catch {
+          return [];
+        }
+      }),
+    );
+    return lists.flat();
   };
 
   /** The `shellie run` names for an agent tab, when its repo has a stored secret; undefined otherwise. */
@@ -908,7 +949,13 @@ export function createHandlers(s: Services): Handlers {
     if (isAgentKind(def.kind)) {
       await leakWatch.prepare(task.id).catch(() => undefined);
       const runNames = await agentRunNames(task, def);
-      return runNames ? { env: {}, def, runNames } : { env: {}, def };
+      const denyPaths = await agentDenyPaths(task, def);
+      return {
+        env: {},
+        def,
+        ...(runNames ? { runNames } : {}),
+        ...(denyPaths.length > 0 ? { denyPaths } : {}),
+      };
     }
     try {
       return await tabSecrets(task, def);
@@ -937,7 +984,13 @@ export function createHandlers(s: Services): Handlers {
     extraEnv: Record<string, string> = {},
   ) => {
     try {
-      const cmd = terminalCommand(task, secrets.def, resume, secrets.runNames);
+      const cmd = terminalCommand(
+        task,
+        secrets.def,
+        resume,
+        secrets.runNames,
+        secrets.denyPaths,
+      );
       s.terminals.spawn({
         id: def.id,
         taskId: task.id,
@@ -954,6 +1007,7 @@ export function createHandlers(s: Services): Handlers {
           ...s.terminalEnv?.(def, {
             taskId: task.id,
             ...(secrets.runNames ? { runNames: secrets.runNames } : {}),
+            ...(secrets.denyPaths ? { denyPaths: secrets.denyPaths } : {}),
           }),
           ...cmd.env,
           ...extraEnv,
