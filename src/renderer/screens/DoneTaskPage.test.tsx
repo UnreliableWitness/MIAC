@@ -116,6 +116,25 @@ describe('DoneTaskPage', () => {
     expect(screen.queryByText('Environment', { selector: 'dt' })).toBeNull();
   });
 
+  it('adds OpenCode to the AI cost split when it has a cost', async () => {
+    installFakeApi({
+      'usage:task': () => ({
+        ...usage,
+        billable: { costUsd: 3, costEur: 2.76, tokens: 1100 },
+        byTool: {
+          ...usage.byTool,
+          opencode: { costUsd: 1, costEur: 0.92, sessions: 1, tokens: 100 },
+        },
+      }),
+    });
+    render(<DoneTaskPage task={task} />);
+    await waitFor(() =>
+      expect(fact('AI cost')).toHaveTextContent(
+        '€2.76 (Claude €1.38, Copilot €0.46, OpenCode €0.92)',
+      ),
+    );
+  });
+
   it('shows what was done and how: facts, commits, live state', async () => {
     const { calls } = installFakeApi({
       'usage:task': () => usage,

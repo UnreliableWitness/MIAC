@@ -100,6 +100,8 @@ function TaskDetails({
         <div className="small muted">
           Claude {eur(usage.byTool['claude-code'].costEur)} {DOT} Copilot{' '}
           {eur(usage.byTool['copilot-cli'].costEur)}
+          {usage.byTool.opencode.costEur !== 0 &&
+            ` ${DOT} OpenCode ${eur(usage.byTool.opencode.costEur)}`}
         </div>
       )}
     </div>

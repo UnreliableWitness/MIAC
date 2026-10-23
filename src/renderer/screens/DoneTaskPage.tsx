@@ -337,7 +337,10 @@ export function DoneTaskPage({ task }: { task: TaskView }) {
                 {eur(usage.billable.costEur)}{' '}
                 <span className="muted">
                   (Claude {eur(usage.byTool['claude-code'].costEur)}, Copilot{' '}
-                  {eur(usage.byTool['copilot-cli'].costEur)})
+                  {eur(usage.byTool['copilot-cli'].costEur)}
+                  {usage.byTool.opencode.costEur !== 0 &&
+                    `, OpenCode ${eur(usage.byTool.opencode.costEur)}`}
+                  )
                 </span>
               </>
             ) : (

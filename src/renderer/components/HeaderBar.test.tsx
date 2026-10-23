@@ -294,6 +294,22 @@ describe('HeaderBar', () => {
     const card = await openCard();
     await waitFor(() => expect(card).toHaveTextContent(/Claude .8\.28/));
     expect(card).toHaveTextContent(/Copilot .0\.92/);
+    expect(card).not.toHaveTextContent(/OpenCode/);
+  });
+  it('adds OpenCode to the split when it has a cost', async () => {
+    installFakeApi({
+      'usage:task': () => ({
+        ...usage,
+        byTool: {
+          ...usage.byTool,
+          opencode: { costUsd: 2, costEur: 1.84, sessions: 1, tokens: 5 },
+        },
+      }),
+      'tasks:gitSummary': () => git,
+    });
+    render(<HeaderBar />);
+    const card = await openCard();
+    await waitFor(() => expect(card).toHaveTextContent(/OpenCode .1\.84/));
   });
 });
 

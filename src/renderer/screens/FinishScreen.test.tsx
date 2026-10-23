@@ -334,6 +334,29 @@ describe('FinishScreen AI usage', () => {
   });
 });
 
+describe('FinishScreen AI usage per tool', () => {
+  it('lists OpenCode with the other tools, so the parts add up', async () => {
+    installFakeApi({
+      'tasks:finishChecks': () => clean,
+      'usage:task': (id) => ({
+        ...emptyUsage(id),
+        sessions: [{ sessionId: 's' } as never],
+        billable: { costUsd: 12, costEur: 11.04, tokens: 7 },
+        byTool: {
+          'claude-code': { costUsd: 10, costEur: 9.2, sessions: 2, tokens: 5 },
+          'copilot-cli': { costUsd: 0, costEur: 0, sessions: 0, tokens: 0 },
+          opencode: { costUsd: 2, costEur: 1.84, sessions: 1, tokens: 2 },
+        },
+      }),
+    });
+    render(<FinishScreen taskId={task.id} />);
+    expect(
+      await screen.findByText(/^OpenCode .1\.84 over 1 session$/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Copilot CLI/)).toBeNull();
+  });
+});
+
 describe('FinishScreen pull request', () => {
   const available = {
     'tasks:prAvailability': () => ({

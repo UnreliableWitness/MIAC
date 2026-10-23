@@ -724,13 +724,13 @@ export function FinishScreen({ taskId }: { taskId: string }) {
           {usage && usage.sessions.length > 0 ? (
             <div>
               <div className="amount-line">{`${eur(usage.billable.costEur)} billable`}</div>
-              {(['claude-code', 'copilot-cli'] as const)
+              {(['claude-code', 'copilot-cli', 'opencode'] as const)
                 .filter((t) => usage.byTool[t].sessions > 0)
                 .map((t) => (
                   <div
                     key={t}
                     className="small muted"
-                  >{`${TOOL_LABEL[t]} ${eur(usage.byTool[t].costEur)} over ${plural(usage.byTool[t].sessions, 'session')}`}</div>
+                  >{`${t === 'opencode' ? 'OpenCode' : TOOL_LABEL[t]} ${eur(usage.byTool[t].costEur)} over ${plural(usage.byTool[t].sessions, 'session')}`}</div>
                 ))}
             </div>
           ) : (
