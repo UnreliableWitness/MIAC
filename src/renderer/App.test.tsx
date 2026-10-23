@@ -51,6 +51,7 @@ const task: TaskView = {
   homeDropped: false,
   connectionId: null,
   mainCheckoutEdits: [],
+  pendingCleanup: [],
 };
 const repo = {
   id: 'r1',

@@ -145,3 +145,66 @@ describe('removeTree', () => {
     }
   });
 });
+
+describe('removeTree with a file a process holds (#115)', () => {
+  /** A fake tree: /w with a.dll (held: unlink EPERM, rmdir ENOENT as libuv reports a file) and b.txt. */
+  const fakeFs = () => {
+    const entries = new Map<string, 'dir' | 'file'>([
+      ['/w', 'dir'],
+      ['/w/a.dll', 'file'],
+      ['/w/b.txt', 'file'],
+    ]);
+    const norm = (p: string) =>
+      p.replace(/\\/g, '/').replace(/^\/\/\?\/[A-Za-z]:/, '');
+    const children = (p: string) =>
+      [...entries.keys()]
+        .filter((k) => k !== p && path.posix.dirname(k) === p)
+        .map((k) => path.posix.basename(k));
+    return {
+      entries,
+      ops: {
+        lstat: async (p: string) => {
+          const k = entries.get(norm(p));
+          if (!k) throw err('ENOENT');
+          return {
+            isDirectory: () => k === 'dir',
+            isSymbolicLink: () => false,
+          };
+        },
+        readdir: async (p: string) => children(norm(p)),
+        unlink: async (p: string) => {
+          if (norm(p) === '/w/a.dll') throw err('EPERM');
+          entries.delete(norm(p));
+        },
+        chmod: async () => undefined,
+        rmdir: async (p: string) => {
+          const k = entries.get(norm(p));
+          if (k !== 'dir') throw err('ENOENT');
+          if (children(norm(p)).length > 0) throw err('ENOTEMPTY');
+          entries.delete(norm(p));
+        },
+      },
+    };
+  };
+
+  it('reports the lock (EPERM) after retrying it, not what rmdir says about a file', async () => {
+    const f = fakeFs();
+    const waits: number[] = [];
+    const e = await removeTree(
+      '/w',
+      async (ms) => {
+        waits.push(ms);
+      },
+      f.ops,
+    ).catch((x: unknown) => x as NodeJS.ErrnoException);
+    expect(e).toBeInstanceOf(Error);
+    expect((e as NodeJS.ErrnoException).code).toBe('EPERM');
+    expect(waits.length).toBeGreaterThan(0);
+  });
+
+  it('deletes everything else before it gives up', async () => {
+    const f = fakeFs();
+    await removeTree('/w', async () => {}, f.ops).catch(() => undefined);
+    expect([...f.entries.keys()].sort()).toEqual(['/w', '/w/a.dll']);
+  });
+});

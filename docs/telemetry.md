@@ -37,6 +37,9 @@ This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 
 | `update.restart`, `update.later` | the choice on the update notice; none |
 | `task.created` | has a work item; copy files, start Claude, open shell, open Copilot, open OpenCode (booleans); number of setup commands |
 | `task.finished` | remove worktree, delete branch, close terminals, sync usage, has a work item (booleans); task age in hours, number of workspaces finished, pull requests asked for and workspaces dropped |
+| `cleanup.deferred` | Finish could not remove a worktree folder yet and left it to the background retry (#115); the error code only (`EPERM`, `EBUSY`, another fs code, `in-use`, `git` or `other`), no path |
+| `cleanup.done` | a background retry removed a leftover folder (and its branch); the code it first failed with; attempts in all and minutes since Finish |
+| `cleanup.gaveUp` | a leftover folder still could not be removed a day after Finish, so the user got one notice (retries go on); the last error code; attempts so far |
 | `workitem.startUpdated` | setup moved the work item to In Progress (`moved`), assigned it (`assigned`), or the update failed (`failed`) |
 | `pr.created` | Finish created a draft pull request; none |
 | `pr.linked` | Finish linked an existing active pull request instead of creating one; none |
