@@ -104,13 +104,12 @@ describe('SecretStore', () => {
   });
 
   it('loads empty from a missing or old file', async () => {
-    const { dir, file, store } = await make();
+    const { file, store } = await make();
     expect(store.list()).toEqual([]);
     writeFileSync(file, JSON.stringify({ version: 0 }));
     const again = new SecretStore(file, fakeCrypto());
     expect((await again.load()).recovered).toBe(true);
     expect(again.list()).toEqual([]);
-    expect(dir).toBeTruthy();
   });
 
   it('reveals the value and logs time, name and environment without it', async () => {
@@ -125,6 +124,77 @@ describe('SecretStore', () => {
     const log = readFileSync(path.join(dir, 'secrets-reveals.log'), 'utf8');
     expect(log).toMatch(/^\d{4}-\d\d-\d\dT.* TOKEN uat\n$/);
     expect(log).not.toContain('super-secret');
+  });
+
+  it('serializes the duplicate check, case-insensitively', async () => {
+    const { file, store } = await make();
+    const mk = (name: string) =>
+      store.save({ scope: 'all', name, givenTo: [], values: {} });
+    const results = await Promise.allSettled([mk('Dup'), mk('DUP')]);
+    expect(results.map((r) => r.status).sort()).toEqual([
+      'fulfilled',
+      'rejected',
+    ]);
+    expect(JSON.parse(readFileSync(file, 'utf8')).secrets).toHaveLength(1);
+  });
+
+  it('rejects malformed input and never puts names or values in errors', async () => {
+    const { store } = await make();
+    const bad = [
+      {
+        scope: 'all',
+        name: 'NAMEX',
+        givenTo: [],
+        values: { test: { value: 42 } },
+      },
+      { scope: 'all', name: 'NAMEX', givenTo: ['everywhere'], values: {} },
+    ] as unknown as Parameters<typeof store.save>[0][];
+    const errors: string[] = [];
+    const grab = async (p: () => unknown) => {
+      try {
+        await p();
+      } catch (e) {
+        errors.push((e as Error).message);
+      }
+    };
+    const input = (name: string) => ({
+      scope: 'all' as const,
+      name,
+      givenTo: [],
+      values: { test: { value: 'VALUEX' } },
+    });
+    for (const b of bad) await grab(() => store.save(b));
+    await grab(() => store.save(input('NAMEX bad')));
+    const ok = await store.save(input('NAMEX'));
+    await grab(() => store.save(input('namex')));
+    await grab(() =>
+      store.save({ ...input('OTHER'), id: 'ghost-NAMEX', values: {} }),
+    );
+    await grab(() => store.reveal(ok.id, 'uat'));
+    await grab(() => store.reveal('ghost-NAMEX', 'test'));
+    await grab(() => store.setRepoDefault('r', 'production'));
+    await store.delete('ghost');
+    expect(errors).toHaveLength(8);
+    for (const m of errors) expect(m).not.toMatch(/namex|valuex/i);
+  });
+
+  it('marks a value that cannot be decrypted', async () => {
+    const { file, store } = await make();
+    await store.save({
+      scope: 'all',
+      name: 'K',
+      givenTo: [],
+      values: { test: { value: 'abc' } },
+    });
+    const other = new SecretStore(file, {
+      available: () => true,
+      encrypt: (s) => Buffer.from(s),
+      decrypt: () => {
+        throw new Error('no key');
+      },
+    });
+    await other.load();
+    expect(other.list()[0].values.test?.mask).toBe('⚠ unreadable');
   });
 
   it('collects every value for a repo, and limits defaults to development and test', async () => {

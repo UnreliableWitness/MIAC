@@ -50,6 +50,24 @@ const empty = (): SecretsFile => ({
   repoDefaults: {},
 });
 
+const InputSchema = z.object({
+  id: z.string().optional(),
+  scope: ScopeSchema,
+  name: z.string(),
+  givenTo: z.array(z.enum(['setup', 'run', 'tests', 'shell'])),
+  values: z.partialRecord(
+    EnvironmentSchema,
+    z
+      .object({
+        value: z.string(),
+        source: z.string().nullable().optional(),
+      })
+      .nullable(),
+  ),
+});
+
+const DUPLICATE = 'A secret with this name already exists in this scope';
+
 const sameScope = (a: SecretScope, b: SecretScope) =>
   a === 'all' || b === 'all' ? a === b : a.repoId === b.repoId;
 
@@ -89,7 +107,10 @@ export class SecretStore {
       .map((s) => this.view(s));
   }
 
-  async save(input: SecretInput): Promise<SecretView> {
+  async save(raw: SecretInput): Promise<SecretView> {
+    const parsed = InputSchema.safeParse(raw);
+    if (!parsed.success) throw new Error('The secret is not valid');
+    const input: SecretInput = parsed.data;
     const name = input.name.trim();
     if (!SECRET_NAME.test(name))
       throw new Error(
@@ -100,18 +121,22 @@ export class SecretStore {
       throw new Error(
         'Encryption is not available on this machine; the secret was not saved',
       );
-    const clash = this.current.secrets.find(
-      (s) =>
-        s.id !== input.id && s.name === name && sameScope(s.scope, input.scope),
-    );
-    if (clash) throw new Error(`There is already a secret named ${name} here`);
+    const clashes = (f: SecretsFile) =>
+      f.secrets.some(
+        (s) =>
+          s.id !== input.id &&
+          s.name.toLowerCase() === name.toLowerCase() &&
+          sameScope(s.scope, input.scope),
+      );
+    if (clashes(this.current)) throw new Error(DUPLICATE);
     const now = new Date().toISOString();
     let saved!: Stored;
     await this.store.update((f) => {
+      if (clashes(f)) throw new Error(DUPLICATE);
       const existing = input.id
         ? f.secrets.find((s) => s.id === input.id)
         : undefined;
-      if (input.id && !existing) throw new Error(`Unknown secret ${input.id}`);
+      if (input.id && !existing) throw new Error('Unknown secret');
       const record: Stored = existing ?? {
         id: randomUUID(),
         scope: input.scope,
@@ -149,7 +174,8 @@ export class SecretStore {
   reveal(id: string, env: Environment): string {
     const s = this.find(id);
     const value = this.decrypt(s, env);
-    if (value === null) throw new Error(`${s.name} has no ${env} value`);
+    if (value === null)
+      throw new Error('That secret has no value for this environment');
     mkdirSync(path.dirname(this.revealLog), { recursive: true });
     appendFileSync(
       this.revealLog,
@@ -209,7 +235,7 @@ export class SecretStore {
 
   private find(id: string): Stored {
     const s = this.current.secrets.find((x) => x.id === id);
-    if (!s) throw new Error(`Unknown secret ${id}`);
+    if (!s) throw new Error('Unknown secret');
     return s;
   }
 
@@ -230,7 +256,7 @@ export class SecretStore {
       if (!v) continue;
       const plain = this.decrypt(s, env);
       values[env] = {
-        mask: plain === null ? '••••' : maskValue(plain),
+        mask: plain === null ? '⚠ unreadable' : maskValue(plain),
         source: v.source,
         changedAt: v.changedAt,
       };
