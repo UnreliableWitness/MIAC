@@ -49,6 +49,7 @@ const task: TaskView = {
   homeDropped: false,
   connectionId: null,
   mainCheckoutEdits: [],
+  pendingCleanup: [],
 };
 const usage: TaskUsage = {
   ...emptyUsage('t1'),

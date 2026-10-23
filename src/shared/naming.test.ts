@@ -127,6 +127,7 @@ const task: Task = {
   homeDropped: false,
   connectionId: null,
   mainCheckoutEdits: [],
+  pendingCleanup: [],
 };
 
 describe('renderTaskMd', () => {

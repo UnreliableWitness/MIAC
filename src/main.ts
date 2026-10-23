@@ -63,6 +63,7 @@ import { ConnectionStore } from './main/services/ConnectionStore';
 import { GitClient } from './main/services/GitClient';
 import { connectionIdForPath, createGitAuth } from './main/services/gitAuth';
 import { loadShellieConfig } from './main/services/ShellieConfig';
+import { RETRY_EVERY_MS as CLEANUP_RETRY_EVERY_MS } from './main/services/worktreeCleanup';
 import { RepoRegistry } from './main/services/RepoRegistry';
 import { taskWorkspaces } from './shared/workspaces';
 import { migrateTaskFolders } from './main/migrate/taskFolders';
@@ -679,6 +680,12 @@ async function boot(): Promise<void> {
       usageDir,
       onHourly: (fn) => {
         setInterval(fn, 60 * 60 * 1000);
+      },
+      // Leftover worktree folders of finished tasks (#115): once soon after launch, then every few minutes.
+      onCleanupRetry: (retryAll) => {
+        const run = () => void retryAll().catch(() => undefined);
+        setTimeout(run, 20_000).unref();
+        setInterval(run, CLEANUP_RETRY_EVERY_MS).unref();
       },
       finishFlushMs: 2500,
       connections,
