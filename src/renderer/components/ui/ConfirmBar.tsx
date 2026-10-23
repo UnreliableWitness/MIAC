@@ -1,5 +1,5 @@
 // src/renderer/components/ui/ConfirmBar.tsx
-import { useEffect, useId, useRef } from 'react';
+import { type ReactNode, useEffect, useId, useRef } from 'react';
 
 /**
  * An in-page confirmation for an action that cannot be undone: the question, the action and Cancel.
@@ -8,14 +8,20 @@ import { useEffect, useId, useRef } from 'react';
  */
 export function ConfirmBar({
   message,
+  details,
   confirmLabel,
   busy = false,
+  confirmDisabled = false,
   onConfirm,
   onCancel,
 }: {
   message: string;
+  /** More about what the action does, under the question. */
+  details?: ReactNode;
   confirmLabel: string;
   busy?: boolean;
+  /** The action waits (Cancel stays usable), e.g. while what it would lose is being checked. */
+  confirmDisabled?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -43,12 +49,13 @@ export function ConfirmBar({
     >
       <span id={id} className="confirm-bar-text">
         {message}
+        {details && <span className="confirm-bar-details">{details}</span>}
       </span>
       <span className="confirm-bar-actions">
         <button
           type="button"
           className="btn btn-danger btn-sm"
-          disabled={busy}
+          disabled={busy || confirmDisabled}
           onClick={onConfirm}
         >
           {confirmLabel}

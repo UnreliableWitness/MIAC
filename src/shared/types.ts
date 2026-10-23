@@ -195,10 +195,17 @@ export const RepoSchema = z.preprocess(
 );
 export type Repo = z.infer<typeof RepoObjectSchema>;
 
+/** What a discarded task left: the task is gone from the store, so its leftovers wait here (#124). */
+export const DiscardedCleanupSchema = PendingCleanupSchema.extend({
+  taskId: z.string().min(1),
+});
+export type DiscardedCleanup = z.infer<typeof DiscardedCleanupSchema>;
+
 export const StateSchema = z.object({
   version: z.literal(1),
   repos: z.array(RepoSchema),
   tasks: z.array(TaskSchema),
+  discardedCleanup: z.array(DiscardedCleanupSchema).default([]),
 });
 export type State = z.infer<typeof StateSchema>;
 
@@ -304,6 +311,34 @@ export type FinishChecks = {
   runningTerminals: number;
   /** Every workspace still in the task, home first. */
   workspaces: WorkspaceCheck[];
+};
+
+/** One workspace on the Discard confirm (#124). */
+export type DiscardWorkspaceCheck = {
+  workspaceId: string;
+  repoName: string;
+  worktreePath: string;
+  branch: string;
+  /** On another branch than the task's (joined by hand): Discard leaves it as it is, like Finish. */
+  kept: boolean;
+  /** The folder is gone already. */
+  missing: boolean;
+  /** Commits on the branch since its base. */
+  commits: number;
+  /** Commits on the branch that no remote has: deleting the branch loses them. */
+  unpushed: number;
+  /** Changed files in the folder, lost with it. */
+  uncommitted: number;
+};
+
+export type DiscardChecks = {
+  workspaces: DiscardWorkspaceCheck[];
+  runningTerminals: number;
+  /** Over the workspaces Discard removes. */
+  commitsLost: number;
+  uncommitted: number;
+  /** Nothing done on any branch: no commits since the base and nothing uncommitted. */
+  blank: boolean;
 };
 
 export type SetupStepKind =

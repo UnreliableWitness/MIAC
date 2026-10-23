@@ -1,6 +1,12 @@
 import { errorMessage } from '../../shared/errors';
-import type { PendingCleanup, Task } from '../../shared/types';
+import type {
+  DiscardedCleanup,
+  PendingCleanup,
+  Task,
+} from '../../shared/types';
+import { taskWorkspaces } from '../../shared/workspaces';
 import { pathExists } from '../fsRetry';
+import { samePath } from '../paths';
 import { FOLDER_IN_USE, GitError, type GitClient } from './GitClient';
 
 /**
@@ -92,10 +98,21 @@ export type WorktreeCleanupDeps = {
   ) => void;
   now?: () => number;
   exists?: (p: string) => Promise<boolean>;
+  /** Leftovers of discarded tasks (#124): the task is gone, so they are kept in a list of their own. */
+  discarded?: {
+    list: () => DiscardedCleanup[];
+    /** One store write of the list. */
+    mutate: (
+      change: (list: DiscardedCleanup[]) => DiscardedCleanup[],
+    ) => Promise<void>;
+  };
 };
+
+const key = (p: DiscardedCleanup) => `${p.taskId}\u0000${p.workspaceId}`;
 
 export class WorktreeCleanup {
   private readonly now: () => number;
+  private discardBusy = false;
 
   constructor(private readonly d: WorktreeCleanupDeps) {
     this.now = d.now ?? Date.now;
@@ -108,6 +125,42 @@ export class WorktreeCleanup {
       .filter((t) => t.status === 'done' && t.pendingCleanup.length > 0)
       .map((t) => t.id);
     for (const id of ids) await this.retryTask(id).catch(() => undefined);
+    await this.retryDiscarded().catch(() => undefined);
+  }
+
+  /**
+   * Retries what discarded tasks left (#124). A folder a task uses again (a new task at the same path) is never
+   * touched: its entry is dropped.
+   */
+  async retryDiscarded(): Promise<void> {
+    const d = this.d.discarded;
+    if (!d || this.discardBusy) return;
+    const items = d.list();
+    if (items.length === 0) return;
+    this.discardBusy = true;
+    try {
+      const inUse = (p: DiscardedCleanup) =>
+        this.d
+          .tasks()
+          .some(
+            (t) =>
+              t.status !== 'done' &&
+              taskWorkspaces(t).some((w) =>
+                samePath(w.worktreePath, p.worktreePath),
+              ),
+          );
+      const after = await this.retryItems(
+        items.filter((p) => !inUse(p)),
+        'a discarded task',
+      );
+      const tried = new Set(items.map(key));
+      await d.mutate((list) => [
+        ...after,
+        ...list.filter((p) => !tried.has(key(p))),
+      ]);
+    } finally {
+      this.discardBusy = false;
+    }
   }
 
   /** Retries one task's leftovers now. True when nothing is left. */
@@ -119,44 +172,10 @@ export class WorktreeCleanup {
     if (task.pendingCleanup.length === 0) return true;
     if (!this.d.claim(taskId)) return false;
     try {
-      const after: PendingCleanup[] = [];
-      for (const p of task.pendingCleanup) {
-        const left = await removeWorkspace(this.d.git, p, {
-          exists: this.d.exists,
-          now: this.now,
-        });
-        if (!left) {
-          this.d.event(
-            'cleanup.done',
-            { code: p.code },
-            {
-              attempts: p.attempts + 1,
-              minutes: Math.round((this.now() - Date.parse(p.since)) / 60_000),
-            },
-          );
-          continue;
-        }
-        const next: PendingCleanup = {
-          ...p,
-          attempts: p.attempts + 1,
-          error: left.error,
-          code: left.code,
-        };
-        if (!p.notified && this.now() - Date.parse(p.since) >= GIVE_UP_MS) {
-          next.notified = true;
-          this.d.event(
-            'cleanup.gaveUp',
-            { code: next.code },
-            { attempts: next.attempts },
-          );
-          this.d.notice(
-            `Shellie has tried for a day to delete ${p.worktreePath}, left by a finished task: ${next.error}. ` +
-              'A process still holds a file there: close what runs from that folder (a dev server, an editor, ' +
-              'a dotnet build server: dotnet build-server shutdown), or delete the folder yourself. Shellie keeps trying.',
-          );
-        }
-        after.push(next);
-      }
+      const after = await this.retryItems(
+        task.pendingCleanup,
+        'a finished task',
+      );
       await this.d.mutate(taskId, (t) => {
         t.pendingCleanup = after;
       });
@@ -164,5 +183,51 @@ export class WorktreeCleanup {
     } finally {
       this.d.release(taskId);
     }
+  }
+
+  /** One more try at each leftover; returns what is still left, with its attempts and last error. */
+  private async retryItems<T extends PendingCleanup>(
+    items: T[],
+    leftBy: string,
+  ): Promise<T[]> {
+    const after: T[] = [];
+    for (const p of items) {
+      const left = await removeWorkspace(this.d.git, p, {
+        exists: this.d.exists,
+        now: this.now,
+      });
+      if (!left) {
+        this.d.event(
+          'cleanup.done',
+          { code: p.code },
+          {
+            attempts: p.attempts + 1,
+            minutes: Math.round((this.now() - Date.parse(p.since)) / 60_000),
+          },
+        );
+        continue;
+      }
+      const next: T = {
+        ...p,
+        attempts: p.attempts + 1,
+        error: left.error,
+        code: left.code,
+      };
+      if (!p.notified && this.now() - Date.parse(p.since) >= GIVE_UP_MS) {
+        next.notified = true;
+        this.d.event(
+          'cleanup.gaveUp',
+          { code: next.code },
+          { attempts: next.attempts },
+        );
+        this.d.notice(
+          `Shellie has tried for a day to delete ${p.worktreePath}, left by ${leftBy}: ${next.error}. ` +
+            'A process still holds a file there: close what runs from that folder (a dev server, an editor, ' +
+            'a dotnet build server: dotnet build-server shutdown), or delete the folder yourself. Shellie keeps trying.',
+        );
+      }
+      after.push(next);
+    }
+    return after;
   }
 }

@@ -64,6 +64,25 @@ beforeEach(() => {
   });
 });
 
+describe('discard (#124)', () => {
+  it('askDiscard opens the task page with its question; leaving the page or the task drops it', () => {
+    useStore.setState({ tasks: [task('a', []), task('b', [])] });
+    const s = () => useStore.getState();
+    s().askDiscard('a');
+    expect(s().selectedTaskId).toBe('a');
+    expect(s().screen).toEqual({ kind: 'task' });
+    expect(s().discardTaskId).toBe('a');
+    s().select('b');
+    expect(s().discardTaskId).toBeNull();
+    s().askDiscard('a');
+    s().go({ kind: 'home' });
+    expect(s().discardTaskId).toBeNull();
+    s().askDiscard('a');
+    s().cancelDiscard();
+    expect(s().discardTaskId).toBeNull();
+  });
+});
+
 describe('tabs', () => {
   it('defaults to the first terminal, or Usage without terminals', () => {
     useStore.setState({ tasks: [task('a', ['t1', 't2']), task('b', [])] });

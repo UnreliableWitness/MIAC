@@ -215,6 +215,31 @@ export class GitClient {
     }
   }
 
+  /**
+   * Commits on `branch` since `base`, and the ones of those no remote has, which deleting the branch loses
+   * (#124). A missing branch has none; with no base every commit no remote has counts for both.
+   */
+  async branchCommits(
+    cwd: string,
+    branch: string,
+    base: string | null,
+  ): Promise<{ commits: number; unpushed: number }> {
+    if (!(await this.branchExists(cwd, branch)))
+      return { commits: 0, unpushed: 0 };
+    const ref = `refs/heads/${branch}`;
+    const count = async (args: string[]) =>
+      Number((await this.run(cwd, ['rev-list', '--count', ...args])).trim()) ||
+      0;
+    const unpushed = await count([
+      ref,
+      '--not',
+      '--remotes',
+      ...(base ? [base] : []),
+    ]);
+    const commits = base ? await count([`${base}..${ref}`]) : unpushed;
+    return { commits, unpushed };
+  }
+
   async validBranchName(cwd: string, branch: string): Promise<boolean> {
     if (branch.length === 0 || branch.startsWith('-')) return false;
     try {
