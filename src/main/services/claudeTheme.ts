@@ -1,5 +1,12 @@
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { ColorScheme } from '../../shared/theme';
@@ -81,8 +88,25 @@ function writeSettings(file: string, settings: object, dir: string): string {
   if (current !== content) {
     mkdirSync(dir, { recursive: true });
     writeFileSync(file, content);
+    pruneDenyFiles(dir, file);
   }
   return file;
+}
+
+const WEEK_MS = 7 * 24 * 3600 * 1000;
+
+/** Deny files of tasks long gone: older than a week, never the one just written. Never throws. */
+function pruneDenyFiles(dir: string, keep: string): void {
+  try {
+    for (const name of readdirSync(dir)) {
+      if (!/^claude-settings-.+-[0-9a-f]{10}\.json$/.test(name)) continue;
+      const f = path.join(dir, name);
+      if (f !== keep && Date.now() - statSync(f).mtimeMs > WEEK_MS)
+        unlinkSync(f);
+    }
+  } catch {
+    /* best effort */
+  }
 }
 
 /**

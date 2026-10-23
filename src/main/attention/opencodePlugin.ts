@@ -88,7 +88,7 @@ function withDeny(existing: unknown, paths: string[]) {
  */
 export function opencodeConfigContent(
   existing: string | undefined,
-  pluginPath: string,
+  pluginPath: string | null,
   instructions?: string,
   denyPaths: string[] = [],
 ): string | undefined {
@@ -105,7 +105,12 @@ export function opencodeConfigContent(
       ? { permission: withDeny(config.permission, denyPaths) }
       : {}),
   });
-  if (!existing) return JSON.stringify({ plugin: [pluginPath], ...extra({}) });
+  // No plugin and nothing else to add: the developer's own value (if any) is left alone.
+  const nothing = !pluginPath && !instructions && denyPaths.length === 0;
+  if (nothing) return undefined;
+  const plugin = (list: unknown[]) =>
+    pluginPath ? { plugin: [...list, pluginPath] } : {};
+  if (!existing) return JSON.stringify({ ...plugin([]), ...extra({}) });
   let parsed: unknown;
   try {
     parsed = JSON.parse(existing);
@@ -122,7 +127,7 @@ export function opencodeConfigContent(
   const plugins = Array.isArray(config.plugin) ? config.plugin : [];
   return JSON.stringify({
     ...config,
-    plugin: [...plugins, pluginPath],
+    ...plugin(plugins),
     ...extra(config),
   });
 }

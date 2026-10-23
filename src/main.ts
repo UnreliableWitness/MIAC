@@ -797,16 +797,24 @@ async function boot(): Promise<void> {
               })
             : {}),
         };
-        if (def.kind === 'opencode' && opencodePluginReady) {
+        if (def.kind === 'opencode') {
+          // The deny entries do not depend on the plugin loading.
           const content = opencodeConfigContent(
             process.env.OPENCODE_CONFIG_CONTENT,
-            opencodePlugin,
-            ctx.runNames
+            opencodePluginReady ? opencodePlugin : null,
+            opencodePluginReady && ctx.runNames
               ? opencodeRunInstructions(ctx.taskId, ctx.runNames)
               : undefined,
             ctx.denyPaths,
           );
           if (content) env.OPENCODE_CONFIG_CONTENT = content;
+          else if (
+            process.env.OPENCODE_CONFIG_CONTENT &&
+            (ctx.denyPaths?.length || opencodePluginReady)
+          )
+            console.warn(
+              `[terminals] OPENCODE_CONFIG_CONTENT is not a JSON object; OpenCode starts without Shellie's config (${ctx.denyPaths?.length ?? 0} secret files not denied)`,
+            );
         }
         return env;
       },

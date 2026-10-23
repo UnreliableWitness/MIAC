@@ -1,4 +1,11 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -111,6 +118,22 @@ describe('claudeSettingsFile', () => {
     expect(
       claudeSettingsFile(d, { theme: 'auto', deny: ['Read(./x)'] }),
     ).not.toBe(p);
+  });
+
+  it('removes deny files older than a week when it writes a new one, and only those', () => {
+    const d = dir();
+    const old = path.join(d, 'claude-settings-auto-aaaaaaaaaa.json');
+    const fresh = path.join(d, 'claude-settings-auto-bbbbbbbbbb.json');
+    const themeFile = claudeThemeSettingsFile(d, 'auto');
+    writeFileSync(old, '{}');
+    writeFileSync(fresh, '{}');
+    const eightDays = new Date(Date.now() - 8 * 24 * 3600 * 1000);
+    utimesSync(old, eightDays, eightDays);
+    utimesSync(themeFile, eightDays, eightDays);
+    claudeSettingsFile(d, { theme: 'auto', deny: ['Read(./.env)'] });
+    expect(existsSync(old)).toBe(false);
+    expect(existsSync(fresh)).toBe(true);
+    expect(existsSync(themeFile)).toBe(true);
   });
 
   it('writes only the deny rules for a custom theme, and nothing when both are absent', () => {

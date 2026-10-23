@@ -205,6 +205,55 @@ describe('discoverSecrets', () => {
   });
 });
 
+describe('discoverSecrets files', () => {
+  it('names the file each value came from, tracked or not, including launch profiles and user secrets', async () => {
+    const { root, put, track } = repo();
+    const us = mkdtempSync(path.join(os.tmpdir(), 'shellie-us-'));
+    mkdirSync(path.join(us, 'abc-1'));
+    writeFileSync(path.join(us, 'abc-1', 'secrets.json'), '{"K":"v1"}');
+    put(
+      'api/Api.csproj',
+      '<Project><PropertyGroup><UserSecretsId>abc-1</UserSecretsId></PropertyGroup></Project>',
+    );
+    put('.env', 'A=1');
+    put('.env.example', 'A=1');
+    put(
+      'conf/appsettings.json',
+      '{"ConnectionStrings":{"Db":"Server=h;Password=p"}}',
+    );
+    put(
+      'api/Properties/launchSettings.json',
+      '{"profiles":{"Prd":{"environmentVariables":{"Tok":"t"}}}}',
+    );
+    put('empty/.env', '');
+    track('conf/appsettings.json');
+    const { files } = await discoverSecrets(root, {
+      git,
+      userSecretsDir: (id) => path.join(us, id),
+    });
+    expect(files).toEqual(
+      expect.arrayContaining([
+        { path: '.env', tracked: false },
+        { path: 'conf/appsettings.json', tracked: true },
+        { path: 'api/Properties/launchSettings.json', tracked: false },
+        { path: path.join(us, 'abc-1', 'secrets.json'), tracked: false },
+      ]),
+    );
+    expect(files.map((f) => f.path)).not.toContain('.env.example');
+    expect(files.map((f) => f.path)).not.toContain('empty/.env');
+  });
+
+  it('lists a secrets folder with no tracked file in it, not one with tracked files', async () => {
+    const { root, put, track } = repo();
+    put('secrets/a.json', '{"x":"1"}');
+    put('api/secrets/b.json', '{"x":"1"}');
+    put('web/secrets/c.json', '{"x":"1"}');
+    track('web/secrets/c.json');
+    const { secretDirs } = await discoverSecrets(root, noUserSecrets);
+    expect(secretDirs.sort()).toEqual(['api/secrets', 'secrets']);
+  });
+});
+
 describe('DiscoveryHold', () => {
   it('returns masks and keys, keeps values for the import, replaces on the next discovery', () => {
     const hold = new DiscoveryHold();

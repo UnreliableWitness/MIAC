@@ -1,19 +1,19 @@
-import type { Found } from '../../shared/secrets';
-
-/** Sources that are not files ("user secrets", "launch profile Prd"). */
-const NOT_A_FILE = /^(user secrets|launch profile )/;
+import type { DiscoveredFile } from './discover';
 
 /**
- * The untracked files discovery found values in, repo-relative with `/`. Tracked config stays readable: agents
- * need to edit it, and its values are in git already.
+ * What agents are kept from: the untracked files discovery found values in (repo-relative with `/`, or absolute for
+ * .NET user secrets) and each `secrets` folder as a `dir/**` glob. Tracked config stays readable: agents need to
+ * edit it, and its values are in git already.
  */
-export function untrackedSecretFiles(found: Found[]): string[] {
+export function denyTargets(r: {
+  files: DiscoveredFile[];
+  secretDirs: string[];
+}): string[] {
   return [
-    ...new Set(
-      found
-        .filter((f) => !f.tracked && !NOT_A_FILE.test(f.source))
-        .map((f) => f.source),
-    ),
+    ...new Set([
+      ...r.files.filter((f) => !f.tracked).map((f) => f.path),
+      ...r.secretDirs.map((d) => `${d}/**`),
+    ]),
   ];
 }
 
@@ -27,26 +27,40 @@ const posix = (p: string) =>
 
 const quoted = (p: string) => (/\s/.test(p) ? `"${p}"` : p);
 
+/** `Read(...)` takes gitignore patterns: a literal `[ ] * ? ! #` or edge space needs a backslash. */
+const gitignoreEscape = (p: string) =>
+  p.replace(/[[\]*?!#\\]/g, '\\$&').replace(/^ | $/g, '\\ ');
+
 /** The commands an agent prints a file with. */
 const PRINTERS = ['cat', 'type', 'Get-Content'] as const;
 
+const GLOB = /\/\*\*$/;
+
 /**
- * Claude Code `permissions.deny` rules for secret files: `Read` plus the three print commands. A relative path is
- * relative to the tab's folder (`./`); an absolute one (another worktree of a multi-repo task) uses `//`.
+ * Claude Code `permissions.deny` rules for secret files: `Read` plus the three print commands as prefix rules
+ * (`Bash(cat p:*)`). A relative path is relative to the tab's folder (`./`); an absolute one (another worktree of a
+ * multi-repo task, user secrets) uses `//`. A `dir/**` glob gets the Read rule only.
  */
 export function denyRulesFor(paths: string[]): string[] {
   return paths.flatMap((p) => {
-    const read = isAbsolute(p) ? `/${posix(p)}` : `./${p}`;
+    const abs = isAbsolute(p);
+    const shown = abs ? posix(p) : p;
+    const glob = GLOB.test(p);
+    const body = gitignoreEscape(glob ? shown.replace(GLOB, '') : shown);
+    const read = `${abs ? '/' : './'}${body}${glob ? '/**' : ''}`;
     return [
       `Read(${read})`,
-      ...PRINTERS.map(
-        (c) => `Bash(${c} ${quoted(isAbsolute(p) ? posix(p) : p)})`,
-      ),
+      ...(GLOB.test(p)
+        ? []
+        : PRINTERS.map((c) => `Bash(${c} ${quoted(shown)}:*)`)),
     ];
   });
 }
 
-/** OpenCode's `permission` entries for the same files. */
+/**
+ * OpenCode's `permission` entries for the same files. Patterns are matched against the path relative to the
+ * project, so the tab's own files stay relative; a path outside it is absolute (checked against opencode 1.19.3).
+ */
 export function opencodePermission(paths: string[]): {
   read: Record<string, 'deny'>;
   bash: Record<string, 'deny'>;
@@ -55,6 +69,7 @@ export function opencodePermission(paths: string[]): {
   const bash: Record<string, 'deny'> = {};
   for (const p of paths) read[p] = 'deny';
   for (const p of paths)
-    for (const c of PRINTERS) bash[`${c} ${quoted(p)}*`] = 'deny';
+    if (!GLOB.test(p))
+      for (const c of PRINTERS) bash[`${c} ${quoted(p)}*`] = 'deny';
   return { read, bash };
 }

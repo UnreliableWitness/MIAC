@@ -212,3 +212,26 @@ describe('opencodeConfigContent deny', () => {
     expect(c.permission.bash['type .env*']).toBe('deny');
   });
 });
+
+describe('opencodeConfigContent without the plugin', () => {
+  it('still carries the deny entries, and nothing at all without them', () => {
+    expect(
+      JSON.parse(opencodeConfigContent(undefined, null, undefined, ['.env'])!),
+    ).toEqual({
+      permission: expect.objectContaining({ read: { '.env': 'deny' } }),
+    });
+    expect(
+      JSON.parse(
+        opencodeConfigContent('{"model":"x"}', null, undefined, ['.env'])!,
+      ).model,
+    ).toBe('x');
+    expect(opencodeConfigContent(undefined, null)).toBeUndefined();
+    expect(opencodeConfigContent('{"model":"x"}', null)).toBeUndefined();
+  });
+
+  it('is undefined when the developer value is not JSON, which the caller can report', () => {
+    expect(
+      opencodeConfigContent('nope', null, undefined, ['.env']),
+    ).toBeUndefined();
+  });
+});

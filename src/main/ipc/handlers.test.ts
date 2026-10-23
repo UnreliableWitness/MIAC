@@ -1165,9 +1165,9 @@ describe('handlers: Claude Code sessions', () => {
     await hx.h['terminals:restart'](claude.id);
     expect(denies.at(-1)).toEqual([
       'Read(./.env)',
-      'Bash(cat .env)',
-      'Bash(type .env)',
-      'Bash(Get-Content .env)',
+      'Bash(cat .env:*)',
+      'Bash(type .env:*)',
+      'Bash(Get-Content .env:*)',
     ]);
     const forKind = (k: string) => envCtx.filter((c) => c.kind === k).at(-1);
     expect(forKind('opencode')?.denyPaths).toEqual(['.env']);
@@ -1527,6 +1527,70 @@ describe('handlers: reopen a finished task', () => {
     await hx.h['terminals:open'](id, { kind: 'claude', label: 'Claude Code' });
     expect(hx.calls.at(-1)?.flags).not.toContain('--add-dir');
     await hx.terminals.killAllForTask(id);
+  });
+
+  it("denies another repo's secret files by absolute path, and user secrets too", async () => {
+    const denies: string[][] = [];
+    const hx = await finished(
+      { removeWorktree: false, deleteBranch: false },
+      {
+        claudeThemeSettings: (deny) => {
+          denies.push(deny ?? []);
+          return null;
+        },
+      },
+    );
+    const extra = await withExtra(hx);
+    writeFileSync(path.join(extra, '.env'), 'A=1\n');
+    mkdirSync(path.join(extra, 'secrets'));
+    writeFileSync(path.join(extra, 'secrets', 'k.json'), '{"x":"1"}');
+    await hx.h['tasks:reopen'](hx.t.id);
+    await hx.h['terminals:open'](hx.t.id, {
+      kind: 'claude',
+      label: 'Claude Code',
+    });
+    const rules = denies.at(-1)!;
+    expect(rules).toContain('Read(./.env)');
+    const abs = (f: string) => path.join(extra, f).split(path.sep).join('/');
+    expect(rules).toContain(`Read(/${abs('.env')})`);
+    expect(rules).toContain(`Read(/${abs('secrets')}/**)`);
+    expect(rules).toContain('Read(./.env)');
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
+  it('a discovery that throws means no rules and a tab that still starts', async () => {
+    const denies: string[][] = [];
+    const rec = recording();
+    const hx = await harness(fakeCrypto(), {
+      platform: {
+        ...rec.platform,
+        userSecretsDir: () => {
+          throw new Error('boom');
+        },
+      },
+      claudeThemeSettings: (deny) => {
+        denies.push(deny ?? []);
+        return null;
+      },
+    });
+    writeFileSync(
+      path.join(hx.repo, 'Api.csproj'),
+      '<Project><PropertyGroup><UserSecretsId>abc</UserSecretsId></PropertyGroup></Project>',
+    );
+    writeFileSync(
+      path.join(hx.repo, '.shellie.yml'),
+      'copy: [.env, Api.csproj]\n',
+    );
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](hx.input({ startClaude: true }));
+    await done;
+    const claude = hx.store.state.tasks[0].terminals.find(
+      (x) => x.kind === 'claude',
+    )!;
+    await hx.h['terminals:restart'](claude.id);
+    expect(denies.at(-1)).toEqual([]);
+    expect(rec.calls.length).toBeGreaterThan(1);
+    await hx.terminals.killAllForTask(t.id);
   });
 
   it('Claude gets no --add-dir for a workspace whose folder is gone', async () => {

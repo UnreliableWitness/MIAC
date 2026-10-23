@@ -63,10 +63,23 @@ export function fileEnvironment(file: string): Environment | null {
  * Looks in the known places at the repo's root and up to two folders down, plus .NET user secrets. Never reads
  * outside the repo except the user-secrets folder, never shell profiles.
  */
+export type DiscoveredFile = {
+  /** Repo-relative with `/`, or absolute for a user-secrets file outside the repo. */
+  path: string;
+  tracked: boolean;
+};
+
 export async function discoverSecrets(
   repoPath: string,
   deps: { git: GitClient; userSecretsDir: (id: string) => string | null },
-): Promise<{ found: Found[]; skipped: number }> {
+): Promise<{
+  found: Found[];
+  skipped: number;
+  /** Every file a value came from (agents are kept from the untracked ones). */
+  files: DiscoveredFile[];
+  /** Repo-relative `secrets` folders none of whose files git tracks. */
+  secretDirs: string[];
+}> {
   const root = path.resolve(repoPath);
   const realRoot = await fs.realpath(root).catch(() => root);
   const tracked = new Set<string>();
@@ -78,6 +91,8 @@ export async function discoverSecrets(
   }
 
   const found: Found[] = [];
+  const files: DiscoveredFile[] = [];
+  const secretDirs: string[] = [];
   let skipped = 0;
   const seen = new Set<string>();
   const readFile = async (file: string): Promise<string | null> => {
@@ -98,7 +113,16 @@ export async function discoverSecrets(
     }
     return readFile(file);
   };
-  const add = (items: Item[], isTracked: boolean) => {
+  const add = (items: Item[], isTracked: boolean, file?: string) => {
+    const before = found.length;
+    try {
+      addItems(items, isTracked);
+    } finally {
+      if (file !== undefined && found.length > before)
+        files.push({ path: file, tracked: isTracked });
+    }
+  };
+  const addItems = (items: Item[], isTracked: boolean) => {
     for (const it of items) {
       if (it.value === '') continue;
       if (!SECRET_NAME.test(it.name)) {
@@ -122,7 +146,7 @@ export async function discoverSecrets(
     visited.add(r);
     const text = await readInRepo(file);
     if (text !== null)
-      add(parseDotenv(text, r, dotenvEnvironment(file)), tracked.has(r));
+      add(parseDotenv(text, r, dotenvEnvironment(file)), tracked.has(r), r);
   };
   const envFiles = async (dir: string, files: string[]) => {
     for (const f of files) await dotenvFile(path.resolve(dir, f));
@@ -157,31 +181,37 @@ export async function discoverSecrets(
     if (text === null) return;
     switch (kind) {
       case 'appsettings':
-        return add(parseAppsettings(text, r, environmentOf(base)), isTracked);
+        return add(
+          parseAppsettings(text, r, environmentOf(base)),
+          isTracked,
+          r,
+        );
       case 'launchSettings':
-        return add(parseLaunchSettings(text), isTracked);
+        return add(parseLaunchSettings(text), isTracked, r);
       case 'vscode': {
         const v = parseVscodeLaunch(text, r);
-        add(v.items, isTracked);
+        add(v.items, isTracked, r);
         return envFiles(root, v.envFiles);
       }
       case 'compose': {
         const c = parseCompose(text, r);
-        add(c.items, isTracked);
+        add(c.items, isTracked, r);
         return envFiles(dir, c.envFiles);
       }
       case 'local':
-        return add(parseLocalSettings(text, r), isTracked);
+        return add(parseLocalSettings(text, r), isTracked, r);
       case 'csproj': {
         const id = userSecretsId(text);
         const folder = id === null ? null : deps.userSecretsDir(id);
         if (folder === null) return;
-        const secrets = await readFile(path.join(folder, 'secrets.json'));
-        if (secrets !== null) add(parseUserSecrets(secrets), false);
+        const secretsPath = path.join(folder, 'secrets.json');
+        const secrets = await readFile(secretsPath);
+        if (secrets !== null)
+          add(parseUserSecrets(secrets), false, secretsPath);
         return;
       }
       case 'secrets':
-        return add(parseSecretsFile(text, r), isTracked);
+        return add(parseSecretsFile(text, r), isTracked, r);
     }
   };
 
@@ -200,12 +230,19 @@ export async function discoverSecrets(
         e.isDirectory() &&
         (depth < MAX_DEPTH || (inSecrets && depth < MAX_SECRETS_DEPTH)) &&
         !SKIP_DIRS.has(e.name)
-      )
+      ) {
+        const r = rel(root, full);
+        if (
+          e.name === 'secrets' &&
+          ![...tracked].some((t) => t.startsWith(`${r}/`))
+        )
+          secretDirs.push(r);
         await walk(full, depth + 1, inSecrets || e.name === 'secrets');
+      }
     }
   };
   await walk(root, 0, false);
-  return { found, skipped };
+  return { found, skipped, files, secretDirs };
 }
 
 /** Holds each repo's last discovery in main, so the renderer only ever gets masks and a key to pick by. */

@@ -19,7 +19,7 @@ import type { RunHub, RunSpec } from '../secrets/RunHub';
 import { branchLeaks } from '../secrets/leakScan';
 import { type ExpiryTimers, scheduleExpiry } from '../secrets/expiry';
 import { DiscoveryHold, discoverSecrets } from '../secrets/discover';
-import { denyRulesFor, untrackedSecretFiles } from '../secrets/deny';
+import { denyRulesFor, denyTargets } from '../secrets/deny';
 import {
   buildImportPlan,
   importSecrets,
@@ -895,10 +895,34 @@ export function createHandlers(s: Services): Handlers {
     denyPaths?: string[];
   };
 
+  /** A worktree's deny targets, kept briefly so a task opening Claude and OpenCode walks each repo once. */
+  const denyCache = new Map<
+    string,
+    { at: number; targets: Promise<string[]> }
+  >();
+  const DENY_CACHE_MS = 30_000;
+  const worktreeDenyTargets = (worktreePath: string): Promise<string[]> => {
+    const hit = denyCache.get(worktreePath);
+    if (hit && now() - hit.at < DENY_CACHE_MS) return hit.targets;
+    const targets = discoverSecrets(worktreePath, {
+      git: s.git,
+      userSecretsDir: (id) => s.platform.userSecretsDir(id),
+    })
+      .then((r) =>
+        denyTargets(r).filter(
+          // A file that is gone needs no rule; a user-secrets path is absolute already.
+          (t) => t.endsWith('/**') || existsSync(path.resolve(worktreePath, t)),
+        ),
+      )
+      // No rules rather than a failed tab; nothing about what was found is logged.
+      .catch(() => [] as string[]);
+    denyCache.set(worktreePath, { at: now(), targets });
+    return targets;
+  };
+
   /**
    * The untracked secret files in the task's worktrees, for an agent tab: relative to the tab's own folder, absolute
-   * for another repo's worktree (Claude's --add-dir). Tracked config stays readable. Never throws; the paths are
-   * not secret, but nothing about what they hold is logged.
+   * for another repo's worktree (Claude's --add-dir) and for user secrets. Tracked config stays readable.
    */
   const agentDenyPaths = async (
     task: Task,
@@ -908,23 +932,15 @@ export function createHandlers(s: Services): Handlers {
     const lists = await Promise.all(
       activeWorkspaces(task).map(async (w) => {
         if (!existsSync(w.worktreePath)) return [];
-        try {
-          const r = await discoverSecrets(w.worktreePath, {
-            git: s.git,
-            userSecretsDir: (id) => s.platform.userSecretsDir(id),
-          });
-          const files = untrackedSecretFiles(r.found).filter((f) =>
-            existsSync(path.join(w.worktreePath, f)),
-          );
-          return w.id === own.id
-            ? files
-            : files.map((f) => path.join(w.worktreePath, f));
-        } catch {
-          return [];
-        }
+        const targets = await worktreeDenyTargets(w.worktreePath);
+        return w.id === own.id
+          ? targets
+          : targets.map((t) =>
+              path.isAbsolute(t) ? t : path.join(w.worktreePath, t),
+            );
       }),
     );
-    return lists.flat();
+    return [...new Set(lists.flat())];
   };
 
   /** The `shellie run` names for an agent tab, when its repo has a stored secret; undefined otherwise. */
