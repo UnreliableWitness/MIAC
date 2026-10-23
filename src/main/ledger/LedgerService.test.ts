@@ -83,6 +83,8 @@ function setup(
     tasks: [] as Task[],
     repos: [...repos],
     notBillable: new Set<string>(),
+    /** Claude sessions per task from the usage store (OTLP). */
+    usageSessions: {} as Record<string, string[]>,
   };
   const claudeQueue = [...(o.claude ?? [])];
   const ocQueue = [...(o.openCode ?? [])];
@@ -108,7 +110,13 @@ function setup(
     claude: { read: claudeRead },
     openCode: { read: openCodeRead },
     usageRecords: () => o.usage ?? [],
-    context: () => attributionContext(state.tasks, state.repos, connections),
+    context: () =>
+      attributionContext(
+        state.tasks,
+        state.repos,
+        connections,
+        (id) => state.usageSessions[id] ?? [],
+      ),
     isBillable: (taskId, sessionId) =>
       !state.notBillable.has(`${taskId}/${sessionId}`),
     developer: () => null,
@@ -191,6 +199,22 @@ describe('LedgerService', () => {
       workItemId: 42,
     });
     expect(s.store.dirty(10).map((r) => r.id)).toEqual(['cc:m1']);
+  });
+
+  it('moves a stored record up once the usage store ties its session to a task', async () => {
+    const s = setup({
+      claude: [[rec({ sessionId: 'TYPED', cwd: '/wt/t1' })]],
+    });
+    s.state.tasks = [{ ...task1, terminals: [] }];
+    await s.svc.pass();
+    expect(s.store.get('cc:m1')!.attribution.level).toBe('repo');
+    s.state.usageSessions = { t1: ['TYPED'] };
+    await s.svc.pass();
+    expect(s.store.get('cc:m1')!.attribution).toMatchObject({
+      level: 'task',
+      taskId: 't1',
+      workItemId: 42,
+    });
   });
 
   it('re-attributes after a restart from the inputs it kept', async () => {

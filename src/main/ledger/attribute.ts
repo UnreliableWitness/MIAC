@@ -42,6 +42,8 @@ export function attributionContext(
   tasks: Task[],
   repos: Repo[],
   connections: Connection[],
+  /** Claude sessions the usage store (OTLP) has for a task: `claude` typed in a shell, a resume with a new id. */
+  usageSessions: (taskId: string) => Iterable<string> = () => [],
 ): AttributionContext {
   const repoById = new Map(repos.map((r) => [r.id, r]));
   const connById = new Map(connections.map((c) => [c.id, c]));
@@ -72,9 +74,14 @@ export function attributionContext(
           }
         : null,
       homeRepo,
-      sessions: [...t.terminals, ...t.closedTerminals].flatMap((x) =>
-        x.sessionId ? [x.sessionId] : [],
-      ),
+      sessions: [
+        ...new Set([
+          ...[...t.terminals, ...t.closedTerminals].flatMap((x) =>
+            x.sessionId ? [x.sessionId] : [],
+          ),
+          ...usageSessions(t.id),
+        ]),
+      ],
       worktrees: taskWorkspaces(t).map((w) => ({
         path: w.worktreePath,
         repo: repoById.get(w.repoId)?.name ?? '',
@@ -125,7 +132,7 @@ function forTask(
   };
 }
 
-/** Task (by task id, Claude tab session, or OpenCode folder within an open period), else repo by folder, else none. */
+/** Task (by task id, a Claude session of its tabs or usage, or OpenCode folder within an open period), else repo by folder, else none. */
 export function attribute(
   r: BudgetRecord,
   ctx: AttributionContext,

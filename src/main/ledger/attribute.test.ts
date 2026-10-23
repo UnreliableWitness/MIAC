@@ -55,6 +55,22 @@ const connections = [
 ];
 
 describe('attribute', () => {
+  it('attributes a Claude session the usage store knows for a task (no tab of its own)', () => {
+    const t = task({ id: 't1' });
+    const without = attributionContext([t], repos, connections);
+    expect(
+      attribute(rec({ sessionId: 'OT', cwd: '/elsewhere' }), without),
+    ).toEqual({ level: 'none' });
+    const ctx = attributionContext([t], repos, connections, (id) =>
+      id === 't1' ? ['OT', 'OT'] : [],
+    );
+    expect(
+      attribute(rec({ sessionId: 'OT', cwd: '/elsewhere' }), ctx),
+    ).toMatchObject({ level: 'task', taskId: 't1', workItemId: 42 });
+    // Stored records move up once the session is known: the key changes.
+    expect(ctx.key).not.toBe(without.key);
+  });
+
   it('attributes a Claude session of a task tab', () => {
     const t = task({
       id: 't1',
