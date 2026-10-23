@@ -199,9 +199,7 @@ describe('startAutoUpdate', () => {
     clock.now += STUCK_CHECK_MS;
     tick();
     expect(updater.checkForUpdates).toHaveBeenCalledTimes(2);
-    expect(deps.log).toHaveBeenCalledWith(
-      expect.stringContaining('no result'),
-    );
+    expect(deps.log).toHaveBeenCalledWith(expect.stringContaining('no result'));
   });
 
   it('a check that throws frees the next one', () => {

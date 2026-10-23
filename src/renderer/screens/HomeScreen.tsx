@@ -7,6 +7,7 @@ import { SprintsBand } from '../components/home/SprintsBand';
 import { BudgetBand } from '../components/home/BudgetBand';
 import { StatsBand } from '../components/home/StatsBand';
 import { TasksBand } from '../components/home/TasksBand';
+import { WhatsNewBand } from '../components/home/WhatsNewBand';
 import { PageHeader } from '../components/ui';
 import { ago } from '../format';
 import { useClock } from '../hooks/useClock';
@@ -101,6 +102,7 @@ export function HomeScreen() {
         </p>
       ))}
       <div className="home-bands">
+        <WhatsNewBand />
         <GetStartedBand />
         <TasksBand snapshot={snapshot} />
         {connections.length > 0 && (

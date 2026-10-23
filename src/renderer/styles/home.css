@@ -287,3 +287,24 @@
   height: 8px;
   margin-right: 4px;
 }
+
+/* What's new after an update (issue 126) */
+.whats-new-band .section-head {
+  justify-content: space-between;
+}
+.whats-new-release + .whats-new-release {
+  margin-top: 6px;
+}
+.whats-new-list {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+.whats-new-list li {
+  line-height: 20px;
+}
+.whats-new-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}

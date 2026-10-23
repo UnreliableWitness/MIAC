@@ -149,6 +149,7 @@ const defaults: FakeHandlers = {
   'editor:openFile': () => undefined,
   'app:info': () => ({ version: '1.0.0', windowsBuild: null }),
   'update:status': () => null,
+  'app:whatsNew': () => null,
   'rates:list': () => ({ rates: [], officialAsOf: '2026-10-14' }),
   'usage:task': (taskId) => emptyUsage(taskId),
   'repos:list': () => [],

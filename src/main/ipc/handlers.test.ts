@@ -1204,6 +1204,21 @@ describe('handlers: update', () => {
     await h['update:install']();
     expect(install).toHaveBeenCalledTimes(1);
   });
+
+  it("gives no What's new card in dev, and the service's card in packaged builds", async () => {
+    const { h: dev } = await harness();
+    expect(await dev['app:whatsNew']()).toBeNull();
+    const card = {
+      version: '1.46.0',
+      url: 'https://github.com/UnreliableWitness/Shellie/releases/tag/v1.46.0',
+      fetched: true,
+      releases: [],
+    };
+    const { h } = await harness(fakeCrypto(), {
+      whatsNew: { get: async () => card },
+    });
+    expect(await h['app:whatsNew']()).toEqual(card);
+  });
 });
 
 describe('handlers: terminals', () => {

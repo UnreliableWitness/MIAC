@@ -109,6 +109,7 @@ import { TITLE_BAR_HEIGHT, titleBarKind } from './shared/titleBar';
 import { errorMessage } from './shared/errors';
 import { HtmlViews, serveView, VIEW_SCHEME } from './main/htmlView';
 import { migrateOnboarding } from './main/onboardingMigration';
+import { createWhatsNew, seenAtBoot } from './main/releaseNotes';
 import { userDataOverride } from './main/paths';
 
 if (started) app.quit();
@@ -415,6 +416,12 @@ async function boot(): Promise<void> {
       await settings
         .save(migrated)
         .catch((err) => console.error('Onboarding migration failed', err));
+    // A fresh install has seen the version it was installed with: What's new shows only after an update.
+    const seen = seenAtBoot(settings.get(), app.getVersion());
+    if (seen)
+      await settings
+        .save({ ...settings.get(), whatsNewSeen: seen })
+        .catch((err) => console.error('Saving whatsNewSeen failed', err));
     const recovered = await recoverInterruptedTasks(store);
     // Fetch and push to Azure Repos sign in with the connection's token, not a credential helper that may not start.
     const git = new GitClient(undefined, {
@@ -682,6 +689,13 @@ async function boot(): Promise<void> {
         pending: () => pendingUpdate,
         install: () => updates?.install() ?? false,
       },
+      // Dev builds keep package.json's fixed version, which has no release.
+      whatsNew: app.isPackaged
+        ? createWhatsNew({
+            version: app.getVersion(),
+            settings: () => settings.get(),
+          })
+        : undefined,
       appVersion: app.getVersion(),
       windowsBuild:
         process.platform === 'win32'
