@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Vendor } from '../../../shared/budget';
 import type { BudgetView } from '../../../shared/budgetView';
 import { compact, eur } from '../../format';
@@ -248,12 +248,17 @@ export function BudgetBand({ vendor }: { vendor: Vendor }) {
     track('home.clicked', { band: 'budget-month' });
     setOffset((o) => Math.min(0, o + d));
   };
-  // Copilot is optional: no band until there is spend or a budget.
-  if (
-    vendor === 'copilot' &&
-    (!v || (v.spentEur === 0 && v.budgetEur === null))
-  )
-    return null;
+  // Copilot is optional: no band until this month has spend, a budget or unpriced
+  // usage. Once shown it stays, so stepping to an empty month cannot hide it.
+  const [revealed, setRevealed] = useState(vendor === 'claude');
+  const hasUsage =
+    !!v &&
+    offset === 0 &&
+    (v.spentEur > 0 || v.budgetEur !== null || v.unpriced.length > 0);
+  useEffect(() => {
+    if (hasUsage) setRevealed(true);
+  }, [hasUsage]);
+  if (!revealed) return null;
   return (
     <Band title={TITLE[vendor]}>
       {v && (

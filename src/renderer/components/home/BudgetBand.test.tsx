@@ -187,6 +187,46 @@ describe('BudgetBand', () => {
     ).toBeNull();
   });
 
+  it('keeps the Copilot band when stepping back to an empty month', async () => {
+    installFakeApi({
+      'budget:get': (_vendor: string, offset: number) =>
+        offset === 0
+          ? view()
+          : view({
+              monthOffset: offset,
+              spentEur: 0,
+              budgetEur: null,
+              status: 'none',
+            }),
+    });
+    render(<BudgetBand vendor="copilot" />);
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Previous month' }),
+    );
+    expect(
+      await screen.findByRole('button', { name: 'Next month' }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole('heading', { name: 'Copilot budget' }),
+    ).toBeTruthy();
+  });
+
+  it('shows a Copilot band whose month is all unpriced', async () => {
+    installFakeApi({
+      'budget:get': () =>
+        view({
+          spentEur: 0,
+          budgetEur: null,
+          status: 'none',
+          unpriced: [{ model: 'gpt-9', tokens: 10, requests: 1 }],
+        }),
+    });
+    render(<BudgetBand vendor="copilot" />);
+    expect(
+      await screen.findByRole('heading', { name: 'Copilot budget' }),
+    ).toBeTruthy();
+  });
+
   it('keeps the Claude band with no spend and no budget', async () => {
     installFakeApi({
       'budget:get': () =>
