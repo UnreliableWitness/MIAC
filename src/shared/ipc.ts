@@ -1,4 +1,17 @@
 import type { ColorScheme } from './theme';
+import type {
+  DiscoverResult,
+  Environment,
+  EnvironmentInfo,
+  ImportPlan,
+  ImportRequest,
+  ImportResult,
+  LeakState,
+  PendingRun,
+  SecretInput,
+  SecretView,
+  SecretsStatus,
+} from './secrets';
 import type { TrackerProvider } from './trackers';
 import type { TerminalFailure } from './terminalFailure';
 
@@ -83,6 +96,36 @@ export type Channels = {
   'repos:config': {
     args: [repoId: string];
     result: { config: ShellieConfig; worktreeRoot: string };
+  };
+  /** Masked views only; a repo id also returns the All repositories ones. */
+  'secrets:list': { args: [scope: string]; result: SecretView[] };
+  'secrets:save': { args: [input: SecretInput]; result: SecretView };
+  'secrets:delete': { args: [id: string]; result: void };
+  /** The plain value of one environment, for a held reveal; main logs the reveal (never the value). */
+  'secrets:reveal': { args: [id: string, env: Environment]; result: string };
+  /** Looks in the repo's known places and .NET user secrets. Masks only; main keeps the values by key for the import. */
+  'secrets:discover': { args: [repoId: string]; result: DiscoverResult };
+  /** Discovers again and compares with what the repo has stored: masks and keys only, the values stay in main. */
+  'secrets:importPlan': { args: [repoId: string]; result: ImportPlan };
+  /** Saves the picked keys' values (resolved in main), then the chosen file rewrites; forgets the held values. */
+  'secrets:import': { args: [request: ImportRequest]; result: ImportResult };
+  /** Forgets the values the last discovery of the repo holds in main (the import page closed). */
+  'secrets:forget': { args: [repoId: string]; result: void };
+  /** The repo's secrets status for the manager's panel. */
+  'secrets:status': { args: [repoId: string]; result: SecretsStatus };
+  /**
+   * Rewrites the copied env files of the repo's open tasks (one task with `taskId`) without the stored keys and
+   * starts their secret-holding tabs again; agent tabs are never touched. Returns the cleaned task ids.
+   */
+  'secrets:cleanWorktrees': {
+    args: [repoId: string, taskId?: string];
+    result: string[];
+  };
+  /** The environment Start uses for the repo: Development or Test, never UAT or Production. */
+  'secrets:repoDefault': { args: [repoId: string]; result: Environment };
+  'secrets:setRepoDefault': {
+    args: [repoId: string, env: Environment];
+    result: void;
   };
   'connections:list': { args: []; result: Connection[] };
   'connections:save': { args: [input: ConnectionInput]; result: Connection };
@@ -286,6 +329,16 @@ export type Channels = {
   };
   'tasks:list': { args: []; result: TaskView[] };
   'tasks:create': { args: [input: CreateTaskInput]; result: Task };
+  /**
+   * Switches the task's secrets to another environment and restarts the tabs that hold secrets (never agent tabs).
+   * UAT and Production are refused unless `confirmed` is true; Production lasts the productionMinutes setting.
+   */
+  'tasks:setEnvironment': {
+    args: [taskId: string, env: Environment, confirmed?: boolean];
+    result: Task;
+  };
+  /** What the environment chip and its confirm show: value counts, the tabs a switch restarts, key names. */
+  'tasks:environmentInfo': { args: [taskId: string]; result: EnvironmentInfo };
   'tasks:setupState': { args: [taskId: string]; result: SetupState | null };
   'tasks:retrySetup': { args: [taskId: string]; result: void };
   'tasks:cancelSetup': { args: [taskId: string]; result: void };
@@ -348,6 +401,16 @@ export type Channels = {
     result: void;
   };
   'terminals:kill': { args: [id: string]; result: void };
+  /** Ends the tab's process and keeps the tab (its exit bar offers Restart or Resume session). */
+  'terminals:stop': { args: [id: string]; result: void };
+  /** Leak watch: the names that showed up in this agent tab and whether its input is paused; null when none. */
+  'terminals:leak': { args: [id: string]; result: LeakState | null };
+  /** Forwards input again to a tab paused because a Production value showed up. */
+  'terminals:resume': { args: [id: string]; result: void };
+  /** `shellie run` requests on UAT or Production that wait for the developer's approve. */
+  'runs:pending': { args: []; result: PendingRun[] };
+  /** Approves (true) or refuses a waiting `shellie run`. */
+  'runs:approve': { args: [id: string, ok: boolean]; result: void };
   /** `withoutProjectConfig`: OpenCode starts without the repo's own config (#109). */
   'terminals:restart': {
     args: [id: string, options?: RestartOptions];
@@ -417,9 +480,14 @@ export type Events = {
   'terminal:exit': { id: string; exitCode: number; failure?: TerminalFailure };
   /** Main started the terminal again by itself (a Claude Code tab resumed in the new theme): clear and size it. */
   'terminal:reset': { id: string };
+  /** Leak watch in an agent tab: a new name showed up, or input was paused or resumed. Names only. */
+  'terminal:leak': { id: string } & LeakState;
+  /** The `shellie run` requests waiting for an approve changed (all of them, every task). */
+  'runs:pending': PendingRun[];
   'tasks:changed': TaskView[];
   'repos:changed': Repo[];
   'connections:changed': Connection[];
+  'secrets:changed': null;
   'usage:changed': { taskId: string };
   'time:changed': { taskId: string };
   /** Terminals that wait on the developer. */

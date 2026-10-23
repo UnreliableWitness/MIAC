@@ -1,4 +1,13 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import {
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  unlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { ColorScheme } from '../../shared/theme';
@@ -62,8 +71,15 @@ export function readClaudeTheme(env: NodeJS.ProcessEnv = process.env): unknown {
  * written back). A file, not inline JSON: Windows PowerShell 5.1 drops the quotes of JSON passed to a native command.
  */
 export function claudeThemeSettingsFile(dir: string, theme: string): string {
-  const file = path.join(dir, `claude-theme-${theme}.json`);
-  const content = `${JSON.stringify({ theme })}\n`;
+  return writeSettings(
+    path.join(dir, `claude-theme-${theme}.json`),
+    { theme },
+    dir,
+  );
+}
+
+function writeSettings(file: string, settings: object, dir: string): string {
+  const content = `${JSON.stringify(settings)}\n`;
   let current: string | null = null;
   try {
     current = readFileSync(file, 'utf8');
@@ -73,8 +89,57 @@ export function claudeThemeSettingsFile(dir: string, theme: string): string {
   if (current !== content) {
     mkdirSync(dir, { recursive: true });
     writeFileSync(file, content);
+    pruneDenyFiles(dir, file);
+  } else {
+    // Prune goes by mtime, so every use counts: a task running for weeks keeps its file.
+    try {
+      const t = new Date();
+      utimesSync(file, t, t);
+    } catch {
+      /* best effort */
+    }
   }
   return file;
+}
+
+const WEEK_MS = 7 * 24 * 3600 * 1000;
+
+/** Deny files of tasks long gone: older than a week, never the one just written. Never throws. */
+function pruneDenyFiles(dir: string, keep: string): void {
+  try {
+    for (const name of readdirSync(dir)) {
+      if (!/^claude-settings-.+-[0-9a-f]{10}\.json$/.test(name)) continue;
+      const f = path.join(dir, name);
+      if (f !== keep && Date.now() - statSync(f).mtimeMs > WEEK_MS)
+        unlinkSync(f);
+    }
+  } catch {
+    /* best effort */
+  }
+}
+
+/**
+ * The one settings file a Claude Code tab passes with --settings: the theme (null for a custom one) and, when the
+ * task has untracked secret files, `permissions.deny` rules for them (secrets feature). Without rules it is the
+ * theme file as before, byte for byte; null when there is neither. The file name carries a hash of the rules, so
+ * tasks with different files never share one.
+ */
+export function claudeSettingsFile(
+  dir: string,
+  opts: { theme?: string | null; deny?: string[] },
+): string | null {
+  const deny = opts.deny ?? [];
+  if (deny.length === 0)
+    return opts.theme ? claudeThemeSettingsFile(dir, opts.theme) : null;
+  const hash = createHash('sha256')
+    .update(JSON.stringify(deny))
+    .digest('hex')
+    .slice(0, 10);
+  return writeSettings(
+    path.join(dir, `claude-settings-${opts.theme ?? 'custom'}-${hash}.json`),
+    { ...(opts.theme ? { theme: opts.theme } : {}), permissions: { deny } },
+    dir,
+  );
 }
 
 /** COLORFGBG ("foreground;background" as ANSI colour numbers) for programs that read it, Claude Code's `auto` too. */

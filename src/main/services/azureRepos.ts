@@ -1,5 +1,6 @@
 /** Azure Repos remotes, PR availability and PR text. Pure: no I/O. */
 
+import { ENVIRONMENT_LABEL, type Environment } from '../../shared/secrets';
 import type { Connection } from '../../shared/types';
 import { COST_LINE_PREFIX } from '../../shared/workItemUsage';
 import { splitRemoteRef } from './GitClient';
@@ -134,6 +135,8 @@ export type PrDescriptionInput = {
    * commit list is shortened first to stay under the limit, then this text is cut.
    */
   summary?: string | null;
+  /** The task's environment when the PR is made; anything but Development adds a "Run against <Environment>" line. */
+  environment?: Environment;
 };
 
 export function prDescription(input: PrDescriptionInput): string {
@@ -146,9 +149,14 @@ export function prDescription(input: PrDescriptionInput): string {
   const footer = costLine
     ? `${costLine} · recorded by Shellie`
     : 'Recorded by Shellie';
-  const top = input.workItemUrl
-    ? `${input.heading}\n\nWork item: ${input.workItemUrl}`
-    : input.heading;
+  const ranAgainst =
+    input.environment && input.environment !== 'development'
+      ? `\n\nRun against ${ENVIRONMENT_LABEL[input.environment]}`
+      : '';
+  const top =
+    (input.workItemUrl
+      ? `${input.heading}\n\nWork item: ${input.workItemUrl}`
+      : input.heading) + ranAgainst;
   const summary = input.summary?.trim() ?? '';
   const build = (n: number, text: string): string => {
     const head = text ? `${top}\n\n${text}` : top;

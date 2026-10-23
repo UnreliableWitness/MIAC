@@ -11,6 +11,8 @@ export type RepoInspection = {
   facts: RepoFacts;
   /** The `.shellie.yml` Shellie would write; null when the repo already has one. */
   proposal: string | null;
+  /** Secrets: how many secret-like names discovery found (the Add page offers the Import page); absent: none. */
+  secretsFound?: number;
 };
 
 export type RepoFacts = {

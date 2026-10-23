@@ -168,6 +168,20 @@ describe('FileTree', () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
+  it('warns on a row whose added lines hold a stored secret, without saying which', () => {
+    show({
+      repos: [repo([{ ...f('config.json'), secret: true }, f('clean.ts')])],
+    });
+    const row = (name: string) =>
+      screen
+        .getAllByRole('treeitem')
+        .find((r) => r.textContent?.includes(name))!;
+    expect(within(row('config.json')).getByText('Secret').title).toBe(
+      'A stored secret appears in the added lines',
+    );
+    expect(within(row('clean.ts')).queryByText('Secret')).toBeNull();
+  });
+
   it('shows no discard action without onDiscard', () => {
     show();
     expect(

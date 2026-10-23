@@ -48,6 +48,8 @@ const task: TaskView = {
   homeDropped: false,
   connectionId: null,
   mainCheckoutEdits: [],
+  environment: 'development',
+  environmentUntil: null,
   pendingCleanup: [],
   worktreeMissing: false,
 };
@@ -101,6 +103,18 @@ const fact = (label: string) =>
   screen.getByText(label, { selector: 'dt' }).nextElementSibling as HTMLElement;
 
 describe('DoneTaskPage', () => {
+  it('names the environment the task finished on, unless Development', () => {
+    installFakeApi({ 'usage:task': () => usage });
+    const { rerender } = render(
+      <DoneTaskPage task={{ ...task, finishedEnvironment: 'uat' }} />,
+    );
+    expect(fact('Environment')).toHaveTextContent('UAT');
+    rerender(
+      <DoneTaskPage task={{ ...task, finishedEnvironment: 'development' }} />,
+    );
+    expect(screen.queryByText('Environment', { selector: 'dt' })).toBeNull();
+  });
+
   it('shows what was done and how: facts, commits, live state', async () => {
     const { calls } = installFakeApi({
       'usage:task': () => usage,

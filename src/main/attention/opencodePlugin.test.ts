@@ -161,3 +161,77 @@ describe('opencodeConfigContent', () => {
     expect(opencodeConfigContent('[1]', '/p.js')).toBeUndefined();
   });
 });
+
+describe('opencodeConfigContent instructions', () => {
+  it("adds the shellie run instructions file next to the developer's own", () => {
+    expect(
+      JSON.parse(opencodeConfigContent(undefined, '/p.js', '/run.md')!),
+    ).toEqual({ plugin: ['/p.js'], instructions: ['/run.md'] });
+    expect(
+      JSON.parse(
+        opencodeConfigContent(
+          '{"instructions":["AGENTS.md"]}',
+          '/p.js',
+          '/run.md',
+        )!,
+      ),
+    ).toEqual({ plugin: ['/p.js'], instructions: ['AGENTS.md', '/run.md'] });
+    expect(opencodeConfigContent(undefined, '/p.js')).toBe(
+      '{"plugin":["/p.js"]}',
+    );
+  });
+});
+
+describe('opencodeConfigContent deny', () => {
+  it('is unchanged without paths', () => {
+    expect(opencodeConfigContent(undefined, '/p.js', undefined, [])).toBe(
+      opencodeConfigContent(undefined, '/p.js'),
+    );
+  });
+
+  it('adds permission deny entries', () => {
+    const c = JSON.parse(
+      opencodeConfigContent(undefined, '/p.js', undefined, ['.env'])!,
+    );
+    expect(c.permission.read).toEqual({ '.env': 'deny' });
+    expect(c.permission.bash['cat .env*']).toBe('deny');
+  });
+
+  it("keeps the developer's own permissions, turning a plain action into a pattern map", () => {
+    const c = JSON.parse(
+      opencodeConfigContent(
+        '{"permission":{"read":"allow","bash":{"git *":"allow"},"edit":"ask"}}',
+        '/p.js',
+        undefined,
+        ['.env'],
+      )!,
+    );
+    expect(c.permission.edit).toBe('ask');
+    expect(c.permission.read).toEqual({ '*': 'allow', '.env': 'deny' });
+    expect(c.permission.bash['git *']).toBe('allow');
+    expect(c.permission.bash['type .env*']).toBe('deny');
+  });
+});
+
+describe('opencodeConfigContent without the plugin', () => {
+  it('still carries the deny entries, and nothing at all without them', () => {
+    expect(
+      JSON.parse(opencodeConfigContent(undefined, null, undefined, ['.env'])!),
+    ).toEqual({
+      permission: expect.objectContaining({ read: { '.env': 'deny' } }),
+    });
+    expect(
+      JSON.parse(
+        opencodeConfigContent('{"model":"x"}', null, undefined, ['.env'])!,
+      ).model,
+    ).toBe('x');
+    expect(opencodeConfigContent(undefined, null)).toBeUndefined();
+    expect(opencodeConfigContent('{"model":"x"}', null)).toBeUndefined();
+  });
+
+  it('is undefined when the developer value is not JSON, which the caller can report', () => {
+    expect(
+      opencodeConfigContent('nope', null, undefined, ['.env']),
+    ).toBeUndefined();
+  });
+});

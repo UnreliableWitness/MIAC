@@ -2,6 +2,9 @@ import { TrackerProviderSchema, type TrackerProvider } from './trackers';
 import { z } from 'zod';
 import { TimeBookingSchema } from './time';
 import type { GitAuthHint } from './gitAuth';
+import { ENVIRONMENTS, type Environment } from './secrets';
+
+export const EnvironmentSchema = z.enum(ENVIRONMENTS);
 
 /** Work item type names come from the project's process (Agile, Scrum, Basic, custom); any string is valid. */
 export type WorkItemType = string;
@@ -165,6 +168,12 @@ export const TaskSchema = z.object({
     .default([]),
   /** What was booked at Finish; null while open and for tasks finished before time tracking. */
   time: TimeBookingSchema.nullable().default(null),
+  /** Which environment's secrets the task's tabs get; tasks from before secrets are on Development. */
+  environment: EnvironmentSchema.default('development'),
+  /** When a Production task falls back to Development (ISO instant); null otherwise. */
+  environmentUntil: z.string().nullable().default(null),
+  /** The environment the task was on when it finished (Finish then puts it back on Development); absent before. */
+  finishedEnvironment: EnvironmentSchema.optional(),
   /** Worktrees a finished task still has to remove; retried in the background (#115). */
   pendingCleanup: z.array(PendingCleanupSchema).default([]),
 });
@@ -238,6 +247,10 @@ export type CreateTaskInput = {
   openShell: boolean;
   openCopilot?: boolean;
   openOpencode?: boolean;
+  /** Absent: the repo's default environment (Development or Test, never UAT or Production). */
+  environment?: Environment;
+  /** UAT and Production need the developer's confirm; main refuses them without it. */
+  environmentConfirmed?: boolean;
 };
 
 /**
@@ -254,11 +267,18 @@ export type FinishOptions = {
   syncUsage: boolean;
   createPullRequest?: boolean;
   /** One entry per workspace; absent is the single-repo Finish (home: `pr` when createPullRequest, else `keep`). */
-  workspaces?: { workspaceId: string; action: WorkspaceAction }[];
+  workspaces?: {
+    workspaceId: string;
+    action: WorkspaceAction;
+    /** Push this workspace even when its branch holds a stored secret's value, or could not be checked. */
+    confirmLeak?: boolean;
+  }[];
   /** The time to book on the task (seconds); absent books nothing. */
   bookedSeconds?: number;
   /** Per workspace id (`home` for a single repo): the "what changed and why" the new PR's description starts with. */
   prSummaries?: Record<string, string>;
+  /** Single repo: push even when the branch holds a stored secret's value, or could not be checked (confirmed). */
+  confirmLeak?: boolean;
 };
 
 export type GitFile = { status: string; path: string };
@@ -281,6 +301,8 @@ export type FinishRowResult = {
   error: string | null;
   /** Set when the push could not sign in to the remote. */
   auth?: GitAuthHint;
+  /** Not pushed: the branch adds a stored secret's value (`found`) or could not be checked (`unchecked`). */
+  leak?: 'found' | 'unchecked';
 };
 
 /** The Finish page's look at one workspace still in the task. */

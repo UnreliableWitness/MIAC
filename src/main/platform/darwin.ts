@@ -24,7 +24,11 @@ export function darwinPlatform(env: NodeJS.ProcessEnv): Platform {
     shellLabel: path.basename(shell),
     interactiveShell: () => login([]),
     shellCommand: (cmd) => login(['-c', cmd]),
-    runCommand: (cmd) => login(['-c', cmd]),
+    // "$@" holds the arguments, given to the shell as argv ($0 is `shellie`), so none is ever parsed as shell.
+    runCommand: (cmd, args = []) =>
+      args.length === 0
+        ? login(['-c', cmd])
+        : login(['-c', `${cmd} "$@"`, 'shellie', ...args]),
     setupCommands: (cmds) =>
       login([
         '-c',
@@ -52,6 +56,10 @@ export function darwinPlatform(env: NodeJS.ProcessEnv): Platform {
       login(['-c', `command -v ${name} && ${name} --version`]),
     copilotCommand: () => login(['-c', 'exec copilot']),
     opencodeCommand: () => login(['-c', 'exec opencode']),
+    userSecretsDir: (id) =>
+      env.HOME
+        ? path.posix.join(env.HOME, '.microsoft', 'usersecrets', id)
+        : null,
     editorCommand: (p) => ({ command: 'code', args: [p] }),
     editorGotoCommand: (wt, f, line, col) => ({
       command: 'code',

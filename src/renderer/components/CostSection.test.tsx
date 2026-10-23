@@ -37,6 +37,7 @@ const settings = {
   },
   sendTelemetry: true,
   editor: { default: null, repos: {} },
+  secrets: { productionMinutes: 60 },
   onboarding: {
     dismissedAt: null,
     agentsCheckedAt: null,
@@ -134,6 +135,7 @@ describe('CostSection', () => {
       },
       sendTelemetry: true,
       editor: { default: null, repos: {} },
+      secrets: { productionMinutes: 60 },
       onboarding: {
         dismissedAt: null,
         agentsCheckedAt: null,

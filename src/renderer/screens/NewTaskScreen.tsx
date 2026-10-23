@@ -6,7 +6,15 @@ import type {
   WorkItemRef,
   WorkItemType,
 } from '../../shared/types';
+import {
+  ENVIRONMENT_LABEL,
+  ENVIRONMENTS,
+  type Environment,
+  type GivenTo,
+  isGuarded,
+} from '../../shared/secrets';
 import { api, tryInvoke } from '../api';
+import { EnvironmentConfirm } from '../components/secrets/EnvironmentChip';
 import { PageHeader, Pivots, WorkItemTypeIcon } from '../components/ui';
 import { WorkItemPicker } from '../components/WorkItemPicker';
 import { useEscape } from '../hooks/useEscape';
@@ -65,10 +73,20 @@ export function NewTaskScreen({
   const [openShell, setOpenShell] = useState(true);
   const [openCopilot, setOpenCopilot] = useState(false);
   const [openOpencode, setOpenOpencode] = useState(false);
+  // The repo's default once it loads; UAT and Production ask before the task is created.
+  const [environment, setEnvironment] = useState<Environment>('development');
+  const [asking, setAsking] = useState(false);
+  const [askKeys, setAskKeys] = useState<string[] | null>(null);
+  /** The tabs the confirm names: only those a stored value for the environment goes into. */
+  const [askTabs, setAskTabs] = useState<string[]>([]);
+  const [productionMinutes, setProductionMinutes] = useState<number | null>(
+    null,
+  );
   useEffect(() => {
     let live = true;
     void tryInvoke(() => api().invoke('settings:get'), notify).then((s) => {
       if (!live || !s) return;
+      setProductionMinutes(s.secrets.productionMinutes);
       const tabs = setupTabsFrom(s.defaultTerminals);
       setStartClaude(tabs.startClaude);
       setOpenShell(tabs.openShell);
@@ -113,6 +131,14 @@ export function NewTaskScreen({
     setCopy(true);
     setCommands({});
     setEditedBranch(null);
+    setEnvironment('development');
+    setAsking(false);
+    void tryInvoke(
+      () => api().invoke('secrets:repoDefault', repoId),
+      notify,
+    ).then((env) => {
+      if (live && env) setEnvironment(isGuarded(env) ? 'development' : env);
+    });
     void tryInvoke(() => api().invoke('repos:config', repoId), notify).then(
       (result) => {
         if (!live || !result) return;
@@ -171,9 +197,43 @@ export function NewTaskScreen({
         ? Boolean(id.trim() && title.trim())
         : Boolean(name.trim());
 
-  const create = async () => {
+  /** The tabs setup opens that can hold secrets, as the confirm names them. */
+  const setupTabs = [
+    ...((config?.config.setup ?? []).some((c) => commands[c]) ? ['Setup'] : []),
+    ...(openShell ? ['your shell'] : []),
+  ];
+
+  const create = async (confirmed = false) => {
     if (busy) return;
     if (!repo) return notify('error', 'Add a repository in Settings first');
+    if (isGuarded(environment) && !confirmed) {
+      setAsking(true);
+      setAskKeys(null);
+      setAskTabs([]);
+      const env = environment;
+      // Only names that reach a tab setup opens, as the task bar's confirm lists them.
+      const given = new Set<GivenTo>([
+        ...(setupTabs.includes('Setup') ? (['setup'] as const) : []),
+        ...(openShell ? (['shell'] as const) : []),
+      ]);
+      void tryInvoke(() => api().invoke('secrets:list', repo.id), notify).then(
+        (list) => {
+          if (!list) return;
+          const reaching = list.filter(
+            (v) => v.values[env] && v.givenTo.some((g) => given.has(g)),
+          );
+          const gets = (g: GivenTo) =>
+            reaching.some((v) => v.givenTo.includes(g));
+          setAskTabs([
+            ...(given.has('setup') && gets('setup') ? ['Setup'] : []),
+            ...(given.has('shell') && gets('shell') ? ['your shell'] : []),
+          ]);
+          setAskKeys([...new Set(reaching.map((v) => v.name))]);
+        },
+      );
+      return;
+    }
+    setAsking(false);
     setBusy(true);
     const task = await tryInvoke(
       () =>
@@ -190,6 +250,8 @@ export function NewTaskScreen({
           openShell,
           openCopilot,
           openOpencode,
+          environment,
+          ...(confirmed ? { environmentConfirmed: true } : {}),
         }),
       notify,
     );
@@ -328,6 +390,22 @@ export function NewTaskScreen({
             <span className="mono small" style={{ overflowWrap: 'anywhere' }}>
               {folder}
             </span>
+            <label htmlFor="nt-env">Environment</label>
+            <select
+              id="nt-env"
+              className="field"
+              value={environment}
+              onChange={(e) => {
+                setEnvironment(e.target.value as Environment);
+                setAsking(false);
+              }}
+            >
+              {ENVIRONMENTS.map((e) => (
+                <option key={e} value={e}>
+                  {ENVIRONMENT_LABEL[e]}
+                </option>
+              ))}
+            </select>
           </div>
           <fieldset className="group">
             <legend>Setup from .shellie.yml</legend>
@@ -405,6 +483,18 @@ export function NewTaskScreen({
               Start OpenCode with the task
             </label>
           </fieldset>
+          {asking && isGuarded(environment) && (
+            <EnvironmentConfirm
+              title={`Start ${(workItem?.id || label.trim() || 'this task').trim()} on ${ENVIRONMENT_LABEL[environment]}?`}
+              env={environment as 'uat' | 'production'}
+              tabs={askTabs}
+              keys={askKeys}
+              minutes={productionMinutes}
+              busy={busy}
+              onCancel={() => setAsking(false)}
+              onConfirm={() => void create(true)}
+            />
+          )}
           <div className="actions">
             <button type="button" className="btn" onClick={back}>
               Cancel
@@ -415,7 +505,7 @@ export function NewTaskScreen({
               disabled={
                 busy || !repo || !config || !baseRef || !branch || !canCreate
               }
-              onClick={create}
+              onClick={() => void create()}
             >
               Create task
             </button>

@@ -134,6 +134,8 @@ const task = (over: Partial<TaskView>): TaskView => ({
   homeDropped: false,
   connectionId: null,
   mainCheckoutEdits: [],
+  environment: 'development',
+  environmentUntil: null,
   pendingCleanup: [],
   ...over,
 });
@@ -370,6 +372,7 @@ describe('Sprint page', () => {
       openShell: true,
       openCopilot: false,
       openOpencode: false,
+      environment: 'development',
     });
   });
 

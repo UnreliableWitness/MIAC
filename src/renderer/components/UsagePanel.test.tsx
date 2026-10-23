@@ -49,6 +49,8 @@ const task: TaskView = {
   homeDropped: false,
   connectionId: null,
   mainCheckoutEdits: [],
+  environment: 'development',
+  environmentUntil: null,
   pendingCleanup: [],
 };
 const usage: TaskUsage = {
@@ -301,6 +303,7 @@ describe('UsagePanel', () => {
         },
         sendTelemetry: true,
         editor: { default: null, repos: {} },
+        secrets: { productionMinutes: 60 },
         onboarding: {
           dismissedAt: null,
           agentsCheckedAt: null,

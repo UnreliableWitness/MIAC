@@ -234,6 +234,8 @@ describe('RepoRegistry', () => {
         homeDropped: false,
         connectionId: null,
         mainCheckoutEdits: [],
+        environment: 'development',
+        environmentUntil: null,
         pendingCleanup: [],
       });
     });

@@ -60,6 +60,8 @@ const task: TaskView = {
   homeDropped: false,
   connectionId: null,
   mainCheckoutEdits: [],
+  environment: 'development',
+  environmentUntil: null,
   pendingCleanup: [],
   worktreeMissing: false,
 };
@@ -488,6 +490,7 @@ describe('FinishScreen AI usage', () => {
         },
         sendTelemetry: true,
         editor: { default: null, repos: {} },
+        secrets: { productionMinutes: 60 },
         onboarding: {
           dismissedAt: null,
           agentsCheckedAt: null,
@@ -632,6 +635,92 @@ describe('FinishScreen pull request', () => {
     expect(finishArgs(calls)[2]).toMatchObject({ createPullRequest: false });
     await waitFor(() =>
       expect(useStore.getState().screen).toEqual({ kind: 'task' }),
+    );
+  });
+});
+
+describe('FinishScreen push refused for a stored secret', () => {
+  const finishArgs = (calls: { channel: string; args: unknown[] }[]) =>
+    calls.filter((c) => c.channel === 'tasks:finish').map((c) => c.args[1]);
+
+  it('asks to push anyway and retries with confirmLeak only when ticked', async () => {
+    let n = 0;
+    const { calls } = installFakeApi({
+      'tasks:prAvailability': () => ({
+        available: true,
+        reason: null,
+        target: 'main',
+      }),
+      'tasks:finishChecks': () => clean,
+      'tasks:finish': () => {
+        if (n++ < 2)
+          throw new Error(
+            "Pull request not created: A stored secret appears in this branch's changes; not pushed",
+          );
+        return undefined;
+      },
+    });
+    render(<FinishScreen taskId="a" />);
+    await userEvent.click(
+      await screen.findByLabelText('Create a draft pull request into main'),
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Finish and clean up' }),
+    );
+    const confirm = await screen.findByLabelText(
+      "A stored secret appears in this branch's changes. Push anyway?",
+    );
+    expect(finishArgs(calls)[0]).not.toHaveProperty('confirmLeak');
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(finishArgs(calls)).toHaveLength(2));
+    expect(finishArgs(calls)[1]).not.toHaveProperty('confirmLeak');
+    await userEvent.click(
+      await screen.findByLabelText(
+        "A stored secret appears in this branch's changes. Push anyway?",
+      ),
+    );
+    expect(confirm).toBeDefined();
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(finishArgs(calls)).toHaveLength(3));
+    expect(finishArgs(calls)[2]).toMatchObject({ confirmLeak: true });
+  });
+});
+
+describe('FinishScreen push refused for an unchecked branch', () => {
+  it('asks to push anyway when Shellie could not check the branch', async () => {
+    let n = 0;
+    const { calls } = installFakeApi({
+      'tasks:prAvailability': () => ({
+        available: true,
+        reason: null,
+        target: 'main',
+      }),
+      'tasks:finishChecks': () => clean,
+      'tasks:finish': () => {
+        if (n++ < 1)
+          throw new Error(
+            'Pull request not created: Shellie could not check this branch for stored secrets; not pushed',
+          );
+        return undefined;
+      },
+    });
+    render(<FinishScreen taskId="a" />);
+    await userEvent.click(
+      await screen.findByLabelText('Create a draft pull request into main'),
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Finish and clean up' }),
+    );
+    await userEvent.click(
+      await screen.findByLabelText(
+        'Shellie could not check this branch for stored secrets. Push anyway?',
+      ),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() =>
+      expect(
+        calls.filter((c) => c.channel === 'tasks:finish')[1]?.args[1],
+      ).toMatchObject({ confirmLeak: true }),
     );
   });
 });
@@ -1635,6 +1724,53 @@ describe('FinishScreen with several repos', () => {
     await waitFor(() =>
       expect(useStore.getState().screen).toEqual({ kind: 'task' }),
     );
+  });
+
+  it('asks to push anyway when a row was refused for a stored secret', async () => {
+    let n = 0;
+    const { calls } = installFakeApi({
+      'tasks:finishChecks': () => checks({ unpushed: 0 }),
+      'tasks:finish': () => {
+        if (n++ < 1)
+          throw new Error(
+            "Branch not pushed for api: A stored secret appears in this branch's changes; not pushed",
+          );
+        return undefined;
+      },
+      'tasks:finishResults': () => [
+        ok('home', 'drop'),
+        ok('w2', 'pr', {
+          ok: false,
+          leak: 'found',
+          error: "A stored secret appears in this branch's changes; not pushed",
+        }),
+        ok('w3', 'keep'),
+        ok('w4', 'keep'),
+      ],
+    });
+    render(<FinishScreen taskId="a" />);
+    await screen.findByRole('group', { name: 'api' });
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Finish and clean up' }),
+    );
+    await userEvent.click(
+      await screen.findByLabelText(
+        "A stored secret appears in this branch's changes. Push anyway?",
+      ),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(finishArgs(calls)).toHaveLength(2));
+    // Confirmed for that row only, not page-wide.
+    expect(finishArgs(calls)[1]).not.toHaveProperty('confirmLeak');
+    expect(finishArgs(calls)[1]).toMatchObject({
+      workspaces: expect.arrayContaining([
+        expect.objectContaining({ workspaceId: 'w2', confirmLeak: true }),
+      ]),
+    });
+    const others = (
+      finishArgs(calls)[1] as { workspaces: { workspaceId: string }[] }
+    ).workspaces.filter((w) => w.workspaceId !== 'w2');
+    for (const w of others) expect(w).not.toHaveProperty('confirmLeak');
   });
 
   it('under a row whose push could not sign in, says how to sign in', async () => {

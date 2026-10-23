@@ -42,6 +42,8 @@ const task = (over: Partial<Task> & Pick<Task, 'id'>): Task => ({
   homeDropped: false,
   connectionId: null,
   mainCheckoutEdits: [],
+  environment: 'development',
+  environmentUntil: null,
   pendingCleanup: [],
   openPeriods: [],
   time: null,

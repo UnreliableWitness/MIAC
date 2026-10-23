@@ -46,6 +46,8 @@ const task = (over: Partial<Task> = {}): Task => ({
   homeDropped: false,
   connectionId: null,
   mainCheckoutEdits: [],
+  environment: 'development',
+  environmentUntil: null,
   pendingCleanup: [],
   ...over,
 });

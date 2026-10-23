@@ -44,4 +44,39 @@ describe('startTaskFor', () => {
       openOpencode: true,
     });
   });
+
+  it('uses the repo default environment, Development or Test', async () => {
+    const { calls } = installFakeApi({
+      'repos:config': () => config,
+      'secrets:repoDefault': () => 'test',
+      'tasks:create': () => ({ id: 't1' }) as never,
+    });
+    await startTaskFor(
+      'r1',
+      { id: '5', type: 'Task', title: 'Store the address', url: null },
+      vi.fn(),
+    );
+    expect(
+      calls.find((c) => c.channel === 'tasks:create')?.args[0],
+    ).toMatchObject({ environment: 'test' });
+  });
+
+  it('never starts on UAT or Production, even when a repo default says so', async () => {
+    for (const env of ['uat', 'production'] as const) {
+      const { calls } = installFakeApi({
+        'repos:config': () => config,
+        'secrets:repoDefault': () => env,
+        'tasks:create': () => ({ id: 't1' }) as never,
+      });
+      await startTaskFor(
+        'r1',
+        { id: '5', type: 'Task', title: 'Store the address', url: null },
+        vi.fn(),
+      );
+      const input = calls.find((c) => c.channel === 'tasks:create')
+        ?.args[0] as Record<string, unknown>;
+      expect(input.environment).toBe('development');
+      expect(input.environmentConfirmed).toBeUndefined();
+    }
+  });
 });

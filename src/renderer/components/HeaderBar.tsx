@@ -1,5 +1,6 @@
 import { Settings20Regular } from '@fluentui/react-icons';
 import { Fragment, type ReactNode, useState } from 'react';
+import { ENVIRONMENT_LABEL } from '../../shared/secrets';
 import type { TaskView } from '../../shared/types';
 import { api, tryInvoke } from '../api';
 import { ago, eur } from '../format';
@@ -196,6 +197,7 @@ export function HeaderBar() {
     return s.tasks.find((t) => t.id === id) ?? null;
   });
   const sprintName = useStore((s) => s.sprintName);
+  const openTask = useStore((s) => s.openTask);
   const home = () => go({ kind: 'sprint' });
 
   const crumbs: ReactNode[] = [];
@@ -220,6 +222,21 @@ export function HeaderBar() {
     crumbs.push(
       <TaskCrumb key="task" task={task} current={screen.kind === 'task'} />,
     );
+  // The task's secrets environment, when not Development: amber for UAT, red for Production.
+  if (task && task.environment !== 'development')
+    crumbs.push(
+      <button
+        key="env"
+        type="button"
+        className="crumb"
+        title="Which environment's secrets this task's tabs get"
+        onClick={() => openTask(task.id)}
+      >
+        <span className={`crumb-text crumb-env crumb-env-${task.environment}`}>
+          {ENVIRONMENT_LABEL[task.environment]}
+        </span>
+      </button>,
+    );
   const page =
     screen.kind === 'home'
       ? 'Home'
@@ -239,7 +256,10 @@ export function HeaderBar() {
                     ? 'Agents'
                     : screen.kind === 'add-repo'
                       ? 'Add repository'
-                      : null;
+                      : screen.kind === 'secrets' ||
+                          screen.kind === 'secrets-import'
+                        ? 'Secrets'
+                        : null;
   if (page)
     crumbs.push(
       <Crumb key="page" current onClick={() => undefined}>

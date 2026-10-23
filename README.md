@@ -233,6 +233,23 @@ flowchart LR
 The **Claude budget** on Home counts every Claude Code session on the machine, in Shellie or outside it (hatched), against a
 monthly budget, with what is left for today and a forecast for the month.
 
+## Secrets
+
+**Settings → Secrets** keeps each repo's secrets encrypted on your machine (Electron `safeStorage`), one value per
+environment: Development, Test, UAT and Production. Shellie finds what the repo already has (`.env*` files,
+`appsettings.<Environment>.json`, launch profiles, .NET user secrets, `.vscode/launch.json`, docker-compose,
+`local.settings.json`, `secrets/` folders) and imports what you tick; worktrees then get their env files without those
+values. The values go only into the tabs you give them to (Setup, the dev server, tests, and your own shell if you
+choose), never into Claude Code, Copilot or OpenCode tabs. Agents run tests and the dev server through
+`shellie run <name>`, which runs the repo's named command with the secrets in a Shellie tab and hands back masked
+output. A task picks its environment when it starts and can switch from the task bar; UAT and Production ask first and
+show a coloured band, and Production goes back to Development after 60 minutes and at Finish. Claude Code and OpenCode
+are denied reading the untracked secret files (Copilot has no such setting), and a stored value showing up in agent
+output, in Changes or in the branch Finish pushes is masked and flagged, and pauses the tab for Production. This
+guards against accidents, not against an agent set on leaking: an agent can change what a named command runs, which
+is why UAT and Production runs show the resolved script before you approve them. Nothing changes for a repo until you
+import something.
+
 ## Privacy
 
 Shellie sends anonymous usage events and errors to Azure Application Insights to find bugs. Paths and repo, task, work

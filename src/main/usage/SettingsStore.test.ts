@@ -90,6 +90,7 @@ describe('SettingsStore', () => {
       },
       sendTelemetry: true,
       editor: { default: null, repos: {} },
+      secrets: { productionMinutes: 60 },
       onboarding: {
         dismissedAt: null,
         agentsCheckedAt: null,
@@ -122,6 +123,7 @@ describe('SettingsStore', () => {
       },
       sendTelemetry: true,
       editor: { default: null, repos: {} },
+      secrets: { productionMinutes: 60 },
       onboarding: {
         dismissedAt: null,
         agentsCheckedAt: null,

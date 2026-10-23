@@ -45,6 +45,11 @@ import { NewTerminalMenu } from './NewTerminalMenu';
 import { TerminalView } from './TerminalView';
 import { IconButton, MindMark, modKey } from './ui';
 import { UsagePanel } from './UsagePanel';
+import { EnvironmentBand } from './secrets/EnvironmentBand';
+import { RunApproveBar } from './secrets/RunApproveBar';
+import { EnvironmentChip } from './secrets/EnvironmentChip';
+import { CleanWorktreeButton } from './secrets/CleanWorktreeButton';
+import { ENVIRONMENT_LABEL } from '../../shared/secrets';
 import { TaskMenu, WorkspaceChips } from './WorkspaceChips';
 
 const SCAN_MS = 120000;
@@ -249,6 +254,8 @@ export function TerminalTabs({
 
   return (
     <>
+      <EnvironmentBand task={task} />
+      <RunApproveBar taskId={task.id} />
       <div className="taskbar">
         <div
           ref={tabrow}
@@ -324,6 +331,12 @@ export function TerminalTabs({
                 }}
               >
                 {t.label}
+                {(t.kind === 'shell' || t.kind === 'run') &&
+                  task.environment !== 'development' && (
+                    <span
+                      className={`tab-env tab-env-${task.environment}`}
+                    >{` · ${ENVIRONMENT_LABEL[task.environment]}`}</span>
+                  )}
                 {attention[t.id] && <AttentionDot entry={attention[t.id]} />}
               </button>
               <button
@@ -381,6 +394,8 @@ export function TerminalTabs({
           ))}
         </div>
         <div className="taskbar-right">
+          {ready && <EnvironmentChip task={task} />}
+          {ready && visible && <CleanWorktreeButton task={task} />}
           <WorkspaceChips task={task} />
           <span className="mono taskbar-git" title={home.branch}>
             <Branch16Regular aria-hidden="true" />

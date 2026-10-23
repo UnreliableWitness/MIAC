@@ -73,7 +73,9 @@ export type Screen =
   /** With `connectionId`, adds projects to that connection's organization with its stored token. */
   | { kind: 'connect'; from: 'settings' | 'get-started'; connectionId?: string }
   /** `section` is the id of a settings section to scroll to on open. */
-  | { kind: 'settings'; section?: string };
+  | { kind: 'settings'; section?: string }
+  | { kind: 'secrets'; repoId?: string }
+  | { kind: 'secrets-import'; repoId: string };
 
 type Store = {
   screen: Screen;

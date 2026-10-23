@@ -13,6 +13,8 @@ import { ConnectScreen } from './screens/ConnectScreen';
 import { FinishScreen } from './screens/FinishScreen';
 import { GetStartedScreen } from './screens/GetStartedScreen';
 import { NewTaskScreen } from './screens/NewTaskScreen';
+import { SecretsImportScreen } from './screens/SecretsImportScreen';
+import { SecretsScreen } from './screens/SecretsScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { HomeScreen } from './screens/HomeScreen';
 import { SetupScreen } from './screens/SetupScreen';
@@ -51,6 +53,10 @@ function Page() {
       return <ConnectScreen key={screen.connectionId ?? ''} />;
     case 'settings':
       return <SettingsScreen />;
+    case 'secrets':
+      return <SecretsScreen key={screen.repoId ?? ''} repoId={screen.repoId} />;
+    case 'secrets-import':
+      return <SecretsImportScreen key={screen.repoId} repoId={screen.repoId} />;
   }
 }
 

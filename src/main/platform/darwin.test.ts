@@ -12,6 +12,14 @@ import { describe, expect, it } from 'vitest';
 import { darwinPlatform } from './darwin';
 
 describe('darwinPlatform', () => {
+  it('has no user secrets folder without a home folder', () => {
+    expect(darwinPlatform({}).userSecretsDir('abc')).toBeNull();
+  });
+  it('keeps .NET user secrets under ~/.microsoft/usersecrets', () => {
+    expect(darwinPlatform({ HOME: '/Users/me' }).userSecretsDir('abc')).toBe(
+      '/Users/me/.microsoft/usersecrets/abc',
+    );
+  });
   const p = darwinPlatform({ SHELL: '/bin/zsh' });
   it('opens a login shell for interactive tabs', () => {
     expect(p.interactiveShell()).toEqual({ command: '/bin/zsh', args: ['-l'] });
@@ -28,6 +36,22 @@ describe('darwinPlatform', () => {
       command: '/bin/zsh',
       args: ['-l', '-c', 'npm run dev'],
     });
+  });
+  it('passes a run command its extra arguments as arguments, never in the shell line', () => {
+    expect(p.runCommand('npm run dev', ['--port', '$(rm -rf ~)'])).toEqual({
+      command: '/bin/zsh',
+      args: [
+        '-l',
+        '-c',
+        'npm run dev "$@"',
+        'shellie',
+        '--port',
+        '$(rm -rf ~)',
+      ],
+    });
+    expect(p.runCommand('npm run dev', [])).toEqual(
+      p.runCommand('npm run dev'),
+    );
   });
   it('runs setup commands in order in one login shell, stopping at the first failure', () => {
     expect(p.setupCommands(['npm ci', "echo 'hi'"])).toEqual({

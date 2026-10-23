@@ -112,6 +112,7 @@ const defaults: FakeHandlers = {
     },
     sendTelemetry: true,
     editor: { default: null, repos: {} },
+    secrets: { productionMinutes: 60 },
     onboarding: {
       dismissedAt: null,
       agentsCheckedAt: '2026-10-22T09:00:00.000Z',
@@ -169,6 +170,15 @@ const defaults: FakeHandlers = {
   }),
   'workItems:types': () => [],
   'connections:list': () => [],
+  'secrets:list': () => [],
+  'secrets:forget': () => undefined,
+  'secrets:repoDefault': () => 'development',
+  'secrets:status': () => ({
+    state: 'empty',
+    reasons: [],
+    given: [],
+    secrets: 0,
+  }),
   'connections:probe': () => ({
     user: 'Dries Hoebeke',
     uniqueName: null,
@@ -198,6 +208,8 @@ const defaults: FakeHandlers = {
   'terminals:buffer': () => '',
   'terminals:isRunning': () => false,
   'terminals:failure': () => null,
+  'terminals:leak': () => null,
+  'runs:pending': () => [],
   'terminals:reportScheme': () => undefined,
   'terminals:write': () => undefined,
   'terminals:resize': () => undefined,

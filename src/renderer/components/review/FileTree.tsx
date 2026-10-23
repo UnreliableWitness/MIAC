@@ -92,6 +92,14 @@ function Row({
             Changed since viewed
           </span>
         )}
+        {file.secret && (
+          <span
+            className="tag tag-warn review-changed"
+            title="A stored secret appears in the added lines"
+          >
+            Secret
+          </span>
+        )}
       </span>
       {comments > 0 && (
         <span

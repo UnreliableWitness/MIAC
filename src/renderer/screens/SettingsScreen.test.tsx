@@ -383,6 +383,7 @@ describe('SettingsScreen', () => {
       },
       sendTelemetry: true,
       editor: { default: null, repos: {} },
+      secrets: { productionMinutes: 60 },
       onboarding: {
         dismissedAt: null,
         agentsCheckedAt: '2026-10-22T09:00:00.000Z',
@@ -437,6 +438,7 @@ describe('SettingsScreen', () => {
       },
       sendTelemetry: true,
       editor: { default: null, repos: {} },
+      secrets: { productionMinutes: 60 },
       onboarding: {
         dismissedAt: null,
         agentsCheckedAt: '2026-10-22T09:00:00.000Z',
@@ -471,6 +473,7 @@ describe('SettingsScreen', () => {
       },
       sendTelemetry: true,
       editor: { default: null, repos: {} },
+      secrets: { productionMinutes: 60 },
       onboarding: {
         dismissedAt: null,
         agentsCheckedAt: '2026-10-22T09:00:00.000Z',
@@ -526,6 +529,7 @@ describe('SettingsScreen', () => {
       },
       sendTelemetry: true,
       editor: { default: null, repos: {} },
+      secrets: { productionMinutes: 60 },
       onboarding: {
         dismissedAt: null,
         agentsCheckedAt: '2026-10-22T09:00:00.000Z',

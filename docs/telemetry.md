@@ -26,7 +26,7 @@ This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 
 
 | Name | Properties / measurements |
 | --- | --- |
-| Screen views (page views) | `sprint`, `task`, `new-task`, `setup`, `finish`, `settings`, `home`, `add-repo`, `connect`, `get-started`, `agents` |
+| Screen views (page views) | `sprint`, `task`, `new-task`, `setup`, `finish`, `settings`, `home`, `add-repo`, `connect`, `get-started`, `agents`, `secrets`, `secrets-import` |
 | `app.started` | splash on/off; counts of repos, open tasks, connections; whether the usage receiver listens; boot step timings (see Performance) |
 | `app.quit` | session length in minutes |
 | `home.refreshed` | the Home page's data was rebuilt; number of connections, number that failed; duration in ms |
@@ -84,9 +84,16 @@ This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 
 | `focus.toggled`, `nav.toggled` | on / collapsed |
 | `settings.changed` | names of the changed settings (not their values) |
 | `workItems.search` | picker scope (`sprint` or `mine`); whether search text was typed (not the text) |
+| `secrets.discovered` | Shellie looked for a repo's secrets (the import page opened); measurements only: `values` found, `secretLike`, `unassigned` (no environment from the file or profile name), `skipped` (names that cannot be environment variables), and the number of values per source kind (`dotenv`, `appsettings`, `launchSettings`, `userSecrets`, `vscode`, `compose`, `localSettings`, `secretsFolder`, `other`). Never a name, value, path or source |
+| `secrets.imported` | an import saved values; `environments`: the environments it saved values for, from the fixed four (`development`, `test`, `uat`, `production`, comma-separated); `rewriteWorktreeCopies`; measurements `values`, `worktreesRewritten`, `filesChanged` (main-checkout files the import took the keys out of) |
+| `secrets.environmentSwitched` | a running task switched environment; `from`, `to` (the fixed four); `confirmed` (the UAT or Production confirm was given) |
+| `secrets.productionExpired` | a task's Production bound passed and it went back to Development (also when the bound passed during setup); none. Finish ending Production is not counted |
+| `secrets.leakDetected` | a stored value showed up; `where` (`agent`: in an agent tab's output, once per name per tab; a `shellie run`'s output is masked for the agent and not counted; `diff`: in the Changes of a task, once per task and environment per launch; `push`: Finish refused to push a branch that adds one); `environment`: the gravest environment among the values found (the fixed four); for `agent`, `paused` (a Production value paused the tab) |
+| `secrets.runStarted` | an agent's `shellie run` started its tab (after the approve on UAT and Production); `kind` (`run`, `test`, `setup`); `environment` (the fixed four). Never the command's name, line or arguments |
+| `secrets.worktreesCleaned` | Clean worktrees ran; `from` (`secrets`: the Secrets page, `task`: the task bar); measurement `count` (tasks cleaned) |
 | `repo.added`, `repo.removed`, `repo.connectionLinked`, `connection.saved`, `connection.removed` | counts or linked/unlinked only; `repo.added` also has `wroteConfig` (true when Shellie wrote `.shellie.yml`) |
 | `connection.probeFailed` | the Connect page's Test failed: `status`, the HTTP status Azure DevOps answered with (0 when it could not be reached); never the URL, organization or token |
-| `repo.inspected` | a folder was inspected for adding: `remote` (`azure-devops`, `github`, `other` or `none`), `lockfile` (`npm`, `pnpm`, `yarn` or `none`), and `linked`, `dotnet`, `devScript`, `apm`, `existingConfig` (booleans); never paths, URLs or names |
+| `repo.inspected` | a folder was inspected for adding: `remote` (`azure-devops`, `github`, `other` or `none`), `lockfile` (`npm`, `pnpm`, `yarn` or `none`), and `linked`, `dotnet`, `devScript`, `apm`, `existingConfig`, `secrets` (whether discovery found a secret-like value) (booleans); never paths, URLs, names or values |
 
 ## Errors
 
@@ -108,7 +115,7 @@ This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 
 
 ## Never sent
 
-Work item titles or ids, repo names or paths, branch names, task names, Azure DevOps organization or project names, user names or e-mail addresses, PATs, terminal content, file contents, AI usage records.
+Work item titles or ids, repo names or paths, branch names, task names, Azure DevOps organization or project names, user names or e-mail addresses, PATs, terminal content, file contents, AI usage records, secret names, values or sources (only counts, source kinds and the four environment names), `shellie run` command names or arguments.
 
 Before anything is sent, main scrubs every message, stack trace and string property: the home folder and any other user folder become `~`, the names and paths of your repos, tasks, branches, work item titles, connection organizations, projects and users become `<redacted>`, URLs become `<url>` and e-mail addresses `<email>`. Messages are capped at 1000 characters, properties at 200.
 

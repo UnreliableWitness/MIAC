@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { promises as fs } from 'node:fs';
+import { promises as fs, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -33,6 +33,9 @@ import {
   OPENCODE_PLUGIN_SOURCE,
   opencodeConfigContent,
 } from './main/attention/opencodePlugin';
+import { RunHub } from './main/secrets/RunHub';
+import { agentRunEnv, writeShims } from './main/secrets/shim';
+import { shellieRunInstruction } from './shared/naming';
 import { DocsWatcher } from './main/docs/DocsWatcher';
 import { GitDirWatcher } from './main/review/GitDirWatcher';
 import { registerIpc } from './main/ipc/register';
@@ -56,10 +59,11 @@ import { TrackerRegistry } from './main/trackers/TrackerRegistry';
 import {
   claudeThemeFor,
   fixedScheme,
-  claudeThemeSettingsFile,
+  claudeSettingsFile,
   readClaudeTheme,
 } from './main/services/claudeTheme';
 import { ConnectionStore } from './main/services/ConnectionStore';
+import { SecretStore, secretsLoadNotice } from './main/secrets/SecretStore';
 import { GitClient } from './main/services/GitClient';
 import { connectionIdForPath, createGitAuth } from './main/services/gitAuth';
 import { loadShellieConfig } from './main/services/ShellieConfig';
@@ -402,9 +406,15 @@ async function boot(): Promise<void> {
         decrypt: (cipher) => safeStorage.decryptString(cipher),
       },
     );
-    const [loaded, connectionsLoaded] = await Promise.all([
+    const secrets = new SecretStore(path.join(userData, 'secrets.json'), {
+      available: () => safeStorage.isEncryptionAvailable(),
+      encrypt: (plain) => safeStorage.encryptString(plain),
+      decrypt: (cipher) => safeStorage.decryptString(cipher),
+    });
+    const [loaded, connectionsLoaded, secretsLoaded] = await Promise.all([
       store.load(),
       connections.load(),
+      secrets.load(),
     ]);
     // Once per install: installs that already have repositories skip the first-run page and keep their tabs.
     const migrated = migrateOnboarding(
@@ -485,6 +495,35 @@ async function boot(): Promise<void> {
       .catch((err) =>
         console.error('[attention] could not write the OpenCode plugin', err),
       );
+    // `shellie run` for agents: a token per task per launch, and the shim first on agent tabs' PATH.
+    const runs = new RunHub();
+    const shimDir = path.join(userData, 'bin');
+    let shimsReady = false;
+    await writeShims(shimDir)
+      .then(() => {
+        shimsReady = true;
+      })
+      .catch((err) =>
+        console.error('[secrets] could not write the shellie run shim', err),
+      );
+    /** OpenCode reads instructions from a file: the `shellie run` line, per task. */
+    const opencodeRunInstructions = (taskId: string, names: string[]) => {
+      try {
+        const file = path.join(
+          userData,
+          'opencode',
+          `shellie-run-${taskId.replace(/[^\w-]/g, '_')}.md`,
+        );
+        writeFileSync(file, `${shellieRunInstruction(names)}\n`);
+        return file;
+      } catch (err) {
+        console.error(
+          '[secrets] could not write the OpenCode instructions',
+          err,
+        );
+        return undefined;
+      }
+    };
     const usage = new UsageStore(usageDir, () => OFFICIAL_RATES);
     const time = new TimeStore(path.join(usageDir, 'time.json'));
     // usageMs covers both stores, loaded together.
@@ -591,6 +630,7 @@ async function boot(): Promise<void> {
         for (const p of points) keep(time.addClaudeActive(p));
       },
       { token: attentionToken, onSignal: (id, s) => attention.signal(id, s) },
+      runs,
     );
     const copilot = new CopilotFileTailer(
       path.join(usageDir, 'copilot'),
@@ -669,12 +709,13 @@ async function boot(): Promise<void> {
         nativeTheme.themeSource = theme;
       },
       colorScheme: scheme,
-      claudeThemeSettings: () => {
+      claudeThemeSettings: (deny) => {
         const theme = claudeThemeFor(readClaudeTheme(), scheme());
         try {
-          return theme
-            ? claudeThemeSettingsFile(path.join(userData, 'claude'), theme)
-            : null;
+          return claudeSettingsFile(path.join(userData, 'claude'), {
+            theme,
+            deny,
+          });
         } catch (e) {
           console.error('[terminals] could not write the Claude theme file', e);
           return null;
@@ -715,6 +756,17 @@ async function boot(): Promise<void> {
       onHourly: (fn) => {
         setInterval(fn, 60 * 60 * 1000);
       },
+      // Production ends at its bound: checked every 30 s and when the machine wakes.
+      expiryTimers: {
+        every: (fn, ms) => {
+          const timer = setInterval(fn, ms);
+          return () => clearInterval(timer);
+        },
+        onResume: (fn) => {
+          powerMonitor.on('resume', fn);
+          return () => powerMonitor.off('resume', fn);
+        },
+      },
       // Leftover worktree folders of finished tasks (#115): once soon after launch, then every few minutes.
       onCleanupRetry: (retryAll) => {
         const run = () => void retryAll().catch(() => undefined);
@@ -723,6 +775,7 @@ async function boot(): Promise<void> {
       },
       finishFlushMs: 2500,
       connections,
+      secrets,
       trackers: new TrackerRegistry(connections, timedFetch(telemetry)),
       telemetry,
       rememberSensitive: (values) => {
@@ -740,7 +793,10 @@ async function boot(): Promise<void> {
       platform,
       terminals,
       repos,
-      runner: new SetupRunner(git, platform),
+      // Copied env files leave out every name stored for the repo, in any environment.
+      runner: new SetupRunner(git, platform, (repoId) => [
+        ...new Set(secrets.list({ repoId }).map((v) => v.name)),
+      ]),
       loadConfig: loadShellieConfig,
       pickFolder: async () => {
         const r = await dialog.showOpenDialog({
@@ -765,17 +821,41 @@ async function boot(): Promise<void> {
           });
         }),
       attention,
-      terminalEnv: (def) => {
+      runs,
+      stopRuns: (taskId, reason) => runs.stopForTask(taskId, reason),
+      terminalEnv: (def, ctx) => {
+        const port = settings.get().receiverPort;
         const env: Record<string, string> = {
-          SHELLIE_ATTENTION_URL: `http://127.0.0.1:${settings.get().receiverPort}/v1/attention`,
+          SHELLIE_ATTENTION_URL: `http://127.0.0.1:${port}/v1/attention`,
           SHELLIE_ATTENTION_TOKEN: attentionToken,
+          // Agent tabs only: their task's `shellie run` link and the shim on PATH.
+          ...(shimsReady
+            ? agentRunEnv(def.kind, {
+                url: `http://127.0.0.1:${port}/v1/run`,
+                token: runs.tokenFor(ctx.taskId),
+                shimDir,
+                env: process.env,
+              })
+            : {}),
         };
-        if (def.kind === 'opencode' && opencodePluginReady) {
+        if (def.kind === 'opencode') {
+          // The deny entries do not depend on the plugin loading.
           const content = opencodeConfigContent(
             process.env.OPENCODE_CONFIG_CONTENT,
-            opencodePlugin,
+            opencodePluginReady ? opencodePlugin : null,
+            opencodePluginReady && ctx.runNames
+              ? opencodeRunInstructions(ctx.taskId, ctx.runNames)
+              : undefined,
+            ctx.denyPaths,
           );
           if (content) env.OPENCODE_CONFIG_CONTENT = content;
+          else if (
+            process.env.OPENCODE_CONFIG_CONTENT &&
+            (ctx.denyPaths?.length || opencodePluginReady)
+          )
+            console.warn(
+              `[terminals] OPENCODE_CONFIG_CONTENT is not a JSON object; OpenCode starts without Shellie's config (${ctx.denyPaths?.length ?? 0} secret files not denied)`,
+            );
         }
         return env;
       },
@@ -866,6 +946,7 @@ async function boot(): Promise<void> {
           `state.json was unreadable and was moved to ${path.basename(loaded.backup ?? '')}. Starting empty.`,
         connectionsLoaded.recovered &&
           `connections.json was unreadable and was moved to ${path.basename(connectionsLoaded.backup ?? '')}; add your connections again.`,
+        secretsLoadNotice(secretsLoaded),
         !receiverStarted.listening &&
           `AI usage capture is off: ${receiverStarted.error}. Pick another port in Settings > AI cost and invoicing.`,
         usageLoaded.damagedLines > 0 &&

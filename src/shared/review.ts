@@ -25,6 +25,8 @@ export type ReviewFile = {
   removed: number;
   binary: boolean;
   hash: string;
+  /** The added lines hold a stored secret's value (any environment). Never says which. */
+  secret?: boolean;
 };
 export const DELETED_HASH = 'deleted';
 /** What the renderer sends to name a file it wants to read; main validates the paths. */

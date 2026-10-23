@@ -61,6 +61,8 @@ const base = {
   homeDropped: false,
   connectionId: null,
   mainCheckoutEdits: [],
+  environment: 'development' as const,
+  environmentUntil: null,
   pendingCleanup: [],
   worktreeMissing: false,
   baseRef: 'origin/main',
@@ -117,6 +119,8 @@ const tasks: TaskView[] = [
     homeDropped: false,
     connectionId: null,
     mainCheckoutEdits: [],
+    environment: 'development',
+    environmentUntil: null,
     pendingCleanup: [],
   },
   {

@@ -2,6 +2,48 @@ import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import {
+  ENVIRONMENT_LABEL,
+  ENVIRONMENTS,
+  type Environment,
+  type EnvironmentInfo,
+  isGuarded,
+  LEAK_IN_BRANCH,
+  LEAK_UNCHECKED,
+  type SecretScope,
+  type SecretsStatus,
+  type SecretView,
+} from '../../shared/secrets';
+import { LeakMatcher } from '../secrets/LeakMatcher';
+import { LeakWatch } from '../secrets/LeakWatch';
+import type { RunHub, RunSpec } from '../secrets/RunHub';
+import { branchLeaks } from '../secrets/leakScan';
+import { discoveredMeasurements } from '../secrets/telemetry';
+import { type ExpiryTimers, scheduleExpiry } from '../secrets/expiry';
+import { DiscoveryHold, discoverSecrets } from '../secrets/discover';
+import {
+  cleanAll,
+  cleanWorktree,
+  computeStatus,
+  storedNames,
+} from '../secrets/status';
+import { denyRulesFor, denyTargets, inWorktree } from '../secrets/deny';
+import {
+  buildImportPlan,
+  importSecrets,
+  importSources,
+} from '../secrets/importPlan';
+import {
+  givenToFor,
+  holdsSecrets as holdsSecretsFor,
+  launchProfileArgs,
+  launchProfileFor,
+  secretsEnv,
+  testCommandFor,
+  withLaunchProfile,
+} from '../secrets/inject';
+import { SecretStore } from '../secrets/SecretStore';
+import { isAgentKind } from '../../shared/terminalFailure';
 import type {
   Events,
   Handlers,
@@ -38,6 +80,7 @@ import type {
   WorkspaceAction,
   WorkspaceCheck,
 } from '../../shared/types';
+import { EnvironmentSchema } from '../../shared/types';
 import {
   activeHome,
   activeWorkspaces,
@@ -139,13 +182,26 @@ import { OFFICIAL_USD_TO_EUR } from '../../shared/usage';
 export type Services = {
   /** What needs the developer's attention (main); absent in tests. */
   attention?: Pick<AttentionHub, 'setView' | 'snapshot'>;
-  /** Extra env per terminal (main: the attention URL and token, OpenCode's plugin). */
-  terminalEnv?: (def: TerminalDef) => Record<string, string>;
+  /**
+   * Extra env per terminal (main: the attention URL and token, OpenCode's plugin, and for agent tabs the task's
+   * `shellie run` link). `runNames`: the names agents are told about, only when the repo has a stored secret. `denyPaths`: the untracked
+   * secret files an agent tab must not read (relative to its folder, absolute for another repo's worktree).
+   */
+  terminalEnv?: (
+    def: TerminalDef,
+    ctx: { taskId: string; runNames?: string[]; denyPaths?: string[] },
+  ) => Record<string, string>;
+  /** `shellie run` for agents (main); handlers give it the task's tabs, config and leak watch. Absent in most tests. */
+  runs?: Pick<
+    RunHub,
+    'attach' | 'names' | 'data' | 'exit' | 'tabGone' | 'pendingRuns' | 'approve'
+  >;
   store: TaskStore;
   git: GitClient;
   platform: Platform;
   repos: RepoRegistry;
   connections: ConnectionStore;
+  secrets: SecretStore;
   trackers: TrackerRegistry;
   openExternal: (url: string) => Promise<void>;
   /** Shows a file in Finder or Explorer (main uses shell.showItemInFolder). */
@@ -182,9 +238,10 @@ export type Services = {
   colorScheme?: () => ColorScheme;
   /**
    * The settings file Claude Code tabs pass with --settings to pick a theme that suits the scheme on screen
-   * (main: claudeTheme.ts), null to leave the user's theme; absent in tests.
+   * (main: claudeTheme.ts), null to leave the user's theme; absent in tests. `deny`: Claude Code permission rules
+   * for the task's untracked secret files, merged into the same file.
    */
-  claudeThemeSettings?: () => string | null;
+  claudeThemeSettings?: (deny?: string[]) => string | null;
   /** A Claude Code tab was started (or resumed) with the theme claudeThemeSettings gave. */
   claudeSpawned?: (terminalId: string) => void;
   /** Explains and logs agent tabs that fail to start (#109); absent in tests that don't care. */
@@ -232,6 +289,12 @@ export type Services = {
   /** Finds and joins other repos' worktrees of a task; handlers build one from these services when absent (tests). */
   workspaces?: WorkspaceDetector;
   /** Windows auto-update: the downloaded update and how to apply it. Absent in dev, on macOS and in tests. */
+  /** The clock for Production bounds (default Date.now). */
+  now?: () => number;
+  /** Checks Production bounds every 30 s and on resume (main: setInterval, powerMonitor); absent: no expiry. */
+  expiryTimers?: ExpiryTimers;
+  /** Stops the task's `shellie run` processes (RunHub.stopForTask) when Production ends or at Finish; `reason` is what the agent reads. */
+  stopRuns?: (taskId: string, reason?: string) => void;
   update?: {
     pending(): PendingUpdate | null;
     /** Quits and starts the update; false when none is downloaded. */
@@ -277,6 +340,21 @@ export async function recoverInterruptedTasks(
   return changed;
 }
 
+/** Finish refused a push: the branch adds a stored value. Names neither the value nor the secret. */
+class LeakError extends Error {
+  /** `found`: the branch adds a stored value; `unchecked`: Shellie could not look, so it does not push either. */
+  constructor(readonly kind: 'found' | 'unchecked') {
+    super(`${kind === 'found' ? LEAK_IN_BRANCH : LEAK_UNCHECKED}; not pushed`);
+    this.name = 'LeakError';
+  }
+}
+
+/** The repos a task works in: its home and the ones it joined. */
+const taskRepoIds = (t: Task): string[] => [
+  t.repoId,
+  ...t.extraWorkspaces.map((w) => w.repoId),
+];
+
 /** Keys (repo:branch, repo:worktree) of tasks being created right now, across handler bundles. */
 const creating = new Set<string>();
 
@@ -303,7 +381,113 @@ export function createHandlers(s: Services): Handlers {
   const hasSessionsIn = s.claudeHasSessionsIn ?? claudeHasSessionsIn;
   const connectionsChanged = () =>
     s.broadcast('connections:changed', s.connections.list());
+  const discovery = new DiscoveryHold();
+  const statusRuns = new Map<string, Promise<SecretsStatus>>();
+  const copyOf = (repoPath: string) =>
+    s
+      .loadConfig(repoPath)
+      .then((c) => c.copy)
+      .catch(() => [] as string[]);
+  /** Open (not done) tasks' worktrees of a repo that still exist, with the task id. */
+  const openWorktrees = (repoId: string) =>
+    s.store.state.tasks
+      .filter((t) => t.status !== 'done')
+      .flatMap((t) =>
+        activeWorkspaces(t)
+          .filter((w) => w.repoId === repoId && existsSync(w.worktreePath))
+          .map((w) => ({ taskId: t.id, worktreePath: w.worktreePath })),
+      );
+  const now = s.now ?? Date.now;
+  /** The environment a new task gets from its repo: Development or Test, whatever the secrets file says. */
+  const repoDefaultOf = (repoId: string): Environment => {
+    const env = s.secrets.repoDefault(repoId);
+    return isGuarded(env) ? 'development' : env;
+  };
+  /** When Production started now ends (the productionMinutes setting). */
+  const productionUntil = () =>
+    new Date(
+      now() + s.settings.get().secrets.productionMinutes * 60_000,
+    ).toISOString();
   const reposChanged = () => s.broadcast('repos:changed', s.repos.list());
+
+  /** The values found in files git tracks in the repo's main checkout (leak watch does not alert on them). */
+  const trackedValues = async (repoId: string) => {
+    const r = await discoverSecrets(s.repos.get(repoId).path, {
+      git: s.git,
+      userSecretsDir: (id) => s.platform.userSecretsDir(id),
+    });
+    return new Set(r.found.filter((f) => f.tracked).map((f) => f.value));
+  };
+  const leakWatch = new LeakWatch({
+    values: (repoIds) => s.secrets.allValues(repoIds),
+    tracked: trackedValues,
+    repoIdsOf: (taskId) => {
+      const t = s.store.state.tasks.find((x) => x.id === taskId);
+      return t ? taskRepoIds(t) : null;
+    },
+    onLeak: (id, state) => s.broadcast('terminal:leak', { id, ...state }),
+    detected: (environment, paused) =>
+      tel.event('secrets.leakDetected', {
+        where: 'agent',
+        environment,
+        paused,
+      }),
+  });
+  s.terminals.setOutputFilter((o, data, carry, final) =>
+    leakWatch.filter(o, data, carry, final),
+  );
+  /** A `shellie run` tab's extra arguments (passed as arguments, never in its command line); not stored. */
+  const runArgs = new Map<string, string[]>();
+  /** Task and environment pairs whose leak in Changes was reported (telemetry), so a refresh does not repeat it. */
+  const diffLeaksReported = new Set<string>();
+  /** Matchers of every stored value per set of repos, for the Changes flags; dropped when secrets change. */
+  const diffMatchers = new Map<string, LeakMatcher>();
+  const diffMatcher = (task: Task) => {
+    const ids = taskRepoIds(task);
+    const key = ids.join('\0');
+    let m = diffMatchers.get(key);
+    if (!m) {
+      m = LeakMatcher.from(s.secrets.allValues(ids));
+      diffMatchers.set(key, m);
+    }
+    return m;
+  };
+  const secretsChanged = () => {
+    leakWatch.invalidate();
+    diffMatchers.clear();
+    // A status being computed now may predate the change: the next call starts again.
+    statusRuns.clear();
+    s.broadcast('secrets:changed', null);
+  };
+
+  /**
+   * Before a push: refuses when any commit it would send (`base..HEAD`) adds a stored value of any environment, and
+   * when the branch cannot be checked (no base, git failing), unless Finish confirmed the push for this workspace.
+   */
+  const assertNoLeak = async (
+    task: Task,
+    w: { worktreePath: string; baseRef: string; baseSha: string | null },
+    confirmed: boolean | undefined,
+  ) => {
+    if (confirmed) return;
+    const values = s.secrets.allValues(taskRepoIds(task));
+    if (values.length === 0) return;
+    const matcher = LeakMatcher.from(values);
+    if (matcher.empty) return;
+    const base = await s.git.resolveBase(w.worktreePath, w).catch(() => null);
+    if (!base) throw new LeakError('unchecked');
+    let leak: Environment | null;
+    try {
+      leak = await branchLeaks(w.worktreePath, base, matcher);
+    } catch {
+      // Never with the error: git's output could hold the lines it was reading.
+      throw new LeakError('unchecked');
+    }
+    if (leak !== null) {
+      tel.event('secrets.leakDetected', { where: 'push', environment: leak });
+      throw new LeakError('found');
+    }
+  };
 
   /** Work item types per connection, with icons, for the session. A failed load is not kept, so the next call retries. */
   const typesCache = new Map<string, Promise<WorkItemTypeMeta[]>>();
@@ -762,6 +946,8 @@ export function createHandlers(s: Services): Handlers {
     task: Task,
     def: TerminalDef,
     resume = false,
+    runNames?: string[],
+    denyPaths: string[] = [],
   ): Command => {
     if (def.kind === 'claude') {
       const cwd = terminalWorkspace(task, def).worktreePath;
@@ -769,7 +955,8 @@ export function createHandlers(s: Services): Handlers {
         // A folder removed by hand would make Claude refuse to start.
         .filter((w) => w.worktreePath !== cwd && existsSync(w.worktreePath))
         .flatMap((w) => ['--add-dir', w.worktreePath]);
-      const themeFile = s.claudeThemeSettings?.() ?? null;
+      const themeFile =
+        s.claudeThemeSettings?.(denyRulesFor(denyPaths)) ?? null;
       const theme = themeFile ? ['--settings', themeFile] : [];
       if (resume && !def.sessionId)
         return s.platform.claudeCommand(null, [
@@ -784,7 +971,7 @@ export function createHandlers(s: Services): Handlers {
           ...dirs,
           ...theme,
         ]);
-      return s.platform.claudeCommand(claudeContext(task), [
+      return s.platform.claudeCommand(claudeContext(task, runNames), [
         ...(def.sessionId ? ['--session-id', def.sessionId] : []),
         ...dirs,
         ...theme,
@@ -793,31 +980,206 @@ export function createHandlers(s: Services): Handlers {
     if (def.kind === 'run' && def.setupCommands)
       return s.platform.setupCommands(def.setupCommands);
     if (def.kind === 'run' && def.command)
-      return s.platform.runCommand(def.command);
+      return s.platform.runCommand(def.command, runArgs.get(def.id));
     if (def.kind === 'copilot') return s.platform.copilotCommand();
     if (def.kind === 'opencode') return s.platform.opencodeCommand();
     return s.platform.interactiveShell();
   };
 
-  const spawnTerminal = (
+  /**
+   * A non-agent tab's secrets for the task environment, from its own repo's store, and a `dotnet run` command with
+   * the environment's launch profile. Nothing while that repo has no stored secrets, so tabs start as before.
+   */
+  const tabSecrets = async (
+    task: Task,
+    def: TerminalDef,
+  ): Promise<{ env: Record<string, string>; def: TerminalDef }> => {
+    const ws = terminalWorkspace(task, def);
+    if (
+      givenToFor(def, null) === null ||
+      s.secrets.list({ repoId: ws.repoId }).length === 0
+    )
+      return { env: {}, def };
+    const command =
+      def.kind === 'run' && !def.setupCommands ? def.command : undefined;
+    const repoPath =
+      s.repos.list().find((r) => r.id === ws.repoId)?.path ?? ws.worktreePath;
+    // An unreadable .shellie.yml only means the tab is not known as the tests tab.
+    const testCommand = command
+      ? await s
+          .loadConfig(repoPath)
+          .then((c) => testCommandFor(ws.worktreePath, c))
+          .catch(() => null)
+      : null;
+    return {
+      env: secretsEnv(
+        s.secrets.valuesFor(ws.repoId, task.environment),
+        givenToFor(def, testCommand),
+        task.environment,
+      ),
+      def: command
+        ? {
+            ...def,
+            command: withLaunchProfile(
+              command,
+              launchProfileArgs(command, ws.worktreePath, task.environment),
+            ),
+          }
+        : def,
+    };
+  };
+
+  /**
+   * `runNames`: what an agent tab is told it can `shellie run` (only when its repo has a stored secret).
+   * `denyPaths`: the untracked secret files it must not read.
+   */
+  type TabSecrets = Awaited<ReturnType<typeof tabSecrets>> & {
+    runNames?: string[];
+    denyPaths?: string[];
+  };
+
+  /** A worktree's deny targets, kept briefly so a task opening Claude and OpenCode walks each repo once. */
+  const denyCache = new Map<
+    string,
+    { at: number; targets: Promise<string[]> }
+  >();
+  const DENY_CACHE_MS = 30_000;
+  const worktreeDenyTargets = (worktreePath: string): Promise<string[]> => {
+    const hit = denyCache.get(worktreePath);
+    if (hit && now() - hit.at < DENY_CACHE_MS) return hit.targets;
+    const targets = discoverSecrets(worktreePath, {
+      git: s.git,
+      userSecretsDir: (id) => s.platform.userSecretsDir(id),
+    })
+      .then((r) =>
+        denyTargets(r).filter(
+          // A file that is gone needs no rule; a user-secrets path is absolute already.
+          (t) => t.endsWith('/**') || existsSync(path.resolve(worktreePath, t)),
+        ),
+      )
+      // No rules rather than a failed tab, and not remembered: the next tab tries again. Nothing found is logged.
+      .catch(() => {
+        denyCache.delete(worktreePath);
+        console.warn('[secrets] could not look for secret files to deny');
+        return [] as string[];
+      });
+    denyCache.set(worktreePath, { at: now(), targets });
+    return targets;
+  };
+
+  /**
+   * The untracked secret files in the task's worktrees, for an agent tab: relative to the tab's own folder, absolute
+   * for another repo's worktree (Claude's --add-dir) and for user secrets. Tracked config stays readable.
+   */
+  const agentDenyPaths = async (
+    task: Task,
+    def: TerminalDef,
+  ): Promise<string[]> => {
+    const own = terminalWorkspace(task, def);
+    const lists = await Promise.all(
+      activeWorkspaces(task).map(async (w) => {
+        if (!existsSync(w.worktreePath)) return [];
+        const targets = await worktreeDenyTargets(w.worktreePath);
+        return w.id === own.id
+          ? targets
+          : targets.map((t) => inWorktree(w.worktreePath, t));
+      }),
+    );
+    return [...new Set(lists.flat())];
+  };
+
+  /** The `shellie run` names for an agent tab, when its repo has a stored secret; undefined otherwise. */
+  const agentRunNames = async (
+    task: Task,
+    def: TerminalDef,
+  ): Promise<string[] | undefined> => {
+    const ws = terminalWorkspace(task, def);
+    if (!s.runs || s.secrets.list({ repoId: ws.repoId }).length === 0)
+      return undefined;
+    // An unreadable .shellie.yml only means the agent is not told the names.
+    return s.runs.names(task.id, ws.worktreePath).catch(() => undefined);
+  };
+
+  /** The tab's secrets; a failure to read them is the tab's start failure. */
+  const prepareTab = async (
+    task: Task,
+    def: TerminalDef,
+  ): Promise<TabSecrets> => {
+    s.terminalFailures?.clear(def.id);
+    // Leak watch knows which values git tracks before the agent's first output.
+    if (isAgentKind(def.kind)) {
+      await leakWatch.prepare(task.id).catch(() => undefined);
+      const runNames = await agentRunNames(task, def);
+      const denyPaths = await agentDenyPaths(task, def);
+      return {
+        env: {},
+        def,
+        ...(runNames ? { runNames } : {}),
+        ...(denyPaths.length > 0 ? { denyPaths } : {}),
+      };
+    }
+    try {
+      return await tabSecrets(task, def);
+    } catch (e) {
+      s.terminalFailures?.spawnFailed(def.id, def.kind, e);
+      throw e;
+    }
+  };
+
+  const spawnTerminal = async (
     task: Task,
     def: TerminalDef,
     resume = false,
     extraEnv: Record<string, string> = {},
+  ) => startTerminal(task, def, await prepareTab(task, def), resume, extraEnv);
+
+  /** The environment each tab was last spawned with, so a Restart after a switch builds its env again. */
+  const spawnedEnv = new Map<string, Environment>();
+  /**
+   * Tabs spawned with a stored secret in their env. A tab keeps the value it got until it restarts, so it stays
+   * tracked (expiry, switch, Finish, Restart) even after the secret is deleted or no longer given to it.
+   */
+  const spawnedWithSecrets = new Set<string>();
+  const forgetSpawn = (id: string) => {
+    spawnedEnv.delete(id);
+    spawnedWithSecrets.delete(id);
+  };
+
+  /** Spawns at once (no await), so a caller holding a task claim keeps it only for the spawn itself. */
+  const startTerminal = (
+    task: Task,
+    def: TerminalDef,
+    secrets: TabSecrets,
+    resume = false,
+    extraEnv: Record<string, string> = {},
   ) => {
-    s.terminalFailures?.clear(def.id);
+    const spawnEnvironment = task.environment;
     try {
-      const cmd = terminalCommand(task, def, resume);
+      const cmd = terminalCommand(
+        task,
+        secrets.def,
+        resume,
+        secrets.runNames,
+        secrets.denyPaths,
+      );
       s.terminals.spawn({
         id: def.id,
         taskId: task.id,
         cwd: terminalWorkspace(task, def).worktreePath,
         command: cmd.command,
         args: cmd.args,
+        // Agent tabs' output goes through leak watch before it is kept or shown.
+        filtered: isAgentKind(def.kind),
+        // Values go in as environment variables, never through a shell line, so they arrive as stored.
         env: {
+          ...secrets.env,
           ...telemetryEnv(task.id, s.settings.get().receiverPort, s.usageDir),
           ...(s.colorScheme ? { COLORFGBG: colorFgBg(s.colorScheme()) } : {}),
-          ...s.terminalEnv?.(def),
+          ...s.terminalEnv?.(def, {
+            taskId: task.id,
+            ...(secrets.runNames ? { runNames: secrets.runNames } : {}),
+            ...(secrets.denyPaths ? { denyPaths: secrets.denyPaths } : {}),
+          }),
           ...cmd.env,
           ...extraEnv,
         },
@@ -826,7 +1188,215 @@ export function createHandlers(s: Services): Handlers {
       s.terminalFailures?.spawnFailed(def.id, def.kind, e);
       throw e;
     }
+    spawnedEnv.set(def.id, spawnEnvironment);
+    const stored = new Set(
+      s.secrets
+        .list({ repoId: terminalWorkspace(task, def).repoId })
+        .map((v) => v.name),
+    );
+    if (Object.keys(secrets.env).some((k) => stored.has(k)))
+      spawnedWithSecrets.add(def.id);
+    else spawnedWithSecrets.delete(def.id);
     if (def.kind === 'claude') s.claudeSpawned?.(def.id);
+  };
+
+  /** Every tab but an agent's can hold secrets. */
+  /** The shared rule (inject.ts): a stored secret of the tab's repo is given to it. */
+  const holdsSecrets = (task: Task, def: TerminalDef) =>
+    holdsSecretsFor(
+      def,
+      s.secrets.list({ repoId: terminalWorkspace(task, def).repoId }),
+    ) || spawnedWithSecrets.has(def.id);
+
+  /** Stops a tab and tells its view it ended (a kill alone sends no exit). */
+  const stopTab = async (id: string) => {
+    await s.terminals.kill(id);
+    forgetSpawn(id);
+    leakWatch.forget(id);
+    s.broadcast('terminal:exit', { id, exitCode: -1 });
+  };
+
+  /**
+   * `shellie run`: the visible `agent · <name>` run tab, reused when it is there and stopped, spawned with the
+   * task environment's secrets (tabSecrets picks Tests, Setup or Run from the command). Refused when the tab is
+   * running, the task is busy or its environment is no longer the one the run was resolved (and approved) for.
+   */
+  const openRunTab = async (
+    taskId: string,
+    spec: RunSpec,
+    attach: (terminalId: string) => boolean,
+  ) => {
+    const label = `agent · ${spec.name}`;
+    const old = taskById(taskId).terminals.find(
+      (d) =>
+        d.kind === 'run' &&
+        d.label === label &&
+        (d.workspaceId ?? activeHome(taskById(taskId)).id) === spec.workspaceId,
+    );
+    if (old && s.terminals.isRunning(old.id))
+      throw new Error(`${label} is already running`);
+    const def: TerminalDef = {
+      id: old?.id ?? randomUUID(),
+      kind: 'run',
+      label,
+      workspaceId: spec.workspaceId,
+      ...(spec.setupCommands
+        ? { setupCommands: spec.setupCommands }
+        : { command: spec.command ?? '' }),
+    };
+    if (old) {
+      await s.terminals.kill(old.id);
+      forgetSpawn(old.id);
+      leakWatch.forget(old.id);
+    }
+    const prepared = await prepareTab(taskById(taskId), def);
+    claim(taskId, ['ready'], 'run a command in');
+    try {
+      if (taskById(taskId).environment !== spec.environment)
+        throw new Error("The task's environment changed; run it again");
+      // The agent went away (or the run was stopped) while the tab was prepared: nothing spawns with the secrets.
+      if (!attach(def.id)) return;
+      runArgs.set(def.id, spec.args);
+      startTerminal(taskById(taskId), def, prepared);
+    } finally {
+      release(taskId);
+    }
+    await updateTerminals(taskId, (list) =>
+      old ? list.map((d) => (d.id === def.id ? def : d)) : [...list, def],
+    );
+    if (old) s.broadcast('terminal:reset', { id: def.id });
+  };
+
+  if (s.runs) {
+    const runs = s.runs;
+    runs.attach({
+      task: (taskId) => {
+        const t = s.store.state.tasks.find((x) => x.id === taskId);
+        if (!t) return null;
+        const home = activeHome(t);
+        return {
+          id: t.id,
+          ready: t.status === 'ready',
+          environment: t.environment,
+          setupCommands: t.setup.commands,
+          workspaces: [
+            home,
+            ...activeWorkspaces(t).filter((w) => w.id !== home.id),
+          ].map((w) => ({
+            id: w.id,
+            worktreePath: w.worktreePath,
+            repoPath:
+              s.repos.list().find((r) => r.id === w.repoId)?.path ??
+              w.worktreePath,
+          })),
+          agentTabs: t.terminals
+            .filter((d) => isAgentKind(d.kind))
+            .map((d) => d.id),
+        };
+      },
+      config: (repoPath) => s.loadConfig(repoPath),
+      testCommand: testCommandFor,
+      openTab: openRunTab,
+      kill: (id) => void stopTab(id),
+      // The agent reads what comes back masked: it never sees a value, so no notice and no Production pause.
+      filter: (o, data, carry, final) => leakWatch.mask(o, data, carry, final),
+      pending: (list) => s.broadcast('runs:pending', list),
+      started: (spec) =>
+        tel.event('secrets.runStarted', {
+          kind: spec.given === 'tests' ? 'test' : spec.given,
+          environment: spec.environment,
+        }),
+    });
+    s.terminals.on('data', (id, data) => runs.data(id, data));
+    s.terminals.on('exit', (id, code) => runs.exit(id, code));
+  }
+
+  /**
+   * After an environment change: each running tab that holds secrets is killed and spawned again with the new
+   * environment's values (a fresh env, never the old spawn options). Agent tabs are never touched. The Setup tab
+   * never runs again by itself: it is only stopped, when it held UAT or Production values.
+   */
+  const respawnSecretTabs = async (
+    task: Task,
+    left: Environment,
+    why = `The task switched to ${ENVIRONMENT_LABEL[task.environment]}`,
+  ) => {
+    for (const def of task.terminals) {
+      if (!holdsSecrets(task, def) || !s.terminals.isRunning(def.id)) continue;
+      // A `shellie run` tab ends with its run: the agent asked for a run with the old environment's values.
+      if (runArgs.has(def.id)) {
+        s.runs?.tabGone(def.id, why);
+        await stopTab(def.id);
+        continue;
+      }
+      if (def.setupCommands) {
+        if (isGuarded(left)) await stopTab(def.id);
+        continue;
+      }
+      await s.terminals.kill(def.id);
+      try {
+        await spawnTerminal(task, def);
+        s.broadcast('terminal:reset', { id: def.id });
+      } catch (e) {
+        // The old process is gone either way; the tab shows why it did not start and offers Restart.
+        console.error('[secrets] could not restart a tab', e);
+        s.broadcast('terminal:exit', { id: def.id, exitCode: -1 });
+      }
+    }
+  };
+
+  /** A finished task goes back to Development; the Done page and the PR keep the one it finished on. */
+  const endEnvironment = (task: Task): Partial<Task> => ({
+    environment: 'development',
+    environmentUntil: null,
+    finishedEnvironment: task.environment,
+  });
+
+  const titleOf = (t: Task) =>
+    t.workItem ? `${t.workItem.id} ${t.workItem.title}` : t.name;
+
+  /**
+   * Production's bound passed: the task goes back to Development, its tabs that hold secrets start again with
+   * Development values (the Setup tab stops), its `shellie run` processes stop, and the developer is told. A task
+   * that is finishing is left to Finish, which ends it too.
+   */
+  const productionOver = (t: Task) =>
+    t.environment === 'production' &&
+    t.environmentUntil !== null &&
+    Date.parse(t.environmentUntil) <= now();
+
+  /** Puts the task back on Development, stops its `shellie run` processes and tells the developer. */
+  const endProduction = async (task: Task) => {
+    await patchTask(task.id, {
+      environment: 'development',
+      environmentUntil: null,
+    });
+    s.stopRuns?.(task.id, 'Production ended');
+    tel.event('secrets.productionExpired');
+    s.broadcast('notice', {
+      level: 'info',
+      message: `Production ended for ${titleOf(task)}`,
+    });
+  };
+
+  const expireEnvironment = async (taskId: string) => {
+    const task = s.store.state.tasks.find((t) => t.id === taskId);
+    // A claimed task (setup, Finish, a switch) is left alone: the 30 s check comes back while it stays past its bound.
+    if (!task || !productionOver(task) || inFlight.has(taskId)) return;
+    inFlight.add(taskId);
+    try {
+      await endProduction(task);
+      await respawnSecretTabs(taskById(taskId), 'production');
+    } finally {
+      release(taskId);
+    }
+  };
+
+  /** Stops the running tabs that hold secrets (Finish on UAT or Production). */
+  const stopSecretTabs = async (task: Task) => {
+    for (const def of task.terminals)
+      if (holdsSecrets(task, def) && s.terminals.isRunning(def.id))
+        await stopTab(def.id);
   };
 
   const initialTerminals = (task: Task): TerminalDef[] => {
@@ -896,11 +1466,11 @@ export function createHandlers(s: Services): Handlers {
   };
 
   /** Starts a reopened task's tabs: Claude resumes, the rest start as before; running ones are left alone. */
-  const startRestored = (task: Task, defs: TerminalDef[]) => {
+  const startRestored = async (task: Task, defs: TerminalDef[]) => {
     for (const def of defs) {
       if (s.terminals.isRunning(def.id)) continue;
       if (s.terminals.has(def.id)) void s.terminals.kill(def.id);
-      spawnTerminal({ ...task, terminals: defs }, def, true);
+      await spawnTerminal({ ...task, terminals: defs }, def, true);
       tel.event('terminal.opened', { kind: def.kind, initial: true });
     }
   };
@@ -932,6 +1502,7 @@ export function createHandlers(s: Services): Handlers {
       const config = await s.loadConfig(repo.path);
       out.push({
         workspaceId: w.id,
+        repoId: repo.id,
         repoName: repo.name,
         repoPath: repo.path,
         worktreePath: w.worktreePath,
@@ -997,6 +1568,7 @@ export function createHandlers(s: Services): Handlers {
       (await pathExists(path.join(repo.path, 'apm.yml')));
     return {
       taskId: task.id,
+      repoId: repo.id,
       repoPath: repo.path,
       worktreePath: task.worktreePath,
       branch: task.branch,
@@ -1094,20 +1666,29 @@ export function createHandlers(s: Services): Handlers {
           await patchTask(taskId, { baseSha });
         },
         startTerminals: async (commands) => {
+          // The environment as it is now, not as it was when setup began: Production may have ended meanwhile.
+          if (productionOver(taskById(taskId)))
+            await endProduction(taskById(taskId));
+          const live = taskById(taskId);
+          const cur: Task = {
+            ...task,
+            environment: live.environment,
+            environmentUntil: live.environmentUntil,
+          };
           const setupTab = commands.length > 0 ? [setupTerminal(commands)] : [];
-          if (isReopening(task)) {
-            const restored = restoredTerminals(task);
-            startRestored(task, restored);
+          if (isReopening(cur)) {
+            const restored = restoredTerminals(cur);
+            await startRestored(cur, restored);
             for (const def of setupTab) {
-              spawnTerminal({ ...task, terminals: restored }, def);
+              await spawnTerminal({ ...cur, terminals: restored }, def);
               tel.event('terminal.opened', { kind: def.kind, initial: true });
             }
             await updateTerminals(taskId, () => [...restored, ...setupTab]);
             return;
           }
-          const defs = [...initialTerminals(task), ...setupTab];
+          const defs = [...initialTerminals(cur), ...setupTab];
           for (const def of defs) {
-            spawnTerminal({ ...task, terminals: defs }, def);
+            await spawnTerminal({ ...cur, terminals: defs }, def);
             tel.event('terminal.opened', { kind: def.kind, initial: true });
           }
           await updateTerminals(taskId, (list) => [...list, ...defs]);
@@ -1243,6 +1824,14 @@ export function createHandlers(s: Services): Handlers {
     store: reviewStore,
     repoName: (id) => s.repos.list().find((r) => r.id === id)?.name ?? id,
     collapseOf: async (wt) => (await s.loadConfig(wt)).reviewCollapse ?? [],
+    leakMatcher: diffMatcher,
+    onLeak: (task, environment) => {
+      // Changes is read again on every file change: once per task and environment per launch.
+      const key = `${task.id}\0${environment}`;
+      if (diffLeaksReported.has(key)) return;
+      diffLeaksReported.add(key);
+      tel.event('secrets.leakDetected', { where: 'diff', environment });
+    },
   });
   const editors =
     s.editors ??
@@ -1419,10 +2008,13 @@ export function createHandlers(s: Services): Handlers {
 
   /** Pushes a workspace's branch unless `origin` already has it; returns the summary as it is after the push. */
   const pushIfNeeded = async (
+    task: Task,
     w: WorkspaceView,
     summary: TaskSummary | null,
+    confirmLeak: boolean | undefined,
   ) => {
     if (onOrigin(summary, w.branch)) return summary;
+    await assertNoLeak(task, w, confirmLeak);
     await s.git.push(w.worktreePath, 'origin', w.branch);
     return markPushed(summary, w.branch);
   };
@@ -1434,7 +2026,8 @@ export function createHandlers(s: Services): Handlers {
     summary: TaskSummary | null,
     costScope: { repos: number } | undefined,
     /** The "what changed and why" from the Finish page, put above the commits. */
-    prSummary?: string,
+    prSummary: string | undefined,
+    confirmLeak: boolean | undefined,
   ): Promise<{
     ref: PullRequestRef;
     existed: boolean;
@@ -1447,7 +2040,7 @@ export function createHandlers(s: Services): Handlers {
       );
     const connection = c.connection;
     const { project, repo: repoName } = c.availability.target;
-    summary = await pushIfNeeded(w, summary);
+    summary = await pushIfNeeded(task, w, summary, confirmLeak);
     const client = s.trackers.tracker(connection.id);
     const repositoryId = await client.repositoryId(project, repoName);
     const existing = await client.findActivePullRequest(
@@ -1471,6 +2064,7 @@ export function createHandlers(s: Services): Handlers {
           costScope,
           workItemUrl: c.linksWorkItem ? null : (task.workItem?.url ?? null),
           summary: prSummary,
+          environment: task.environment,
         }),
         workItemId:
           task.workItem && c.linksWorkItem ? Number(task.workItem.id) : null,
@@ -1527,6 +2121,10 @@ export function createHandlers(s: Services): Handlers {
     docsWatcher.stopTask(taskId);
     gitDirWatcher.stopTask(taskId);
     await s.terminals.killAllForTask(taskId);
+    for (const d of taskById(taskId).terminals) {
+      forgetSpawn(d.id);
+      leakWatch.forget(d.id);
+    }
     await patchTask(taskId, {
       closedTerminals: taskById(taskId).terminals,
       terminals: [],
@@ -1608,7 +2206,7 @@ export function createHandlers(s: Services): Handlers {
   const finishWorkspaces = async (
     taskId: string,
     options: FinishOptions,
-    wanted: { workspaceId: string; action: WorkspaceAction }[],
+    wanted: NonNullable<FinishOptions['workspaces']>,
   ) => {
     claim(taskId, ['ready'], 'finish');
     // PRs the previous attempt of this Finish made or linked; a retry keeps those instead of looking again.
@@ -1636,10 +2234,15 @@ export function createHandlers(s: Services): Handlers {
         repoName: string;
         repoPath: string;
         summary: TaskSummary | null;
+        /** The developer confirmed pushing this workspace although its branch holds (or may hold) a secret. */
+        confirmLeak: boolean;
       };
       const rows: Row[] = [];
       try {
         const actionOf = new Map(wanted.map((r) => [r.workspaceId, r.action]));
+        const confirmed = new Set(
+          wanted.filter((r) => r.confirmLeak).map((r) => r.workspaceId),
+        );
         for (const w of activeWorkspaces(task)) {
           const action = actionOf.get(w.id);
           if (!action || !(await pathExists(w.worktreePath))) continue;
@@ -1651,6 +2254,7 @@ export function createHandlers(s: Services): Handlers {
             repoName: repo.name,
             repoPath: repo.path,
             summary,
+            confirmLeak: confirmed.has(w.id),
           });
         }
         const withChanges = rows.filter(
@@ -1692,11 +2296,17 @@ export function createHandlers(s: Services): Handlers {
             }
           } else if (r.action === 'push') {
             try {
-              r.summary = await pushIfNeeded(r.w, r.summary);
+              r.summary = await pushIfNeeded(
+                task,
+                r.w,
+                r.summary,
+                r.confirmLeak,
+              );
               result.pushed = true;
             } catch (e) {
               const message = errorMessage(e);
-              tel.event('pr.failed', { kind: 'git' });
+              if (e instanceof LeakError) result.leak = e.kind;
+              else tel.event('pr.failed', { kind: 'git' });
               if (e instanceof GitAuthError) result.auth = e.hint;
               fail(message, `Branch not pushed for ${r.repoName}: ${message}`);
             }
@@ -1705,7 +2315,12 @@ export function createHandlers(s: Services): Handlers {
               const stored = r.w.pullRequest;
               if (stored && madeBefore.get(r.w.id) === stored.id) {
                 // The attempt just before this retry made or linked it: keep it, even if completed or abandoned since.
-                r.summary = await pushIfNeeded(r.w, r.summary);
+                r.summary = await pushIfNeeded(
+                  task,
+                  r.w,
+                  r.summary,
+                  r.confirmLeak,
+                );
                 result.pullRequest = {
                   id: stored.id,
                   url: stored.url,
@@ -1718,6 +2333,7 @@ export function createHandlers(s: Services): Handlers {
                   r.summary,
                   costScope,
                   options.prSummaries?.[r.w.id],
+                  r.confirmLeak,
                 );
                 r.summary = pr.summary;
                 await patchWorkspace(taskId, r.w.id, { pullRequest: pr.ref });
@@ -1731,9 +2347,11 @@ export function createHandlers(s: Services): Handlers {
               result.pushed = true;
             } catch (e) {
               const message = errorMessage(e);
-              tel.event('pr.failed', {
-                kind: e instanceof AdoError ? e.kind : 'git',
-              });
+              if (e instanceof LeakError) result.leak = e.kind;
+              else
+                tel.event('pr.failed', {
+                  kind: e instanceof AdoError ? e.kind : 'git',
+                });
               if (e instanceof GitAuthError) result.auth = e.hint;
               fail(
                 message,
@@ -1758,6 +2376,8 @@ export function createHandlers(s: Services): Handlers {
         // As for a single repo: removing a worktree closes the terminals, which would block it on Windows.
         const killTerminals =
           options.closeTerminals || options.removeWorktree || dropping;
+        if (isGuarded(task.environment) && !killTerminals)
+          await stopSecretTabs(taskById(taskId));
         if (killTerminals) await closeTaskTerminals(taskId);
         const pendingCleanup: PendingCleanup[] = [];
         for (const r of rows) {
@@ -1783,8 +2403,11 @@ export function createHandlers(s: Services): Handlers {
           status: 'done',
           finishedAt,
           openPeriods: withPeriodClosed(taskById(taskId), finishedAt),
+          ...endEnvironment(task),
           pendingCleanup,
         });
+        s.stopRuns?.(taskId, 'The task was finished in Shellie');
+        leakWatch.dropTask(taskId);
         reportFinished(task, options, {
           workspaces: rows.length,
           prs: rows.filter((r) => r.action === 'pr').length,
@@ -1802,6 +2425,14 @@ export function createHandlers(s: Services): Handlers {
       release(taskId);
     }
   };
+
+  if (s.expiryTimers)
+    scheduleExpiry(
+      () => s.store.state.tasks,
+      now,
+      expireEnvironment,
+      s.expiryTimers,
+    );
 
   return {
     ...createDocsHandlers({
@@ -1846,6 +2477,17 @@ export function createHandlers(s: Services): Handlers {
         git: s.git,
         connections: s.connections.list(),
       });
+      // One discovery: the count only (names and values stay here); a failure just shows nothing.
+      const secretsFound = await discoverSecrets(folder, {
+        git: s.git,
+        userSecretsDir: (id) => s.platform.userSecretsDir(id),
+      })
+        .then(
+          (d) =>
+            new Set(d.found.filter((f) => f.secretLike).map((f) => f.name))
+              .size,
+        )
+        .catch(() => 0);
       tel.event('repo.inspected', {
         remote: r.remote?.provider ?? 'none',
         linked: r.remote?.connectionId != null,
@@ -1854,8 +2496,9 @@ export function createHandlers(s: Services): Handlers {
         devScript: r.facts.devScript !== null,
         apm: r.facts.apm,
         existingConfig: r.facts.existing !== null,
+        secrets: secretsFound > 0,
       });
-      return r;
+      return { ...r, secretsFound };
     },
     'repos:add': async (folder, options) => {
       const linked = options?.connectionId
@@ -1911,6 +2554,20 @@ export function createHandlers(s: Services): Handlers {
     'tasks:list': listTasks,
     'tasks:create': async (input) => {
       const repo = s.repos.get(input.repoId);
+      if (
+        input.environment !== undefined &&
+        !EnvironmentSchema.safeParse(input.environment).success
+      )
+        throw new Error(`Unknown environment "${String(input.environment)}"`);
+      if (
+        input.environment &&
+        isGuarded(input.environment) &&
+        input.environmentConfirmed !== true
+      )
+        throw new Error(
+          `Starting a task on ${ENVIRONMENT_LABEL[input.environment]} needs your confirm`,
+        );
+      const environment = input.environment ?? repoDefaultOf(repo.id);
       const branch = input.branch.trim();
       if (!(await s.git.validBranchName(repo.path, branch)))
         throw new Error(`"${branch}" is not a valid branch name`);
@@ -1971,6 +2628,9 @@ export function createHandlers(s: Services): Handlers {
         homeDropped: false,
         connectionId: repo.connectionId,
         mainCheckoutEdits: [],
+        environment,
+        environmentUntil:
+          environment === 'production' ? productionUntil() : null,
         pendingCleanup: [],
         openPeriods: [{ start: createdAt, end: null }],
         time: null,
@@ -2120,16 +2780,32 @@ export function createHandlers(s: Services): Handlers {
         style = await fs
           .readFile(path.join(w.worktreePath, PR_STYLE_FILE), 'utf8')
           .catch(() => null);
-        const prompt = prSummaryPrompt({
-          heading: task.workItem
-            ? `${task.workItem.type} ${task.workItem.id}: ${task.workItem.title}`
-            : task.name,
-          ...changes,
-          requests: await taskRequests(task),
-          style,
-        });
+        // Secrets: a stored value in the diff or the requests is sent as [NAME], and Claude's Read is denied the
+        // worktree's secret files, as in its tabs.
+        const matcher = diffMatcher(task);
+        const masked = (t: string) => matcher.mask(t, '', true).text;
+        const prompt = masked(
+          prSummaryPrompt({
+            heading: task.workItem
+              ? `${task.workItem.type} ${task.workItem.id}: ${task.workItem.title}`
+              : task.name,
+            ...changes,
+            requests: await taskRequests(task),
+            style,
+          }),
+        );
+        const deny = existsSync(w.worktreePath)
+          ? await worktreeDenyTargets(w.worktreePath)
+          : [];
+        const settings =
+          deny.length > 0
+            ? (s.claudeThemeSettings?.(denyRulesFor(deny)) ?? null)
+            : null;
         const out = await (s.runAgent ?? runWithInput)(
-          s.platform.claudeCommand(null, prSummaryFlags()),
+          s.platform.claudeCommand(null, [
+            ...prSummaryFlags(),
+            ...(settings ? ['--settings', settings] : []),
+          ]),
           {
             cwd: w.worktreePath,
             input: prompt,
@@ -2145,7 +2821,8 @@ export function createHandlers(s: Services): Handlers {
             },
           },
         );
-        const text = tidySummary(claudeResult(out));
+        const tidied = tidySummary(claudeResult(out));
+        const text = tidied ? masked(tidied) : tidied;
         if (!text) return failed('Claude Code wrote nothing', 'empty');
         tel.event(
           'pr.summary',
@@ -2225,7 +2902,7 @@ export function createHandlers(s: Services): Handlers {
             closedTerminals: [],
             openPeriods: withOpenPeriod(task),
           });
-          startRestored(taskById(taskId), defs);
+          await startRestored(taskById(taskId), defs);
           tel.event('task.reopened', { from: 'folder' });
           return { setup: false };
         }
@@ -2273,6 +2950,7 @@ export function createHandlers(s: Services): Handlers {
               );
             const connection = c.connection;
             const { project, repo: repoName } = c.availability.target;
+            await assertNoLeak(task, task, options.confirmLeak);
             await s.git.push(task.worktreePath, 'origin', task.branch);
             // The summary was taken before this push; the Done page would otherwise say "local only".
             if (summary)
@@ -2302,6 +2980,7 @@ export function createHandlers(s: Services): Handlers {
                   commitCount: summary?.commitCount ?? 0,
                   costLine: costLineFor(taskId),
                   summary: options.prSummaries?.[HOME_ID],
+                  environment: task.environment,
                 }),
                 workItemId: task.workItem ? Number(task.workItem.id) : null,
               }));
@@ -2324,9 +3003,10 @@ export function createHandlers(s: Services): Handlers {
           } catch (e) {
             await patchTask(taskId, { status: 'ready' });
             const message = errorMessage(e);
-            tel.event('pr.failed', {
-              kind: e instanceof AdoError ? e.kind : 'git',
-            });
+            if (!(e instanceof LeakError))
+              tel.event('pr.failed', {
+                kind: e instanceof AdoError ? e.kind : 'git',
+              });
             throw new Error(`Pull request not created: ${message}`);
           }
           void s.openExternal(pullRequest.url).catch(() => undefined);
@@ -2336,6 +3016,9 @@ export function createHandlers(s: Services): Handlers {
         const killTerminals = options.closeTerminals || options.removeWorktree;
         const pendingCleanup: PendingCleanup[] = [];
         try {
+          // UAT and Production end at Finish: tabs holding those values stop even when terminals are kept.
+          if (isGuarded(task.environment) && !killTerminals)
+            await stopSecretTabs(taskById(taskId));
           if (killTerminals) await closeTaskTerminals(taskId);
           if (options.removeWorktree) {
             // A folder a process still holds is retried in the background; the task is done anyway (#115).
@@ -2365,14 +3048,47 @@ export function createHandlers(s: Services): Handlers {
           finishedAt,
           summary,
           openPeriods: withPeriodClosed(taskById(taskId), finishedAt),
+          ...endEnvironment(task),
           pendingCleanup,
         });
+        s.stopRuns?.(taskId, 'The task was finished in Shellie');
+        leakWatch.dropTask(taskId);
         reportFinished(task, options, {
           workspaces: 1,
           prs: options.createPullRequest ? 1 : 0,
           dropped: 0,
         });
         await afterFinish(taskId, options, killTerminals);
+      } finally {
+        release(taskId);
+      }
+    },
+    'tasks:setEnvironment': async (taskId, env, confirmed) => {
+      if (!EnvironmentSchema.safeParse(env).success)
+        throw new Error(`Unknown environment "${String(env)}"`);
+      if (isGuarded(env) && confirmed !== true)
+        throw new Error(
+          `Switching to ${ENVIRONMENT_LABEL[env]} needs your confirm`,
+        );
+      claim(taskId, ['ready'], 'switch the environment of');
+      try {
+        const left = taskById(taskId).environment;
+        await patchTask(taskId, {
+          environment: env,
+          environmentUntil: env === 'production' ? productionUntil() : null,
+        });
+        if (left !== env) {
+          tel.event('secrets.environmentSwitched', {
+            from: left,
+            to: env,
+            confirmed: confirmed === true,
+          });
+          await respawnSecretTabs(taskById(taskId), left);
+          // `shellie run` processes hold the values they started with.
+          if (isGuarded(left))
+            s.stopRuns?.(taskId, `${ENVIRONMENT_LABEL[left]} ended`);
+        }
+        return taskById(taskId);
       } finally {
         release(taskId);
       }
@@ -2388,6 +3104,14 @@ export function createHandlers(s: Services): Handlers {
         docsWatcher.stopTask(taskId);
         gitDirWatcher.stopTask(taskId);
         await s.terminals.killAllForTask(taskId);
+        // Secrets: `shellie run` processes end, and nothing about the task's tabs (or its plaintext matcher) is kept.
+        s.stopRuns?.(taskId, 'The task was discarded');
+        for (const d of task.terminals) {
+          forgetSpawn(d.id);
+          runArgs.delete(d.id);
+          leakWatch.forget(d.id);
+        }
+        leakWatch.dropTask(taskId);
         // Every workspace on the task's branch goes, folder and branch, as at Finish; a held folder is
         // retried in the background (#115). One on another branch was joined by hand and stays.
         const left: DiscardedCleanup[] = [];
@@ -2421,31 +3145,129 @@ export function createHandlers(s: Services): Handlers {
         release(taskId);
       }
     },
+    'tasks:environmentInfo': async (taskId) => {
+      const task = taskById(taskId);
+      const repoIds = [...new Set(activeWorkspaces(task).map((w) => w.repoId))];
+      // A repo's own secret wins over an All repositories one of the same name.
+      const byName = new Map<string, SecretView>();
+      for (const repoId of repoIds)
+        for (const v of s.secrets.list({ repoId }))
+          if (!byName.has(v.name) || v.scope !== 'all') byName.set(v.name, v);
+      const secrets = [...byName.values()].sort((a, b) =>
+        a.name.localeCompare(b.name),
+      );
+      const tabs = task.terminals.filter(
+        (d) =>
+          holdsSecrets(task, d) &&
+          !d.setupCommands &&
+          s.terminals.isRunning(d.id),
+      );
+      const given = new Set(
+        tabs.map((d) => givenToFor(d, null)).filter((g) => g !== null),
+      );
+      // Tests tabs are run tabs here; a secret given to Tests goes into a run tab of the test command.
+      if (given.has('run')) given.add('tests');
+      const per = <T>(f: (env: Environment) => T) =>
+        Object.fromEntries(ENVIRONMENTS.map((e) => [e, f(e)])) as Record<
+          Environment,
+          T
+        >;
+      const keys = per((env) =>
+        secrets
+          .filter((v) => v.values[env] && v.givenTo.some((g) => given.has(g)))
+          .map((v) => v.name),
+      );
+      return {
+        values: per((env) => ({
+          have: secrets.filter((v) => v.values[env]).length,
+          of: secrets.length,
+        })),
+        tabs: tabs.map((d) => ({
+          id: d.id,
+          label: d.label,
+          kind: d.kind === 'shell' ? ('shell' as const) : ('run' as const),
+        })),
+        keys,
+        overrides: per((env) =>
+          tabs.flatMap((d) => {
+            if (d.kind !== 'run' || !d.command) return [];
+            const profile = launchProfileFor(
+              d.command,
+              terminalWorkspace(task, d).worktreePath,
+              env,
+            );
+            const names = profile
+              ? keys[env].filter((n) => n in profile.vars)
+              : [];
+            return profile && names.length > 0
+              ? [{ profile: profile.name, names }]
+              : [];
+          }),
+        ),
+        productionMinutes: s.settings.get().secrets.productionMinutes,
+      } satisfies EnvironmentInfo;
+    },
     'tasks:openInEditor': async (taskId, workspaceId) => {
       const ws = workspaceById(taskById(taskId), workspaceId);
       await editors.openFolder(ws.repoId, ws.worktreePath);
     },
 
     'terminals:open': async (taskId, def) => {
+      // Claimed first, as before secrets: a task that is not ready (finishing, discarded) refuses at once.
       claim(taskId, ['ready'], 'open a terminal in');
-      let full: TerminalDef;
-      try {
-        full = {
-          id: randomUUID(),
-          ...def,
-          // A shell tab is named after the platform's shell (PowerShell, zsh), like the one setup opens.
-          ...(def.kind === 'shell' ? { label: s.platform.shellLabel } : {}),
-          ...(def.kind === 'claude' ? { sessionId: randomUUID() } : {}),
-        };
-        spawnTerminal(taskById(taskId), full);
-      } finally {
-        release(taskId);
+      release(taskId);
+      const full: TerminalDef = {
+        id: randomUUID(),
+        ...def,
+        // A shell tab is named after the platform's shell (PowerShell, zsh), like the one setup opens.
+        ...(def.kind === 'shell' ? { label: s.platform.shellLabel } : {}),
+        ...(def.kind === 'claude' ? { sessionId: randomUUID() } : {}),
+      };
+      // The secrets env is prepared outside the claim (two opens at once both go through); it is spawned under a
+      // second claim, and prepared again when the environment changed meanwhile (a switch, an expiry).
+      for (let attempt = 0; ; attempt++) {
+        const env = taskById(taskId).environment;
+        const secrets = await prepareTab(taskById(taskId), full);
+        claim(taskId, ['ready'], 'open a terminal in');
+        try {
+          if (taskById(taskId).environment === env) {
+            startTerminal(taskById(taskId), full, secrets);
+            break;
+          }
+          if (attempt >= 2) throw new Error('Task is busy');
+        } finally {
+          release(taskId);
+        }
       }
       await updateTerminals(taskId, (list) => [...list, full]);
+      // A switch, an expiry or Finish in the gap before the tab was listed missed it: it still holds the old
+      // environment's values, so it starts again with the current ones (or stops when the task is no longer ready).
+      if (
+        spawnedWithSecrets.has(full.id) &&
+        spawnedEnv.get(full.id) !== taskById(taskId).environment
+      ) {
+        let claimed = false;
+        try {
+          claim(taskId, ['ready'], 'open a terminal in');
+          claimed = true;
+        } catch {
+          // Busy or no longer ready: the tab must not keep the old values.
+        }
+        try {
+          if (claimed) {
+            await s.terminals.kill(full.id);
+            await spawnTerminal(taskById(taskId), full);
+          } else await stopTab(full.id);
+        } finally {
+          if (claimed) release(taskId);
+        }
+      }
       tel.event('terminal.opened', { kind: full.kind, initial: false });
       return full;
     },
     'terminals:write': async (id, data) => {
+      // Paused after a Production value showed up: nothing reaches the agent until Resume.
+      if (leakWatch.isPaused(id)) return;
       s.terminals.write(id, data);
       s.onTerminalInput?.(id, data);
     },
@@ -2453,6 +3275,10 @@ export function createHandlers(s: Services): Handlers {
       s.terminals.resize(id, cols, rows),
     'terminals:kill': async (id) => {
       s.terminals.kill(id);
+      s.runs?.tabGone(id);
+      runArgs.delete(id);
+      forgetSpawn(id);
+      leakWatch.forget(id);
       const owner = s.store.state.tasks.find((t) =>
         t.terminals.some((x) => x.id === id),
       );
@@ -2464,6 +3290,10 @@ export function createHandlers(s: Services): Handlers {
       if (def) tel.event('terminal.closed', { kind: def.kind });
     },
     'terminals:restart': async (id, options = {}) => {
+      // A new process: what showed up in the old one, and its pause, go.
+      leakWatch.forget(id);
+      // A `shellie run` it served ends: the agent is not told about a process it did not start.
+      s.runs?.tabGone(id);
       const owner = s.store.state.tasks.find((t) =>
         t.terminals.some((x) => x.id === id),
       );
@@ -2471,7 +3301,16 @@ export function createHandlers(s: Services): Handlers {
       const known = s.terminals.has(id);
       // Claude Code resumes its conversation instead of starting a new one. OpenCode gets its env built again, so
       // a start without the project config (#109) lasts until the next Restart only.
-      if (known && def?.kind !== 'claude' && def?.kind !== 'opencode') {
+      // A tab that holds secrets always starts with a fresh env (an edited value, another environment), never the
+      // old spawn options.
+      const stale =
+        def !== undefined && owner !== undefined && holdsSecrets(owner, def);
+      if (
+        known &&
+        !stale &&
+        def?.kind !== 'claude' &&
+        def?.kind !== 'opencode'
+      ) {
         s.terminalFailures?.clear(id);
         s.terminals.restart(id);
         return;
@@ -2485,7 +3324,7 @@ export function createHandlers(s: Services): Handlers {
       await s.terminals.kill(id);
       const skipConfig =
         def.kind === 'opencode' && options.withoutProjectConfig === true;
-      spawnTerminal(
+      await spawnTerminal(
         owner,
         def,
         def.kind === 'claude',
@@ -2497,11 +3336,165 @@ export function createHandlers(s: Services): Handlers {
         ...(skipConfig ? { withoutProjectConfig: true } : {}),
       });
     },
+    'terminals:stop': async (id) => {
+      s.runs?.tabGone(id);
+      await stopTab(id);
+    },
+    'runs:pending': async () => s.runs?.pendingRuns() ?? [],
+    'runs:approve': async (id, ok) => s.runs?.approve(id, ok === true),
+    'terminals:leak': async (id) => leakWatch.state(id),
+    'terminals:resume': async (id) => leakWatch.resume(id),
     'terminals:failure': async (id) => s.terminalFailures?.get(id) ?? null,
     'terminals:buffer': async (id) => s.terminals.buffer(id),
     'terminals:isRunning': async (id) => s.terminals.isRunning(id),
     'terminals:reportScheme': async (id, scheme) =>
       s.terminals.reportScheme(id, scheme === 'dark' ? 'dark' : 'light'),
+    'secrets:list': async (scope) =>
+      s.secrets.list(
+        scope === 'all' ? 'all' : ({ repoId: scope } as SecretScope),
+      ),
+    'secrets:save': async (input) => {
+      const saved = await s.secrets.save(input);
+      secretsChanged();
+      return saved;
+    },
+    'secrets:delete': async (id) => {
+      await s.secrets.delete(id);
+      secretsChanged();
+    },
+    'secrets:reveal': async (id, env) => s.secrets.reveal(id, env),
+    'secrets:discover': async (repoId) => {
+      const r = await discoverSecrets(s.repos.get(repoId).path, {
+        git: s.git,
+        userSecretsDir: (id) => s.platform.userSecretsDir(id),
+      });
+      tel.event(
+        'secrets.discovered',
+        undefined,
+        discoveredMeasurements(r.found, r.skipped),
+      );
+      return discovery.hold(repoId, r.found, r.skipped);
+    },
+    'secrets:importPlan': async (repoId) => {
+      const r = await discoverSecrets(s.repos.get(repoId).path, {
+        git: s.git,
+        userSecretsDir: (id) => s.platform.userSecretsDir(id),
+      });
+      tel.event(
+        'secrets.discovered',
+        undefined,
+        discoveredMeasurements(r.found, r.skipped),
+      );
+      discovery.hold(repoId, r.found, r.skipped);
+      const held = discovery.entries(repoId);
+      return {
+        rows: buildImportPlan(held, s.secrets.plainValues(repoId)),
+        sources: importSources(held),
+        skipped: r.skipped,
+      };
+    },
+    'secrets:forget': async (repoId) => discovery.drop(repoId),
+    'secrets:import': async (request) => {
+      const repo = s.repos.get(request.repoId);
+      // Broadcast even after a failure part-way: some secrets may have been saved.
+      try {
+        const result = await importSecrets(request, {
+          hold: discovery,
+          store: s.secrets,
+          git: s.git,
+          repoPath: repo.path,
+          worktrees: async () => {
+            const copy = await s
+              .loadConfig(repo.path)
+              .then((c) => c.copy)
+              .catch(() => [] as string[]);
+            return s.store.state.tasks
+              .filter((t) => t.status !== 'done')
+              .flatMap((t) => activeWorkspaces(t))
+              .filter((w) => w.repoId === repo.id && existsSync(w.worktreePath))
+              .map((w) => ({ worktreePath: w.worktreePath, copy }));
+          },
+        });
+        tel.event(
+          'secrets.imported',
+          {
+            environments: ENVIRONMENTS.filter((e) =>
+              request.picks.some((p) => p.env === e),
+            ).join(','),
+            rewriteWorktreeCopies: request.rewriteWorktreeCopies === true,
+          },
+          {
+            values: result.values,
+            worktreesRewritten: result.worktreesRewritten,
+            filesChanged: result.filesChanged.length,
+          },
+        );
+        return result;
+      } finally {
+        secretsChanged();
+      }
+    },
+    'secrets:status': (repoId) => {
+      // Several screens ask at once (the manager, a task bar per task): one computation answers them all.
+      const running = statusRuns.get(repoId);
+      if (running) return running;
+      const run = (async () => {
+        const repo = s.repos.get(repoId);
+        return computeStatus({
+          repoId,
+          repoPath: repo.path,
+          copy: await copyOf(repo.path),
+          store: s.secrets,
+          git: s.git,
+          userSecretsDir: (id) => s.platform.userSecretsDir(id),
+          worktrees: openWorktrees(repoId),
+        });
+      })().finally(() => {
+        if (statusRuns.get(repoId) === run) statusRuns.delete(repoId);
+      });
+      statusRuns.set(repoId, run);
+      return run;
+    },
+    'secrets:cleanWorktrees': async (repoId, taskId) => {
+      const repo = s.repos.get(repoId);
+      const copy = await copyOf(repo.path);
+      const names = storedNames(s.secrets, repoId);
+      const cleaned = await cleanAll(
+        openWorktrees(repoId).filter(
+          (w) => taskId === undefined || w.taskId === taskId,
+        ),
+        (p) => cleanWorktree(p, copy, names, s.git),
+      );
+      try {
+        // Only the cleaned tasks' secret tabs start again, now without the old file next to them.
+        for (const id of cleaned) {
+          const task = s.store.state.tasks.find((t) => t.id === id);
+          if (!task) continue;
+          try {
+            await respawnSecretTabs(
+              task,
+              'development',
+              'The worktree was cleaned',
+            );
+          } catch (e) {
+            console.error('[secrets] could not restart a cleaned task', e);
+          }
+        }
+      } finally {
+        tel.event(
+          'secrets.worktreesCleaned',
+          { from: taskId === undefined ? 'secrets' : 'task' },
+          { count: cleaned.length },
+        );
+        secretsChanged();
+      }
+      return cleaned;
+    },
+    'secrets:repoDefault': async (repoId) => repoDefaultOf(repoId),
+    'secrets:setRepoDefault': async (repoId, env) => {
+      await s.secrets.setRepoDefault(repoId, env);
+      secretsChanged();
+    },
     'connections:list': async () => s.connections.list(),
     'connections:save': saveConnection,
     'connections:probe': async (input) => {

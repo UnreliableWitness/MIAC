@@ -1,9 +1,18 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   claudeThemeFor,
+  claudeSettingsFile,
   claudeThemeSettingsFile,
   colorFgBg,
   fixedScheme,
@@ -79,6 +88,75 @@ describe('claudeThemeSettingsFile', () => {
     writeFileSync(p, '{}');
     claudeThemeSettingsFile(d, 'auto');
     expect(JSON.parse(readFileSync(p, 'utf8'))).toEqual({ theme: 'auto' });
+  });
+});
+
+describe('claudeSettingsFile', () => {
+  const dir = () => mkdtempSync(path.join(os.tmpdir(), 'shellie-csf-'));
+
+  it('is the theme file itself when nothing is denied', () => {
+    const d = dir();
+    expect(claudeSettingsFile(d, { theme: 'auto', deny: [] })).toBe(
+      claudeThemeSettingsFile(d, 'auto'),
+    );
+    expect(
+      readFileSync(claudeSettingsFile(d, { theme: 'auto' })!, 'utf8'),
+    ).toBe('{"theme":"auto"}\n');
+  });
+
+  it('adds permissions.deny next to the theme, in a file of its own', () => {
+    const d = dir();
+    const p = claudeSettingsFile(d, { theme: 'auto', deny: ['Read(./.env)'] })!;
+    expect(p).not.toBe(claudeThemeSettingsFile(d, 'auto'));
+    expect(JSON.parse(readFileSync(p, 'utf8'))).toEqual({
+      theme: 'auto',
+      permissions: { deny: ['Read(./.env)'] },
+    });
+    // Same rules, same file; other rules, another file.
+    expect(
+      claudeSettingsFile(d, { theme: 'auto', deny: ['Read(./.env)'] }),
+    ).toBe(p);
+    expect(
+      claudeSettingsFile(d, { theme: 'auto', deny: ['Read(./x)'] }),
+    ).not.toBe(p);
+  });
+
+  it('removes deny files older than a week when it writes a new one, and only those', () => {
+    const d = dir();
+    const old = path.join(d, 'claude-settings-auto-aaaaaaaaaa.json');
+    const fresh = path.join(d, 'claude-settings-auto-bbbbbbbbbb.json');
+    const themeFile = claudeThemeSettingsFile(d, 'auto');
+    writeFileSync(old, '{}');
+    writeFileSync(fresh, '{}');
+    const eightDays = new Date(Date.now() - 8 * 24 * 3600 * 1000);
+    utimesSync(old, eightDays, eightDays);
+    utimesSync(themeFile, eightDays, eightDays);
+    claudeSettingsFile(d, { theme: 'auto', deny: ['Read(./.env)'] });
+    expect(existsSync(old)).toBe(false);
+    expect(existsSync(fresh)).toBe(true);
+    expect(existsSync(themeFile)).toBe(true);
+  });
+
+  it('touches a deny file each time it is used, so a long task never looks stale', () => {
+    const d = dir();
+    const deny = ['Read(./.env)'];
+    const p = claudeSettingsFile(d, { theme: 'auto', deny })!;
+    const old = new Date(Date.now() - 8 * 24 * 3600 * 1000);
+    utimesSync(p, old, old);
+    claudeSettingsFile(d, { theme: 'auto', deny });
+    expect(Date.now() - statSync(p).mtimeMs).toBeLessThan(60_000);
+    // So a write of another task's file leaves it alone.
+    claudeSettingsFile(d, { theme: 'auto', deny: ['Read(./x)'] });
+    expect(existsSync(p)).toBe(true);
+  });
+
+  it('writes only the deny rules for a custom theme, and nothing when both are absent', () => {
+    const d = dir();
+    const p = claudeSettingsFile(d, { theme: null, deny: ['Read(./.env)'] })!;
+    expect(JSON.parse(readFileSync(p, 'utf8'))).toEqual({
+      permissions: { deny: ['Read(./.env)'] },
+    });
+    expect(claudeSettingsFile(d, { theme: null, deny: [] })).toBeNull();
   });
 });
 

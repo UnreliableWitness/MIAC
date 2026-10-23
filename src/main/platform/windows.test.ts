@@ -21,6 +21,20 @@ const make = (found: Record<string, string>) =>
   windowsPlatform({}, { which: (n) => found[n] ?? null });
 
 describe('windowsPlatform', () => {
+  it('has no user secrets folder without APPDATA or USERPROFILE', () => {
+    expect(
+      windowsPlatform({}, { which: () => null }).userSecretsDir('abc'),
+    ).toBeNull();
+  });
+  it('keeps .NET user secrets under %APPDATA%\\Microsoft\\UserSecrets', () => {
+    const p = windowsPlatform(
+      { APPDATA: 'C:\\Users\\me\\AppData\\Roaming' },
+      { which: () => null },
+    );
+    expect(p.userSecretsDir('abc')).toBe(
+      'C:\\Users\\me\\AppData\\Roaming\\Microsoft\\UserSecrets\\abc',
+    );
+  });
   it('probes an agent CLI with Get-Command', () => {
     expect(make({ pwsh: 'C:\\pwsh\\pwsh.exe' }).probeCommand('claude')).toEqual(
       {
@@ -87,6 +101,27 @@ describe('windowsPlatform', () => {
     expect(text).toContain('npm run dev # dev\n}');
     expect(text).not.toContain('2>&1');
     expect(text).not.toContain('ForEach-Object');
+  });
+
+  it('passes a run command its extra arguments through an env var as data, never in the command text', () => {
+    const cmd = make({}).runCommand('npm run dev', ["it's", '$(x); y']);
+    const text = cmd.args.at(-1)!;
+    expect(text).toBe(
+      [
+        '$shellieArgs = [string[]](ConvertFrom-Json $env:SHELLIE_RUN_ARGS)',
+        '& {',
+        'npm run dev @shellieArgs',
+        '}',
+        'if ($LASTEXITCODE) { exit $LASTEXITCODE }',
+      ].join('\n'),
+    );
+    expect(text).not.toContain('$(x)');
+    expect(cmd.env).toEqual({
+      SHELLIE_RUN_ARGS: JSON.stringify(["it's", '$(x); y']),
+    });
+    expect(make({}).runCommand('npm run dev', [])).toEqual(
+      make({}).runCommand('npm run dev'),
+    );
   });
 
   it('runs setup commands in order in a console, stopping at the first failing exit code', () => {

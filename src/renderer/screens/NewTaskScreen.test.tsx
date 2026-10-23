@@ -131,7 +131,137 @@ describe('NewTaskScreen', () => {
       openShell: false,
       openCopilot: false,
       openOpencode: false,
+      environment: 'development',
     });
+  });
+
+  it('lists in the confirm only the names that reach a tab setup opens', async () => {
+    const value = { mask: '••••', source: null, changedAt: 'x' };
+    installFakeApi({
+      'repos:config': () => config,
+      'secrets:list': () => [
+        {
+          id: '1',
+          scope: { repoId: 'r1' },
+          name: 'SHELL_KEY',
+          givenTo: ['shell'],
+          values: { uat: value },
+        },
+        {
+          id: '2',
+          scope: { repoId: 'r1' },
+          name: 'RUN_ONLY',
+          givenTo: ['run'],
+          values: { uat: value },
+        },
+        {
+          id: '3',
+          scope: 'all',
+          name: 'DEV_ONLY',
+          givenTo: ['shell'],
+          values: { development: value },
+        },
+      ],
+    });
+    render(<NewTaskScreen />);
+    await userEvent.type(screen.getByLabelText('Work item id'), '48231');
+    await userEvent.type(screen.getByLabelText('Title'), 'Delivery date');
+    await waitFor(() => expect(screen.getByLabelText('npm ci')).toBeChecked());
+    await userEvent.selectOptions(screen.getByLabelText('Environment'), 'uat');
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    const confirm = screen.getByRole('alertdialog', {
+      name: 'Start 48231 on UAT?',
+    });
+    await waitFor(() => expect(confirm).toHaveTextContent('SHELL_KEY'));
+    expect(confirm).not.toHaveTextContent('RUN_ONLY');
+    expect(confirm).not.toHaveTextContent('DEV_ONLY');
+    expect(screen.getByRole('button', { name: 'Use UAT' })).toBeEnabled();
+  });
+
+  it('names in the confirm only the tabs a stored value goes into', async () => {
+    const value = { mask: '••••', source: null, changedAt: 'x' };
+    installFakeApi({
+      'repos:config': () => config,
+      'secrets:list': () => [
+        {
+          id: '2',
+          scope: { repoId: 'r1' },
+          name: 'RUN_ONLY',
+          givenTo: ['run'],
+          values: { uat: value },
+        },
+        {
+          id: '3',
+          scope: { repoId: 'r1' },
+          name: 'SETUP_KEY',
+          givenTo: ['setup'],
+          values: { uat: value },
+        },
+      ],
+    });
+    render(<NewTaskScreen />);
+    await userEvent.type(screen.getByLabelText('Work item id'), '48231');
+    await userEvent.type(screen.getByLabelText('Title'), 'Delivery date');
+    await waitFor(() => expect(screen.getByLabelText('npm ci')).toBeChecked());
+    await userEvent.selectOptions(screen.getByLabelText('Environment'), 'uat');
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    const confirm = screen.getByRole('alertdialog', {
+      name: 'Start 48231 on UAT?',
+    });
+    await waitFor(() => expect(confirm).toHaveTextContent('SETUP_KEY'));
+    expect(confirm).toHaveTextContent('These go into Setup until');
+    expect(confirm).not.toHaveTextContent('your shell');
+  });
+
+  it('offers the four environments with the repo default selected', async () => {
+    const { calls } = installFakeApi({
+      'repos:config': () => config,
+      'secrets:repoDefault': () => 'test',
+    });
+    render(<NewTaskScreen />);
+    const select = screen.getByLabelText('Environment');
+    await waitFor(() => expect(select).toHaveValue('test'));
+    expect(
+      [...(select as HTMLSelectElement).options].map((o) => o.textContent),
+    ).toEqual(['Development', 'Test', 'UAT', 'Production']);
+    expect(calls).toContainEqual({
+      channel: 'secrets:repoDefault',
+      args: ['r1'],
+    });
+  });
+
+  it('asks before creating a task on Production, and sends the confirm', async () => {
+    const { calls } = installFakeApi({
+      'repos:config': () => config,
+      'tasks:create': () => ({ id: 't1' }) as never,
+    });
+    render(<NewTaskScreen />);
+    await userEvent.type(screen.getByLabelText('Work item id'), '48231');
+    await userEvent.type(screen.getByLabelText('Title'), 'Delivery date');
+    await waitFor(() =>
+      expect(screen.getByLabelText('Environment')).toHaveValue('development'),
+    );
+    await userEvent.selectOptions(
+      screen.getByLabelText('Environment'),
+      'production',
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    const confirm = screen.getByRole('alertdialog', {
+      name: 'Start 48231 on Production?',
+    });
+    expect(confirm).toHaveTextContent('60 minutes');
+    expect(calls.some((c) => c.channel === 'tasks:create')).toBe(false);
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Use Production for 60 min' }),
+    );
+    await waitFor(() =>
+      expect(calls.find((c) => c.channel === 'tasks:create')?.args[0]).toEqual(
+        expect.objectContaining({
+          environment: 'production',
+          environmentConfirmed: true,
+        }),
+      ),
+    );
   });
 
   it('starts Copilot CLI with the task when ticked', async () => {

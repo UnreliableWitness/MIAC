@@ -56,7 +56,7 @@ const BASE_ARGS = ['-NoLogo', '-ExecutionPolicy', 'Bypass'];
 
 /** Windows: PowerShell 7 if installed, else Windows PowerShell 5.1. */
 export function windowsPlatform(
-  _env: NodeJS.ProcessEnv,
+  env: NodeJS.ProcessEnv,
   deps: {
     which: (name: string) => string | null;
     exists?: (p: string) => boolean;
@@ -122,7 +122,19 @@ export function windowsPlatform(
       args: [...BASE_ARGS],
     }),
     shellCommand: (cmd) => nonInteractive(psSetupWrapper(cmd)),
-    runCommand: (cmd) => nonInteractive(psRunWrapper(cmd)),
+    // The arguments travel as JSON in an env var, read as data and splatted: never part of the command text.
+    runCommand: (cmd, args = []) =>
+      args.length === 0
+        ? nonInteractive(psRunWrapper(cmd))
+        : {
+            ...nonInteractive(
+              [
+                '$shellieArgs = [string[]](ConvertFrom-Json $env:SHELLIE_RUN_ARGS)',
+                psRunWrapper(`${cmd} @shellieArgs`),
+              ].join('\n'),
+            ),
+            env: { SHELLIE_RUN_ARGS: JSON.stringify(args) },
+          },
     setupCommands: (cmds) =>
       nonInteractive(
         cmds
@@ -142,6 +154,16 @@ export function windowsPlatform(
       ps(`(Get-Command ${name} -ErrorAction Stop).Source; & ${name} --version`),
     copilotCommand: () => tool('copilot', []),
     opencodeCommand: () => tool('opencode', []),
+    userSecretsDir: (id) => {
+      const appData =
+        env.APPDATA ??
+        (env.USERPROFILE
+          ? path.win32.join(env.USERPROFILE, 'AppData', 'Roaming')
+          : null);
+      return appData === null
+        ? null
+        : path.win32.join(appData, 'Microsoft', 'UserSecrets', id);
+    },
     editorCommand: (p) => vscode([p]),
     editorGotoCommand: (wt, f, line, col) =>
       vscode([wt, '-g', `${f}:${line ?? 1}:${col ?? 1}`]),

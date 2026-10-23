@@ -7,6 +7,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
+import { promises as fsp } from 'node:fs';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import type { SetupEvent } from '../../shared/types';
 import {
@@ -369,6 +370,83 @@ describe('SetupRunner', () => {
       existsSync(path.join(path.dirname(p.worktreePath), 'outside.txt')),
     ).toBe(false);
     expect(existsSync(path.join(p.worktreePath, 'hosts'))).toBe(false);
+  });
+});
+
+describe('SetupRunner: copied env files without stored secrets', () => {
+  const run = async (names: string[], files: Record<string, string>) => {
+    const repo = makeRepo();
+    for (const [f, text] of Object.entries(files)) {
+      mkdirSync(path.dirname(path.join(repo, f)), { recursive: true });
+      writeFileSync(path.join(repo, f), text);
+    }
+    const asked: string[] = [];
+    const r = new SetupRunner(git, testPlatform(), (repoId) => {
+      asked.push(repoId);
+      return names;
+    });
+    const p = plan(repo, { repoId: 'repo-1', copy: Object.keys(files) });
+    await r.run(p, { ...collect(), startTerminals: async () => {} });
+    return { p, asked };
+  };
+  const read = (p: SetupPlan, f: string) =>
+    readFileSync(path.join(p.worktreePath, f), 'utf8');
+
+  it('drops stored keys from a copied .env and keeps PORT and comments', async () => {
+    const { p, asked } = await run(['API_KEY'], {
+      '.env': '# local\nPORT=5000\nAPI_KEY=sk_live_abc\n',
+    });
+    expect(asked).toContain('repo-1');
+    expect(read(p, '.env')).toBe('# local\nPORT=5000\n');
+  });
+
+  it('drops stored keys from copied JSON, also inside a copied folder', async () => {
+    const { p } = await run(['ConnectionStrings__Db', 'TOKEN'], {
+      'appsettings.Development.json':
+        '{"ConnectionStrings":{"Db":"x"},"Port":1}',
+      'secrets/.env.local': 'TOKEN=t\nKEEP=k\n',
+    });
+    expect(JSON.parse(read(p, 'appsettings.Development.json'))).toEqual({
+      ConnectionStrings: {},
+      Port: 1,
+    });
+    expect(read(p, 'secrets/.env.local')).toBe('KEEP=k\n');
+  });
+
+  it('rewrites a copied file through a temp file next to it', async () => {
+    const spy = vi.spyOn(fsp, 'rename');
+    const { p } = await run(['API_KEY'], {
+      '.env': 'PORT=5000\nAPI_KEY=sk_live_abc\n',
+    });
+    const target = path.join(p.worktreePath, '.env');
+    expect(
+      spy.mock.calls.some(
+        ([from, to]) =>
+          String(to) === target &&
+          path.basename(String(from)) === `.shellie-tmp-${process.pid}-.env`,
+      ),
+    ).toBe(true);
+    spy.mockRestore();
+  });
+
+  it('leaves other copied JSON alone', async () => {
+    const text = '{"TOKEN":"t","name":"x"}';
+    const { p } = await run(['TOKEN', 'name'], {
+      'config.json': text,
+      'secrets/stripe.json': text,
+    });
+    expect(read(p, 'config.json')).toBe(text);
+    expect(JSON.parse(read(p, 'secrets/stripe.json'))).toEqual({});
+  });
+
+  it('copies every file byte for byte with an empty store', async () => {
+    const files = {
+      '.env': '\uFEFFAPI_KEY=1\r\n# c\r\n',
+      'appsettings.json': '{ "ConnectionStrings": { "Db": "x" } }',
+    };
+    const { p } = await run([], files);
+    for (const [f, text] of Object.entries(files))
+      expect(read(p, f)).toBe(text);
   });
 });
 
