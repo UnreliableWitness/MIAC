@@ -59,6 +59,37 @@ describe('AddRepoScreen', () => {
     expect(screen.queryByText('Get started')).toBeNull();
   });
 
+  it('says how many secrets it found and adds, then opens the Import page', async () => {
+    const { calls } = installFakeApi({
+      'repos:inspect': () => ({ ...inspection, secretsFound: 3 }),
+      'repos:add': () => ({ id: 'r9' }) as never,
+    });
+    render(<AddRepoScreen folder="/src/webshop" />);
+    expect(await screen.findByText('3 secrets found')).toBeTruthy();
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Add and import them' }),
+    );
+    await waitFor(() => expect(addCall(calls)).toBeTruthy());
+    await waitFor(() =>
+      expect(useStore.getState().screen).toEqual({
+        kind: 'secrets-import',
+        repoId: 'r9',
+      }),
+    );
+  });
+
+  it('shows no secrets line when none were found', async () => {
+    installFakeApi({
+      'repos:inspect': () => ({ ...inspection, secretsFound: 0 }),
+    });
+    render(<AddRepoScreen folder="/src/webshop" />);
+    await screen.findByText('Linked to project Shellie');
+    expect(screen.queryByText(/secrets? found/)).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'Add and import them' }),
+    ).toBeNull();
+  });
+
   it('writes the edited proposal and the base branch by default', async () => {
     const { calls } = installFakeApi({
       'repos:inspect': () => inspection,

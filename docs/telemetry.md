@@ -93,7 +93,7 @@ This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 
 | `secrets.worktreesCleaned` | Clean worktrees ran; `from` (`secrets`: the Secrets page, `task`: the task bar); measurement `count` (tasks cleaned) |
 | `repo.added`, `repo.removed`, `repo.connectionLinked`, `connection.saved`, `connection.removed` | counts or linked/unlinked only; `repo.added` also has `wroteConfig` (true when Shellie wrote `.shellie.yml`) |
 | `connection.probeFailed` | the Connect page's Test failed: `status`, the HTTP status Azure DevOps answered with (0 when it could not be reached); never the URL, organization or token |
-| `repo.inspected` | a folder was inspected for adding: `remote` (`azure-devops`, `github`, `other` or `none`), `lockfile` (`npm`, `pnpm`, `yarn` or `none`), and `linked`, `dotnet`, `devScript`, `apm`, `existingConfig` (booleans); never paths, URLs or names |
+| `repo.inspected` | a folder was inspected for adding: `remote` (`azure-devops`, `github`, `other` or `none`), `lockfile` (`npm`, `pnpm`, `yarn` or `none`), and `linked`, `dotnet`, `devScript`, `apm`, `existingConfig`, `secrets` (whether discovery found a secret-like value) (booleans); never paths, URLs, names or values |
 
 ## Errors
 

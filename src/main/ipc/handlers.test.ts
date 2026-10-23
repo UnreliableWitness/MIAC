@@ -373,8 +373,10 @@ describe('handlers: repos:add / repos:inspect telemetry', () => {
         devScript: false,
         apm: false,
         existingConfig: false,
+        secrets: false,
       },
     ]);
+    expect(inspected.secretsFound).toBe(0);
     const added = await h['repos:add'](repo, {
       writeConfig: inspected.proposal ?? undefined,
     });
@@ -389,6 +391,28 @@ describe('handlers: repos:add / repos:inspect telemetry', () => {
       'repo.added',
       { repos: 3, wroteConfig: false },
     ]);
+  });
+});
+
+describe('handlers: repos:inspect secrets', () => {
+  it('counts the secrets one discovery finds, never their names or values in telemetry', async () => {
+    const events: [string, unknown][] = [];
+    const { h } = await harness(fakeCrypto(), {
+      telemetry: {
+        ...NoopTelemetry,
+        event: (name, props) => events.push([name, props]),
+      },
+    });
+    const repo = makeRepo('with-secrets');
+    writeFileSync(
+      path.join(repo, '.env'),
+      'PORT=5000\nSTRIPE_SECRET_KEY=sk_live_abcdefghijkl0b3d\nDB_PASSWORD=hunter2hunter2\n',
+    );
+    const inspected = await h['repos:inspect'](repo);
+    expect(inspected.secretsFound).toBe(2);
+    const event = events.find(([n]) => n === 'repo.inspected');
+    expect(event?.[1]).toMatchObject({ secrets: true });
+    expect(JSON.stringify(events)).not.toMatch(/STRIPE|DB_PASSWORD|sk_live/);
   });
 });
 

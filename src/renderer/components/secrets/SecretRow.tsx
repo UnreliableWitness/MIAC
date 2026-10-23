@@ -1,5 +1,5 @@
 import { Eye16Regular, MoreHorizontal16Regular } from '@fluentui/react-icons';
-import { useRef, useState } from 'react';
+import { Fragment, useRef, useState } from 'react';
 import {
   ENVIRONMENTS,
   type Environment,
@@ -19,6 +19,11 @@ export const GIVEN_LABEL: Record<GivenTo, string> = {
   shell: 'Your shell',
 };
 export const GIVEN_ORDER: GivenTo[] = ['setup', 'run', 'tests', 'shell'];
+
+/** A name cut after each run of underscores, where a narrow column may break it (`ConnectionStrings__` `Db`). */
+export function nameParts(name: string): string[] {
+  return name.match(/[^_]*_+|[^_]+$/g) ?? [name];
+}
 
 /** "3 days ago" within a week, else "12 Oct". */
 export function changedLabel(iso: string, now = Date.now()): string {
@@ -82,7 +87,14 @@ export function SecretRow({
   return (
     <tr>
       <td className="secret-name">
-        <code>{secret.name}</code>
+        <code>
+          {nameParts(secret.name).map((part, i) => (
+            <Fragment key={i}>
+              {i > 0 && <wbr />}
+              {part}
+            </Fragment>
+          ))}
+        </code>
         {allRepos && <span className="secret-tag">all repos</span>}
       </td>
       {ENVIRONMENTS.map((env) => {
@@ -104,7 +116,11 @@ export function SecretRow({
         return (
           <td key={env} className={unreadable ? 'secret-bad' : undefined}>
             <div className="secret-value">
-              <code>{shown?.env === env ? shown.value : v.mask}</code>
+              {shown?.env === env ? (
+                <code>{shown.value}</code>
+              ) : (
+                <code className="secret-mask">{v.mask}</code>
+              )}
               {!unreadable && (
                 <button
                   type="button"

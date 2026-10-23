@@ -84,3 +84,10 @@ If a setup command or a shim fails with "running scripts is disabled on this sys
     - Ask Claude to run `shellie run <name> -- --flag value`: the agent tab gets the output and the exit code.
     - Ask for `shellie run <name> -- "a&b"` and `-- %DB%`: both are refused with "On Windows an argument for shellie run cannot hold …", exit 2, and nothing runs (no `agent · <name>` tab output).
     - `shellie run test -- --watch=false` in an npm repo passes `--watch=false` to the test script (npm gets `-- --watch=false`).
+
+19. **`shellie` shim arguments (`shellie.cmd` → `powershell.exe -File shellie.ps1 %*`).** In an agent tab of a task with a stored secret and a `run:` entry `list: Write-Output` (prints each argument on its own line):
+    - `shellie run list -- --flag -x value`: prints `--flag`, `-x`, `value` in that order. PowerShell must neither eat the `--` (the shim drops only the first one) nor bind `-x` as a parameter of `shellie.ps1`.
+    - `shellie run list -x`: `-x` reaches the command (no `--` needed).
+    - `shellie run list -- --` : the second `--` reaches the command.
+    - From a `cmd.exe` prompt with the tab's `SHELLIE_RUN_*` variables set, `shellie run list -- "a b" c`: `%*` keeps the quoting, so `a b` and `c` arrive as two arguments.
+    - `shellie` alone prints the usage and exits 2; `shellie run` with no name lists the commands.

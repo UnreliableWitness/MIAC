@@ -158,7 +158,8 @@ export function AddRepoScreen({ folder: initial }: { folder?: string }) {
     leave();
   };
 
-  const add = async () => {
+  /** Adds the repo; then, with `importSecrets`, opens the Import page for the secrets Shellie found. */
+  const add = async (importSecrets = false) => {
     if (!found) return;
     setBusy(true);
     const added = await tryInvoke(
@@ -176,8 +177,10 @@ export function AddRepoScreen({ folder: initial }: { folder?: string }) {
       .invoke('repos:list')
       .then((r) => useStore.getState().setRepos(r))
       .catch(() => undefined);
-    if (onboarding) {
+    if (onboarding)
       track('onboarding.step', { step: 'repository', outcome: 'continued' });
+    if (importSecrets) go({ kind: 'secrets-import', repoId: added.id });
+    else if (onboarding) {
       go(
         nextStep(
           stepsFrom({ ...useStore.getState(), repos: [added] }),
@@ -231,6 +234,24 @@ export function AddRepoScreen({ folder: initial }: { folder?: string }) {
               </p>
             )}
             {found && <Facts found={found} />}
+            {found && (found.secretsFound ?? 0) > 0 && (
+              <div className="repo-fact add-repo-secrets">
+                <span className="muted">Secrets</span>
+                <span className="repo-fact-value">
+                  {found.secretsFound === 1
+                    ? '1 secret found'
+                    : `${found.secretsFound} secrets found`}
+                </span>
+                <button
+                  type="button"
+                  className="link"
+                  disabled={!canAdd}
+                  onClick={() => void add(true)}
+                >
+                  Add and import them
+                </button>
+              </div>
+            )}
           </div>
           {found && (
             <div className="add-repo-right">
@@ -334,7 +355,7 @@ export function AddRepoScreen({ folder: initial }: { folder?: string }) {
             type="button"
             className="btn btn-primary"
             disabled={!canAdd}
-            onClick={add}
+            onClick={() => void add()}
           >
             Add repository
           </button>

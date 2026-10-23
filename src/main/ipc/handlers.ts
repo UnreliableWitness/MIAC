@@ -2459,6 +2459,17 @@ export function createHandlers(s: Services): Handlers {
         git: s.git,
         connections: s.connections.list(),
       });
+      // One discovery: the count only (names and values stay here); a failure just shows nothing.
+      const secretsFound = await discoverSecrets(folder, {
+        git: s.git,
+        userSecretsDir: (id) => s.platform.userSecretsDir(id),
+      })
+        .then(
+          (d) =>
+            new Set(d.found.filter((f) => f.secretLike).map((f) => f.name))
+              .size,
+        )
+        .catch(() => 0);
       tel.event('repo.inspected', {
         remote: r.remote?.provider ?? 'none',
         linked: r.remote?.connectionId != null,
@@ -2467,8 +2478,9 @@ export function createHandlers(s: Services): Handlers {
         devScript: r.facts.devScript !== null,
         apm: r.facts.apm,
         existingConfig: r.facts.existing !== null,
+        secrets: secretsFound > 0,
       });
-      return r;
+      return { ...r, secretsFound };
     },
     'repos:add': async (folder, options) => {
       const linked = options?.connectionId
