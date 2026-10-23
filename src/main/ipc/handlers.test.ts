@@ -350,6 +350,33 @@ describe('handlers: cost server', () => {
     });
   });
 
+  it('connect with an empty key reuses the saved key for the same server', async () => {
+    const cs = await costServer(async () => ({ email: conn.email, budgets }));
+    expect(
+      (await cs.hx.h['costServer:connect']({ ...conn, key: '' })).error,
+    ).toBe('Enter the company key.');
+    await cs.hx.h['costServer:connect'](conn);
+    const st = await cs.hx.h['costServer:connect']({
+      ...conn,
+      email: 'other@example.com',
+      key: '',
+    });
+    expect(st.error).toBeNull();
+    expect(cs.hello).toHaveBeenLastCalledWith({
+      ...conn,
+      email: 'other@example.com',
+    });
+    expect(cs.store.get()).toEqual({ ...conn, email: 'other@example.com' });
+    // The saved key never goes to another address.
+    const moved = await cs.hx.h['costServer:connect']({
+      ...conn,
+      url: 'https://elsewhere.example',
+      key: '',
+    });
+    expect(moved.error).toBe('Enter the company key.');
+    expect(cs.hello).toHaveBeenCalledTimes(2);
+  });
+
   it('connect refuses plain http to a remote host', async () => {
     const cs = await costServer(async () => ({ email: conn.email, budgets }));
     const st = await cs.hx.h['costServer:connect']({

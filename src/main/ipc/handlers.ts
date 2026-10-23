@@ -3719,6 +3719,9 @@ export function createHandlers(s: Services): Handlers {
         email: c.email.trim(),
         key: c.key.trim(),
       };
+      // An empty key keeps the saved one (it never goes to the renderer), but only for the same server.
+      const saved = conn.key ? null : cs.store.get();
+      if (saved && saved.url === conn.url) conn.key = saved.key;
       const failed = (error: string): CostServerStatus => ({
         ...cs.sender.status(),
         error,
