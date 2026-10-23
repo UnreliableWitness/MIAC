@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { DiscoveredFile } from './discover';
 
 /**
@@ -34,7 +35,21 @@ const gitignoreEscape = (p: string) =>
 /** The commands an agent prints a file with. */
 const PRINTERS = ['cat', 'type', 'Get-Content'] as const;
 
-const GLOB = /\/\*\*$/;
+const GLOB = /[\\/]\*\*$/;
+
+/**
+ * A deny target as an agent tab of another worktree sees it: absolute. A folder glob stays on forward slashes (a
+ * Windows `C:\\w\\secrets\\**` would be a literal name to Claude and a backslash key to OpenCode).
+ */
+export function inWorktree(
+  worktreePath: string,
+  target: string,
+  pathModule: Pick<typeof path, 'isAbsolute' | 'join'> = path,
+): string {
+  if (pathModule.isAbsolute(target)) return target;
+  const joined = pathModule.join(worktreePath, target);
+  return GLOB.test(target) ? joined.replace(/\\/g, '/') : joined;
+}
 
 /**
  * Claude Code `permissions.deny` rules for secret files: `Read` plus the three print commands as prefix rules
@@ -45,7 +60,7 @@ export function denyRulesFor(paths: string[]): string[] {
   return paths.flatMap((p) => {
     const abs = isAbsolute(p);
     const shown = abs ? posix(p) : p;
-    const glob = GLOB.test(p);
+    const glob = GLOB.test(shown);
     const body = gitignoreEscape(glob ? shown.replace(GLOB, '') : shown);
     const read = `${abs ? '/' : './'}${body}${glob ? '/**' : ''}`;
     return [

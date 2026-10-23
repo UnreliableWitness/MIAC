@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { denyRulesFor, denyTargets, opencodePermission } from './deny';
+import path from 'node:path';
+import {
+  denyRulesFor,
+  denyTargets,
+  inWorktree,
+  opencodePermission,
+} from './deny';
 
 describe('denyTargets', () => {
   it('lists untracked files once, each secrets folder as a glob, and skips tracked files', () => {
@@ -84,5 +90,33 @@ describe('opencodePermission', () => {
       read: { 'secrets/**': 'deny' },
       bash: {},
     });
+  });
+});
+
+describe('inWorktree', () => {
+  it('joins a relative target onto the worktree and leaves an absolute one alone', () => {
+    expect(inWorktree('/w/x', '.env', path.posix)).toBe('/w/x/.env');
+    expect(inWorktree('/w/x', '/u/secrets.json', path.posix)).toBe(
+      '/u/secrets.json',
+    );
+  });
+
+  it('keeps a Windows folder glob on forward slashes, so Claude and OpenCode see a glob', () => {
+    const g = inWorktree('C:\\w\\extra', 'secrets/**', path.win32);
+    expect(g).toBe('C:/w/extra/secrets/**');
+    expect(denyRulesFor([g])).toEqual(['Read(//c/w/extra/secrets/**)']);
+    expect(opencodePermission([g])).toEqual({
+      read: { 'C:/w/extra/secrets/**': 'deny' },
+      bash: {},
+    });
+    expect(inWorktree('C:\\w\\extra', '.env', path.win32)).toBe(
+      'C:\\w\\extra\\.env',
+    );
+  });
+
+  it('reads a backslash glob too', () => {
+    expect(denyRulesFor(['C:\\w\\secrets\\**'])).toEqual([
+      'Read(//c/w/secrets/**)',
+    ]);
   });
 });

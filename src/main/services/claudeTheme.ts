@@ -5,6 +5,7 @@ import {
   readFileSync,
   statSync,
   unlinkSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import os from 'node:os';
@@ -89,6 +90,14 @@ function writeSettings(file: string, settings: object, dir: string): string {
     mkdirSync(dir, { recursive: true });
     writeFileSync(file, content);
     pruneDenyFiles(dir, file);
+  } else {
+    // Prune goes by mtime, so every use counts: a task running for weeks keeps its file.
+    try {
+      const t = new Date();
+      utimesSync(file, t, t);
+    } catch {
+      /* best effort */
+    }
   }
   return file;
 }

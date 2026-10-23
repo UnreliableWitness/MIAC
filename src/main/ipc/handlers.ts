@@ -19,7 +19,7 @@ import type { RunHub, RunSpec } from '../secrets/RunHub';
 import { branchLeaks } from '../secrets/leakScan';
 import { type ExpiryTimers, scheduleExpiry } from '../secrets/expiry';
 import { DiscoveryHold, discoverSecrets } from '../secrets/discover';
-import { denyRulesFor, denyTargets } from '../secrets/deny';
+import { denyRulesFor, denyTargets, inWorktree } from '../secrets/deny';
 import {
   buildImportPlan,
   importSecrets,
@@ -914,8 +914,12 @@ export function createHandlers(s: Services): Handlers {
           (t) => t.endsWith('/**') || existsSync(path.resolve(worktreePath, t)),
         ),
       )
-      // No rules rather than a failed tab; nothing about what was found is logged.
-      .catch(() => [] as string[]);
+      // No rules rather than a failed tab, and not remembered: the next tab tries again. Nothing found is logged.
+      .catch(() => {
+        denyCache.delete(worktreePath);
+        console.warn('[secrets] could not look for secret files to deny');
+        return [] as string[];
+      });
     denyCache.set(worktreePath, { at: now(), targets });
     return targets;
   };
@@ -935,9 +939,7 @@ export function createHandlers(s: Services): Handlers {
         const targets = await worktreeDenyTargets(w.worktreePath);
         return w.id === own.id
           ? targets
-          : targets.map((t) =>
-              path.isAbsolute(t) ? t : path.join(w.worktreePath, t),
-            );
+          : targets.map((t) => inWorktree(w.worktreePath, t));
       }),
     );
     return [...new Set(lists.flat())];

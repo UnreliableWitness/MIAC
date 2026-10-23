@@ -1541,6 +1541,16 @@ describe('handlers: reopen a finished task', () => {
       },
     );
     const extra = await withExtra(hx);
+    const us = mkdtempSync(path.join(os.tmpdir(), 'shellie-us-'));
+    mkdirSync(path.join(us, 'abc'));
+    writeFileSync(path.join(us, 'abc', 'secrets.json'), '{"K":"v1"}');
+    (
+      hx.services.platform as { userSecretsDir: (id: string) => string | null }
+    ).userSecretsDir = (id) => path.join(us, id);
+    writeFileSync(
+      path.join(extra, 'Api.csproj'),
+      '<Project><PropertyGroup><UserSecretsId>abc</UserSecretsId></PropertyGroup></Project>',
+    );
     writeFileSync(path.join(extra, '.env'), 'A=1\n');
     mkdirSync(path.join(extra, 'secrets'));
     writeFileSync(path.join(extra, 'secrets', 'k.json'), '{"x":"1"}');
@@ -1554,7 +1564,9 @@ describe('handlers: reopen a finished task', () => {
     const abs = (f: string) => path.join(extra, f).split(path.sep).join('/');
     expect(rules).toContain(`Read(/${abs('.env')})`);
     expect(rules).toContain(`Read(/${abs('secrets')}/**)`);
-    expect(rules).toContain('Read(./.env)');
+    expect(rules).toContain(
+      `Read(/${path.join(us, 'abc', 'secrets.json').split(path.sep).join('/')})`,
+    );
     await hx.terminals.killAllForTask(hx.t.id);
   });
 
@@ -1590,6 +1602,59 @@ describe('handlers: reopen a finished task', () => {
     await hx.h['terminals:restart'](claude.id);
     expect(denies.at(-1)).toEqual([]);
     expect(rec.calls.length).toBeGreaterThan(1);
+    await hx.terminals.killAllForTask(t.id);
+  });
+
+  it("reuses a worktree's discovery for 30 s, then reads it again, and never keeps a failure", async () => {
+    let clock = Date.now();
+    let fail = true;
+    let asked = 0;
+    const denies: string[][] = [];
+    const rec = recording();
+    const hx = await harness(fakeCrypto(), {
+      now: () => clock,
+      platform: {
+        ...rec.platform,
+        userSecretsDir: () => {
+          asked++;
+          if (fail) throw new Error('boom');
+          return '/nonexistent/none';
+        },
+      },
+      claudeThemeSettings: (deny) => {
+        denies.push(deny ?? []);
+        return null;
+      },
+    });
+    writeFileSync(
+      path.join(hx.repo, 'Api.csproj'),
+      '<Project><PropertyGroup><UserSecretsId>abc</UserSecretsId></PropertyGroup></Project>',
+    );
+    writeFileSync(
+      path.join(hx.repo, '.shellie.yml'),
+      'copy: [.env, Api.csproj]\n',
+    );
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](hx.input({ startClaude: true }));
+    await done;
+    const claude = hx.store.state.tasks[0].terminals.find(
+      (x) => x.kind === 'claude',
+    )!;
+    const restart = async () => {
+      const before = asked;
+      await hx.h['terminals:restart'](claude.id);
+      return asked - before;
+    };
+    // The failure from the start is not kept: the next tab reads again, and finds the file.
+    expect(await restart()).toBe(1);
+    expect(denies.at(-1)).toEqual([]);
+    fail = false;
+    expect(await restart()).toBe(1);
+    expect(denies.at(-1)).toContain('Read(./.env)');
+    clock += 29_000;
+    expect(await restart()).toBe(0);
+    clock += 2_000;
+    expect(await restart()).toBe(1);
     await hx.terminals.killAllForTask(t.id);
   });
 

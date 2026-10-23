@@ -3,6 +3,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  statSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs';
@@ -134,6 +135,19 @@ describe('claudeSettingsFile', () => {
     expect(existsSync(old)).toBe(false);
     expect(existsSync(fresh)).toBe(true);
     expect(existsSync(themeFile)).toBe(true);
+  });
+
+  it('touches a deny file each time it is used, so a long task never looks stale', () => {
+    const d = dir();
+    const deny = ['Read(./.env)'];
+    const p = claudeSettingsFile(d, { theme: 'auto', deny })!;
+    const old = new Date(Date.now() - 8 * 24 * 3600 * 1000);
+    utimesSync(p, old, old);
+    claudeSettingsFile(d, { theme: 'auto', deny });
+    expect(Date.now() - statSync(p).mtimeMs).toBeLessThan(60_000);
+    // So a write of another task's file leaves it alone.
+    claudeSettingsFile(d, { theme: 'auto', deny: ['Read(./x)'] });
+    expect(existsSync(p)).toBe(true);
   });
 
   it('writes only the deny rules for a custom theme, and nothing when both are absent', () => {
