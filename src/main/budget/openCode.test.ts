@@ -116,6 +116,31 @@ describe('OpenCodeReader', () => {
     close();
   });
 
+  it('reads a page at a time, after the last row of the previous page', () => {
+    const { file, put, close } = makeDb();
+    // Five rows, three in the same millisecond: paging must not stall or skip.
+    put('a', 100, msg());
+    put('b', 200, msg());
+    put('c', 200, msg());
+    put('d', 200, msg());
+    put('e', 300, msg());
+    const reader = new OpenCodeReader(file);
+    const seen: string[] = [];
+    let after: { t: number; id: string } | undefined;
+    let cursor = 0;
+    for (let i = 0; i < 10; i++) {
+      const p = reader.read(0, { limit: 2, after });
+      expect(p.records.length).toBeLessThanOrEqual(2);
+      seen.push(...p.records.map((r) => r.id));
+      cursor = Math.max(cursor, p.cursor);
+      if (!p.more) break;
+      after = p.last;
+    }
+    expect(seen).toEqual(['oc:a', 'oc:b', 'oc:c', 'oc:d', 'oc:e']);
+    expect(cursor).toBe(300);
+    close();
+  });
+
   it('starts a first read (cursor 0) at `since`', () => {
     const { file, put, close } = makeDb();
     put('old', 100, msg());

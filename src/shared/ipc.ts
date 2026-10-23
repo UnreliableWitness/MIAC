@@ -45,14 +45,7 @@ import type {
   WorkItemTypeMeta,
   Workspace,
 } from './types';
-import type {
-  AppSettings,
-  FieldsStatus,
-  Rate,
-  ReceiverStatus,
-  SyncResult,
-  TaskUsage,
-} from './usage';
+import type { AppSettings, Rate, ReceiverStatus, TaskUsage } from './usage';
 import type { AgentsDetected } from './agents';
 import type { RepoInspection } from './repoInspection';
 import type { EditorChoice, EditorId, EditorOptions } from './editors';
@@ -60,7 +53,9 @@ import type { RendererTelemetry } from './telemetry';
 import type { TitleBarKind } from './titleBar';
 import type { LocalItemTime, TaskTime } from './time';
 import type { AttentionSnapshot, AttentionView } from './attention';
+import type { Vendor } from './budget';
 import type { BudgetView } from './budgetView';
+import type { CostServerStatus } from './costServer';
 import type { HomePeriod, HomeSnapshot, HomeStats } from './home';
 import type {
   FileContent,
@@ -431,16 +426,26 @@ export type Channels = {
   'home:refresh': { args: []; result: HomeSnapshot };
   /** The developer's own totals for this week or month, from local data. */
   'home:stats': { args: [period: HomePeriod]; result: HomeStats };
-  /** The Claude budget for a month: 0 is this one, -1 the one before. */
-  'budget:get': { args: [monthOffset: number]; result: BudgetView };
+  /** A budget (Claude or Copilot) for a month: 0 is this one, -1 the one before. */
+  'budget:get': {
+    args: [vendor: Vendor, monthOffset: number];
+    result: BudgetView;
+  };
+  /** The cost server connection, what was last sent and what waits. Never carries the key. */
+  'costServer:status': { args: []; result: CostServerStatus };
+  /** Checks the server with `hello` and saves the connection only when it answers; `error` says what went wrong. */
+  'costServer:connect': {
+    args: [c: { url: string; email: string; key: string }];
+    result: CostServerStatus;
+  };
+  /** Forgets the server and its key and stops sending; the ledger stays. */
+  'costServer:disconnect': { args: []; result: CostServerStatus };
   'usage:task': { args: [taskId: string]; result: TaskUsage };
   'usage:setBillable': {
     args: [taskId: string, sessionId: string, billable: boolean];
     result: TaskUsage;
   };
-  'usage:sync': { args: [taskId: string]; result: SyncResult };
   'usage:exportCsv': { args: [taskId: string]; result: string };
-  'usage:fieldsStatus': { args: [connectionId: string]; result: FieldsStatus };
   'usage:receiverStatus': { args: []; result: ReceiverStatus };
   'rates:list': { args: []; result: { rates: Rate[]; officialAsOf: string } };
   /** A downloaded update waiting for a restart; null when there is none (always in dev and on macOS). */
@@ -505,8 +510,10 @@ export type Events = {
   'update:ready': PendingUpdate;
   /** A Home rebuild finished. */
   'home:updated': HomeSnapshot;
-  /** The Claude budget numbers changed. */
+  /** The budget numbers changed (Claude or Copilot). */
   'budget:changed': Record<string, never>;
+  /** The cost server connection or its sending status changed. */
+  'costServer:changed': CostServerStatus;
   /** A budget notification was clicked; the renderer opens the budget view. */
   'budget:open': Record<string, never>;
   /** The main window entered or left full screen (also sent on every load). */

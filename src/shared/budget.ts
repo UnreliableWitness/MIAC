@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const BudgetSettingsSchema = z.object({
-  /** The company's monthly Claude budget in EUR; null means no budget (spend shown, no alerts). */
+  /** The monthly budget in EUR (Claude or Copilot); null means no budget (spend shown, no alerts). */
   monthlyEur: z.number().positive().nullable(),
   /** Day of the month the budget resets on (1-28). */
   monthStartDay: z.number().int().min(1).max(28),
@@ -18,7 +18,23 @@ export const defaultBudgetSettings = (): BudgetSettings => ({
   alerts: { at80: true, forecastOver: true, at100: true },
 });
 
-export type BudgetTool = 'claude-code' | 'opencode';
+export type BudgetTool = 'claude-code' | 'opencode' | 'copilot-cli';
+
+/** Which budget a request counts against. */
+export type Vendor = 'claude' | 'copilot';
+export const VENDORS: readonly Vendor[] = ['claude', 'copilot'];
+
+/** Claude: Claude Code, or OpenCode through Anthropic. Copilot: Copilot CLI, or OpenCode through GitHub Copilot. Anything else is in no budget. */
+export function vendorOf(r: {
+  tool: BudgetTool;
+  provider: string;
+}): Vendor | null {
+  if (r.tool === 'claude-code') return 'claude';
+  if (r.tool === 'copilot-cli') return 'copilot';
+  if (r.provider === 'anthropic') return 'claude';
+  if (r.provider === 'github-copilot') return 'copilot';
+  return null;
+}
 
 export type BudgetTokens = {
   inputTokens: number;
@@ -38,14 +54,17 @@ export type BudgetRecord = BudgetTokens & {
   at: string;
   cwd: string | null;
   fast: boolean;
+  /** The Shellie task the request belongs to, when known (Copilot CLI, PR summaries). */
+  taskId?: string;
 };
 
-/** One rollup row: a day x tool x model x provider x counted x inShellie. */
+/** One rollup row: a day x tool x model x provider x vendor x inShellie x fast. */
 export type BudgetRow = BudgetTokens & {
   tool: BudgetTool;
   model: string;
   provider: string;
-  counted: boolean;
+  /** The budget the row counts against; null is in no budget. */
+  vendor: Vendor | null;
   inShellie: boolean;
   requests: number;
   fast: boolean;

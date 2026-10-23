@@ -95,6 +95,13 @@ import {
 import { pathExists } from '../fsRetry';
 import { worktreeRoot } from '../paths';
 import type { BudgetService } from '../budget/BudgetService';
+import {
+  CostServerError,
+  hello as costServerHello,
+} from '../costServer/client';
+import type { CostSender } from '../costServer/CostSender';
+import type { CostServerStore } from '../costServer/CostServerStore';
+import { type CostServerStatus, validServerUrl } from '../../shared/costServer';
 import { HomeService } from '../home/HomeService';
 import { homeStats } from '../home/homeStats';
 import { DocsWatcher } from '../docs/DocsWatcher';
@@ -169,8 +176,6 @@ import {
 } from '../services/prSummary';
 import type { UsageReceiver } from '../usage/UsageReceiver';
 import type { UsageStore } from '../usage/UsageStore';
-import { UsageSync } from '../usage/UsageSync';
-import { renderCostLine } from '../../shared/workItemUsage';
 import type { ColorScheme, ThemeChoice } from '../../shared/theme';
 import { colorFgBg } from '../services/claudeTheme';
 import type { TerminalFailures } from '../services/TerminalFailures';
@@ -257,8 +262,15 @@ export type Services = {
   /** Home's snapshot builder; handlers build one in usageDir when absent (tests). */
   home?: HomeService;
   budget?: BudgetService;
-  /** Registers a function to run every hour (main uses setInterval; tests capture it). */
-  onHourly: (fn: () => void) => void;
+  /** Settings › Cost server: the saved connection and the background sender; absent in tests that don't care. */
+  costServer?: {
+    store: Pick<CostServerStore, 'get' | 'set' | 'clear' | 'setBudgets'>;
+    sender: Pick<CostSender, 'onConnected' | 'onDisconnected' | 'status'>;
+    /** Defaults to the real client's `hello`. */
+    hello?: typeof costServerHello;
+    /** A fresh ledger pass, so stored records carry the saved email before the sender starts over. */
+    ledgerPass?: () => Promise<void>;
+  };
   /**
    * Registers the retry of finished tasks' leftover worktree folders (#115): main runs it shortly after launch and
    * every few minutes; tests capture it.
@@ -357,6 +369,14 @@ const taskRepoIds = (t: Task): string[] => [
 
 /** Keys (repo:branch, repo:worktree) of tasks being created right now, across handler bundles. */
 const creating = new Set<string>();
+
+/** What Settings › Cost server says when `hello` fails. */
+const COST_SERVER_ERRORS: Record<CostServerError['kind'], string> = {
+  network: "Can't reach the server.",
+  auth: 'The server refused the key.',
+  rejected: "That address isn't a Shellie cost server.",
+  server: 'The server had a problem. Try again later.',
+};
 
 /** Clears connection links that point at connections which no longer exist. Returns how many were cleared. */
 export async function pruneDanglingConnectionLinks(
@@ -759,11 +779,6 @@ export function createHandlers(s: Services): Handlers {
     };
   };
 
-  /** Cost goes to Azure DevOps (work items, PR descriptions) only when the user turned it on. */
-  const writeCost = () => s.settings.get().writeCostToAdo;
-  const costLineFor = (taskId: string) =>
-    writeCost() ? renderCostLine(s.usage.summarize(taskId)) : null;
-
   /** The connection and project of the task's work item (its own, else its home repo's), null when there is none. */
   const adoTarget = (
     task: Task,
@@ -780,16 +795,24 @@ export function createHandlers(s: Services): Handlers {
     }
   };
 
-  const usageSync = new UsageSync({
-    task: taskById,
-    tasks: () => s.store.state.tasks,
-    target: adoTarget,
-    client: (connectionId) => s.trackers.client(connectionId),
-    run: withConnection,
-    usage: (taskId) => s.usage.summarize(taskId),
-    changedSince: (iso) => s.usage.changedSince(iso),
-    patchTask,
-  });
+  /** The fields of each work item type per connection, loaded on first use (reloaded with `refresh`). Call inside `withConnection`. */
+  const typeFieldsCache = new Map<
+    string,
+    Awaited<ReturnType<AdoClient['workItemTypeFields']>>
+  >();
+  const typeFields = async (
+    connectionId: string,
+    project: string,
+    refresh = false,
+  ) => {
+    const hit = typeFieldsCache.get(connectionId);
+    if (hit && !refresh) return hit;
+    const types = await s.trackers
+      .client(connectionId)
+      .workItemTypeFields(project);
+    typeFieldsCache.set(connectionId, types);
+    return types;
+  };
   /** Booked time goes to Azure DevOps (Completed and Remaining Work) only when the user turned it on. */
   const writeTime = () => s.settings.get().writeTimeToAdo;
   const timeWrites = new Map<string, Promise<unknown>>();
@@ -817,11 +840,7 @@ export function createHandlers(s: Services): Handlers {
           const type = (current.type || workItem.type).toLowerCase();
           const fieldsOf = async (refresh: boolean) =>
             (
-              await usageSync.typeFields(
-                target.connectionId,
-                target.project,
-                refresh,
-              )
+              await typeFields(target.connectionId, target.project, refresh)
             ).find((t) => t.type.toLowerCase() === type)?.fields;
           // A type missing from the cache (added or renamed since) is looked up again once before writing nothing.
           const fields = (await fieldsOf(false)) ?? (await fieldsOf(true));
@@ -911,16 +930,20 @@ export function createHandlers(s: Services): Handlers {
   };
 
   s.usage.on('changed', (taskId) => s.broadcast('usage:changed', { taskId }));
-  s.onHourly(() => {
-    if (s.settings.get().hourlySync && writeCost())
-      usageSync
-        .syncChanged()
-        .catch((e) => console.error('[usage] hourly sync failed', e));
-  });
   const receiverStatus = () => ({
     ...s.receiver.status,
     copilot: s.copilot.stats,
   });
+  const costServerStatus = (): CostServerStatus =>
+    s.costServer?.sender.status() ?? {
+      connected: false,
+      url: null,
+      email: null,
+      lastSentAt: null,
+      waiting: 0,
+      error: null,
+      budgets: null,
+    };
 
   /** Applies a change to the stored terminal list of a task (never from a stale snapshot). */
   const updateTerminals = async (
@@ -2024,7 +2047,6 @@ export function createHandlers(s: Services): Handlers {
     task: Task,
     w: WorkspaceView,
     summary: TaskSummary | null,
-    costScope: { repos: number } | undefined,
     /** The "what changed and why" from the Finish page, put above the commits. */
     prSummary: string | undefined,
     confirmLeak: boolean | undefined,
@@ -2060,8 +2082,6 @@ export function createHandlers(s: Services): Handlers {
             : task.name,
           commits: summary?.commits ?? [],
           commitCount: summary?.commitCount ?? 0,
-          costLine: costLineFor(task.id),
-          costScope,
           workItemUrl: c.linksWorkItem ? null : (task.workItem?.url ?? null),
           summary: prSummary,
           environment: task.environment,
@@ -2143,7 +2163,6 @@ export function createHandlers(s: Services): Handlers {
         removeWorktree: options.removeWorktree,
         deleteBranch: options.deleteBranch,
         closeTerminals: options.closeTerminals,
-        syncUsage: options.syncUsage && writeCost(),
         workItem: task.workItem !== null && task.workItem !== undefined,
       },
       {
@@ -2152,48 +2171,14 @@ export function createHandlers(s: Services): Handlers {
       },
     );
 
-  /** The one usage write per task once it is done, as it was before #48. */
-  const syncUsageOnFinish = async (
-    taskId: string,
-    options: FinishOptions,
-    killedTerminals: boolean,
-  ) => {
-    if (!(options.syncUsage && writeCost())) return;
-    // Set once the write failed (a failed result may carry no text).
-    let error: string | null | undefined;
-    try {
-      if (killedTerminals && s.finishFlushMs > 0)
-        await new Promise((r) => setTimeout(r, s.finishFlushMs));
-      await s.copilot.poll();
-      const result = await usageSync.syncTask(taskId, {
-        comment: true,
-        refreshFields: true,
-      });
-      tel.event('usage.synced', { ok: result.ok, onFinish: true });
-      if (!result.ok) error = result.error;
-    } catch (e) {
-      error = errorMessage(e);
-    }
-    if (error !== undefined)
-      s.broadcast('notice', {
-        level: 'warn',
-        message: `Task finished, but the AI usage could not be written to the work item: ${error}. Use Sync now on the Usage screen to retry.`,
-      });
-  };
-
   /**
    * What follows a successful Finish, single repo or per workspace, once per Finish: the time chosen on the Time
-   * spent step is booked, then the usage is written.
+   * spent step is booked.
    */
-  const afterFinish = async (
-    taskId: string,
-    options: FinishOptions,
-    killedTerminals: boolean,
-  ) => {
+  const afterFinish = async (taskId: string, options: FinishOptions) => {
     const booked = options.bookedSeconds;
     if (typeof booked === 'number' && Number.isFinite(booked) && booked >= 0)
       await bookTime(taskId, booked);
-    await syncUsageOnFinish(taskId, options, killedTerminals);
   };
 
   /**
@@ -2257,10 +2242,6 @@ export function createHandlers(s: Services): Handlers {
             confirmLeak: confirmed.has(w.id),
           });
         }
-        const withChanges = rows.filter(
-          (r) => r.action !== 'drop' && (r.summary?.commitCount ?? 1) > 0,
-        ).length;
-        const costScope = withChanges > 1 ? { repos: withChanges } : undefined;
         const failures: string[] = [];
         const results: FinishRowResult[] = [];
         for (const r of rows) {
@@ -2331,7 +2312,6 @@ export function createHandlers(s: Services): Handlers {
                   task,
                   r.w,
                   r.summary,
-                  costScope,
                   options.prSummaries?.[r.w.id],
                   r.confirmLeak,
                 );
@@ -2415,7 +2395,7 @@ export function createHandlers(s: Services): Handlers {
         });
         // A later Finish (after Reopen) is a new one, not a retry of this.
         finishResults.delete(taskId);
-        await afterFinish(taskId, options, killTerminals);
+        await afterFinish(taskId, options);
       } catch (e) {
         if (taskById(taskId).status === 'finishing')
           await patchTask(taskId, { status: 'ready' });
@@ -2816,6 +2796,7 @@ export function createHandlers(s: Services): Handlers {
                 task.id,
                 s.settings.get().receiverPort,
                 s.usageDir,
+                'pr-summary',
               ),
               ...PR_SUMMARY_ENV,
             },
@@ -2978,7 +2959,6 @@ export function createHandlers(s: Services): Handlers {
                     : task.name,
                   commits: summary?.commits ?? [],
                   commitCount: summary?.commitCount ?? 0,
-                  costLine: costLineFor(taskId),
                   summary: options.prSummaries?.[HOME_ID],
                   environment: task.environment,
                 }),
@@ -3058,7 +3038,7 @@ export function createHandlers(s: Services): Handlers {
           prs: options.createPullRequest ? 1 : 0,
           dropped: 0,
         });
-        await afterFinish(taskId, options, killTerminals);
+        await afterFinish(taskId, options);
       } finally {
         release(taskId);
       }
@@ -3726,9 +3706,62 @@ export function createHandlers(s: Services): Handlers {
       const error = await syncTime(taskId);
       if (error) throw new Error(error);
     },
-    'budget:get': async (monthOffset) => {
+    'budget:get': async (vendor, monthOffset) => {
       if (!s.budget) throw new Error('Budget is not available');
-      return s.budget.view(monthOffset);
+      return s.budget.view(vendor, monthOffset);
+    },
+    'costServer:status': async () => costServerStatus(),
+    'costServer:connect': async (c) => {
+      const cs = s.costServer;
+      if (!cs) throw new Error('The cost server is not available');
+      const conn = {
+        url: c.url.trim(),
+        email: c.email.trim(),
+        key: c.key.trim(),
+      };
+      // An empty key keeps the saved one (it never goes to the renderer), but only for the same server.
+      const saved = conn.key ? null : cs.store.get();
+      if (saved && saved.url === conn.url) conn.key = saved.key;
+      // The error is the attempt's: the old connection (still saved) is not shown as fine next to it.
+      const failed = (error: string): CostServerStatus => ({
+        ...cs.sender.status(),
+        connected: false,
+        error,
+      });
+      // The client does not check the address, and the key must never go to plain http elsewhere.
+      if (!validServerUrl(conn.url)) return failed('Use an https:// address.');
+      if (!conn.email) return failed('Enter your email.');
+      if (!conn.key) return failed('Enter the company key.');
+      let answer: Awaited<ReturnType<typeof costServerHello>>;
+      try {
+        answer = await (cs.hello ?? costServerHello)(conn);
+      } catch (err) {
+        const kind = err instanceof CostServerError ? err.kind : 'network';
+        tel.event('costServer.connectFailed', { kind });
+        return failed(COST_SERVER_ERRORS[kind]);
+      }
+      try {
+        await cs.store.set(conn);
+      } catch (err) {
+        return failed(err instanceof Error ? err.message : String(err));
+      }
+      await cs.store.setBudgets(answer.budgets);
+      await cs.ledgerPass?.();
+      await cs.sender.onConnected();
+      tel.event('costServer.connected');
+      const st = costServerStatus();
+      s.broadcast('costServer:changed', st);
+      return st;
+    },
+    'costServer:disconnect': async () => {
+      const cs = s.costServer;
+      if (!cs) throw new Error('The cost server is not available');
+      await cs.store.clear();
+      cs.sender.onDisconnected();
+      tel.event('costServer.disconnected');
+      const st = costServerStatus();
+      s.broadcast('costServer:changed', st);
+      return st;
     },
     'home:get': () => home.get(),
     'home:refresh': () => home.refresh(),
@@ -3746,19 +3779,6 @@ export function createHandlers(s: Services): Handlers {
       await s.usage.setBillable(taskId, sessionId, billable);
       return s.usage.summarize(taskId);
     },
-    'usage:sync': async (taskId) => {
-      if (!writeCost())
-        throw new Error(
-          'Writing AI cost to Azure DevOps is off. Turn it on in Settings, AI cost and invoicing.',
-        );
-      const result = await usageSync.syncTask(taskId, {
-        refreshFields: true,
-        // A done task still owes its one usage comment if the write on finish failed.
-        comment: taskById(taskId).status === 'done',
-      });
-      tel.event('usage.synced', { ok: result.ok, onFinish: false });
-      return result;
-    },
     'usage:exportCsv': async (taskId) => {
       tel.event('usage.exportCsv');
       return usageCsv(
@@ -3767,11 +3787,6 @@ export function createHandlers(s: Services): Handlers {
         OFFICIAL_USD_TO_EUR,
       );
     },
-    'usage:fieldsStatus': async (connectionId) =>
-      usageSync.fieldsStatus(
-        connectionId,
-        s.connections.get(connectionId).project,
-      ),
     'usage:receiverStatus': async () => receiverStatus(),
     'rates:list': async () => ({
       rates: OFFICIAL_RATES,

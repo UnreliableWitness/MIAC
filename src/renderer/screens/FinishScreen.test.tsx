@@ -143,7 +143,6 @@ describe('FinishScreen', () => {
           closeTerminals: true,
           removeWorktree: true,
           deleteBranch: false,
-          syncUsage: false,
           createPullRequest: false,
           bookedSeconds: 0,
         },
@@ -303,25 +302,7 @@ describe('FinishScreen', () => {
 });
 
 describe('FinishScreen AI usage', () => {
-  it('shows the total and sends syncUsage when ticked', async () => {
-    useStore.setState({
-      repos: [
-        {
-          id: task.repoId,
-          name: 'webshop',
-          path: '/r',
-          baseBranch: 'main',
-          connectionId: 'c1',
-          configFound: true,
-          discovered: false,
-          workItemOnStart: {
-            moveToInProgress: true,
-            assignToMe: true,
-            stateOverrides: {},
-          },
-        },
-      ],
-    });
+  it('shows the total and offers no write to the work item', async () => {
     const { calls } = installFakeApi({
       'tasks:finishChecks': () => clean,
       'tasks:finish': () => undefined,
@@ -332,6 +313,7 @@ describe('FinishScreen AI usage', () => {
         byTool: {
           'claude-code': { costUsd: 10, costEur: 9.2, sessions: 2, tokens: 5 },
           'copilot-cli': { costUsd: 0, costEur: 0, sessions: 0, tokens: 0 },
+          opencode: { costUsd: 0, costEur: 0, sessions: 0, tokens: 0 },
         },
       }),
     });
@@ -339,188 +321,39 @@ describe('FinishScreen AI usage', () => {
     expect(
       await screen.findByText(/Claude Code .9\.20 over 2 sessions/),
     ).toBeTruthy();
-    const box = screen.getByRole('checkbox', {
-      name: /Write final totals to the work item/,
-    });
-    expect(box).toHaveProperty('checked', true);
+    expect(
+      screen.queryByRole('checkbox', { name: /Write final totals/ }),
+    ).toBeNull();
     await userEvent.click(screen.getByRole('button', { name: /Finish/ }));
     await waitFor(() =>
-      expect(
-        calls.find((c) => c.channel === 'tasks:finish')?.args[1],
-      ).toMatchObject({ syncUsage: true }),
+      expect(calls.some((c) => c.channel === 'tasks:finish')).toBe(true),
     );
-  });
-  it("offers the write-back through the task's own connection when the home repo has none", async () => {
-    useStore.setState({
-      repos: [
-        {
-          id: task.repoId,
-          name: 'webshop',
-          path: '/r',
-          baseBranch: 'main',
-          connectionId: null,
-          configFound: true,
-          discovered: false,
-          workItemOnStart: {
-            moveToInProgress: true,
-            assignToMe: true,
-            stateOverrides: {},
-          },
-        },
-      ],
-      tasks: [{ ...task, connectionId: 'c1' }],
-    });
-    installFakeApi({ 'tasks:finishChecks': () => clean });
-    render(<FinishScreen taskId={task.id} />);
     expect(
-      await screen.findByRole('checkbox', {
-        name: /Write final totals to the work item/,
-      }),
-    ).toBeInTheDocument();
+      calls.find((c) => c.channel === 'tasks:finish')?.args[1],
+    ).not.toHaveProperty('syncUsage');
   });
+});
 
-  it('leaves the checkbox unticked when no usage was captured, and still writes when ticked', async () => {
-    useStore.setState({
-      repos: [
-        {
-          id: task.repoId,
-          name: 'webshop',
-          path: '/r',
-          baseBranch: 'main',
-          connectionId: 'c1',
-          configFound: true,
-          discovered: false,
-          workItemOnStart: {
-            moveToInProgress: true,
-            assignToMe: true,
-            stateOverrides: {},
-          },
-        },
-      ],
-    });
-    const { calls } = installFakeApi({
+describe('FinishScreen AI usage per tool', () => {
+  it('lists OpenCode with the other tools, so the parts add up', async () => {
+    installFakeApi({
       'tasks:finishChecks': () => clean,
-      'tasks:finish': () => undefined,
-    });
-    render(<FinishScreen taskId={task.id} />);
-    await screen.findByText('No AI usage captured for this task.');
-    const box = screen.getByRole('checkbox', {
-      name: /Write final totals to the work item/,
-    });
-    await waitFor(() => expect(box).toHaveProperty('checked', false));
-    await userEvent.click(box);
-    expect(box).toHaveProperty('checked', true);
-    await userEvent.click(screen.getByRole('button', { name: /Finish/ }));
-    await waitFor(() =>
-      expect(
-        calls.find((c) => c.channel === 'tasks:finish')?.args[1],
-      ).toMatchObject({ syncUsage: true }),
-    );
-  });
-  it('hides the checkbox when the repo has no connection', async () => {
-    useStore.setState({
-      repos: [
-        {
-          id: task.repoId,
-          name: 'webshop',
-          path: '/r',
-          baseBranch: 'main',
-          connectionId: null,
-          configFound: true,
-          discovered: false,
-          workItemOnStart: {
-            moveToInProgress: true,
-            assignToMe: true,
-            stateOverrides: {},
-          },
-        },
-      ],
-    });
-    const { calls } = installFakeApi({
-      'tasks:finishChecks': () => clean,
-      'tasks:finish': () => undefined,
-    });
-    render(<FinishScreen taskId={task.id} />);
-    await screen.findByText('AI usage');
-    expect(
-      screen.queryByRole('checkbox', { name: /Write final totals/ }),
-    ).toBeNull();
-    await userEvent.click(screen.getByRole('button', { name: /Finish/ }));
-    await waitFor(() =>
-      expect(
-        calls.find((c) => c.channel === 'tasks:finish')?.args[1],
-      ).toMatchObject({ syncUsage: false }),
-    );
-  });
-  it('hides the checkbox and writes nothing when cost writing is off', async () => {
-    useStore.setState({
-      repos: [
-        {
-          id: task.repoId,
-          name: 'webshop',
-          path: '/r',
-          baseBranch: 'main',
-          connectionId: 'c1',
-          configFound: true,
-          discovered: false,
-          workItemOnStart: {
-            moveToInProgress: true,
-            assignToMe: true,
-            stateOverrides: {},
-          },
-        },
-      ],
-    });
-    const { calls } = installFakeApi({
-      'settings:get': () => ({
-        version: 1,
-        receiverPort: 4319,
-        hourlySync: true,
-        writeTimeToAdo: false,
-        idleMinutes: 5,
-        workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
-        writeCostToAdo: false,
-        showSplash: true,
-        notifyOnDone: true,
-        theme: 'system',
-        claudeBudget: {
-          monthlyEur: null,
-          monthStartDay: 1,
-          alerts: { at80: true, forecastOver: true, at100: true },
-        },
-        sendTelemetry: true,
-        editor: { default: null, repos: {} },
-        secrets: { productionMinutes: 60 },
-        onboarding: {
-          dismissedAt: null,
-          agentsCheckedAt: null,
-          tracker: null,
-          migrated: false,
-        },
-        defaultTerminals: {
-          claude: true,
-          copilot: false,
-          opencode: false,
-          shell: true,
+      'usage:task': (id) => ({
+        ...emptyUsage(id),
+        sessions: [{ sessionId: 's' } as never],
+        billable: { costUsd: 12, costEur: 11.04, tokens: 7 },
+        byTool: {
+          'claude-code': { costUsd: 10, costEur: 9.2, sessions: 2, tokens: 5 },
+          'copilot-cli': { costUsd: 0, costEur: 0, sessions: 0, tokens: 0 },
+          opencode: { costUsd: 2, costEur: 1.84, sessions: 1, tokens: 2 },
         },
       }),
-      'tasks:finishChecks': () => clean,
-      'tasks:finish': () => undefined,
     });
     render(<FinishScreen taskId={task.id} />);
-    await screen.findByText('AI usage');
-    await waitFor(() =>
-      expect(calls.some((c) => c.channel === 'settings:get')).toBe(true),
-    );
     expect(
-      screen.queryByRole('checkbox', { name: /Write final totals/ }),
-    ).toBeNull();
-    await userEvent.click(screen.getByRole('button', { name: /Finish/ }));
-    await waitFor(() =>
-      expect(
-        calls.find((c) => c.channel === 'tasks:finish')?.args[1],
-      ).toMatchObject({ syncUsage: false }),
-    );
+      await screen.findByText(/^OpenCode .1\.84 over 1 session$/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Copilot CLI/)).toBeNull();
   });
 });
 
@@ -1544,7 +1377,6 @@ describe('FinishScreen with several repos', () => {
       closeTerminals: true,
       removeWorktree: true,
       deleteBranch: true,
-      syncUsage: false,
       bookedSeconds: 0,
       workspaces: [
         { workspaceId: 'home', action: 'drop' },

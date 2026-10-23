@@ -5,7 +5,10 @@ export const round6 = (n: number): number => Math.round(n * 1e6) / 1e6;
 export function normalizeModel(model: string): string {
   let m = model.trim().toLowerCase();
   m = m.replace(/\[[^\]]*\]$/, '');
-  m = m.replace(/^(anthropic|openai|google|xai|microsoft|moonshot)[./]/, '');
+  m = m.replace(
+    /^(anthropic|github-copilot|openai|google|xai|microsoft|moonshot)[./]/,
+    '',
+  );
   m = m.replace(/(\d)\.(\d)/g, '$1-$2').replace(/(\d)\.(\d)/g, '$1-$2');
   m = m.replace(/-\d{8}$/, '');
   m = m.replace(/[\s_]+/g, '-');

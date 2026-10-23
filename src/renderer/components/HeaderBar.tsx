@@ -3,12 +3,8 @@ import { Fragment, type ReactNode, useState } from 'react';
 import { ENVIRONMENT_LABEL } from '../../shared/secrets';
 import type { TaskView } from '../../shared/types';
 import { api, tryInvoke } from '../api';
-import { ago, eur } from '../format';
-import {
-  activeHome,
-  activeWorkspaces,
-  taskConnectionId,
-} from '../../shared/workspaces';
+import { eur } from '../format';
+import { activeHome, activeWorkspaces } from '../../shared/workspaces';
 import { useGitSummary } from '../hooks/useGitSummary';
 import { useTaskUsage } from '../hooks/useTaskUsage';
 import { activeConnection, useStore } from '../store';
@@ -40,15 +36,6 @@ function TaskDetails({
   const home = activeHome(task);
   const git = useGitSummary(task.id, task.worktreeMissing);
   const usage = useTaskUsage(task.id);
-  const linked =
-    task.workItem !== null && Boolean(taskConnectionId(task, repos));
-  const syncLine = !linked
-    ? 'Not linked to an Azure DevOps work item'
-    : task.usageSyncError
-      ? `Sync failed: ${task.usageSyncError}`
-      : task.usageSyncedAt
-        ? `Logged on work item ${ago(task.usageSyncedAt)}`
-        : 'Not logged on the work item yet';
   return (
     <div
       role="dialog"
@@ -113,11 +100,10 @@ function TaskDetails({
         <div className="small muted">
           Claude {eur(usage.byTool['claude-code'].costEur)} {DOT} Copilot{' '}
           {eur(usage.byTool['copilot-cli'].costEur)}
+          {usage.byTool.opencode.costEur !== 0 &&
+            ` ${DOT} OpenCode ${eur(usage.byTool.opencode.costEur)}`}
         </div>
       )}
-      <div className={task.usageSyncError ? 'small text-red' : 'small muted'}>
-        {syncLine}
-      </div>
     </div>
   );
 }

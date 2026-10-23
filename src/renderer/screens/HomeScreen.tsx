@@ -129,7 +129,8 @@ export function HomeScreen() {
           </>
         )}
         <StatsBand />
-        <BudgetBand />
+        <BudgetBand vendor="claude" />
+        <BudgetBand vendor="copilot" />
       </div>
     </div>
   );

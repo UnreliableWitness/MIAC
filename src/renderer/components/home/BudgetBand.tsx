@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import type { Vendor } from '../../../shared/budget';
 import type { BudgetView } from '../../../shared/budgetView';
 import { compact, eur } from '../../format';
 import { useBudget } from '../../hooks/useBudget';
@@ -7,8 +8,16 @@ import { useStore } from '../../store';
 import { track } from '../../telemetry';
 import { Band } from './Band';
 
-const INFO =
-  "Estimated at Anthropic API list prices in EUR. Your company's invoice may differ. Claude models through Copilot aren't counted.";
+const INFO: Record<Vendor, string> = {
+  claude:
+    "Estimated at Anthropic API list prices in EUR. Your company's invoice may differ. Claude models through GitHub Copilot count in the Copilot budget.",
+  copilot:
+    "Estimated at GitHub Copilot list prices in EUR. Credits included with your seat aren't subtracted.",
+};
+const TITLE: Record<Vendor, string> = {
+  claude: 'Claude budget',
+  copilot: 'Copilot budget',
+};
 
 export { modelColor };
 const PROVIDERS: Record<string, string> = {
@@ -231,16 +240,27 @@ function DailyBars({ v }: { v: BudgetView }) {
   );
 }
 
-export function BudgetBand() {
+export function BudgetBand({ vendor }: { vendor: Vendor }) {
   const [offset, setOffset] = useState(0);
-  const v = useBudget(offset);
+  const v = useBudget(vendor, offset);
   const go = useStore((s) => s.go);
   const step = (d: number) => {
     track('home.clicked', { band: 'budget-month' });
     setOffset((o) => Math.min(0, o + d));
   };
+  // Copilot is optional: no band until this month has spend, a budget or unpriced
+  // usage. Once shown it stays, so stepping to an empty month cannot hide it.
+  const [revealed, setRevealed] = useState(vendor === 'claude');
+  const hasUsage =
+    !!v &&
+    offset === 0 &&
+    (v.spentEur > 0 || v.budgetEur !== null || v.unpriced.length > 0);
+  useEffect(() => {
+    if (hasUsage) setRevealed(true);
+  }, [hasUsage]);
+  if (!revealed) return null;
   return (
-    <Band title="Claude budget">
+    <Band title={TITLE[vendor]}>
       {v && (
         <div className="budget">
           <div className="budget-head">
@@ -267,8 +287,12 @@ export function BudgetBand() {
             )}
           </div>
           {!v.scanned ? (
-            <p className="muted">Reading Claude usage…</p>
-          ) : !v.sources.claudeCode && !v.sources.openCode ? (
+            <p className="muted">
+              Reading {vendor === 'claude' ? 'Claude' : 'Copilot'} usage…
+            </p>
+          ) : vendor === 'claude' &&
+            !v.sources.claudeCode &&
+            !v.sources.openCode ? (
             <p className="muted">
               No Claude Code or OpenCode usage found on this computer.
             </p>
@@ -288,7 +312,7 @@ export function BudgetBand() {
                       className="link"
                       onClick={() => {
                         track('home.clicked', { band: 'budget-settings' });
-                        go({ kind: 'settings', section: 'claude-budget' });
+                        go({ kind: 'settings', section: 'budgets' });
                       }}
                     >
                       Set a monthly budget
@@ -300,7 +324,11 @@ export function BudgetBand() {
                     <span className="muted">of {eur(v.budgetEur)}</span>
                   </>
                 )}
-                <span className="budget-info" title={INFO} aria-label={INFO}>
+                <span
+                  className="budget-info"
+                  title={INFO[vendor]}
+                  aria-label={INFO[vendor]}
+                >
                   ⓘ
                 </span>
                 {offset === 0 && <Today v={v} />}
@@ -323,7 +351,7 @@ export function BudgetBand() {
                 <p
                   key={`${x.provider}|${x.model}`}
                   className="muted small"
-                >{`Not counted: ${x.model} via ${providerName(x.provider)}, ${x.requests} requests`}</p>
+                >{`Not in a budget: ${x.model} via ${providerName(x.provider)}, ${x.requests} requests`}</p>
               ))}
               {v.unpriced.map((x) => (
                 <p

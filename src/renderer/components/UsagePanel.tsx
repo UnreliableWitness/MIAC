@@ -1,6 +1,4 @@
-import { useEffect, useState } from 'react';
-import type { FieldsStatus, ModelTotals } from '../../shared/usage';
-import { AI_FIELDS } from '../../shared/usage';
+import type { ModelTotals, UsageTool } from '../../shared/usage';
 import {
   hourTicks,
   isLive,
@@ -10,26 +8,32 @@ import {
   tokenMix,
   type Bin,
 } from '../../shared/usageViews';
-import { aiFieldValues, renderUsageComment } from '../../shared/workItemUsage';
-import { pushedBranches } from '../../shared/workspaces';
 import { api, tryInvoke } from '../api';
-import { ago, compact, eur, shortEur } from '../format';
+import { compact, eur, shortEur } from '../format';
 import { useClock } from '../hooks/useClock';
 import { useTaskUsage } from '../hooks/useTaskUsage';
-import { useWriteCostToAdo } from '../hooks/useWriteCostToAdo';
 import { usageModelColor } from '../modelColor';
 import { useStore } from '../store';
 import { TimePanel } from './TimePanel';
 import { RingGauge } from './ui';
-import { TOOL_LABEL } from '../../shared/time';
 
-const FIELD_LABEL: Record<(typeof AI_FIELDS)[number], string> = {
-  'Custom.AICost': 'AI Cost (EUR)',
-  'Custom.AICostClaude': 'AI Cost Claude',
-  'Custom.AICostCopilot': 'AI Cost Copilot',
-  'Custom.AITokens': 'AI Tokens',
-};
 const DOT = String.fromCharCode(0xb7);
+const USAGE_TOOLS: UsageTool[] = ['claude-code', 'copilot-cli', 'opencode'];
+const USAGE_TOOL_LABEL: Record<UsageTool, string> = {
+  'claude-code': 'Claude Code',
+  'copilot-cli': 'Copilot CLI',
+  opencode: 'OpenCode',
+};
+const BIN_NAME: Record<UsageTool, string> = {
+  'claude-code': 'Claude',
+  'copilot-cli': 'Copilot',
+  opencode: 'OpenCode',
+};
+const TOOL_FILL: Record<UsageTool, string> = {
+  'claude-code': 'var(--chart-claude)',
+  'copilot-cli': 'var(--chart-copilot)',
+  opencode: 'var(--chart-opencode)',
+};
 const ARROW = String.fromCharCode(0x2192);
 const when = (iso: string) =>
   new Date(iso).toLocaleString(undefined, {
@@ -48,9 +52,10 @@ const DASH = String.fromCharCode(0x2013);
 function binTitle(b: Bin): string {
   const range = `${clock(b.start)}${DASH}${clock(b.end)}`;
   if (b.costEur === 0) return `${range} ${DOT} no usage`;
+  const parts = USAGE_TOOLS.filter((t) => b.byTool[t] > 0);
   const both =
-    b.byTool['claude-code'] > 0 && b.byTool['copilot-cli'] > 0
-      ? ` (Claude ${eur(b.byTool['claude-code'])}, Copilot ${eur(b.byTool['copilot-cli'])})`
+    parts.length > 1
+      ? ` (${parts.map((t) => `${BIN_NAME[t]} ${eur(b.byTool[t])}`).join(', ')})`
       : '';
   return `${range} ${DOT} ${eur(b.costEur)}${both}`;
 }
@@ -66,12 +71,9 @@ function Timeline({ bins, live }: { bins: Bin[]; live: boolean }) {
         className="up-timeline"
       >
         {bins.map((b, i) => {
-          const fill =
-            b.dominant === 'claude-code'
-              ? 'var(--chart-claude)'
-              : b.dominant === 'copilot-cli'
-                ? 'var(--chart-copilot)'
-                : 'var(--line-strong)';
+          const fill = b.dominant
+            ? TOOL_FILL[b.dominant]
+            : 'var(--line-strong)';
           const cls = [
             'up-bin',
             live && i === bins.length - 1 ? 'is-live' : '',
@@ -161,50 +163,13 @@ export function UsagePanel({
   now?: () => number;
 }) {
   const task = useStore((s) => s.tasks.find((t) => t.id === taskId));
-  const repo = useStore((s) => s.repos.find((r) => r.id === task?.repoId));
   const notify = useStore((s) => s.notify);
   const usage = useTaskUsage(taskId);
   // LIVE, the pulsing bin and the 6 h window must move on even when no new usage arrives.
   useClock(30_000);
-  const [fields, setFields] = useState<FieldsStatus | null>(null);
-  const [busy, setBusy] = useState(false);
-  const connectionId = repo?.connectionId ?? null;
-  const linked = Boolean(task?.workItem) && connectionId !== null;
-  const writeCost = useWriteCostToAdo();
-
-  useEffect(() => {
-    if (!linked || !connectionId || !writeCost) return;
-    let live = true;
-    void api()
-      .invoke('usage:fieldsStatus', connectionId)
-      .then((f) => {
-        if (live) setFields(f);
-      })
-      .catch(() => undefined);
-    return () => {
-      live = false;
-    };
-  }, [linked, connectionId, writeCost]);
 
   if (!task) return <div className="empty">Task not found</div>;
-  const typeFields = fields?.types.find(
-    (t) => t.type.toLowerCase() === task.workItem?.type.toLowerCase(),
-  );
-  const values = usage ? aiFieldValues(usage) : null;
 
-  const sync = async () => {
-    setBusy(true);
-    const r = await tryInvoke(() => api().invoke('usage:sync', taskId), notify);
-    setBusy(false);
-    if (r && !r.ok) notify('error', `Sync failed: ${r.error}`);
-    else if (r)
-      notify(
-        'info',
-        r.fieldsWritten.length > 0
-          ? `Wrote ${r.fieldsWritten.length} field(s) to work item ${task.workItem?.id}`
-          : 'Nothing to write: the work item type has none of the AI cost fields',
-      );
-  };
   const exportCsv = async () => {
     const csv = await tryInvoke(
       () => api().invoke('usage:exportCsv', taskId),
@@ -306,8 +271,8 @@ export function UsagePanel({
           <h3>{`Sessions ${DOT} ${usage?.sessions.length ?? 0}`}</h3>
           {usage && usage.sessions.length === 0 ? (
             <div className="empty">
-              No AI usage captured for this task yet. Claude Code and Copilot
-              CLI started in this task&apos;s terminals report here
+              No AI usage captured for this task yet. Claude Code, Copilot CLI
+              and OpenCode started in this task&apos;s terminals report here
               automatically.
             </div>
           ) : (
@@ -335,7 +300,7 @@ export function UsagePanel({
                           <span className="live mono">LIVE</span>
                         )}
                       </td>
-                      <td>{TOOL_LABEL[s.tool]}</td>
+                      <td>{USAGE_TOOL_LABEL[s.tool]}</td>
                       <td className="mono">{s.models.join(', ')}</td>
                       <td className="mono">
                         {compact(
@@ -370,82 +335,15 @@ export function UsagePanel({
           )}
         </div>
         <div className="card up-box up-workitem">
-          <h3>On the work item</h3>
-          {writeCost === false ? (
-            <>
-              <p className="muted small">
-                Writing AI cost to Azure DevOps is off (Settings, AI cost and
-                invoicing). The cost stays in Shellie: this tab and the CSV
-                export.
-              </p>
-              <div className="actions">
-                <button type="button" className="btn" onClick={exportCsv}>
-                  CSV
-                </button>
-              </div>
-            </>
-          ) : (
-            <>
-              <span className="small muted">
-                {task.usageSyncError
-                  ? `sync failed: ${task.usageSyncError}`
-                  : task.usageSyncedAt
-                    ? `synced ${ago(task.usageSyncedAt)}`
-                    : 'not synced yet'}
-              </span>
-              {!linked && (
-                <p className="muted small">
-                  Link the repository to an Azure DevOps connection in Settings
-                  and create the task from a work item to write totals back.
-                </p>
-              )}
-              {values && (
-                <dl className="usage-fields">
-                  {AI_FIELDS.map((f) => (
-                    <div key={f}>
-                      <dt>{FIELD_LABEL[f]}</dt>
-                      <dd className="mono">
-                        {f === 'Custom.AITokens'
-                          ? values[f].toLocaleString('en-US')
-                          : values[f].toFixed(2)}
-                      </dd>
-                      {typeFields && !typeFields.present.includes(f) && (
-                        <dd className="small muted">{`not on ${typeFields.type}`}</dd>
-                      )}
-                    </div>
-                  ))}
-                </dl>
-              )}
-              <div className="label">
-                {task.usageCommentId
-                  ? `Comment posted (id ${task.usageCommentId})`
-                  : task.status === 'done'
-                    ? 'Comment added on the next write to the work item'
-                    : 'Comment added when the task is finished'}
-              </div>
-              {usage && (
-                <details>
-                  <summary>Comment preview</summary>
-                  <pre className="usage-comment">
-                    {renderUsageComment(usage, pushedBranches(task))}
-                  </pre>
-                </details>
-              )}
-              <div className="actions">
-                <button type="button" className="btn" onClick={exportCsv}>
-                  CSV
-                </button>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={sync}
-                  disabled={!linked || busy}
-                >
-                  Write to work item
-                </button>
-              </div>
-            </>
-          )}
+          <h3>Export</h3>
+          <p className="muted small">
+            The cost stays in Shellie: this tab and the CSV export.
+          </p>
+          <div className="actions">
+            <button type="button" className="btn" onClick={exportCsv}>
+              CSV
+            </button>
+          </div>
         </div>
       </div>
     </section>

@@ -46,14 +46,21 @@ import {
   readMiacWindowsKey,
   type TokenMigration,
 } from './main/migrate/tokens';
-import { budgetMonth } from './shared/budget';
+import { budgetMonth, VENDORS, type Vendor } from './shared/budget';
 import { BudgetService, inShellieFor } from './main/budget/BudgetService';
+import { effectiveBudget } from './main/budget/serverBudgets';
 import { BudgetStore } from './main/budget/BudgetStore';
+import { budgetRecordsFromUsage } from './main/budget/usageRecords';
 import {
   ClaudeTranscriptReader,
   claudeProjectsDir,
 } from './main/budget/claudeTranscripts';
 import { OpenCodeReader, openCodeDbPath } from './main/budget/openCode';
+import { CostSender } from './main/costServer/CostSender';
+import { CostServerStore } from './main/costServer/CostServerStore';
+import { attributionContext } from './main/ledger/attribute';
+import { LedgerService } from './main/ledger/LedgerService';
+import { LedgerStore } from './main/ledger/LedgerStore';
 import { createPlatform } from './main/platform';
 import { TrackerRegistry } from './main/trackers/TrackerRegistry';
 import {
@@ -177,6 +184,7 @@ let stopUsage: () => void = () => {};
 /** Ends the time tracking timers and closes the open intervals (on quit). */
 let stopTime: () => void = () => {};
 let stopBudget: () => void = () => {};
+let stopLedger: () => void = () => {};
 /** Time writes still in flight; the quit waits for them. */
 const timeWrites = new Set<Promise<void>>();
 /** Window focus, for active time (set once the tracker exists). */
@@ -644,19 +652,46 @@ async function boot(): Promise<void> {
       () => OFFICIAL_RATES,
     );
     await budgetStore.load();
-    // First reads go back to the start of the previous budget month.
-    const budgetSince = budgetMonth(
-      new Date(),
-      settings.get().claudeBudget.monthStartDay,
-      -1,
-    ).start.getTime();
+    // The cost server's address, key and last `hello` answer; a changed answer moves the budgets.
+    const costServer = new CostServerStore(
+      path.join(userData, 'cost-server.json'),
+      {
+        available: () => safeStorage.isEncryptionAvailable(),
+        encrypt: (plain) => safeStorage.encryptString(plain),
+        decrypt: (cipher) => safeStorage.decryptString(cipher),
+      },
+      () => {
+        void budget.pass().catch(() => undefined);
+        broadcast('budget:changed', {});
+      },
+    );
+    await costServer.load();
+    // With a cost server, its tier for the developer sets each budget's amount and start day.
+    const budgetSettings = (v: Vendor) =>
+      effectiveBudget(
+        v === 'claude'
+          ? settings.get().claudeBudget
+          : settings.get().copilotBudget,
+        costServer.budgets?.[v] ?? null,
+      );
+    // First reads go back to the start of the earlier of the two budgets' previous months.
+    const budgetSince = Math.min(
+      ...VENDORS.map((v) =>
+        budgetMonth(
+          new Date(),
+          budgetSettings(v).monthStartDay,
+          -1,
+        ).start.getTime(),
+      ),
+    );
     const budget = new BudgetService({
       store: budgetStore,
       claude: new ClaudeTranscriptReader(claudeProjectsDir(), {
         since: budgetSince,
       }),
       openCode: new OpenCodeReader(openCodeDbPath(), { since: budgetSince }),
-      settings: () => settings.get().claudeBudget,
+      settings: budgetSettings,
+      extra: () => budgetRecordsFromUsage(usage.allRecords()),
       inShellie: inShellieFor(
         () => store.state.tasks,
         () =>
@@ -683,9 +718,49 @@ async function boot(): Promise<void> {
           console.error('[budget] could not show a notification', err);
         }
       },
-      telemetry: (kind) => telemetry.event('budget.alert', { kind }),
+      telemetry: (vendor, kind) =>
+        telemetry.event('budget.alert', { vendor, kind }),
     });
     stopBudget = () => budget.stop();
+    // The cost ledger: every AI request priced and attributed to a task, a repo or nothing. Its readers
+    // have no `since`, so the first run backfills all the transcripts and OpenCode still have.
+    const ledgerStore = new LedgerStore(path.join(usageDir, 'ledger'));
+    // Sends the ledger's dirty records to the cost server in the background (nothing without a connection).
+    const sender = new CostSender({
+      ledger: ledgerStore,
+      server: costServer,
+      status: (st) => broadcast('costServer:changed', st),
+      notice: (message) => broadcast('notice', { level: 'warn', message }),
+      telemetry: (event, props) => telemetry.event(event, props),
+    });
+    const ledger = new LedgerService({
+      store: ledgerStore,
+      claude: new ClaudeTranscriptReader(claudeProjectsDir()),
+      openCode: new OpenCodeReader(openCodeDbPath()),
+      usageRecords: () => usage.allRecords(),
+      context: () =>
+        attributionContext(
+          store.state.tasks,
+          store.state.repos,
+          connections.list(),
+          (id) =>
+            usage
+              .records(id)
+              .filter((r) => r.tool === 'claude-code')
+              .map((r) => r.sessionId),
+        ),
+      isBillable: (taskId, sessionId) => usage.isBillable(taskId, sessionId),
+      // The email saved in Settings › Cost server; null when not connected.
+      developer: () => costServer.get()?.email ?? null,
+      version: app.getVersion(),
+      toUsage: (e) => ingest([e]),
+      changed: () => sender.kick(),
+      telemetry: (event, props) => telemetry.event(event, props),
+    });
+    stopLedger = () => {
+      ledger.stop();
+      sender.stop();
+    };
     protocol.handle(VIEW_SCHEME, (req) => serveView(htmlViews, req.url));
     // Agent tabs that stop right after starting (a missing CLI, an invalid OpenCode config) say why (#109).
     const terminalFailures = new TerminalFailures({
@@ -705,6 +780,11 @@ async function boot(): Promise<void> {
     const handlers = createHandlers({
       terminalFailures,
       budget,
+      costServer: {
+        store: costServer,
+        sender,
+        ledgerPass: () => ledger.freshPass(),
+      },
       applyTheme: (theme) => {
         nativeTheme.themeSource = theme;
       },
@@ -753,9 +833,6 @@ async function boot(): Promise<void> {
       receiver,
       copilot,
       usageDir,
-      onHourly: (fn) => {
-        setInterval(fn, 60 * 60 * 1000);
-      },
       // Production ends at its bound: checked every 30 s and when the machine wakes.
       expiryTimers: {
         every: (fn, ms) => {
@@ -921,7 +998,10 @@ async function boot(): Promise<void> {
     onWindowFocus = (focused) => {
       tracker.setFocused(focused);
       attention.setFocused(focused);
-      if (focused) void budget.pass();
+      if (focused) {
+        void budget.pass();
+        void ledger.pass();
+      }
     };
 
     reporter.step(
@@ -941,6 +1021,8 @@ async function boot(): Promise<void> {
     const win = mainWindow;
     win.webContents.once('did-finish-load', () => {
       budget.start();
+      ledger.start();
+      sender.start();
       const warnings = [
         loaded.recovered &&
           `state.json was unreadable and was moved to ${path.basename(loaded.backup ?? '')}. Starting empty.`,
@@ -1101,6 +1183,7 @@ app.on('before-quit', () => {
   for (const id of terminals.ids()) terminals.kill(id);
   stopUsage();
   stopBudget();
+  stopLedger();
   updates?.stop();
 });
 

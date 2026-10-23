@@ -368,15 +368,18 @@ describe('SettingsScreen', () => {
     const stored: AppSettings = {
       version: 1 as const,
       receiverPort: 4319,
-      hourlySync: true,
       writeTimeToAdo: false,
       idleMinutes: 5,
       workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
-      writeCostToAdo: true,
       showSplash: true,
       notifyOnDone: true,
       theme: 'light',
       claudeBudget: {
+        monthlyEur: null,
+        monthStartDay: 1,
+        alerts: { at80: true, forecastOver: true, at100: true },
+      },
+      copilotBudget: {
         monthlyEur: null,
         monthStartDay: 1,
         alerts: { at80: true, forecastOver: true, at100: true },
@@ -423,15 +426,18 @@ describe('SettingsScreen', () => {
     expect(calls.find((c) => c.channel === 'settings:save')?.args[0]).toEqual({
       version: 1,
       receiverPort: 4319,
-      hourlySync: true,
       writeTimeToAdo: false,
       idleMinutes: 5,
       workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
-      writeCostToAdo: true,
       showSplash: false,
       notifyOnDone: true,
       theme: 'system',
       claudeBudget: {
+        monthlyEur: null,
+        monthStartDay: 1,
+        alerts: { at80: true, forecastOver: true, at100: true },
+      },
+      copilotBudget: {
         monthlyEur: null,
         monthStartDay: 1,
         alerts: { at80: true, forecastOver: true, at100: true },
@@ -458,15 +464,18 @@ describe('SettingsScreen', () => {
     let stored: AppSettings = {
       version: 1 as const,
       receiverPort: 4319,
-      hourlySync: true,
       writeTimeToAdo: false,
       idleMinutes: 5,
       workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
-      writeCostToAdo: true,
       showSplash: true,
       notifyOnDone: true,
       theme: 'system',
       claudeBudget: {
+        monthlyEur: null,
+        monthStartDay: 1,
+        alerts: { at80: true, forecastOver: true, at100: true },
+      },
+      copilotBudget: {
         monthlyEur: null,
         monthStartDay: 1,
         alerts: { at80: true, forecastOver: true, at100: true },
@@ -498,9 +507,9 @@ describe('SettingsScreen', () => {
     await userEvent.click(
       await screen.findByRole('checkbox', { name: 'Show splash on start' }),
     );
-    await userEvent.click(
-      await screen.findByRole('checkbox', { name: /every hour/ }),
-    );
+    const port = await screen.findByLabelText('Usage receiver port');
+    await userEvent.clear(port);
+    await userEvent.type(port, '4400');
     await userEvent.click(
       screen.getByRole('button', { name: 'Save settings' }),
     );
@@ -513,16 +522,19 @@ describe('SettingsScreen', () => {
       calls.filter((c) => c.channel === 'settings:save')[1]?.args[0],
     ).toEqual({
       version: 1,
-      receiverPort: 4319,
-      hourlySync: false,
+      receiverPort: 4400,
       writeTimeToAdo: false,
       idleMinutes: 5,
       workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
-      writeCostToAdo: true,
       showSplash: false,
       notifyOnDone: true,
       theme: 'system',
       claudeBudget: {
+        monthlyEur: null,
+        monthStartDay: 1,
+        alerts: { at80: true, forecastOver: true, at100: true },
+      },
+      copilotBudget: {
         monthlyEur: null,
         monthStartDay: 1,
         alerts: { at80: true, forecastOver: true, at100: true },
@@ -558,17 +570,15 @@ describe('SettingsScreen', () => {
     await waitFor(() => expect(about).toHaveTextContent('1.0.0'));
   });
 
-  it('has a Claude budget entry in the side nav after Time tracking', () => {
+  it('has a Budgets entry in the side nav after Time tracking', () => {
     installFakeApi();
     render(<SettingsScreen />);
     const nav = screen.getByRole('navigation', { name: 'Settings sections' });
     const links = [...nav.querySelectorAll('a')].map((a) => a.textContent);
-    expect(links.indexOf('Claude budget')).toBe(
-      links.indexOf('Time tracking') + 1,
-    );
-    expect(screen.getByRole('link', { name: 'Claude budget' })).toHaveAttribute(
+    expect(links.indexOf('Budgets')).toBe(links.indexOf('Time tracking') + 1);
+    expect(screen.getByRole('link', { name: 'Budgets' })).toHaveAttribute(
       'href',
-      '#claude-budget',
+      '#budgets',
     );
   });
 
@@ -580,13 +590,11 @@ describe('SettingsScreen', () => {
     proto.scrollIntoView = scroll;
     try {
       useStore.setState({
-        screen: { kind: 'settings', section: 'claude-budget' },
+        screen: { kind: 'settings', section: 'budgets' },
       });
       const { container } = render(<SettingsScreen />);
       await waitFor(() => expect(scroll).toHaveBeenCalled());
-      expect(scroll.mock.contexts[0]).toBe(
-        container.querySelector('#claude-budget'),
-      );
+      expect(scroll.mock.contexts[0]).toBe(container.querySelector('#budgets'));
     } finally {
       proto.scrollIntoView = original;
     }
@@ -614,7 +622,7 @@ describe('SettingsScreen', () => {
     } as unknown as typeof ResizeObserver;
     try {
       useStore.setState({
-        screen: { kind: 'settings', section: 'claude-budget' },
+        screen: { kind: 'settings', section: 'budgets' },
       });
       const { container } = render(<SettingsScreen />);
       await waitFor(() => expect(scroll).toHaveBeenCalled());
@@ -623,7 +631,7 @@ describe('SettingsScreen', () => {
       [...callbacks].forEach((cb) => cb());
       expect(scroll.mock.calls.length).toBe(before + 1);
       expect(scroll.mock.contexts.at(-1)).toBe(
-        container.querySelector('#claude-budget'),
+        container.querySelector('#budgets'),
       );
       window.dispatchEvent(new Event('wheel'));
       [...callbacks].forEach((cb) => cb());

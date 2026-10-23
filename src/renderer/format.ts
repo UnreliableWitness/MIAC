@@ -1,5 +1,8 @@
 export { formatDuration } from '../shared/time';
-export { eur } from '../shared/workItemUsage';
+
+/** An amount in euros with two decimals, such as "€1.50". */
+export const eur = (n: number): string =>
+  `${String.fromCharCode(0x20ac)}${(Math.round((n + Number.EPSILON) * 100) / 100).toFixed(2)}`;
 
 /** A euro amount short enough for a chart label: cents under €1,000, whole euros up to €100k, then "€123k". */
 export const shortEur = (n: number): string => {

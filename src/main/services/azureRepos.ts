@@ -2,7 +2,6 @@
 
 import { ENVIRONMENT_LABEL, type Environment } from '../../shared/secrets';
 import type { Connection } from '../../shared/types';
-import { COST_LINE_PREFIX } from '../../shared/workItemUsage';
 import { splitRemoteRef } from './GitClient';
 
 export type AzureRepoRef = { org: string; project: string; repo: string };
@@ -124,10 +123,6 @@ export type PrDescriptionInput = {
   commits: { sha: string; subject: string }[];
   /** All commits on the branch; may exceed `commits.length`. */
   commitCount: number;
-  /** e.g. "AI cost for this task: €1.00 (Claude €1.00, Copilot €0.00)"; null leaves the cost out. */
-  costLine: string | null;
-  /** Set when the task spans several repos: the cost line is then the whole task's, and says so. */
-  costScope?: { repos: number };
   /** Named in the description when the PR cannot link the work item (another organization). */
   workItemUrl?: string | null;
   /**
@@ -140,15 +135,7 @@ export type PrDescriptionInput = {
 };
 
 export function prDescription(input: PrDescriptionInput): string {
-  const costLine =
-    input.costLine &&
-    input.costScope &&
-    input.costLine.startsWith(COST_LINE_PREFIX)
-      ? `AI cost (whole task, ${input.costScope.repos} repos): ${input.costLine.slice(COST_LINE_PREFIX.length)}`
-      : input.costLine;
-  const footer = costLine
-    ? `${costLine} · recorded by Shellie`
-    : 'Recorded by Shellie';
+  const footer = 'Recorded by Shellie';
   const ranAgainst =
     input.environment && input.environment !== 'development'
       ? `\n\nRun against ${ENVIRONMENT_LABEL[input.environment]}`

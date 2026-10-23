@@ -70,21 +70,46 @@ export class OpenCodeReader {
     private readonly opts: { since?: number } = {},
   ) {}
 
-  read(cursor: number): {
+  /**
+   * Messages updated at or after `cursor`. With `page`, at most `limit` rows, ordered by (time_updated, id)
+   * and starting after `page.after`, so a caller can read a large backlog in chunks; `more` says another
+   * page may follow and `last` is where it starts.
+   */
+  read(
+    cursor: number,
+    page?: { limit: number; after?: { t: number; id: string } },
+  ): {
     records: BudgetRecord[];
     cursor: number;
     found: boolean;
+    more?: boolean;
+    last?: { t: number; id: string };
   } {
     if (!existsSync(this.file)) return { records: [], cursor, found: false };
     const from = cursor === 0 ? (this.opts.since ?? 0) : cursor;
     const db = new DatabaseSync(this.file, { readOnly: true, timeout: 2000 });
     try {
-      const rows = db
-        .prepare(
-          'SELECT id, session_id, time_updated, data FROM message WHERE time_updated >= ? ORDER BY time_updated',
-        )
-        // `>=`: a row updated in the same millisecond as the cursor is not missed; the store ignores repeats.
-        .all(from) as {
+      const after = page?.after;
+      const rows = (
+        page
+          ? db
+              .prepare(
+                after
+                  ? 'SELECT id, session_id, time_updated, data FROM message WHERE time_updated > ? OR (time_updated = ? AND id > ?) ORDER BY time_updated, id LIMIT ?'
+                  : 'SELECT id, session_id, time_updated, data FROM message WHERE time_updated >= ? ORDER BY time_updated, id LIMIT ?',
+              )
+              .all(
+                ...(after
+                  ? [after.t, after.t, after.id, page.limit]
+                  : [from, page.limit]),
+              )
+          : db
+              .prepare(
+                'SELECT id, session_id, time_updated, data FROM message WHERE time_updated >= ? ORDER BY time_updated',
+              )
+              // `>=`: a row updated in the same millisecond as the cursor is not missed; the store ignores repeats.
+              .all(from)
+      ) as {
         id: string;
         session_id: string;
         time_updated: number;
@@ -97,7 +122,15 @@ export class OpenCodeReader {
         const rec = parseOpenCodeMessage(r.id, r.session_id, r.data);
         if (rec) records.push(rec);
       }
-      return { records, cursor: next, found: true };
+      if (!page) return { records, cursor: next, found: true };
+      const lastRow = rows.at(-1);
+      return {
+        records,
+        cursor: next,
+        found: true,
+        more: rows.length === page.limit,
+        last: lastRow ? { t: lastRow.time_updated, id: lastRow.id } : after,
+      };
     } finally {
       db.close();
     }

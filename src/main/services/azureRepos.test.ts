@@ -119,16 +119,15 @@ describe('prDescription', () => {
       { sha: 'def5678', subject: 'Second' },
     ],
     commitCount: 2,
-    costLine: 'AI cost for this task: €1.00 (Claude €1.00, Copilot €0.00)',
   };
-  it('lists commits and the cost line', () => {
+  it('lists the commits', () => {
     expect(prDescription(base)).toBe(
-      'Bug 42: Fix it\n\n## Commits\n- abc1234 First\n- def5678 Second\n\nAI cost for this task: €1.00 (Claude €1.00, Copilot €0.00) · recorded by Shellie',
+      'Bug 42: Fix it\n\n## Commits\n- abc1234 First\n- def5678 Second\n\nRecorded by Shellie',
     );
   });
   it('says which environment the task ran against, unless Development', () => {
     expect(prDescription({ ...base, environment: 'uat' })).toBe(
-      'Bug 42: Fix it\n\nRun against UAT\n\n## Commits\n- abc1234 First\n- def5678 Second\n\nAI cost for this task: €1.00 (Claude €1.00, Copilot €0.00) · recorded by Shellie',
+      'Bug 42: Fix it\n\nRun against UAT\n\n## Commits\n- abc1234 First\n- def5678 Second\n\nRecorded by Shellie',
     );
     expect(
       prDescription({ ...base, environment: 'production', commits: [] }),
@@ -137,15 +136,11 @@ describe('prDescription', () => {
       prDescription({ ...base, environment: 'development' }),
     ).not.toContain('Run against');
   });
-  it('leaves the cost out when cost writing is off', () => {
-    const text = prDescription({ ...base, costLine: null });
+  it('never puts AI cost in the PR description', () => {
+    const text = prDescription(base);
+    expect(text).not.toContain('\u20ac');
     expect(text).not.toContain('AI cost');
-    expect(text.endsWith('\n\nRecorded by Shellie')).toBe(true);
-  });
-  it('marks the cost line as the whole task across repos', () => {
-    expect(prDescription({ ...base, costScope: { repos: 2 } })).toContain(
-      '\n\nAI cost (whole task, 2 repos): €1.00 (Claude €1.00, Copilot €0.00) · recorded by Shellie',
-    );
+    expect(text).not.toContain('recorded by Shellie');
   });
   it('names the work item URL when the PR cannot link it', () => {
     expect(
@@ -170,7 +165,7 @@ describe('prDescription', () => {
     const text = prDescription({ ...base, commits, commitCount: 300 });
     expect(text.length).toBeLessThanOrEqual(4000);
     expect(text).toMatch(/…and \d+ more commits/);
-    expect(text.endsWith('· recorded by Shellie')).toBe(true);
+    expect(text.endsWith('\n\nRecorded by Shellie')).toBe(true);
   });
   it('puts the written summary between the heading and the commits', () => {
     expect(
@@ -179,7 +174,7 @@ describe('prDescription', () => {
         summary: '## What changed\nThe fix.\n\n## Why\nIt was broken.\n',
       }),
     ).toBe(
-      'Bug 42: Fix it\n\n## What changed\nThe fix.\n\n## Why\nIt was broken.\n\n## Commits\n- abc1234 First\n- def5678 Second\n\nAI cost for this task: €1.00 (Claude €1.00, Copilot €0.00) · recorded by Shellie',
+      'Bug 42: Fix it\n\n## What changed\nThe fix.\n\n## Why\nIt was broken.\n\n## Commits\n- abc1234 First\n- def5678 Second\n\nRecorded by Shellie',
     );
   });
   it('ignores a blank summary', () => {
@@ -206,11 +201,11 @@ describe('prDescription', () => {
     expect(huge.length).toBeLessThanOrEqual(4000);
     expect(huge.startsWith('Bug 42: Fix it\n\nzzz')).toBe(true);
     expect(huge).toContain('…');
-    expect(huge.endsWith('· recorded by Shellie')).toBe(true);
+    expect(huge.endsWith('\n\nRecorded by Shellie')).toBe(true);
   });
   it('omits the commits section when there are none', () => {
     expect(prDescription({ ...base, commits: [], commitCount: 0 })).toBe(
-      'Bug 42: Fix it\n\nAI cost for this task: €1.00 (Claude €1.00, Copilot €0.00) · recorded by Shellie',
+      'Bug 42: Fix it\n\nRecorded by Shellie',
     );
   });
 });

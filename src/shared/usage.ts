@@ -5,7 +5,7 @@ import { defaultTerminals, DefaultTerminalsSchema } from './terminals';
 import { THEMES } from './theme';
 import { WorkHoursSchema } from './time';
 
-export type UsageTool = 'claude-code' | 'copilot-cli';
+export type UsageTool = 'claude-code' | 'copilot-cli' | 'opencode';
 
 /** One AI request as captured from telemetry, before pricing. */
 export type UsageEvent = {
@@ -20,6 +20,8 @@ export type UsageEvent = {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   fast: boolean;
+  /** Set on Shellie's own `claude -p` run for the PR description. */
+  source?: 'pr-summary';
 };
 
 export type RateSnapshot = {
@@ -64,12 +66,6 @@ const OnboardingSchema = z.object({
 export const AppSettingsSchema = z.object({
   version: z.literal(1),
   receiverPort: z.number().int().min(1024).max(65535),
-  hourlySync: z.boolean(),
-  /**
-   * Write AI cost to Azure DevOps work items (the Custom.AI* fields and a usage comment) and into draft PR
-   * descriptions. Off by default: cost is still captured and priced locally (Usage tab, CSV export).
-   */
-  writeCostToAdo: z.boolean().default(false),
   /** Write booked time to Azure DevOps (Completed and Remaining Work) at Finish. Off by default. */
   writeTimeToAdo: z.boolean().default(false),
   /** Minutes without input before a terminal stops counting as active. */
@@ -86,6 +82,8 @@ export const AppSettingsSchema = z.object({
   theme: z.enum(THEMES).default('system'),
   /** The developer's monthly Claude budget (Home's Claude budget band). */
   claudeBudget: BudgetSettingsSchema.default(defaultBudgetSettings()),
+  /** The developer's monthly Copilot budget (Copilot CLI and OpenCode through GitHub Copilot). */
+  copilotBudget: BudgetSettingsSchema.default(defaultBudgetSettings()),
   /** Send anonymous usage and error data (see docs/telemetry.md). */
   sendTelemetry: z.boolean().default(true),
   /** Which editor Open in editor uses, globally and per repo. */
@@ -113,7 +111,7 @@ export const AppSettingsSchema = z.object({
 export type AppSettings = z.infer<typeof AppSettingsSchema>;
 /** The required fields; every other setting takes its schema default. */
 export const defaultSettings = (): AppSettings =>
-  AppSettingsSchema.parse({ version: 1, receiverPort: 4319, hourlySync: true });
+  AppSettingsSchema.parse({ version: 1, receiverPort: 4319 });
 
 export type SessionSummary = {
   sessionId: string;
@@ -166,24 +164,4 @@ export type ReceiverStatus = {
   port: number;
   error: string | null;
   copilot: { records: number; unreadable: number };
-};
-
-export const AI_FIELDS = [
-  'Custom.AICost',
-  'Custom.AICostClaude',
-  'Custom.AICostCopilot',
-  'Custom.AITokens',
-] as const;
-export type AiField = (typeof AI_FIELDS)[number];
-export type FieldsStatus = {
-  connectionId: string;
-  types: { type: string; present: AiField[]; missing: AiField[] }[];
-};
-
-export type SyncResult = {
-  ok: boolean;
-  fieldsWritten: AiField[];
-  fieldsMissing: AiField[];
-  commentPosted: boolean;
-  error: string | null;
 };

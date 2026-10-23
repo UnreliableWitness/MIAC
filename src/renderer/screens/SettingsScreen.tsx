@@ -14,6 +14,7 @@ import { EditorSection } from '../components/EditorSection';
 import { AgentsSection } from '../components/AgentsSection';
 import { TimeSection } from '../components/TimeSection';
 import { BudgetSection } from '../components/BudgetSection';
+import { CostServerSection } from '../components/CostServerSection';
 import { MindMark, PageHeader } from '../components/ui';
 import { useStore } from '../store';
 
@@ -430,7 +431,8 @@ export function SettingsScreen() {
           <a href="#ado">Connections</a>
           <a href="#cost">AI cost and invoicing</a>
           <a href="#time">Time tracking</a>
-          <a href="#claude-budget">Claude budget</a>
+          <a href="#budgets">Budgets</a>
+          <a href="#cost-server">Cost server</a>
           <a href="#appearance">Appearance</a>
           <a href="#terminals">Agents and terminals</a>
         </nav>
@@ -462,6 +464,7 @@ export function SettingsScreen() {
           <CostSection />
           <TimeSection />
           <BudgetSection />
+          <CostServerSection />
           <AgentsSection />
           <AppearanceSection />
           <AboutSection />

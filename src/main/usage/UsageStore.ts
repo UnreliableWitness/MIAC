@@ -15,7 +15,7 @@ import {
 import { modelLabeler, priceEvent, round6 } from '../pricing/RateTable';
 import { JsonFileStore } from './JsonFileStore';
 
-const TOOLS: UsageTool[] = ['claude-code', 'copilot-cli'];
+const TOOLS: UsageTool[] = ['claude-code', 'copilot-cli', 'opencode'];
 const BillableSchema = z.record(z.string(), z.array(z.string()));
 type Billable = z.infer<typeof BillableSchema>;
 
@@ -107,6 +107,11 @@ export class UsageStore extends EventEmitter<{ changed: [taskId: string] }> {
     return [...(this.byTask.get(taskId) ?? [])].sort((a, b) =>
       a.at.localeCompare(b.at),
     );
+  }
+
+  /** Every loaded record, across tasks. */
+  allRecords(): UsageRecord[] {
+    return [...this.byId.values()];
   }
 
   isBillable(taskId: string, sessionId: string): boolean {

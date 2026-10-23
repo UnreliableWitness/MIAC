@@ -21,7 +21,6 @@ import {
 } from '../components/PrDescriptionField';
 import { eur, plural } from '../format';
 import { useTaskUsage } from '../hooks/useTaskUsage';
-import { useWriteCostToAdo } from '../hooks/useWriteCostToAdo';
 import { TimeSpentSection } from '../components/TimeSpentSection';
 import { useEstimateHours } from '../hooks/useEstimateHours';
 import { useTaskTime } from '../hooks/useTaskTime';
@@ -153,7 +152,6 @@ export function FinishScreen({ taskId }: { taskId: string }) {
       : null;
   const ready = task?.status === 'ready';
   const usage = useTaskUsage(ready ? taskId : null);
-  const writeCost = useWriteCostToAdo();
   const {
     time,
     error: timeError,
@@ -176,11 +174,6 @@ export function FinishScreen({ taskId }: { taskId: string }) {
     chosenTime === undefined ? (frozenTime ?? null) : chosenTime;
   // Finish waits for the time (or an explicit "without booking"), and for a valid entry.
   const timeBlocks = !time || bookValue === null;
-  const canSync =
-    Boolean(task?.workItem) && Boolean(connectionId) && writeCost === true;
-  // Untouched (null) defaults to on, except when no usage was captured.
-  const [syncChoice, setSyncUsage] = useState<boolean | null>(null);
-  const syncUsage = syncChoice ?? !(usage && usage.sessions.length === 0);
 
   // The workspaces Finish would open a PR for: each gets a "what changed and why" (#111).
   const multiTask = task
@@ -257,7 +250,6 @@ export function FinishScreen({ taskId }: { taskId: string }) {
     return (
       <PrDescriptionField
         draft={d}
-        costLine={writeCost === true}
         onChange={(text) => setDraft(workspaceId, { ...d, text })}
         onRewrite={() => writeDraft(workspaceId)}
         onSkip={() => skipDraft(workspaceId)}
@@ -381,7 +373,6 @@ export function FinishScreen({ taskId }: { taskId: string }) {
           closeTerminals: closeTerminals && nTerm > 0,
           removeWorktree,
           deleteBranch,
-          syncUsage: canSync && syncUsage,
           ...options,
           ...(Object.keys(prSummaries).length > 0 ? { prSummaries } : {}),
           ...(!withoutTime && time && bookValue !== null
@@ -733,27 +724,17 @@ export function FinishScreen({ taskId }: { taskId: string }) {
           {usage && usage.sessions.length > 0 ? (
             <div>
               <div className="amount-line">{`${eur(usage.billable.costEur)} billable`}</div>
-              {(['claude-code', 'copilot-cli'] as const)
+              {(['claude-code', 'copilot-cli', 'opencode'] as const)
                 .filter((t) => usage.byTool[t].sessions > 0)
                 .map((t) => (
                   <div
                     key={t}
                     className="small muted"
-                  >{`${TOOL_LABEL[t]} ${eur(usage.byTool[t].costEur)} over ${plural(usage.byTool[t].sessions, 'session')}`}</div>
+                  >{`${t === 'opencode' ? 'OpenCode' : TOOL_LABEL[t]} ${eur(usage.byTool[t].costEur)} over ${plural(usage.byTool[t].sessions, 'session')}`}</div>
                 ))}
             </div>
           ) : (
             <div className="muted">No AI usage captured for this task.</div>
-          )}
-          {canSync && (
-            <label className="checkbox">
-              <input
-                type="checkbox"
-                checked={syncUsage}
-                onChange={(e) => setSyncUsage(e.target.checked)}
-              />
-              Write final totals to the work item and add a usage comment
-            </label>
           )}
         </div>
 

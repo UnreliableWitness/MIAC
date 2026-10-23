@@ -34,6 +34,8 @@ import { RepoRegistry } from '../services/RepoRegistry';
 import { SetupRunner } from '../services/SetupRunner';
 import { TaskStore } from '../services/TaskStore';
 import { NoopTelemetry, type Telemetry } from '../telemetry/AppInsightsClient';
+import { CostServerError } from '../costServer/client';
+import { CostServerStore } from '../costServer/CostServerStore';
 import { TerminalManager } from '../services/TerminalManager';
 import { DocsWatcher } from '../docs/DocsWatcher';
 import { TimeStore } from '../time/TimeStore';
@@ -138,8 +140,6 @@ async function harness(
   connDirs.push(usageDir);
   const settings = new SettingsStore(path.join(usageDir, 'settings.json'));
   await settings.load();
-  // Most tests cover the write-back; the default (off) is tested on its own.
-  await settings.save({ ...settings.get(), writeCostToAdo: true });
   const usage = new UsageStore(usageDir, () => OFFICIAL_RATES);
   await usage.load();
   const time = new TimeStore(path.join(usageDir, 'time.json'));
@@ -167,7 +167,6 @@ async function harness(
       return receiverStatus;
     },
   };
-  const hourly: (() => void)[] = [];
   const broadcasts: Broadcast[] = [];
   const waiters: ((e: Events['setup']) => void)[] = [];
   const services: Services = {
@@ -192,9 +191,6 @@ async function harness(
     receiver,
     copilot: { stats: { records: 0, unreadable: 0 }, poll: async () => {} },
     usageDir,
-    onHourly: (fn) => {
-      hourly.push(fn);
-    },
     finishFlushMs: 0,
     appVersion: '9.9.9',
     ...over,
@@ -267,10 +263,169 @@ async function harness(
     usage,
     settings,
     receiverStarts,
-    hourly,
     usageDir,
   };
 }
+
+describe('handlers: cost server', () => {
+  const budgets = {
+    claude: { monthlyEur: 200, monthStartDay: 1 },
+    copilot: null,
+  };
+  async function costServer(hello: () => Promise<unknown>) {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'shellie-cost-'));
+    connDirs.push(dir);
+    const store = new CostServerStore(
+      path.join(dir, 'cost-server.json'),
+      fakeCrypto(),
+    );
+    await store.load();
+    const sender = {
+      onConnected: vi.fn(async () => {}),
+      onDisconnected: vi.fn(),
+      status: () => {
+        const c = store.get();
+        return {
+          connected: c !== null,
+          url: c?.url ?? null,
+          email: c?.email ?? null,
+          lastSentAt: null,
+          waiting: 0,
+          error: null,
+          budgets: store.budgets,
+        };
+      },
+    };
+    const helloFn = vi.fn(hello);
+    const order: string[] = [];
+    sender.onConnected.mockImplementation(async () => {
+      order.push('sender');
+    });
+    const ledgerPass = vi.fn(async () => {
+      order.push(`ledger ${store.get()?.email ?? 'none'}`);
+    });
+    const hx = await harness(undefined, {
+      costServer: { store, sender, hello: helloFn as never, ledgerPass },
+    });
+    return { hx, store, sender, hello: helloFn, order };
+  }
+  const conn = {
+    url: 'https://cost.example',
+    email: 'dev@example.com',
+    key: 'sk-company',
+  };
+
+  it('connect saves only after hello succeeds', async () => {
+    const failing = await costServer(() =>
+      Promise.reject(new CostServerError('auth', 401)),
+    );
+    const refused = await failing.hx.h['costServer:connect'](conn);
+    expect(refused.error).toBe('The server refused the key.');
+    expect(refused.connected).toBe(false);
+    expect(failing.store.get()).toBeNull();
+    expect(failing.sender.onConnected).not.toHaveBeenCalled();
+
+    const cs = await costServer(async () => ({
+      email: conn.email,
+      budgets,
+    }));
+    const st = await cs.hx.h['costServer:connect'](conn);
+    expect(cs.hello).toHaveBeenCalledWith(conn);
+    expect(cs.store.get()).toEqual(conn);
+    expect(cs.store.budgets).toEqual(budgets);
+    expect(cs.sender.onConnected).toHaveBeenCalledTimes(1);
+    // The ledger stamps the saved email on its records before the sender starts over.
+    expect(cs.order).toEqual([`ledger ${conn.email}`, 'sender']);
+    expect(st).toMatchObject({
+      connected: true,
+      email: conn.email,
+      error: null,
+    });
+    expect(JSON.stringify(st)).not.toContain(conn.key);
+    expect(cs.hx.broadcasts.map((b) => b.event)).toContain(
+      'costServer:changed',
+    );
+    expect(await cs.hx.h['costServer:status']()).toMatchObject({
+      connected: true,
+    });
+  });
+
+  it('connect with an empty key reuses the saved key for the same server', async () => {
+    const cs = await costServer(async () => ({ email: conn.email, budgets }));
+    expect(
+      (await cs.hx.h['costServer:connect']({ ...conn, key: '' })).error,
+    ).toBe('Enter the company key.');
+    await cs.hx.h['costServer:connect'](conn);
+    const st = await cs.hx.h['costServer:connect']({
+      ...conn,
+      email: 'other@example.com',
+      key: '',
+    });
+    expect(st.error).toBeNull();
+    expect(cs.hello).toHaveBeenLastCalledWith({
+      ...conn,
+      email: 'other@example.com',
+    });
+    expect(cs.store.get()).toEqual({ ...conn, email: 'other@example.com' });
+    // The saved key never goes to another address.
+    const moved = await cs.hx.h['costServer:connect']({
+      ...conn,
+      url: 'https://elsewhere.example',
+      key: '',
+    });
+    expect(moved.error).toBe('Enter the company key.');
+    expect(cs.hello).toHaveBeenCalledTimes(2);
+  });
+
+  it('a failed reconnect shows its error without saying the old connection is fine', async () => {
+    const cs = await costServer(async () => ({ email: conn.email, budgets }));
+    await cs.hx.h['costServer:connect'](conn);
+    cs.hello.mockRejectedValueOnce(new CostServerError('network'));
+    const st = await cs.hx.h['costServer:connect']({
+      ...conn,
+      url: 'https://new.example',
+    });
+    expect(st).toMatchObject({
+      connected: false,
+      error: "Can't reach the server.",
+    });
+    // The old connection stays saved.
+    expect(cs.store.get()).toEqual(conn);
+  });
+
+  it('connect refuses plain http to a remote host', async () => {
+    const cs = await costServer(async () => ({ email: conn.email, budgets }));
+    const st = await cs.hx.h['costServer:connect']({
+      ...conn,
+      url: 'http://cost.example',
+    });
+    expect(st.error).toBe('Use an https:// address.');
+    expect(cs.hello).not.toHaveBeenCalled();
+    expect(cs.store.get()).toBeNull();
+    const net = await costServer(() =>
+      Promise.reject(new CostServerError('network')),
+    );
+    expect((await net.hx.h['costServer:connect'](conn)).error).toBe(
+      "Can't reach the server.",
+    );
+    const other = await costServer(() =>
+      Promise.reject(new CostServerError('rejected', 404)),
+    );
+    expect((await other.hx.h['costServer:connect'](conn)).error).toBe(
+      "That address isn't a Shellie cost server.",
+    );
+  });
+
+  it('disconnect clears the key and stops sending', async () => {
+    const cs = await costServer(async () => ({ email: conn.email, budgets }));
+    await cs.hx.h['costServer:connect'](conn);
+    const st = await cs.hx.h['costServer:disconnect']();
+    expect(cs.store.get()).toBeNull();
+    expect(cs.store.budgets).toBeNull();
+    expect(cs.sender.onDisconnected).toHaveBeenCalledTimes(1);
+    expect(st.connected).toBe(false);
+  });
+});
 
 describe('handlers: attention', () => {
   it('attention handlers pass the view to main and return the snapshot', async () => {
@@ -742,7 +897,6 @@ describe('handlers: missing worktree folder', () => {
       closeTerminals: true,
       removeWorktree: true,
       deleteBranch: true,
-      syncUsage: false,
     });
     const [view] = await h['tasks:list']();
     expect(view.status).toBe('done');
@@ -763,7 +917,6 @@ describe('handlers: finish', () => {
       closeTerminals: true,
       removeWorktree: true,
       deleteBranch: true,
-      syncUsage: false,
     });
     expect(store.state.tasks[0].status).toBe('done');
     expect(existsSync(wt)).toBe(false);
@@ -797,7 +950,6 @@ describe('handlers: finish', () => {
       closeTerminals: true,
       removeWorktree: true,
       deleteBranch: true,
-      syncUsage: false,
     });
     return { ...hx, t, event, remove, retryAll: () => retryAll!() };
   };
@@ -888,7 +1040,6 @@ describe('handlers: finish', () => {
       closeTerminals: true,
       removeWorktree: true,
       deleteBranch: true,
-      syncUsage: false,
     });
     expect(order).toEqual(['terminals exited', 'remove']);
   });
@@ -917,7 +1068,6 @@ describe('handlers: finish', () => {
       closeTerminals: false,
       removeWorktree: true,
       deleteBranch: true,
-      syncUsage: false,
     });
     expect(order).toEqual(['terminals exited', 'remove']);
     expect(terminals.runningCount(t.id)).toBe(0);
@@ -935,7 +1085,6 @@ describe('handlers: finish', () => {
       closeTerminals: false,
       removeWorktree: false,
       deleteBranch: false,
-      syncUsage: false,
     });
     expect(kill).not.toHaveBeenCalled();
     expectTerminalsKept(store, terminals, t.id, 1);
@@ -988,7 +1137,6 @@ describe('handlers: finish', () => {
       closeTerminals: true,
       removeWorktree: true,
       deleteBranch: true,
-      syncUsage: false,
     });
     expect(order).toEqual(['remove:false']);
   });
@@ -1003,7 +1151,6 @@ describe('handlers: finish', () => {
         closeTerminals: true,
         removeWorktree: false,
         deleteBranch: true,
-        syncUsage: false,
       }),
     ).rejects.toThrow();
     expect(existsSync(t.worktreePath)).toBe(true);
@@ -1025,7 +1172,6 @@ describe('handlers: finish', () => {
       closeTerminals: true,
       removeWorktree: true,
       deleteBranch: true,
-      syncUsage: false,
     });
     const [view] = await h['tasks:list']();
     expect(view.status).toBe('done');
@@ -1049,7 +1195,6 @@ describe('handlers: finish', () => {
       closeTerminals: true,
       removeWorktree: true,
       deleteBranch: true,
-      syncUsage: false,
     });
     const [view] = await h['tasks:list']();
     expect(view.summary).toMatchObject({
@@ -1076,7 +1221,6 @@ describe('handlers: finish', () => {
       closeTerminals: true,
       removeWorktree: true,
       deleteBranch: false,
-      syncUsage: false,
     });
     const [view] = await h['tasks:list']();
     expect(view.summary).toMatchObject({
@@ -1097,7 +1241,6 @@ describe('handlers: finish', () => {
       closeTerminals: true,
       removeWorktree: true,
       deleteBranch: true,
-      syncUsage: false,
     });
     const [view] = await h['tasks:list']();
     expect(view.status).toBe('done');
@@ -1117,7 +1260,6 @@ describe('handlers: finish', () => {
         closeTerminals: true,
         removeWorktree: false,
         deleteBranch: true,
-        syncUsage: false,
       }),
     ).rejects.toThrow(/boom/);
     expect(store.state.tasks[0].status).toBe('ready');
@@ -1164,7 +1306,6 @@ describe('handlers: concurrency guards', () => {
         closeTerminals: true,
         removeWorktree: true,
         deleteBranch: true,
-        syncUsage: false,
       }),
     ).rejects.toThrow(/setting-up/);
     await done;
@@ -1612,7 +1753,6 @@ describe('handlers: reopen a finished task', () => {
     deleteBranch: boolean;
   }) => ({
     closeTerminals: true,
-    syncUsage: false,
     ...o,
   });
   const recording = () => {
@@ -2622,12 +2762,7 @@ async function linkedTask(hx: Awaited<ReturnType<typeof harness>>) {
       value: [
         {
           name: 'User Story',
-          fields: [
-            { referenceName: 'Custom.AICost' },
-            { referenceName: 'Custom.AICostClaude' },
-            { referenceName: 'Custom.AICostCopilot' },
-            { referenceName: 'Custom.AITokens' },
-          ],
+          fields: [{ referenceName: 'System.Title' }],
         },
       ],
     },
@@ -3336,6 +3471,19 @@ describe('handlers: usage', () => {
     );
   });
 
+  it('gets the budget view for the asked vendor and month', async () => {
+    const view = vi.fn((vendor: string, offset: number) => ({
+      vendor,
+      offset,
+    }));
+    const hx = await harness(undefined, { budget: { view } as never });
+    expect(await hx.h['budget:get']('copilot', -1)).toEqual({
+      vendor: 'copilot',
+      offset: -1,
+    });
+    expect(view).toHaveBeenCalledWith('copilot', -1);
+  });
+
   it('reports the app version', async () => {
     const hx = await harness();
     expect(await hx.h['app:info']()).toEqual({
@@ -3347,7 +3495,7 @@ describe('handlers: usage', () => {
   it('saves settings, moves the receiver and reports a busy port', async () => {
     const hx = await harness();
     const s = await hx.h['settings:get']();
-    await hx.h['settings:save']({ ...s, hourlySync: false });
+    await hx.h['settings:save']({ ...s, showSplash: !s.showSplash });
     expect(hx.broadcasts).toContainEqual({
       event: 'budget:changed',
       payload: {},
@@ -3384,136 +3532,13 @@ describe('handlers: usage', () => {
     expect(rates).toEqual(OFFICIAL_RATES);
   });
 
-  it('finish writes the fields and the comment, then the task is done', async () => {
+  it('Finish writes no AI cost fields and posts no usage comment', async () => {
     const hx = await harness();
     const { t } = await linkedTask(hx);
     await hx.h['tasks:finish'](t.id, {
       closeTerminals: true,
       removeWorktree: true,
       deleteBranch: true,
-      syncUsage: true,
-    });
-    const task = hx.store.state.tasks[0];
-    expect(task).toMatchObject({
-      status: 'done',
-      usageCommentId: 501,
-      usageSyncError: null,
-    });
-    const patch = hx.server.requests.find((r) => r.method === 'PATCH');
-    expect(JSON.parse(patch!.body)).toContainEqual({
-      op: 'add',
-      path: '/fields/Custom.AICost',
-      value: 3.68,
-    });
-    const comment = hx.server.requests.find(
-      (r) => r.method === 'POST' && r.path.includes('/comments'),
-    );
-    expect(JSON.parse(comment!.body).text).toContain(
-      'Branch feature/48231-show-estimated-delivery-date',
-    );
-  });
-
-  it('finish still completes when Azure DevOps rejects the write', async () => {
-    const hx = await harness();
-    const { t } = await linkedTask(hx);
-    hx.server.route('PATCH', '/unreliablewitness/_apis/wit/workitems/48231', {
-      status: 403,
-      body: {},
-    });
-    await hx.h['tasks:finish'](t.id, {
-      closeTerminals: true,
-      removeWorktree: true,
-      deleteBranch: true,
-      syncUsage: true,
-    });
-    expect(hx.store.state.tasks[0]).toMatchObject({
-      status: 'done',
-      usageSyncError:
-        'The token cannot write work items (needs Work Items: Read & write)',
-    });
-    expect(
-      hx.broadcasts.some(
-        (b) =>
-          b.event === 'notice' &&
-          String((b.payload as { message: string }).message).includes(
-            'could not be written',
-          ),
-      ),
-    ).toBe(true);
-  });
-
-  it('sync now on a done task retries a failed finish write and posts the comment once', async () => {
-    const hx = await harness();
-    const { t } = await linkedTask(hx);
-    hx.server.route('PATCH', '/unreliablewitness/_apis/wit/workitems/48231', {
-      status: 403,
-      body: {},
-    });
-    await hx.h['tasks:finish'](t.id, {
-      closeTerminals: true,
-      removeWorktree: true,
-      deleteBranch: true,
-      syncUsage: true,
-    });
-    expect(hx.store.state.tasks[0]).toMatchObject({
-      status: 'done',
-      usageCommentId: null,
-    });
-    expect(hx.store.state.tasks[0].usageSyncError).toBeTruthy();
-    hx.server.route('PATCH', '/unreliablewitness/_apis/wit/workitems/48231', {
-      body: { id: 48231 },
-    });
-    expect(await hx.h['usage:sync'](t.id)).toMatchObject({
-      ok: true,
-      commentPosted: true,
-      fieldsWritten: [
-        'Custom.AICost',
-        'Custom.AICostClaude',
-        'Custom.AICostCopilot',
-        'Custom.AITokens',
-      ],
-    });
-    expect(hx.store.state.tasks[0]).toMatchObject({
-      usageCommentId: 501,
-      usageSyncError: null,
-    });
-    expect(await hx.h['usage:sync'](t.id)).toMatchObject({
-      commentPosted: false,
-    });
-    expect(
-      hx.server.requests.filter((r) => r.path.includes('/comments')),
-    ).toHaveLength(1);
-  });
-
-  it('logs a failing hourly sync instead of leaving an unhandled rejection', async () => {
-    const hx = await harness();
-    await linkedTask(hx);
-    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
-    vi.spyOn(hx.usage, 'changedSince').mockImplementation(() => {
-      throw new Error('index broken');
-    });
-    hx.hourly[0]();
-    await new Promise((r) => setTimeout(r, 20));
-    expect(errors).toHaveBeenCalledWith(
-      '[usage] hourly sync failed',
-      expect.any(Error),
-    );
-    errors.mockRestore();
-  });
-
-  it('writes nothing to Azure DevOps when cost writing is off (the default)', async () => {
-    const hx = await harness();
-    await hx.settings.save({ ...hx.settings.get(), writeCostToAdo: false });
-    const { t } = await linkedTask(hx);
-    await expect(hx.h['usage:sync'](t.id)).rejects.toThrow(
-      'Writing AI cost to Azure DevOps is off',
-    );
-    hx.hourly[0]();
-    await hx.h['tasks:finish'](t.id, {
-      closeTerminals: true,
-      removeWorktree: true,
-      deleteBranch: true,
-      syncUsage: true,
     });
     await new Promise((r) => setTimeout(r, 200));
     expect(
@@ -3525,48 +3550,6 @@ describe('handlers: usage', () => {
       status: 'done',
       usageSyncedAt: null,
       usageCommentId: null,
-    });
-  });
-
-  it('sync now and the hourly sync write fields without a comment', async () => {
-    const hx = await harness();
-    const { t, c } = await linkedTask(hx);
-    expect(await hx.h['usage:sync'](t.id)).toMatchObject({
-      ok: true,
-      commentPosted: false,
-      fieldsWritten: [
-        'Custom.AICost',
-        'Custom.AICostClaude',
-        'Custom.AICostCopilot',
-        'Custom.AITokens',
-      ],
-    });
-    expect(hx.hourly).toHaveLength(1);
-    await new Promise((r) => setTimeout(r, 5)); // changedSince compares ISO times; keep them apart
-    await hx.usage.add({
-      id: 'req-2',
-      taskId: t.id,
-      tool: 'claude-code',
-      sessionId: 's1',
-      model: 'claude-opus-5-5',
-      at: '2026-10-14T11:00:00.000Z',
-      inputTokens: 10,
-      outputTokens: 0,
-      cacheReadTokens: 0,
-      cacheWriteTokens: 0,
-      fast: false,
-    });
-    hx.hourly[0]();
-    await new Promise((r) => setTimeout(r, 200));
-    expect(hx.server.requests.filter((r) => r.method === 'PATCH')).toHaveLength(
-      2,
-    );
-    expect(hx.server.requests.some((r) => r.path.includes('/comments'))).toBe(
-      false,
-    );
-    expect((await hx.h['usage:fieldsStatus'](c.id)).types[0]).toMatchObject({
-      type: 'User Story',
-      missing: [],
     });
   });
 });
@@ -3774,7 +3757,6 @@ describe('handlers: finish with a pull request', () => {
     closeTerminals: true,
     removeWorktree: true,
     deleteBranch: true,
-    syncUsage: false,
     createPullRequest: true,
   };
 
@@ -3862,8 +3844,7 @@ describe('handlers: finish with a pull request', () => {
     );
     const description = hx.create.mock.calls[0][2].description;
     expect(description).toContain('Add the feature');
-    expect(description).toContain('recorded by Shellie');
-    expect(description).toContain('AI cost for this task: ');
+    expect(description).not.toContain('AI cost');
     expect(hx.opened).toEqual([PR_URL]);
     const [view] = await hx.h['tasks:list']();
     expect(view.status).toBe('done');
@@ -3877,16 +3858,6 @@ describe('handlers: finish with a pull request', () => {
       isDraft: true,
     });
     expect(existsSync(hx.t.worktreePath)).toBe(false);
-  });
-
-  it('leaves the AI cost out of the PR description when cost writing is off', async () => {
-    const hx = await prHarness();
-    await hx.settings.save({ ...hx.settings.get(), writeCostToAdo: false });
-    commitFile(hx.t.worktreePath, 'feature.txt', 'a\n', 'Add the feature');
-    await hx.h['tasks:finish'](hx.t.id, finishWithPr);
-    const description = hx.create.mock.calls[0][2].description;
-    expect(description).toContain('Add the feature');
-    expect(description).not.toContain('AI cost');
   });
 
   it('puts the written summary in the PR description above the commits', async () => {
@@ -4061,7 +4032,7 @@ describe('handlers: finish with a pull request', () => {
       expect(calls[0].input).toContain('+a');
       // The run's usage counts for the task.
       expect(calls[0].env?.OTEL_RESOURCE_ATTRIBUTES).toBe(
-        `shellie.task.id=${hx.t.id}`,
+        `shellie.task.id=${hx.t.id},shellie.source=pr-summary`,
       );
       expect(calls[0].env?.CLAUDE_CODE_DISABLE_CLAUDE_MDS).toBe('1');
       expect(events).toContainEqual([
@@ -4385,23 +4356,6 @@ describe('handlers: task-level connection', () => {
     expect(t.connectionId).not.toBeNull();
   });
 
-  it('syncs usage to the task connection even after the repo is unlinked', async () => {
-    const hx = await harness();
-    const { t } = await linkedTask(hx);
-    await hx.h['repos:setConnection'](hx.added.id, null);
-    expect(await hx.h['usage:sync'](t.id)).toMatchObject({ ok: true });
-  });
-
-  it('prefers the task connection over the home repo connection', async () => {
-    const hx = await harness();
-    const { t } = await linkedTask(hx);
-    await hx.store.update((st) => {
-      st.tasks[0].connectionId = 'c2';
-    });
-    // c2 does not exist: the sync target is gone, though the repo still links the real connection.
-    expect(await hx.h['usage:sync'](t.id)).toMatchObject({ ok: false });
-  });
-
   it('refreshes the PR status through the task connection', async () => {
     const hx = await harness();
     const { t } = await linkedTask(hx);
@@ -4436,7 +4390,6 @@ describe('handlers: finish every workspace of a task', () => {
     closeTerminals: true,
     removeWorktree: true,
     deleteBranch: true,
-    syncUsage: false,
   };
 
   /** A task in `webshop` (home, origin Web) plus worktrees on its branch in more repos, joined by a scan. */
@@ -4713,10 +4666,9 @@ describe('handlers: finish every workspace of a task', () => {
       repo: 'api',
       args: { source: hx.t.branch, target: 'main', workItemId: 48231 },
     });
-    // One repo with changes: the cost line is the plain one.
     expect(
       (hx.created[0].args as { description: string }).description,
-    ).toContain('AI cost for this task: ');
+    ).not.toContain('AI cost');
     // The row's own summary heads its PR.
     expect(
       (hx.created[0].args as { description: string }).description,
@@ -4796,32 +4748,6 @@ describe('handlers: finish every workspace of a task', () => {
       auth: hint,
     });
     expect(rows?.find((r) => r.workspaceId === 'home')?.auth).toBeUndefined();
-  });
-
-  it('marks the cost line as the whole task when several repos have changes', async () => {
-    const hx = await multiHarness([{ name: 'api' }]);
-    commitFile(hx.t.worktreePath, 'web.txt', 'a\n', 'Web change');
-    commitFile(hx.repos[0].wt, 'api.txt', 'a\n', 'API change');
-    await hx.h['tasks:finish'](hx.t.id, {
-      ...opts,
-      workspaces: [
-        { workspaceId: 'home', action: 'pr' },
-        { workspaceId: hx.ids[0], action: 'pr' },
-      ],
-    });
-    expect(hx.created.map((x) => x.repo)).toEqual(['Web', 'api']);
-    for (const x of hx.created)
-      expect((x.args as { description: string }).description).toContain(
-        'AI cost (whole task, 2 repos): ',
-      );
-    const task = hx.store.state.tasks[0];
-    expect(task.pullRequest).toMatchObject({ repo: 'Web' });
-    expect(ws(hx, hx.ids[0]).pullRequest).toMatchObject({ repo: 'api' });
-    expect(existsSync(hx.t.worktreePath)).toBe(false);
-    expect(existsSync(hx.repos[0].wt)).toBe(false);
-    expect(
-      await new GitClient().branchExists(hx.repos[0].path, hx.t.branch),
-    ).toBe(false);
   });
 
   it('stops before cleanup when one PR fails, and a retry neither pushes again nor duplicates the PR', async () => {
@@ -5178,7 +5104,6 @@ describe('handlers: time booking and write-back', () => {
     closeTerminals: true,
     removeWorktree: true,
     deleteBranch: true,
-    syncUsage: false,
     bookedSeconds,
   });
 
@@ -5998,7 +5923,6 @@ describe('handlers: environment per task', () => {
         closeTerminals: false,
         removeWorktree: false,
         deleteBranch: false,
-        syncUsage: false,
       });
       expect(e.killedIds()).not.toContain(shell);
       expect(e.spawnedIds()).not.toContain(shell);
@@ -6400,7 +6324,6 @@ describe('handlers: environment per task', () => {
       closeTerminals: false,
       removeWorktree: false,
       deleteBranch: false,
-      syncUsage: false,
     });
     expect(e.stored().status).toBe('done');
     expect(e.stored().environment).toBe('development');
@@ -6568,7 +6491,6 @@ describe('handlers: environment per task', () => {
       closeTerminals: true,
       removeWorktree: true,
       deleteBranch: true,
-      syncUsage: false,
       createPullRequest: true,
     });
     expect(create.mock.calls[0][2].description).toContain('Run against UAT');

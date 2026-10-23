@@ -97,6 +97,7 @@ const usage: TaskUsage = {
       tokens: 3_608_000,
     },
     'copilot-cli': { costUsd: 0, costEur: 0, sessions: 1, tokens: 1010 },
+    opencode: { costUsd: 0, costEur: 0, sessions: 0, tokens: 0 },
   },
   byModel: [
     {
@@ -170,19 +171,9 @@ beforeEach(() => {
 });
 
 describe('UsagePanel', () => {
-  it('shows tiles, sessions, unpriced usage, field values and the comment preview', async () => {
+  it('shows tiles, sessions and unpriced usage', async () => {
     installFakeApi({
       'usage:task': () => usage,
-      'usage:fieldsStatus': () => ({
-        connectionId: 'c1',
-        types: [
-          {
-            type: 'Issue',
-            present: ['Custom.AICost', 'Custom.AITokens'],
-            missing: ['Custom.AICostClaude', 'Custom.AICostCopilot'],
-          },
-        ],
-      }),
     });
     render(<UsagePanel taskId="t1" />);
     expect(await screen.findByRole('img', { name: /Billable/ })).toBeTruthy();
@@ -202,13 +193,9 @@ describe('UsagePanel', () => {
         /1 request uses a model that is not in Shellie's official price list yet/,
       ),
     ).toBeTruthy();
-    expect(screen.getByText('3,609,010')).toBeTruthy();
-    expect(await screen.findAllByText('not on Issue')).toHaveLength(2);
-    expect(
-      screen.getByText(/AI usage for this work item \(Shellie\)/),
-    ).toBeTruthy();
+    expect(screen.queryByText(/work item/i)).toBeNull();
   });
-  it('toggles billable, syncs and exports', async () => {
+  it('toggles billable and exports', async () => {
     const createObjectURL = vi.fn(() => 'blob:x');
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(
       () => undefined,
@@ -216,19 +203,11 @@ describe('UsagePanel', () => {
     Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() });
     const { calls } = installFakeApi({
       'usage:task': () => usage,
-      'usage:fieldsStatus': () => ({ connectionId: 'c1', types: [] }),
       'usage:setBillable': () => ({
         ...usage,
         sessions: usage.sessions.map((s) =>
           s.sessionId === 's1' ? { ...s, billable: false } : s,
         ),
-      }),
-      'usage:sync': () => ({
-        ok: false,
-        fieldsWritten: [],
-        fieldsMissing: [],
-        commentPosted: false,
-        error: 'boom',
       }),
       'usage:exportCsv': () => 'time\r\n',
     });
@@ -240,18 +219,10 @@ describe('UsagePanel', () => {
       's1',
       false,
     ]);
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Write to work item' }),
-    );
-    await waitFor(() =>
-      expect(
-        useStore.getState().notices.some((n) => n.message.includes('boom')),
-      ).toBe(true),
-    );
     await userEvent.click(screen.getByRole('button', { name: 'CSV' }));
     await waitFor(() => expect(createObjectURL).toHaveBeenCalled());
   });
-  it('explains an empty task and a task without a connection', async () => {
+  it('explains an empty task', async () => {
     useStore.setState({
       repos: [
         {
@@ -276,57 +247,18 @@ describe('UsagePanel', () => {
       await screen.findByText(/No AI usage captured for this task yet/),
     ).toBeTruthy();
     expect(
-      screen.getByRole('button', { name: 'Write to work item' }),
-    ).toHaveProperty('disabled', true);
-    expect(
-      screen.getByText(/Link the repository to an Azure DevOps connection/),
-    ).toBeTruthy();
+      screen.queryByRole('button', { name: 'Write to work item' }),
+    ).toBeNull();
   });
-  it('says cost writing is off and offers only the CSV', async () => {
-    const { calls } = installFakeApi({
-      'usage:task': () => usage,
-      'settings:get': () => ({
-        version: 1,
-        receiverPort: 4319,
-        hourlySync: true,
-        writeTimeToAdo: false,
-        idleMinutes: 5,
-        workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
-        writeCostToAdo: false,
-        showSplash: true,
-        notifyOnDone: true,
-        theme: 'system',
-        claudeBudget: {
-          monthlyEur: null,
-          monthStartDay: 1,
-          alerts: { at80: true, forecastOver: true, at100: true },
-        },
-        sendTelemetry: true,
-        editor: { default: null, repos: {} },
-        secrets: { productionMinutes: 60 },
-        onboarding: {
-          dismissedAt: null,
-          agentsCheckedAt: null,
-          tracker: null,
-          migrated: false,
-        },
-        defaultTerminals: {
-          claude: true,
-          copilot: false,
-          opencode: false,
-          shell: true,
-        },
-      }),
-    });
+  it('offers the CSV export and no write to the work item', async () => {
+    installFakeApi({ 'usage:task': () => usage });
     render(<UsagePanel taskId="t1" />);
     expect(
-      await screen.findByText(/Writing AI cost to Azure DevOps is off/),
+      await screen.findByRole('button', { name: 'CSV' }),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: 'Write to work item' }),
     ).toBeNull();
-    expect(screen.getByRole('button', { name: 'CSV' })).toBeInTheDocument();
-    expect(calls.some((c) => c.channel === 'usage:fieldsStatus')).toBe(false);
   });
 
   it('says the task was not found', () => {
@@ -392,6 +324,50 @@ describe('UsagePanel', () => {
     ]);
     const ring = screen.getByRole('img', { name: /Billable/ });
     expect(ring.querySelectorAll('[data-part="segment"]')).toHaveLength(1);
+  });
+  it('shows OpenCode usage in its own colour and name', async () => {
+    const now = Date.parse('2026-10-14T10:07:00.000Z');
+    installFakeApi({
+      'usage:task': () => ({
+        ...usage,
+        sessions: [
+          {
+            ...usage.sessions[0],
+            sessionId: 'o1',
+            tool: 'opencode',
+            models: ['claude-sonnet-5-5'],
+          },
+        ],
+        byModel: [
+          {
+            ...usage.byModel[0],
+            tool: 'opencode',
+            model: 'claude-sonnet-5-5',
+            label: 'Claude Sonnet 5.5',
+          },
+        ],
+        recent: [
+          { at: '2026-10-14T09:20:00.000Z', tool: 'opencode', costEur: 0.5 },
+        ],
+      }),
+    });
+    render(<UsagePanel taskId="t1" now={() => now} />);
+    const ring = await screen.findByRole('img', { name: /Billable/ });
+    expect(
+      ring.querySelector('[data-part="segment"]')?.getAttribute('stroke'),
+    ).toBe('var(--chart-opencode)');
+    const legend = screen.getByRole('list', { name: 'Cost per model' });
+    expect(within(legend).getAllByRole('listitem')[0]).toHaveTextContent(
+      'Sonnet 5.5 (OpenCode)',
+    );
+    const row = screen.getByRole('cell', { name: 'OpenCode' });
+    expect(row).toBeTruthy();
+    const used = [...document.querySelectorAll('[data-part="bin"]')].find((b) =>
+      b.getAttribute('title')?.includes(EURO),
+    );
+    expect(used!.querySelector<HTMLElement>('span')!.style.background).toBe(
+      'var(--chart-opencode)',
+    );
   });
   it('labels the hours under the 6 hour chart on bin edges and titles each bin', async () => {
     const now = Date.parse('2026-10-14T10:07:00.000Z');

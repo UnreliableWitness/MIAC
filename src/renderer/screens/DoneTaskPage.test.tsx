@@ -72,6 +72,7 @@ const usage = {
   byTool: {
     'claude-code': { costUsd: 1.5, costEur: 1.38, sessions: 1, tokens: 800 },
     'copilot-cli': { costUsd: 0.5, costEur: 0.46, sessions: 1, tokens: 200 },
+    opencode: { costUsd: 0, costEur: 0, sessions: 0, tokens: 0 },
   },
 };
 
@@ -115,6 +116,25 @@ describe('DoneTaskPage', () => {
     expect(screen.queryByText('Environment', { selector: 'dt' })).toBeNull();
   });
 
+  it('adds OpenCode to the AI cost split when it has a cost', async () => {
+    installFakeApi({
+      'usage:task': () => ({
+        ...usage,
+        billable: { costUsd: 3, costEur: 2.76, tokens: 1100 },
+        byTool: {
+          ...usage.byTool,
+          opencode: { costUsd: 1, costEur: 0.92, sessions: 1, tokens: 100 },
+        },
+      }),
+    });
+    render(<DoneTaskPage task={task} />);
+    await waitFor(() =>
+      expect(fact('AI cost')).toHaveTextContent(
+        '€2.76 (Claude €1.38, Copilot €0.46, OpenCode €0.92)',
+      ),
+    );
+  });
+
   it('shows what was done and how: facts, commits, live state', async () => {
     const { calls } = installFakeApi({
       'usage:task': () => usage,
@@ -146,9 +166,6 @@ describe('DoneTaskPage', () => {
         '€1.84 (Claude €1.38, Copilot €0.46)',
       ),
     );
-    expect(fact('Logged on work item')).toHaveTextContent(
-      'Yes, 15 Oct 2026, 12:02',
-    );
     const commits = screen.getByRole('region', { name: 'Commits' });
     expect(
       within(commits)
@@ -172,18 +189,13 @@ describe('DoneTaskPage', () => {
 
   it('without a summary, says so instead of the commit and change facts', async () => {
     installFakeApi({ 'workItems:get': () => null });
-    render(
-      <DoneTaskPage
-        task={{ ...task, usageCommentId: null, usageSyncError: 'offline' }}
-      />,
-    );
+    render(<DoneTaskPage task={task} />);
     expect(
       screen.getByText('Finished before Shellie recorded summaries.'),
     ).toBeInTheDocument();
     expect(screen.queryByText('Changes', { selector: 'dt' })).toBeNull();
     expect(screen.queryByRole('region', { name: 'Commits' })).toBeNull();
     expect(fact('Branch')).toHaveTextContent(task.branch);
-    expect(fact('Logged on work item')).toHaveTextContent('No: offline');
     expect(
       await screen.findByRole('region', { name: 'AI usage' }),
     ).toBeInTheDocument();
@@ -313,7 +325,6 @@ describe('DoneTaskPage', () => {
       />,
     );
     expect(fact('Branch')).toHaveTextContent('local only');
-    expect(fact('Logged on work item')).toHaveTextContent('No work item');
   });
 
   it('says commits are unavailable when the branch start was not found', () => {

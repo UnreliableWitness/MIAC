@@ -21,6 +21,7 @@ export const emptyUsage = (taskId: string): TaskUsage => ({
   byTool: {
     'claude-code': { costUsd: 0, costEur: 0, sessions: 0, tokens: 0 },
     'copilot-cli': { costUsd: 0, costEur: 0, sessions: 0, tokens: 0 },
+    opencode: { costUsd: 0, costEur: 0, sessions: 0, tokens: 0 },
   },
 });
 
@@ -36,7 +37,7 @@ export const emptyTime = (taskId: string): TaskTime => ({
 });
 
 const defaults: FakeHandlers = {
-  'budget:get': (monthOffset) => ({
+  'budget:get': (_vendor, monthOffset) => ({
     monthOffset,
     startDay: '2026-10-01',
     endDay: '2026-10-31',
@@ -60,6 +61,15 @@ const defaults: FakeHandlers = {
     alertsDue: [],
   }),
   'home:get': () => null,
+  'costServer:status': () => ({
+    connected: false,
+    url: null,
+    email: null,
+    lastSentAt: null,
+    waiting: 0,
+    error: null,
+    budgets: null,
+  }),
   // Finish asks for a PR description when a PR is ticked; tests that care give their own.
   'tasks:prSummary': () => ({ text: null, error: 'not in tests' }),
   'home:refresh': () => ({
@@ -72,7 +82,7 @@ const defaults: FakeHandlers = {
     from: '2026-10-12T00:00:00.000Z',
     to: '2026-10-17T09:00:00.000Z',
     costEur: 0,
-    costByTool: { 'claude-code': 0, 'copilot-cli': 0 },
+    costByTool: { 'claude-code': 0, 'copilot-cli': 0, opencode: 0 },
     costByConnection: [],
     activeSeconds: 0,
     agentSeconds: 0,
@@ -97,15 +107,18 @@ const defaults: FakeHandlers = {
   'settings:get': () => ({
     version: 1,
     receiverPort: 4319,
-    hourlySync: true,
     writeTimeToAdo: false,
     idleMinutes: 5,
     workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
-    writeCostToAdo: true,
     showSplash: true,
     notifyOnDone: true,
     theme: 'system',
     claudeBudget: {
+      monthlyEur: null,
+      monthStartDay: 1,
+      alerts: { at80: true, forecastOver: true, at100: true },
+    },
+    copilotBudget: {
       monthlyEur: null,
       monthStartDay: 1,
       alerts: { at80: true, forecastOver: true, at100: true },

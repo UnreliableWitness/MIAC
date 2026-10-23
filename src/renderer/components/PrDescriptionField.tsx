@@ -9,14 +9,11 @@ export type PrDraft = {
 
 export function PrDescriptionField({
   draft,
-  costLine,
   onChange,
   onRewrite,
   onSkip,
 }: {
   draft: PrDraft;
-  /** Whether the description ends with the AI cost line. */
-  costLine: boolean;
   onChange: (text: string) => void;
   onRewrite: () => void;
   onSkip: () => void;
@@ -59,11 +56,7 @@ export function PrDescriptionField({
       {draft.status === 'failed' && (
         <div className="muted small">{`Not written: ${draft.error ?? 'unknown error'}. Type one here, or leave it empty for the commit list only.`}</div>
       )}
-      <div className="muted small">
-        {costLine
-          ? 'The commit list and the AI cost line follow it.'
-          : 'The commit list follows it.'}
-      </div>
+      <div className="muted small">The commit list follows it.</div>
     </div>
   );
 }

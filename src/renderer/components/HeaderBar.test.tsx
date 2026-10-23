@@ -67,6 +67,7 @@ const usage = {
   byTool: {
     'claude-code': { costUsd: 9, costEur: 8.28, sessions: 1, tokens: 90 },
     'copilot-cli': { costUsd: 1, costEur: 0.92, sessions: 1, tokens: 10 },
+    opencode: { costUsd: 0, costEur: 0, sessions: 0, tokens: 0 },
   },
 };
 
@@ -207,7 +208,6 @@ describe('HeaderBar', () => {
     expect(card).toHaveTextContent(
       '/src/webshop.worktrees/48213-save-delivery-address',
     );
-    expect(card).toHaveTextContent('Not logged on the work item yet');
     await userEvent.keyboard('{Escape}');
     expect(screen.queryByRole('dialog', { name: 'Task details' })).toBeNull();
     // The card took the Escape; the page did not navigate.
@@ -282,27 +282,34 @@ describe('HeaderBar', () => {
     ).not.toBeInTheDocument();
     expect(within(card).getByText('User Story 48213')).toBeInTheDocument();
   });
-  it('shows the Claude and Copilot split and a sync error in the card', async () => {
+  it('shows the Claude and Copilot split in the card', async () => {
     installFakeApi({
       'usage:task': () => usage,
       'tasks:gitSummary': () => git,
     });
     useStore.setState({
-      tasks: [
-        {
-          ...task,
-          usageSyncError:
-            'The token cannot write work items (needs Work Items: Read & write)',
-        },
-      ],
+      tasks: [task],
     });
     render(<HeaderBar />);
     const card = await openCard();
     await waitFor(() => expect(card).toHaveTextContent(/Claude .8\.28/));
     expect(card).toHaveTextContent(/Copilot .0\.92/);
-    expect(
-      within(card).getByText(/Sync failed: The token cannot write/),
-    ).toBeTruthy();
+    expect(card).not.toHaveTextContent(/OpenCode/);
+  });
+  it('adds OpenCode to the split when it has a cost', async () => {
+    installFakeApi({
+      'usage:task': () => ({
+        ...usage,
+        byTool: {
+          ...usage.byTool,
+          opencode: { costUsd: 2, costEur: 1.84, sessions: 1, tokens: 5 },
+        },
+      }),
+      'tasks:gitSummary': () => git,
+    });
+    render(<HeaderBar />);
+    const card = await openCard();
+    await waitFor(() => expect(card).toHaveTextContent(/OpenCode .1\.84/));
   });
 });
 

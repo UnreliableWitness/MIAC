@@ -12,11 +12,7 @@ const NEW_TERMINALS: {
   { def: { kind: 'claude', label: 'Claude Code' }, title: 'Claude Code' },
   { def: { kind: 'shell', label: 'shell' }, title: 'Shell' },
   { def: { kind: 'copilot', label: 'Copilot CLI' }, title: 'Copilot CLI' },
-  {
-    def: { kind: 'opencode', label: 'OpenCode' },
-    title: 'OpenCode',
-    note: 'AI cost not tracked',
-  },
+  { def: { kind: 'opencode', label: 'OpenCode' }, title: 'OpenCode' },
 ];
 
 /**

@@ -39,3 +39,12 @@ describe('NewTerminalMenu with several repos', () => {
     expect(onOpen).toHaveBeenCalledWith({ kind: 'shell', label: 'shell' });
   });
 });
+
+describe('NewTerminalMenu', () => {
+  it('lists OpenCode without a note that its cost is not tracked', async () => {
+    render(<NewTerminalMenu onOpen={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: 'New terminal' }));
+    expect(screen.getByRole('menuitem', { name: 'OpenCode' })).toBeTruthy();
+    expect(screen.queryByText(/not tracked/)).toBeNull();
+  });
+});

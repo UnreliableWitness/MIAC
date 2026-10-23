@@ -37,7 +37,15 @@ const rec = (id: string, eurMillions = 1): BudgetRecord => ({
   cacheWrite1hTokens: 0,
 });
 
-async function setup(records: BudgetRecord[], budget: number | null = 5) {
+async function setup(
+  records: BudgetRecord[],
+  budget: number | null = 5,
+  o: {
+    copilot?: number | null;
+    extra?: () => BudgetRecord[];
+    forecastAlert?: boolean;
+  } = {},
+) {
   const store = new BudgetStore(
     path.join(mkdtempSync(path.join(os.tmpdir(), 'bsv-')), 'budget.json'),
     () => [opus],
@@ -45,18 +53,29 @@ async function setup(records: BudgetRecord[], budget: number | null = 5) {
   await store.load();
   const notify = vi.fn();
   const changed = vi.fn();
+  const telemetry = vi.fn();
   const claudeRead = vi.fn(async () => ({ records, cursors: {}, found: true }));
   const svc = new BudgetService({
     store,
     claude: { read: claudeRead },
     openCode: { read: () => ({ records: [], cursor: 0, found: false }) },
-    settings: () => ({ ...defaultBudgetSettings(), monthlyEur: budget }),
+    settings: (v) => ({
+      ...defaultBudgetSettings(),
+      monthlyEur: v === 'claude' ? budget : (o.copilot ?? null),
+      alerts: {
+        at80: true,
+        forecastOver: o.forecastAlert ?? true,
+        at100: true,
+      },
+    }),
+    extra: o.extra ?? (() => []),
     inShellie: () => () => false,
     now: () => new Date(2026, 9, 19, 12),
     changed,
     notify,
+    telemetry,
   });
-  return { svc, store, notify, changed, claudeRead };
+  return { svc, store, notify, changed, claudeRead, telemetry };
 }
 
 describe('BudgetService', () => {
@@ -82,7 +101,7 @@ describe('BudgetService', () => {
       'Claude budget: on pace to go over',
       'Claude budget: used up',
     ]);
-    expect(store.value.alerts['2026-10-01']).toEqual([
+    expect(store.value.alerts['claude:2026-10-01']).toEqual([
       'at80',
       'forecastOver',
       'at100',
@@ -128,21 +147,51 @@ describe('BudgetService', () => {
       },
       openCode: { read: () => ({ records: [], cursor: 0, found: false }) },
       settings: () => defaultBudgetSettings(),
+      extra: () => [],
       inShellie: () => () => false,
       now: () => new Date(2026, 9, 19, 12),
       changed: () => {},
       notify: () => {},
     });
     await svc.pass();
-    expect(svc.view(0).models.map((m) => [m.model, m.requests])).toEqual([
-      ['Claude Haiku 4.5', 2],
+    expect(
+      svc.view('claude', 0).models.map((m) => [m.model, m.requests]),
+    ).toEqual([['Claude Haiku 4.5', 2]]);
+  });
+
+  it('alerts per vendor', async () => {
+    // 1M input at $4 = €3.68 → 85% of €4.33; Copilot spends nothing of €10.
+    const { svc, notify, telemetry } = await setup([rec('cc:a')], 4.33, {
+      copilot: 10,
+      forecastAlert: false,
+    });
+    await svc.pass();
+    await svc.pass();
+    expect(notify.mock.calls.map((c) => c[0].title)).toEqual([
+      'Claude budget: 80% used',
     ]);
+    expect(telemetry).toHaveBeenCalledWith('claude', 'at80');
+  });
+
+  it('rolls up Copilot CLI records from the usage store', async () => {
+    const cp: BudgetRecord = {
+      ...rec('cp:trace:span'),
+      tool: 'copilot-cli',
+      provider: 'github-copilot',
+      taskId: 't1',
+    };
+    const { svc } = await setup([], 5, { extra: () => [cp] });
+    await svc.pass();
+    const v = svc.view('copilot', 0);
+    expect(v.spentEur).toBeGreaterThan(0);
+    expect(v.models.map((m) => m.requests)).toEqual([1]);
+    expect(svc.view('claude', 0).spentEur).toBe(0);
   });
 
   it('records sources and builds the view', async () => {
     const { svc } = await setup([rec('cc:a')]);
     await svc.pass();
-    const v = svc.view(0);
+    const v = svc.view('claude', 0);
     expect(v.sources).toEqual({ claudeCode: true, openCode: false });
     expect(v.spentEur).toBeGreaterThan(0);
   });
@@ -173,6 +222,12 @@ describe('inShellieFor', () => {
     expect(g(r({ sessionId: 'nope' }))).toBe(false);
     expect(g(r({ sessionId: 'nope2' }))).toBe(false);
     expect(extra).toHaveBeenCalledTimes(1);
+  });
+  it('counts records tagged with a task as in Shellie', () => {
+    expect(
+      f(r({ tool: 'copilot-cli', sessionId: 'x', cwd: null, taskId: 't' })),
+    ).toBe(true);
+    expect(f(r({ sessionId: 'sh-run', cwd: null, taskId: 't' }))).toBe(true);
   });
   it('matches OpenCode by working directory inside any task worktree', () => {
     expect(f(r({ tool: 'opencode', cwd: '/w/b/src' }))).toBe(true);

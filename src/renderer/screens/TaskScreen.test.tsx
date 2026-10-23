@@ -255,7 +255,7 @@ describe('TaskScreen', () => {
       'Claude Code',
       'Shell',
       'Copilot CLI',
-      'OpenCodeAI cost not tracked',
+      'OpenCode',
     ]);
     expect(items[0]).toHaveFocus();
     await userEvent.keyboard('{ArrowUp}');
@@ -471,6 +471,7 @@ describe('TaskScreen', () => {
         byTool: {
           'claude-code': { costUsd: 25, costEur: 23, sessions: 1, tokens: 1 },
           'copilot-cli': { costUsd: 0, costEur: 0, sessions: 0, tokens: 0 },
+          opencode: { costUsd: 0, costEur: 0, sessions: 0, tokens: 0 },
         },
       }),
     });

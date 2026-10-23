@@ -11,7 +11,7 @@ const stats = (over: Partial<HomeStats> = {}): HomeStats => ({
   from: '',
   to: '',
   costEur: 41.2,
-  costByTool: { 'claude-code': 30, 'copilot-cli': 11.2 },
+  costByTool: { 'claude-code': 30, 'copilot-cli': 11.2, opencode: 0 },
   costByConnection: [{ connectionId: 'c1', costEur: 41.2 }],
   activeSeconds: 18 * 3600,
   agentSeconds: 11 * 3600,
