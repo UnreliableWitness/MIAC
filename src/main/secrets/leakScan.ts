@@ -1,8 +1,14 @@
 import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import type { Environment } from '../../shared/secrets';
 import type { GitClient } from '../services/GitClient';
-import type { LeakMatcher } from './LeakMatcher';
+import type { LeakHit, LeakMatcher } from './LeakMatcher';
+import { graverEnvironment } from './telemetry';
+
+/** The gravest environment among hits, null for none. */
+const gravest = (hits: LeakHit[]): Environment | null =>
+  hits.reduce<Environment | null>((a, h) => graverEnvironment(a, h.env), null);
 
 /** Untracked files bigger than this are not read for the Changes flag (the diff view does not show them either). */
 const MAX_UNTRACKED_BYTES = 2 * 1024 * 1024;
@@ -103,8 +109,9 @@ export async function addedLines(
 }
 
 /**
- * The paths whose added lines hold a stored value: lines the diff adds, and whole files for the `untracked` paths
- * (repo-relative, read from the worktree) the diff does not list.
+ * The paths whose added lines hold a stored value, each with the gravest environment of the values it holds: lines
+ * the diff adds, and whole files for the `untracked` paths (repo-relative, read from the worktree) the diff does
+ * not list.
  */
 export async function pathsWithLeaks(
   git: GitClient,
@@ -112,19 +119,21 @@ export async function pathsWithLeaks(
   refs: string[],
   matcher: LeakMatcher,
   untracked: string[] = [],
-): Promise<Set<string>> {
-  const found = new Set<string>();
+): Promise<Map<string, Environment>> {
+  const found = new Map<string, Environment>();
   if (matcher.empty) return found;
+  const add = (p: string, text: string) => {
+    const env = gravest(matcher.find(text));
+    if (env !== null) found.set(p, env);
+  };
   const added = await addedLines(git, worktree, refs);
-  for (const [p, text] of added)
-    if (matcher.find(text).length > 0) found.add(p);
+  for (const [p, text] of added) add(p, text);
   for (const p of untracked) {
     if (added.has(p)) continue;
     const full = path.join(worktree, p);
     const st = await fs.stat(full).catch(() => null);
     if (!st?.isFile() || st.size > MAX_UNTRACKED_BYTES) continue;
-    const text = await fs.readFile(full, 'utf8').catch(() => '');
-    if (matcher.find(text).length > 0) found.add(p);
+    add(p, await fs.readFile(full, 'utf8').catch(() => ''));
   }
   return found;
 }
@@ -136,14 +145,15 @@ const KEEP = 64 * 1024;
 /**
  * Whether any commit a push would send (`base..HEAD`, merges left out) adds a stored value, also one a later
  * commit removed again: the push sends the history, not the net diff. `git log -p` is streamed, so a big branch
- * does not hit a buffer limit, and stops at the first hit. Rejects (without git's output) when git fails.
+ * does not hit a buffer limit, and stops at the first file with a hit. Resolves with the gravest environment of
+ * that file's hits (null for none). Rejects (without git's output) when git fails.
  */
 export function branchLeaks(
   worktree: string,
   base: string,
   matcher: LeakMatcher,
-): Promise<boolean> {
-  if (matcher.empty) return Promise.resolve(false);
+): Promise<Environment | null> {
+  if (matcher.empty) return Promise.resolve(null);
   return new Promise((resolve, reject) => {
     const child = spawn(
       'git',
@@ -171,16 +181,17 @@ export function branchLeaks(
         stdio: ['ignore', 'pipe', 'ignore'],
       },
     );
-    let found = false;
+    let found: Environment | null = null;
     let settled = false;
     let text = '';
     let rest = '';
     const scan = () => {
-      if (!found && text && matcher.find(text).length > 0) {
-        found = true;
+      const env = !found && text ? gravest(matcher.find(text)) : null;
+      if (env !== null) {
+        found = env;
         settled = true;
         child.kill();
-        resolve(true);
+        resolve(env);
       }
       text = '';
     };

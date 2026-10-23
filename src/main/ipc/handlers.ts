@@ -18,6 +18,7 @@ import { LeakMatcher } from '../secrets/LeakMatcher';
 import { LeakWatch } from '../secrets/LeakWatch';
 import type { RunHub, RunSpec } from '../secrets/RunHub';
 import { branchLeaks } from '../secrets/leakScan';
+import { discoveredMeasurements } from '../secrets/telemetry';
 import { type ExpiryTimers, scheduleExpiry } from '../secrets/expiry';
 import { DiscoveryHold, discoverSecrets } from '../secrets/discover';
 import {
@@ -396,12 +397,20 @@ export function createHandlers(s: Services): Handlers {
       return t ? taskRepoIds(t) : null;
     },
     onLeak: (id, state) => s.broadcast('terminal:leak', { id, ...state }),
+    detected: (environment, paused) =>
+      tel.event('secrets.leakDetected', {
+        where: 'agent',
+        environment,
+        paused,
+      }),
   });
   s.terminals.setOutputFilter((o, data, carry, final) =>
     leakWatch.filter(o, data, carry, final),
   );
   /** A `shellie run` tab's extra arguments (passed as arguments, never in its command line); not stored. */
   const runArgs = new Map<string, string[]>();
+  /** Task and environment pairs whose leak in Changes was reported (telemetry), so a refresh does not repeat it. */
+  const diffLeaksReported = new Set<string>();
   /** Matchers of every stored value per set of repos, for the Changes flags; dropped when secrets change. */
   const diffMatchers = new Map<string, LeakMatcher>();
   const diffMatcher = (task: Task) => {
@@ -438,15 +447,17 @@ export function createHandlers(s: Services): Handlers {
     if (matcher.empty) return;
     const base = await s.git.resolveBase(w.worktreePath, w).catch(() => null);
     if (!base) throw new LeakError('unchecked');
-    let leaks: boolean;
+    let leak: Environment | null;
     try {
-      leaks = await branchLeaks(w.worktreePath, base, matcher);
+      leak = await branchLeaks(w.worktreePath, base, matcher);
     } catch {
       // Never with the error: git's output could hold the lines it was reading.
       throw new LeakError('unchecked');
     }
-    // TODO(telemetry): secrets.leakDetected where=diff
-    if (leaks) throw new LeakError('found');
+    if (leak !== null) {
+      tel.event('secrets.leakDetected', { where: 'push', environment: leak });
+      throw new LeakError('found');
+    }
   };
 
   /** Work item types per connection, with icons, for the session. A failed load is not kept, so the next call retries. */
@@ -1160,6 +1171,11 @@ export function createHandlers(s: Services): Handlers {
       filter: (o, data, carry, final) =>
         leakWatch.filter(o, data, carry, final),
       pending: (list) => s.broadcast('runs:pending', list),
+      started: (spec) =>
+        tel.event('secrets.runStarted', {
+          kind: spec.given === 'tests' ? 'test' : spec.given,
+          environment: spec.environment,
+        }),
     });
     s.terminals.on('data', (id, data) => runs.data(id, data));
     s.terminals.on('exit', (id, code) => runs.exit(id, code));
@@ -1226,6 +1242,7 @@ export function createHandlers(s: Services): Handlers {
       environmentUntil: null,
     });
     s.stopRuns?.(task.id, 'Production ended');
+    tel.event('secrets.productionExpired');
     s.broadcast('notice', {
       level: 'info',
       message: `Production ended for ${titleOf(task)}`,
@@ -1673,6 +1690,13 @@ export function createHandlers(s: Services): Handlers {
     repoName: (id) => s.repos.list().find((r) => r.id === id)?.name ?? id,
     collapseOf: async (wt) => (await s.loadConfig(wt)).reviewCollapse ?? [],
     leakMatcher: diffMatcher,
+    onLeak: (task, environment) => {
+      // Changes is read again on every file change: once per task and environment per launch.
+      const key = `${task.id}\0${environment}`;
+      if (diffLeaksReported.has(key)) return;
+      diffLeaksReported.add(key);
+      tel.event('secrets.leakDetected', { where: 'diff', environment });
+    },
   });
   const editors =
     s.editors ??
@@ -2759,6 +2783,11 @@ export function createHandlers(s: Services): Handlers {
           environmentUntil: env === 'production' ? productionUntil() : null,
         });
         if (left !== env) {
+          tel.event('secrets.environmentSwitched', {
+            from: left,
+            to: env,
+            confirmed: confirmed === true,
+          });
           await respawnSecretTabs(taskById(taskId), left);
           // `shellie run` processes hold the values they started with.
           if (isGuarded(left))
@@ -2966,6 +2995,11 @@ export function createHandlers(s: Services): Handlers {
         git: s.git,
         userSecretsDir: (id) => s.platform.userSecretsDir(id),
       });
+      tel.event(
+        'secrets.discovered',
+        undefined,
+        discoveredMeasurements(r.found, r.skipped),
+      );
       return discovery.hold(repoId, r.found, r.skipped);
     },
     'secrets:importPlan': async (repoId) => {
@@ -2973,6 +3007,11 @@ export function createHandlers(s: Services): Handlers {
         git: s.git,
         userSecretsDir: (id) => s.platform.userSecretsDir(id),
       });
+      tel.event(
+        'secrets.discovered',
+        undefined,
+        discoveredMeasurements(r.found, r.skipped),
+      );
       discovery.hold(repoId, r.found, r.skipped);
       const held = discovery.entries(repoId);
       return {
@@ -2986,7 +3025,7 @@ export function createHandlers(s: Services): Handlers {
       const repo = s.repos.get(request.repoId);
       // Broadcast even after a failure part-way: some secrets may have been saved.
       try {
-        return await importSecrets(request, {
+        const result = await importSecrets(request, {
           hold: discovery,
           store: s.secrets,
           git: s.git,
@@ -3003,6 +3042,21 @@ export function createHandlers(s: Services): Handlers {
               .map((w) => ({ worktreePath: w.worktreePath, copy }));
           },
         });
+        tel.event(
+          'secrets.imported',
+          {
+            environments: ENVIRONMENTS.filter((e) =>
+              request.picks.some((p) => p.env === e),
+            ).join(','),
+            rewriteWorktreeCopies: request.rewriteWorktreeCopies === true,
+          },
+          {
+            values: result.values,
+            worktreesRewritten: result.worktreesRewritten,
+            filesChanged: result.filesChanged.length,
+          },
+        );
+        return result;
       } finally {
         secretsChanged();
       }
@@ -3054,7 +3108,11 @@ export function createHandlers(s: Services): Handlers {
           }
         }
       } finally {
-        // TODO(telemetry): secrets.worktreesCleaned (count) in Task 11.
+        tel.event(
+          'secrets.worktreesCleaned',
+          { from: taskId === undefined ? 'secrets' : 'task' },
+          { count: cleaned.length },
+        );
         secretsChanged();
       }
       return cleaned;

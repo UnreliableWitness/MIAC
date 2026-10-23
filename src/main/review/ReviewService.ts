@@ -15,6 +15,7 @@ import {
   viewedKey,
 } from '../../shared/review';
 import { anchorComment, captureAnchor } from '../../shared/reviewAnchor';
+import type { Environment } from '../../shared/secrets';
 import type { Task } from '../../shared/types';
 import { activeWorkspaces, type WorkspaceView } from '../../shared/workspaces';
 import { GitError, type GitClient } from '../services/GitClient';
@@ -32,6 +33,7 @@ import {
 import { errorMessage } from '../../shared/errors';
 import type { LeakMatcher } from '../secrets/LeakMatcher';
 import { pathsWithLeaks } from '../secrets/leakScan';
+import { graverEnvironment } from '../secrets/telemetry';
 
 export type ReviewServiceDeps = {
   git: GitClient;
@@ -41,6 +43,8 @@ export type ReviewServiceDeps = {
   collapseOf: (worktree: string) => Promise<string[]>;
   /** Every stored value of the task's repos, to flag files whose added lines hold one; absent flags nothing. */
   leakMatcher?: (task: Task) => LeakMatcher;
+  /** Telemetry: the Changes of a task hold stored values; the gravest environment among them. */
+  onLeak?: (task: Task, env: Environment) => void;
   now?: () => Date;
   newId?: () => string;
 };
@@ -139,7 +143,10 @@ export class ReviewService {
           ? list.filter((f) => f.status === 'A').map((f) => f.path)
           : [],
       );
-      // TODO(telemetry): secrets.leakDetected where=diff
+      let gravest: Environment | null = null;
+      for (const env of hits.values())
+        gravest = graverEnvironment(gravest, env);
+      if (gravest !== null) this.d.onLeak?.(task, gravest);
       return list.map((f) => (hits.has(f.path) ? { ...f, secret: true } : f));
     } catch {
       console.warn('[secrets] could not check the changes for stored values');

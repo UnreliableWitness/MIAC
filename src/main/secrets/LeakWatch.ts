@@ -12,6 +12,8 @@ export type LeakWatchDeps = {
   repoIdsOf: (taskId: string) => string[] | null;
   /** A tab's state changed: a new name showed up, or its input was paused or resumed. Names only. */
   onLeak: (terminalId: string, state: LeakState) => void;
+  /** Telemetry: a name new to a tab showed up; its environment and whether it paused the tab. Never the name. */
+  detected?: (env: Environment, paused: boolean) => void;
 };
 
 /**
@@ -58,7 +60,6 @@ export class LeakWatch {
     const r = this.matcherFor(o.taskId).mask(data, carry, final);
     // Values in a tracked file are masked like any other but raise nothing: they are in git already.
     const loud = r.hits.filter((h) => !h.quiet);
-    // TODO(telemetry): secrets.leakDetected where=agent
     if (loud.length > 0) this.hit(o.id, loud);
     return { text: r.text, carry: r.carry };
   }
@@ -95,14 +96,17 @@ export class LeakWatch {
     this.states.set(id, s);
     let changed = false;
     for (const h of hits) {
-      if (!s.names.includes(h.name)) {
+      const isNew = !s.names.includes(h.name);
+      if (isNew) {
         s.names.push(h.name);
         changed = true;
       }
-      if (h.env === 'production' && !s.paused) {
+      const pauses = h.env === 'production' && !s.paused;
+      if (pauses) {
         s.paused = true;
         changed = true;
       }
+      if (isNew) this.d.detected?.(h.env, pauses);
     }
     if (changed) this.d.onLeak(id, this.state(id)!);
   }

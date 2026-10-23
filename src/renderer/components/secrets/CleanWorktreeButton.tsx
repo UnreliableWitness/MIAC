@@ -47,7 +47,7 @@ export function CleanWorktreeButton({ task }: { task: TaskView }) {
   if (repoIds.length === 0) return null;
   const clean = async () => {
     setBusy(true);
-    // TODO(telemetry): secrets.worktreesCleaned is counted in main (Task 11).
+    // Main sends secrets.worktreesCleaned.
     for (const repoId of repoIds)
       await tryInvoke(
         () => api().invoke('secrets:cleanWorktrees', repoId, task.id),

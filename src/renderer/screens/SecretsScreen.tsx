@@ -185,7 +185,7 @@ export function SecretsScreen({ repoId }: { repoId?: string }) {
 
   const clean = async () => {
     if (!repo) return;
-    // TODO(telemetry): secrets.worktreesCleaned is counted in main (Task 11).
+    // Main sends secrets.worktreesCleaned.
     await tryInvoke(
       () => api().invoke('secrets:cleanWorktrees', repo.id),
       notify,

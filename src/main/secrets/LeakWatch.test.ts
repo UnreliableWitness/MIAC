@@ -27,12 +27,14 @@ function setup(o: { values?: V[]; tracked?: Record<string, string[]> } = {}) {
     async (repoId: string) => new Set(o.tracked?.[repoId] ?? []),
   );
   const leaks: ({ id: string } & LeakState)[] = [];
+  const detected: [Environment, boolean][] = [];
   let repos = ['repo-1'];
   const watch = new LeakWatch({
     values,
     tracked,
     repoIdsOf: () => repos,
     onLeak: (id, state) => leaks.push({ id, ...state }),
+    detected: (env, paused) => detected.push([env, paused]),
   });
   const show = (id: string, data: string) =>
     watch.filter({ id, taskId: 'task' }, data, '', true).text;
@@ -41,6 +43,7 @@ function setup(o: { values?: V[]; tracked?: Record<string, string[]> } = {}) {
     values,
     tracked,
     leaks,
+    detected,
     show,
     setRepos: (r: string[]) => (repos = r),
   };
@@ -84,6 +87,23 @@ describe('LeakWatch', () => {
     expect(leaks).toHaveLength(n);
     // Nothing the renderer gets carries a value.
     expect(JSON.stringify(leaks)).not.toMatch(/sk_test|prod-db/);
+  });
+
+  it('reports each new name per tab once, with its environment and whether it paused the tab, never for tracked values', async () => {
+    const { watch, detected, show } = setup({
+      tracked: { 'repo-1': [TRACKED.value] },
+    });
+    await watch.prepare('task');
+    show('t1', `${DEV.value} ${DEV.value} ${TRACKED.value}`);
+    show('t1', DEV.value);
+    show('t1', PROD.value);
+    show('t1', PROD.value);
+    show('t2', DEV.value);
+    expect(detected).toEqual([
+      ['development', false],
+      ['production', true],
+      ['development', false],
+    ]);
   });
 
   it('masks values that are in a tracked file of the repo but raises nothing for them', async () => {

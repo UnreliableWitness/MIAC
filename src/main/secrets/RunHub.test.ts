@@ -49,6 +49,7 @@ function setup(
   const pending: PendingRun[][] = [];
   const killed: string[] = [];
   const leaks: string[] = [];
+  const started: Pick<RunSpec, 'given' | 'environment'>[] = [];
   const matcher = LeakMatcher.from([
     { name: 'STRIPE_KEY', value: SECRET, env: 'production' },
   ]);
@@ -79,6 +80,8 @@ function setup(
       return { text: r.text, carry: r.carry };
     },
     pending: (list) => pending.push(list),
+    started: (spec) =>
+      started.push({ given: spec.given, environment: spec.environment }),
   });
   const run = (
     name: string,
@@ -101,7 +104,18 @@ function setup(
   /** Until a run waits for its approve (reading the worktree's package.json comes first). */
   const waiting = () =>
     vi.waitFor(() => expect(pending.at(-1)?.length).toBeGreaterThan(0));
-  return { hub, task, tabs, pending, killed, leaks, run, tick, waiting };
+  return {
+    hub,
+    task,
+    tabs,
+    pending,
+    killed,
+    leaks,
+    started,
+    run,
+    tick,
+    waiting,
+  };
 }
 
 describe('RunHub tokens', () => {
@@ -444,6 +458,28 @@ describe('RunHub approvals (UAT and Production)', () => {
     expect(tabs).toHaveLength(1);
     hub.exit('tab-1', 0);
     expect(await r.done).toBe(0);
+  });
+  it('reports a run as started only once it may start (telemetry)', async () => {
+    const dev = setup();
+    void dev.run('test');
+    await dev.tick();
+    expect(dev.started).toEqual([
+      { given: 'tests', environment: 'development' },
+    ]);
+    const prod = setup({ environment: 'production' });
+    void prod.run('dev');
+    await prod.waiting();
+    expect(prod.started).toEqual([]);
+    prod.hub.approve(prod.pending.at(-1)![0]!.id, false);
+    await prod.tick();
+    expect(prod.started).toEqual([]);
+    void prod.run('setup');
+    await prod.waiting();
+    prod.hub.approve(prod.pending.at(-1)![0]!.id, true);
+    await prod.tick();
+    expect(prod.started).toEqual([
+      { given: 'setup', environment: 'production' },
+    ]);
   });
   it('returns 1 with "Not approved in Shellie" when refused', async () => {
     const { hub, pending, tabs, run, waiting } = setup({ environment: 'uat' });

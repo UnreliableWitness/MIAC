@@ -79,6 +79,17 @@ afterAll(async () => {
   cleanupTempRepos();
 });
 
+/** Records telemetry events (name, properties, measurements). */
+function telemetryEvents() {
+  const events: [string, unknown, unknown][] = [];
+  const telemetry: Telemetry = {
+    ...NoopTelemetry,
+    event: (name, props, m) => events.push([name, props, m]),
+  };
+  const named = (name: string) => events.filter((e) => e[0] === name);
+  return { events, telemetry, named };
+}
+
 async function harness(
   crypto: TokenCrypto = fakeCrypto(),
   over: Partial<Services> = {},
@@ -3485,6 +3496,33 @@ describe('handlers: finish with a pull request', () => {
     expect(hx.store.state.tasks[0].status).toBe('done');
   });
 
+  it('reports a push refused for a stored value with its environment (telemetry)', async () => {
+    const tel = telemetryEvents();
+    const hx = await prHarness(undefined, undefined, {
+      telemetry: tel.telemetry,
+    });
+    await hx.services.secrets.save({
+      scope: 'all',
+      name: 'PROD_DB',
+      givenTo: ['run'],
+      values: { production: { value: 'prod-db-password-9f2c' } },
+    });
+    commitFile(
+      hx.t.worktreePath,
+      'config.txt',
+      'db=prod-db-password-9f2c\n',
+      'Add config',
+    );
+    await hx.h['tasks:finish'](hx.t.id, finishWithPr).catch(() => undefined);
+    expect(tel.named('secrets.leakDetected')).toEqual([
+      [
+        'secrets.leakDetected',
+        { where: 'push', environment: 'production' },
+        undefined,
+      ],
+    ]);
+  });
+
   it('refuses a value one commit added and a later one removed: the push sends the history', async () => {
     const hx = await prHarness();
     await hx.services.secrets.save({
@@ -4973,6 +5011,47 @@ describe('handlers: secrets', () => {
     expect(services.secrets.list()).toEqual([]);
   });
 
+  it('reports discovery and import as counts, kinds and environments only', async () => {
+    const tel = telemetryEvents();
+    const hx = await harness(fakeCrypto(), { telemetry: tel.telemetry });
+    writeFileSync(
+      path.join(hx.repo, '.env'),
+      'X=1\nSTRIPE_SECRET_KEY=sk_test_plaintext91c2\n',
+    );
+    writeFileSync(
+      path.join(hx.repo, '.env.uat'),
+      'STRIPE_SECRET_KEY=sk_test_plaintextuat7\n',
+    );
+    const plan = await hx.h['secrets:importPlan'](hx.added.id);
+    expect(tel.named('secrets.discovered')).toEqual([
+      [
+        'secrets.discovered',
+        undefined,
+        { values: 3, secretLike: 2, unassigned: 0, skipped: 0, dotenv: 3 },
+      ],
+    ]);
+    const row = plan.rows.find((r) => r.name === 'STRIPE_SECRET_KEY')!;
+    await hx.h['secrets:import']({
+      repoId: hx.added.id,
+      picks: (['development', 'uat'] as const).map((env) => ({
+        name: 'STRIPE_SECRET_KEY',
+        env,
+        key: row.cells[env].candidates[0]!.key,
+      })),
+      rewriteWorktreeCopies: true,
+      removeFromMainCheckout: [],
+    });
+    expect(tel.named('secrets.imported')).toEqual([
+      [
+        'secrets.imported',
+        { environments: 'development,uat', rewriteWorktreeCopies: true },
+        { values: 2, worktreesRewritten: 0, filesChanged: 0 },
+      ],
+    ]);
+    const sent = JSON.stringify(tel.events);
+    expect(sent).not.toMatch(/STRIPE|plaintext|\.env/);
+  });
+
   it('plans and imports by key, masks only, and rewrites open worktree copies', async () => {
     const hx = await harness();
     writeFileSync(
@@ -5300,7 +5379,10 @@ describe('handlers: environment per task', () => {
    * A task with a Claude Code, a Copilot and a shell tab (all kept running) and a long `dev` run tab, on
    * Development, with DB stored for Development, UAT and Production. Time and the expiry timers are the test's.
    */
-  async function envScenario(over: Partial<CreateTaskInput> = {}) {
+  async function envScenario(
+    over: Partial<CreateTaskInput> = {},
+    extra: Partial<Services> = {},
+  ) {
     const base = testPlatform();
     const long = () => base.runCommand(sleepCmd(30));
     const platform = {
@@ -5327,6 +5409,7 @@ describe('handlers: environment per task', () => {
         },
       },
       stopRuns,
+      ...extra,
     });
     await hx.services.secrets.save({
       scope: { repoId: hx.added.id },
@@ -5620,6 +5703,51 @@ describe('handlers: environment per task', () => {
     await e.hx.terminals.killAllForTask(e.task.id);
   });
 
+  it('reports switches, a Production expiry and cleaned worktrees without names', async () => {
+    const tel = telemetryEvents();
+    const e = await envScenario({}, { telemetry: tel.telemetry });
+    await e.hx.h['tasks:setEnvironment'](e.task.id, 'test');
+    await e.hx.h['tasks:setEnvironment'](e.task.id, 'test');
+    await e.hx.h['tasks:setEnvironment'](e.task.id, 'production', true);
+    expect(tel.named('secrets.environmentSwitched')).toEqual([
+      [
+        'secrets.environmentSwitched',
+        { from: 'development', to: 'test', confirmed: false },
+        undefined,
+      ],
+      [
+        'secrets.environmentSwitched',
+        { from: 'test', to: 'production', confirmed: true },
+        undefined,
+      ],
+    ]);
+    expect(tel.named('secrets.productionExpired')).toEqual([]);
+    e.clock.now = T0 + 60 * 60_000;
+    for (const tick of e.ticks) tick();
+    await vi.waitFor(() =>
+      expect(tel.named('secrets.productionExpired')).toEqual([
+        ['secrets.productionExpired', undefined, undefined],
+      ]),
+    );
+    await vi.waitFor(() => expect(e.stored().environment).toBe('development'));
+    writeFileSync(
+      path.join(e.task.worktreePath, '.env'),
+      'PORT=1\nDB=old-plaintext\n',
+    );
+    await e.hx.h['secrets:cleanWorktrees'](e.hx.added.id);
+    expect(tel.named('secrets.worktreesCleaned')).toEqual([
+      ['secrets.worktreesCleaned', { from: 'secrets' }, { count: 1 }],
+    ]);
+    await e.hx.h['secrets:cleanWorktrees'](e.hx.added.id, e.task.id);
+    expect(tel.named('secrets.worktreesCleaned').at(-1)).toEqual([
+      'secrets.worktreesCleaned',
+      { from: 'task' },
+      { count: 0 },
+    ]);
+    expect(JSON.stringify(tel.events)).not.toMatch(/DB|STRIPE|prd-db/);
+    await e.hx.terminals.killAllForTask(e.task.id);
+  });
+
   it('expires Production on resume after the bound passed in sleep', async () => {
     const e = await envScenario();
     await e.hx.h['tasks:setEnvironment'](e.task.id, 'production', true);
@@ -5827,6 +5955,7 @@ describe('handlers: leak watch', () => {
     line?: string,
     /** A Production value stored as WRAPPED_KEY. */
     wrapped?: string,
+    telemetry?: Telemetry,
   ) {
     const base = testPlatform();
     const platform = {
@@ -5834,7 +5963,10 @@ describe('handlers: leak watch', () => {
       claudeCommand: () =>
         base.runCommand(`${line ?? echoCmd(prints)}; ${sleepCmd(30)}`),
     };
-    const hx = await harness(fakeCrypto(), { platform });
+    const hx = await harness(fakeCrypto(), {
+      platform,
+      ...(telemetry ? { telemetry } : {}),
+    });
     before?.(hx.repo);
     const scope = { repoId: hx.added.id };
     await hx.services.secrets.save({
@@ -5985,6 +6117,43 @@ describe('handlers: leak watch', () => {
     await hx.terminals.killAllForTask(hx.t.id);
   });
 
+  it('reports a leak in agent output and in the Changes diff once, with the environment only', async () => {
+    const tel = telemetryEvents();
+    const hx = await leakHarness(
+      `stripeKey=${DEV_KEY} ${DEV_KEY}`,
+      undefined,
+      undefined,
+      undefined,
+      tel.telemetry,
+    );
+    await vi.waitFor(() =>
+      expect(tel.named('secrets.leakDetected')).toEqual([
+        [
+          'secrets.leakDetected',
+          { where: 'agent', environment: 'development', paused: false },
+          undefined,
+        ],
+      ]),
+    );
+    commitFile(hx.t.worktreePath, 'a.txt', `key=${UAT_KEY}\n`);
+    writeFileSync(path.join(hx.t.worktreePath, 'b.txt'), `x ${PROD_KEY}`);
+    await hx.h['review:files'](hx.t.id, { kind: 'all' });
+    await hx.h['review:files'](hx.t.id, { kind: 'all' });
+    expect(
+      tel
+        .named('secrets.leakDetected')
+        .filter((e) => (e[1] as { where: string }).where === 'diff'),
+    ).toEqual([
+      [
+        'secrets.leakDetected',
+        { where: 'diff', environment: 'production' },
+        undefined,
+      ],
+    ]);
+    expect(JSON.stringify(tel.events)).not.toMatch(/STRIPE|DB_PASSWORD|sk_/);
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
   it('flags Changes rows whose added lines hold a value of any environment', async () => {
     const hx = await leakHarness('hello');
     expect(hx.t.environment).toBe('development');
@@ -6015,6 +6184,7 @@ describe('handlers: shellie run', () => {
       secrets?: boolean;
       /** Wraps RunHub's openTab (handlers' openRunTab). */
       openTab?: (open: RunBackend['openTab']) => RunBackend['openTab'];
+      telemetry?: Telemetry;
     } = {},
   ) {
     const base = testPlatform();
@@ -6037,6 +6207,7 @@ describe('handlers: shellie run', () => {
     const hx = await harness(fakeCrypto(), {
       platform,
       runs,
+      ...(o.telemetry ? { telemetry: o.telemetry } : {}),
       terminalEnv: (def, ctx) => {
         envCalls.push({ kind: def.kind, ...ctx });
         return {};
@@ -6118,6 +6289,21 @@ describe('handlers: shellie run', () => {
         .find((t) => t.id === hx.task.id)!
         .terminals.filter((d) => d.label === 'agent · show'),
     ).toHaveLength(1);
+    await hx.terminals.killAllForTask(hx.task.id);
+  });
+
+  it('reports a started run by kind and environment, never its name (telemetry)', async () => {
+    const tel = telemetryEvents();
+    const hx = await runHarness({ telemetry: tel.telemetry });
+    expect(await hx.run('show').code).toBe(0);
+    expect(await hx.run('printenv').code).toBe(1);
+    expect(tel.named('secrets.runStarted')).toEqual([
+      [
+        'secrets.runStarted',
+        { kind: 'run', environment: 'development' },
+        undefined,
+      ],
+    ]);
     await hx.terminals.killAllForTask(hx.task.id);
   });
 

@@ -70,6 +70,8 @@ export type RunBackend = {
   filter: Filter;
   /** The runs waiting for an approve changed (`runs:pending`). */
   pending(list: PendingRun[]): void;
+  /** Telemetry: a run passed its checks (and its approve) and its tab opens now. */
+  started?(spec: RunSpec): void;
 };
 
 export type StartOptions = {
@@ -300,7 +302,7 @@ export class RunHub {
         }
       }
       if (!this.runs.has(run)) return;
-      // TODO(telemetry): secrets.runStarted kind=<run|test|setup> environment
+      backend.started?.(spec);
       try {
         await backend.openTab(taskId, spec, (id) => {
           // Cancelled or stopped while the tab was being prepared: no tab may spawn with the secrets.
