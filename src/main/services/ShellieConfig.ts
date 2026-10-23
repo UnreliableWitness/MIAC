@@ -74,6 +74,7 @@ function toConfig(
     base: c.base,
     branch: c.branch,
     copy: c.copy,
+    copyAgentConfig: c.copyAgentConfig,
     setup: c.setup ?? defaultSetup,
     run: c.run,
     ...(c.apm !== undefined ? { apm: c.apm } : {}),

@@ -206,6 +206,8 @@ export type ShellieConfig = {
   base: string;
   branch: string;
   copy: string[];
+  /** Copy untracked agent config (opencode.json, .mcp.json, ...) into new worktrees; `copyAgentConfig` in .shellie.yml, default true. */
+  copyAgentConfig?: boolean;
   setup: string[];
   run: Record<string, string>;
   /** `apm install` targets; false turns the step off; absent means the harnesses of the task's tabs. */

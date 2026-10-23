@@ -9,6 +9,16 @@ import { GitAuthError, type GitClient } from './GitClient';
 import { nodeModulesMatch } from './nodeModules';
 import { errorMessage } from '../../shared/errors';
 
+/** Untracked agent config copied into new worktrees by default (`copyAgentConfig: false` turns it off). */
+export const AGENT_CONFIG_PATHS = [
+  'opencode.json',
+  'opencode.jsonc',
+  '.opencode',
+  '.mcp.json',
+  '.claude/settings.local.json',
+  '.vscode/mcp.json',
+];
+
 export type SetupPlan = {
   taskId: string;
   repoPath: string;
@@ -16,6 +26,8 @@ export type SetupPlan = {
   branch: string;
   baseRef: string;
   copy: string[];
+  /** Also copy untracked agent config files (see AGENT_CONFIG_PATHS). */
+  copyAgentConfig?: boolean;
   /** Run in the task's Setup tab once the terminals start, not by the setup itself. */
   commands: string[];
   taskMd: string;
@@ -42,6 +54,7 @@ export type ExtraRestore = {
   branch: string;
   from: string | null;
   copy: string[];
+  copyAgentConfig?: boolean;
   commands: string[];
 };
 
@@ -86,11 +99,14 @@ export function planSteps(plan: SetupPlan): SetupStepDef[] {
       detail: 'Move to In Progress',
     });
   if (!plan.skipHome) {
-    if (plan.copy.length > 0)
+    if (plan.copy.length > 0 || plan.copyAgentConfig)
       steps.push({
         kind: 'copy',
         label: 'Copy local files',
-        detail: plan.copy.join(', '),
+        detail: [
+          ...plan.copy,
+          ...(plan.copyAgentConfig ? ['agent config'] : []),
+        ].join(', '),
       });
     if (plan.cloneNodeModules)
       steps.push({
@@ -266,7 +282,8 @@ export class SetupRunner {
       );
       if (!x) throw new Error(`Unknown workspace ${step.workspaceId}`);
       if (step.kind === 'worktree') return this.restoreWorktree(x, x.from, log);
-      if (step.kind === 'copy') return this.copyFiles(x, x.copy, log);
+      if (step.kind === 'copy')
+        return this.copyFiles(x, x.copy, log, x.copyAgentConfig);
       const cmd = step.command ?? '';
       log(`$ ${cmd}`);
       return this.spawnLogged(
@@ -312,7 +329,7 @@ export class SetupRunner {
         }
       }
       case 'copy':
-        return this.copyFiles(plan, plan.copy, log);
+        return this.copyFiles(plan, plan.copy, log, plan.copyAgentConfig);
       case 'node-modules':
         return this.cloneNodeModules(plan, log);
       case 'task-file':
@@ -391,6 +408,7 @@ export class SetupRunner {
     w: { repoPath: string; worktreePath: string },
     copy: string[],
     log: (l: string) => void,
+    agentConfig = false,
   ): Promise<void> {
     for (const rel of copy) {
       const src = insideDir(w.repoPath, rel);
@@ -408,6 +426,52 @@ export class SetupRunner {
       });
       log(`copied ${rel}`);
     }
+    if (agentConfig) await this.copyAgentConfigFiles(w, log);
+  }
+
+  /**
+   * Copies agent config files the main checkout has but git does not track (tracked ones reach the
+   * worktree through git). Symlinks are never followed, and an existing file in the worktree is kept.
+   */
+  private async copyAgentConfigFiles(
+    w: { repoPath: string; worktreePath: string },
+    log: (l: string) => void,
+  ): Promise<void> {
+    const tracked = new Set(
+      (
+        await this.git.run(w.repoPath, [
+          'ls-files',
+          '-z',
+          '--',
+          ...AGENT_CONFIG_PATHS,
+        ])
+      )
+        .split('\0')
+        .filter(Boolean),
+    );
+    const visit = async (rel: string): Promise<void> => {
+      const src = path.join(w.repoPath, rel);
+      const dest = path.join(w.worktreePath, rel);
+      let st;
+      try {
+        st = await fs.lstat(src);
+      } catch {
+        return;
+      }
+      if (st.isSymbolicLink()) {
+        log(`skipped ${rel} (symbolic link)`);
+        return;
+      }
+      if (st.isDirectory()) {
+        for (const name of await fs.readdir(src)) await visit(`${rel}/${name}`);
+        return;
+      }
+      if (!st.isFile() || tracked.has(rel) || (await pathExists(dest))) return;
+      await fs.mkdir(path.dirname(dest), { recursive: true });
+      await fs.copyFile(src, dest);
+      log(`copied ${rel} (agent config)`);
+    };
+    for (const rel of AGENT_CONFIG_PATHS) await visit(rel);
   }
 
   /**
