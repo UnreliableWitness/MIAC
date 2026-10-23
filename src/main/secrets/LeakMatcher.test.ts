@@ -108,6 +108,9 @@ describe('LeakMatcher', () => {
       ['a cursor move', '\x1b[1B\x1b[5G'],
       ['erase and CRLF with colour', '\x1b[K\r\n\x1b[2m  \x1b[22m'],
       ['an OSC link end', '\x1b]8;;\x07'],
+      // ConPTY (Windows) often draws the next row by position instead of CRLF, the indent after it as spaces.
+      ['a ConPTY row position and indent', '\x1b[12;1H    '],
+      ['a cursor down and indent', '\x1b[1B\r  '],
     ];
     for (const [what, noise] of cases)
       it(`masks it across ${what}, in one chunk or split at every point`, () => {

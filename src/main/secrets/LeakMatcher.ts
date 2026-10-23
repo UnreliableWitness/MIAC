@@ -69,8 +69,15 @@ function escapeEnd(s: string, i: number): number {
 }
 
 /**
- * The text as a person reads it: escape sequences, CR, LF and the spaces that indent a wrapped line left out, so a
- * value an agent's renderer wrapped at the terminal width reads as one again. `at[k]` is where the k-th kept
+ * CSI final bytes that move the cursor to another row (CUU, CUD, CNL, CPL, CUP, VPA, HVP): ConPTY on Windows draws
+ * a wrapped row this way instead of with CRLF, so the spaces after one indent a new line too.
+ */
+const ROW_MOVES = new Set([0x41, 0x42, 0x45, 0x46, 0x48, 0x64, 0x66]);
+
+/**
+ * The text as a person reads it: escape sequences, CR, LF and the spaces that indent a wrapped line (after a line
+ * break or a move to another row) left out, so a value an agent's renderer wrapped at the terminal width reads as
+ * one again. `at[k]` is where the k-th kept
  * character is in `s`; null when nothing was left out.
  */
 export function readable(s: string): { text: string; at: Int32Array | null } {
@@ -88,7 +95,14 @@ export function readable(s: string): { text: string; at: Int32Array | null } {
     const c = s.charCodeAt(i);
     if (c === 0x1b) {
       endRun(i);
-      i = escapeEnd(s, i);
+      const end = escapeEnd(s, i);
+      if (
+        s.charCodeAt(i + 1) === 0x5b &&
+        end > i + 2 &&
+        ROW_MOVES.has(s.charCodeAt(end - 1))
+      )
+        afterBreak = true;
+      i = end;
     } else if (c === 0x0d || c === 0x0a) {
       endRun(i);
       afterBreak = true;
