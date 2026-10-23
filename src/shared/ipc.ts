@@ -1,4 +1,5 @@
 import type { ColorScheme } from './theme';
+import type { Environment, SecretInput, SecretView } from './secrets';
 import type { TerminalFailure } from './terminalFailure';
 
 export type RestartOptions = { withoutProjectConfig?: boolean };
@@ -65,6 +66,16 @@ export type Channels = {
   'repos:config': {
     args: [repoId: string];
     result: { config: ShellieConfig; worktreeRoot: string };
+  };
+  /** Masked views only; a repo id also returns the All repositories ones. */
+  'secrets:list': { args: [scope: string]; result: SecretView[] };
+  'secrets:save': { args: [input: SecretInput]; result: SecretView };
+  'secrets:delete': { args: [id: string]; result: void };
+  /** The plain value of one environment, for a held reveal; main logs the reveal (never the value). */
+  'secrets:reveal': { args: [id: string, env: Environment]; result: string };
+  'secrets:setRepoDefault': {
+    args: [repoId: string, env: Environment];
+    result: void;
   };
   'connections:list': { args: []; result: Connection[] };
   'connections:save': { args: [input: ConnectionInput]; result: Connection };
@@ -364,6 +375,7 @@ export type Events = {
   'tasks:changed': TaskView[];
   'repos:changed': Repo[];
   'connections:changed': Connection[];
+  'secrets:changed': null;
   'usage:changed': { taskId: string };
   'time:changed': { taskId: string };
   /** Terminals that wait on the developer. */

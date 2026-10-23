@@ -60,6 +60,7 @@ import {
   readClaudeTheme,
 } from './main/services/claudeTheme';
 import { ConnectionStore } from './main/services/ConnectionStore';
+import { SecretStore } from './main/secrets/SecretStore';
 import { GitClient } from './main/services/GitClient';
 import { connectionIdForPath, createGitAuth } from './main/services/gitAuth';
 import { loadShellieConfig } from './main/services/ShellieConfig';
@@ -390,9 +391,15 @@ async function boot(): Promise<void> {
         decrypt: (cipher) => safeStorage.decryptString(cipher),
       },
     );
+    const secrets = new SecretStore(path.join(userData, 'secrets.json'), {
+      available: () => safeStorage.isEncryptionAvailable(),
+      encrypt: (plain) => safeStorage.encryptString(plain),
+      decrypt: (cipher) => safeStorage.decryptString(cipher),
+    });
     const [loaded, connectionsLoaded] = await Promise.all([
       store.load(),
       connections.load(),
+      secrets.load(),
     ]);
     const recovered = await recoverInterruptedTasks(store);
     // Fetch and push to Azure Repos sign in with the connection's token, not a credential helper that may not start.
@@ -682,6 +689,7 @@ async function boot(): Promise<void> {
       },
       finishFlushMs: 2500,
       connections,
+      secrets,
       ado: new AdoRegistry(connections, timedFetch(telemetry)),
       telemetry,
       rememberSensitive: (values) => {

@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import type { SecretScope } from '../../shared/secrets';
+import { SecretStore } from '../secrets/SecretStore';
 import type { Events, Handlers, PendingUpdate } from '../../shared/ipc';
 import { claudeContext, renderTaskMd, taskSlug } from '../../shared/naming';
 import {
@@ -128,6 +130,7 @@ export type Services = {
   platform: Platform;
   repos: RepoRegistry;
   connections: ConnectionStore;
+  secrets: SecretStore;
   ado: AdoRegistry;
   openExternal: (url: string) => Promise<void>;
   /** Shows a file in Finder or Explorer (main uses shell.showItemInFolder). */
@@ -2215,6 +2218,24 @@ export function createHandlers(s: Services): Handlers {
     'terminals:isRunning': async (id) => s.terminals.isRunning(id),
     'terminals:reportScheme': async (id, scheme) =>
       s.terminals.reportScheme(id, scheme === 'dark' ? 'dark' : 'light'),
+    'secrets:list': async (scope) =>
+      s.secrets.list(
+        scope === 'all' ? 'all' : ({ repoId: scope } as SecretScope),
+      ),
+    'secrets:save': async (input) => {
+      const saved = await s.secrets.save(input);
+      s.broadcast('secrets:changed', null);
+      return saved;
+    },
+    'secrets:delete': async (id) => {
+      await s.secrets.delete(id);
+      s.broadcast('secrets:changed', null);
+    },
+    'secrets:reveal': async (id, env) => s.secrets.reveal(id, env),
+    'secrets:setRepoDefault': async (repoId, env) => {
+      await s.secrets.setRepoDefault(repoId, env);
+      s.broadcast('secrets:changed', null);
+    },
     'connections:list': async () => s.connections.list(),
     'connections:save': async (input) => {
       // Verify with a throwaway client before anything is written, so a bad token never lands on disk.

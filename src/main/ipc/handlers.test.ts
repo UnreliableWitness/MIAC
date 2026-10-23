@@ -19,6 +19,7 @@ import {
 } from '../../shared/terminalFailure';
 import { AdoRegistry } from '../services/AdoRegistry';
 import { ConnectionStore, type TokenCrypto } from '../services/ConnectionStore';
+import { SecretStore } from '../secrets/SecretStore';
 import { fakeCrypto } from '../test-helpers/fakeCrypto';
 import { startAdoServer, type AdoServer } from '../test-helpers/adoServer';
 import { OFFICIAL_RATES } from '../pricing/officialRates';
@@ -93,6 +94,8 @@ async function harness(
     { allowLoopbackHttp: true },
   );
   await connections.load();
+  const secrets = new SecretStore(path.join(dir, 'secrets.json'), crypto);
+  await secrets.load();
   const server = await startAdoServer();
   servers.push(server);
   const opened: string[] = [];
@@ -156,6 +159,7 @@ async function harness(
     terminals,
     repos: new RepoRegistry(store, git),
     connections,
+    secrets,
     ado: new AdoRegistry(connections),
     openExternal: async (url) => {
       opened.push(url);
@@ -4650,5 +4654,28 @@ describe('home', () => {
       costEur: 0,
       tasksFinished: 0,
     });
+  });
+});
+
+describe('handlers: secrets', () => {
+  it('never sends a plaintext value to the renderer, and logs reveals without it', async () => {
+    const { h, broadcasts, services } = await harness();
+    const saved = await h['secrets:save']({
+      scope: 'all',
+      name: 'API_KEY',
+      givenTo: ['run'],
+      values: { development: { value: 'sk_live_plaintext0b3d' } },
+    });
+    expect(broadcasts.some((b) => b.event === 'secrets:changed')).toBe(true);
+    const listed = await h['secrets:list']('all');
+    const forRepo = await h['secrets:list']('repo-1');
+    for (const payload of [saved, listed, forRepo])
+      expect(JSON.stringify(payload)).not.toContain('plaintext');
+    expect(forRepo).toHaveLength(1);
+    expect(await h['secrets:reveal'](saved.id, 'development')).toBe(
+      'sk_live_plaintext0b3d',
+    );
+    await h['secrets:delete'](saved.id);
+    expect(services.secrets.list()).toEqual([]);
   });
 });
