@@ -7,7 +7,37 @@ import {
 } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { installFakeApi } from '../test-helpers/fakeApi';
+import type { AppSettings } from '../../shared/usage';
 import { BudgetSection } from './BudgetSection';
+
+const alertsOn = { at80: true, forecastOver: true, at100: true };
+const base: AppSettings = {
+  version: 1,
+  receiverPort: 4319,
+  writeTimeToAdo: false,
+  idleMinutes: 5,
+  workHours: { start: '09:00', end: '17:00', days: [1, 2, 3, 4, 5] },
+  showSplash: true,
+  notifyOnDone: true,
+  theme: 'system',
+  claudeBudget: { monthlyEur: null, monthStartDay: 1, alerts: alertsOn },
+  copilotBudget: { monthlyEur: null, monthStartDay: 1, alerts: alertsOn },
+  sendTelemetry: true,
+  editor: { default: null, repos: {} },
+  secrets: { productionMinutes: 60 },
+  onboarding: {
+    dismissedAt: null,
+    agentsCheckedAt: null,
+    tracker: null,
+    migrated: false,
+  },
+  defaultTerminals: {
+    claude: true,
+    copilot: false,
+    opencode: false,
+    shell: true,
+  },
+};
 
 describe('BudgetSection', () => {
   it('saves a budget, start day and alert toggles', async () => {
@@ -134,5 +164,47 @@ describe('BudgetSection', () => {
       (copilot.getByLabelText('Monthly budget (€)') as HTMLInputElement)
         .disabled,
     ).toBe(false);
+  });
+
+  it('saves the alerts of a managed budget with the local amount', async () => {
+    const { calls } = installFakeApi({
+      'settings:get': () => ({
+        ...base,
+        claudeBudget: {
+          monthlyEur: 80,
+          monthStartDay: 3,
+          alerts: { at80: true, forecastOver: true, at100: true },
+        },
+      }),
+      'costServer:status': () => ({
+        connected: true,
+        url: 'https://cost.example',
+        email: 'a@b.c',
+        lastSentAt: null,
+        waiting: 0,
+        error: null,
+        budgets: {
+          claude: { monthlyEur: 250, monthStartDay: 15 },
+          copilot: null,
+        },
+      }),
+    });
+    render(<BudgetSection />);
+    const claude = within(
+      await screen.findByRole('group', { name: 'Claude budget' }),
+    );
+    const eur = claude.getByLabelText('Monthly budget (€)') as HTMLInputElement;
+    await waitFor(() => expect(eur.value).toBe('250'));
+    fireEvent.click(claude.getByLabelText('Warn at 80% of the budget'));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => {
+      const saved = calls.filter((c) => c.channel === 'settings:save').at(-1)
+        ?.args[0] as { claudeBudget: unknown };
+      expect(saved.claudeBudget).toEqual({
+        monthlyEur: 80,
+        monthStartDay: 3,
+        alerts: { at80: false, forecastOver: true, at100: true },
+      });
+    });
   });
 });

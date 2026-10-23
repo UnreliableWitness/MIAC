@@ -61,10 +61,18 @@ export function BudgetSection({
     if (!drafts) return;
     const patch: Partial<Record<(typeof KEYS)[Vendor], BudgetSettings>> = {};
     for (const vendor of VENDORS) {
-      if (managed[vendor]) continue;
       const draft = drafts[vendor];
       const raw = draft.monthlyEur.trim();
       const monthlyEur = raw === '' ? null : Number(raw);
+      if (managed[vendor]) {
+        // The server sets the amount and start day: keep the local ones as they were, save the alerts.
+        patch[KEYS[vendor]] = {
+          monthlyEur,
+          monthStartDay: Number(draft.monthStartDay),
+          alerts: draft.alerts,
+        };
+        continue;
+      }
       if (
         monthlyEur !== null &&
         !(Number.isFinite(monthlyEur) && monthlyEur > 0)
