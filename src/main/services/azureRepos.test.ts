@@ -126,6 +126,17 @@ describe('prDescription', () => {
       'Bug 42: Fix it\n\n## Commits\n- abc1234 First\n- def5678 Second\n\nAI cost for this task: €1.00 (Claude €1.00, Copilot €0.00) · recorded by Shellie',
     );
   });
+  it('says which environment the task ran against, unless Development', () => {
+    expect(prDescription({ ...base, environment: 'uat' })).toBe(
+      'Bug 42: Fix it\n\nRun against UAT\n\n## Commits\n- abc1234 First\n- def5678 Second\n\nAI cost for this task: €1.00 (Claude €1.00, Copilot €0.00) · recorded by Shellie',
+    );
+    expect(
+      prDescription({ ...base, environment: 'production', commits: [] }),
+    ).toContain('Run against Production');
+    expect(
+      prDescription({ ...base, environment: 'development' }),
+    ).not.toContain('Run against');
+  });
   it('leaves the cost out when cost writing is off', () => {
     const text = prDescription({ ...base, costLine: null });
     expect(text).not.toContain('AI cost');

@@ -102,11 +102,21 @@ export function launchProfileArgs(
   repoPath: string,
   env: Environment,
 ): string[] {
+  const profile = launchProfileFor(command, repoPath, env);
+  return profile ? ['--launch-profile', profile.name] : [];
+}
+
+/** The launch profile `launchProfileArgs` picks, with its string environment variables (which win over ours). */
+export function launchProfileFor(
+  command: string,
+  repoPath: string,
+  env: Environment,
+): { name: string; vars: Record<string, string> } | null {
   if (
     !DOTNET_RUN.test(command) ||
     /--launch-profile\b|(^|\s)-lp\b/.test(command)
   )
-    return [];
+    return null;
   for (const file of launchSettingsFiles(repoPath)) {
     let json: unknown;
     try {
@@ -128,10 +138,18 @@ export function launchProfileArgs(
       );
       const mapped =
         (named ? environmentOf(named) : null) ?? environmentOf(name);
-      if (mapped === env) return ['--launch-profile', name];
+      if (mapped === env)
+        return {
+          name,
+          vars: Object.fromEntries(
+            Object.entries(vars).filter(
+              (e): e is [string, string] => typeof e[1] === 'string',
+            ),
+          ),
+        };
     }
   }
-  return [];
+  return null;
 }
 
 function launchSettingsFiles(repoPath: string): string[] {

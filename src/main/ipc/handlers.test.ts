@@ -4821,7 +4821,9 @@ describe('handlers: secrets in tabs', () => {
         openOpencode: true,
         openShell: true,
         commands: [echoCmd('setup')],
-        ...(environment ? { environment } : {}),
+        ...(environment
+          ? { environment, environmentConfirmed: environment === 'uat' }
+          : {}),
       }),
     );
     await done;
@@ -4965,6 +4967,7 @@ describe('handlers: secrets in tabs', () => {
         openShell: true,
         commands: [echoCmd('setup')],
         environment: 'uat',
+        environmentConfirmed: true,
       }),
     );
     await done;
@@ -4999,5 +5002,375 @@ describe('handlers: secrets in tabs', () => {
       'X=1',
     );
     await hx.terminals.killAllForTask(task.id);
+  });
+});
+
+describe('handlers: environment per task', () => {
+  const T0 = Date.parse('2026-10-23T10:00:00Z');
+  const AGENTS = ['claude', 'copilot', 'opencode'];
+
+  /**
+   * A task with a Claude Code, a Copilot and a shell tab (all kept running) and a long `dev` run tab, on
+   * Development, with DB stored for Development, UAT and Production. Time and the expiry timers are the test's.
+   */
+  async function envScenario(over: Partial<CreateTaskInput> = {}) {
+    const base = testPlatform();
+    const long = () => base.runCommand(sleepCmd(30));
+    const platform = {
+      ...base,
+      claudeCommand: long,
+      copilotCommand: long,
+      opencodeCommand: long,
+    };
+    const clock = { now: T0 };
+    const ticks: (() => void)[] = [];
+    const resumes: (() => void)[] = [];
+    const stopRuns = vi.fn();
+    const hx = await harness(fakeCrypto(), {
+      platform,
+      now: () => clock.now,
+      expiryTimers: {
+        every: (fn) => {
+          ticks.push(fn);
+          return () => undefined;
+        },
+        onResume: (fn) => {
+          resumes.push(fn);
+          return () => undefined;
+        },
+      },
+      stopRuns,
+    });
+    await hx.services.secrets.save({
+      scope: { repoId: hx.added.id },
+      name: 'DB',
+      givenTo: ['run', 'shell'],
+      values: {
+        development: { value: 'dev-db' },
+        uat: { value: 'uat-db' },
+        production: { value: 'prd-db' },
+      },
+    });
+    await hx.services.secrets.save({
+      scope: { repoId: hx.added.id },
+      name: 'STRIPE_SECRET_KEY',
+      givenTo: ['run'],
+      values: { production: { value: 'sk_live_123456789' } },
+    });
+    const done = hx.setupDone();
+    const task = await hx.h['tasks:create'](
+      hx.input({
+        startClaude: true,
+        openCopilot: true,
+        openShell: true,
+        ...over,
+      }),
+    );
+    await done;
+    const dev = await hx.h['terminals:open'](task.id, {
+      kind: 'run',
+      label: 'dev',
+      command: sleepCmd(30),
+    });
+    const spawn = vi.spyOn(hx.terminals, 'spawn');
+    const kill = vi.spyOn(hx.terminals, 'kill');
+    const stored = () => hx.store.state.tasks.find((t) => t.id === task.id)!;
+    const tabs = () => stored().terminals;
+    const agentIds = () =>
+      tabs()
+        .filter((t) => AGENTS.includes(t.kind))
+        .map((t) => t.id);
+    const shellId = () => tabs().find((t) => t.kind === 'shell')!.id;
+    const envOf = (id: string) =>
+      spawn.mock.calls.filter((c) => c[0].id === id).at(-1)?.[0].env ?? {};
+    const spawnedIds = () => spawn.mock.calls.map((c) => c[0].id);
+    const killedIds = () => kill.mock.calls.map((c) => c[0]);
+    return {
+      hx,
+      task,
+      dev,
+      clock,
+      ticks,
+      resumes,
+      stopRuns,
+      spawn,
+      stored,
+      tabs,
+      agentIds,
+      shellId,
+      envOf,
+      spawnedIds,
+      killedIds,
+    };
+  }
+
+  it('refuses UAT and Production without a confirm and changes nothing', async () => {
+    const e = await envScenario();
+    for (const env of ['uat', 'production'] as const) {
+      await expect(
+        e.hx.h['tasks:setEnvironment'](e.task.id, env),
+      ).rejects.toThrow(/confirm/i);
+      await expect(
+        e.hx.h['tasks:setEnvironment'](e.task.id, env, false),
+      ).rejects.toThrow(/confirm/i);
+    }
+    expect(e.stored().environment).toBe('development');
+    expect(e.spawn).not.toHaveBeenCalled();
+    expect(e.killedIds()).toEqual([]);
+    await e.hx.terminals.killAllForTask(e.task.id);
+  });
+
+  it('switches to Production with a confirm: sets the bound and restarts only the tabs that hold secrets', async () => {
+    const e = await envScenario();
+    await e.hx.settings.save({
+      ...e.hx.settings.get(),
+      secrets: { productionMinutes: 45 },
+    });
+    const agents = e.agentIds();
+    expect(agents).toHaveLength(2);
+    const result = await e.hx.h['tasks:setEnvironment'](
+      e.task.id,
+      'production',
+      true,
+    );
+    expect(result.environment).toBe('production');
+    expect(result.environmentUntil).toBe(
+      new Date(T0 + 45 * 60_000).toISOString(),
+    );
+    expect(e.stored().environment).toBe('production');
+    expect(new Set(e.spawnedIds())).toEqual(new Set([e.dev.id, e.shellId()]));
+    for (const id of agents) {
+      expect(e.killedIds()).not.toContain(id);
+      expect(e.spawnedIds()).not.toContain(id);
+      expect(e.hx.terminals.isRunning(id)).toBe(true);
+    }
+    expect(e.envOf(e.dev.id)).toMatchObject({
+      DB: 'prd-db',
+      STRIPE_SECRET_KEY: 'sk_live_123456789',
+      ASPNETCORE_ENVIRONMENT: 'Production',
+    });
+    expect(e.envOf(e.shellId()).DB).toBe('prd-db');
+    expect(e.envOf(e.shellId()).STRIPE_SECRET_KEY).toBeUndefined();
+    expect(e.hx.terminals.isRunning(e.dev.id)).toBe(true);
+    expect(
+      e.hx.broadcasts.filter((b) => b.event === 'terminal:reset'),
+    ).toHaveLength(2);
+    await e.hx.terminals.killAllForTask(e.task.id);
+  });
+
+  it('switches to Development or Test without a confirm', async () => {
+    const e = await envScenario();
+    const t = await e.hx.h['tasks:setEnvironment'](e.task.id, 'test');
+    expect(t.environment).toBe('test');
+    expect(t.environmentUntil).toBeNull();
+    await e.hx.terminals.killAllForTask(e.task.id);
+  });
+
+  it('gives a tab that had exited the new environment when it is restarted by hand', async () => {
+    const e = await envScenario();
+    const once = await e.hx.h['terminals:open'](e.task.id, {
+      kind: 'run',
+      label: 'once',
+      command: echoCmd('once'),
+    });
+    await vi.waitFor(() =>
+      expect(e.hx.terminals.isRunning(once.id)).toBe(false),
+    );
+    expect(e.envOf(once.id).DB).toBe('dev-db');
+    await e.hx.h['tasks:setEnvironment'](e.task.id, 'uat', true);
+    await e.hx.h['terminals:restart'](once.id);
+    expect(e.envOf(once.id).DB).toBe('uat-db');
+    await e.hx.terminals.killAllForTask(e.task.id);
+  });
+
+  it('describes each environment for the chip and the confirm', async () => {
+    const e = await envScenario();
+    const info = await e.hx.h['tasks:environmentInfo'](e.task.id);
+    expect(info.values).toEqual({
+      development: { have: 1, of: 2 },
+      test: { have: 0, of: 2 },
+      uat: { have: 1, of: 2 },
+      production: { have: 2, of: 2 },
+    });
+    expect(info.keys.production).toEqual(['DB', 'STRIPE_SECRET_KEY']);
+    expect(info.tabs.map((t) => t.id).sort()).toEqual(
+      [e.dev.id, e.shellId()].sort(),
+    );
+    expect(info.productionMinutes).toBe(60);
+    await e.hx.terminals.killAllForTask(e.task.id);
+  });
+
+  it('lists launch profiles that set a stored key themselves', async () => {
+    const e = await envScenario();
+    mkdirSync(path.join(e.task.worktreePath, 'Properties'), {
+      recursive: true,
+    });
+    writeFileSync(
+      path.join(e.task.worktreePath, 'Properties', 'launchSettings.json'),
+      JSON.stringify({
+        profiles: {
+          Prd: {
+            commandName: 'Project',
+            environmentVariables: { DB: 'from-profile', OTHER: 'x' },
+          },
+        },
+      }),
+    );
+    await e.hx.h['terminals:open'](e.task.id, {
+      kind: 'run',
+      label: 'api',
+      command: 'dotnet run',
+    });
+    const info = await e.hx.h['tasks:environmentInfo'](e.task.id);
+    expect(info.overrides.production).toEqual([
+      { profile: 'Prd', names: ['DB'] },
+    ]);
+    expect(info.overrides.development).toEqual([]);
+    await e.hx.terminals.killAllForTask(e.task.id);
+  });
+
+  it('expires Production at the bound: Development tabs, runs stopped, a notice', async () => {
+    const e = await envScenario();
+    await e.hx.h['tasks:setEnvironment'](e.task.id, 'production', true);
+    const agents = e.agentIds();
+    e.spawn.mockClear();
+    e.clock.now = T0 + 60 * 60_000 - 1;
+    for (const tick of e.ticks) tick();
+    expect(e.stopRuns).not.toHaveBeenCalled();
+    e.clock.now = T0 + 60 * 60_000;
+    for (const tick of e.ticks) tick();
+    await vi.waitFor(() => expect(e.stored().environment).toBe('development'));
+    expect(e.stored().environmentUntil).toBeNull();
+    await vi.waitFor(() => expect(e.stopRuns).toHaveBeenCalledWith(e.task.id));
+    await vi.waitFor(() => expect(e.envOf(e.shellId()).DB).toBe('dev-db'));
+    await vi.waitFor(() => expect(e.envOf(e.dev.id).DB).toBe('dev-db'));
+    expect(e.envOf(e.dev.id).STRIPE_SECRET_KEY).toBeUndefined();
+    for (const id of agents) {
+      expect(e.killedIds()).not.toContain(id);
+      expect(e.hx.terminals.isRunning(id)).toBe(true);
+    }
+    await vi.waitFor(() =>
+      expect(e.hx.broadcasts).toContainEqual({
+        event: 'notice',
+        payload: {
+          level: 'info',
+          message: 'Production ended for 48231 Show estimated delivery date',
+        },
+      }),
+    );
+    expect(
+      e.hx.broadcasts.some(
+        (b) =>
+          b.event === 'tasks:changed' &&
+          (b.payload as Task[]).some(
+            (t) => t.id === e.task.id && t.environment === 'development',
+          ),
+      ),
+    ).toBe(true);
+    await e.hx.terminals.killAllForTask(e.task.id);
+  });
+
+  it('expires Production on resume after the bound passed in sleep', async () => {
+    const e = await envScenario();
+    await e.hx.h['tasks:setEnvironment'](e.task.id, 'production', true);
+    e.clock.now = T0 + 3 * 60 * 60_000;
+    for (const resume of e.resumes) resume();
+    await vi.waitFor(() => expect(e.stored().environment).toBe('development'));
+    expect(e.stopRuns).toHaveBeenCalledWith(e.task.id);
+    await e.hx.terminals.killAllForTask(e.task.id);
+  });
+
+  it('ends Production at Finish: secret tabs stopped, runs stopped, back to Development', async () => {
+    const e = await envScenario();
+    await e.hx.h['tasks:setEnvironment'](e.task.id, 'production', true);
+    const agents = e.agentIds();
+    await e.hx.h['tasks:finish'](e.task.id, {
+      closeTerminals: false,
+      removeWorktree: false,
+      deleteBranch: false,
+      syncUsage: false,
+    });
+    expect(e.stored().status).toBe('done');
+    expect(e.stored().environment).toBe('development');
+    expect(e.stored().environmentUntil).toBeNull();
+    expect(e.stored().finishedEnvironment).toBe('production');
+    expect(e.stopRuns).toHaveBeenCalledWith(e.task.id);
+    expect(e.hx.terminals.isRunning(e.dev.id)).toBe(false);
+    expect(e.hx.terminals.isRunning(e.shellId())).toBe(false);
+    for (const id of agents) expect(e.killedIds()).not.toContain(id);
+    await e.hx.terminals.killAllForTask(e.task.id);
+  });
+
+  it('creates a task on UAT or Production only with a confirm, and bounds Production', async () => {
+    const hx = await harness(fakeCrypto(), { now: () => T0 });
+    await expect(
+      hx.h['tasks:create'](hx.input({ environment: 'production' })),
+    ).rejects.toThrow(/confirm/i);
+    await expect(
+      hx.h['tasks:create'](hx.input({ environment: 'uat' })),
+    ).rejects.toThrow(/confirm/i);
+    expect(hx.store.state.tasks).toEqual([]);
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](
+      hx.input({
+        environment: 'production',
+        environmentConfirmed: true,
+        openShell: false,
+      }),
+    );
+    await done;
+    expect(t.environment).toBe('production');
+    expect(t.environmentUntil).toBe(new Date(T0 + 60 * 60_000).toISOString());
+  });
+
+  it('never takes UAT or Production from a repo default', async () => {
+    const hx = await harness();
+    vi.spyOn(hx.services.secrets, 'repoDefault').mockReturnValue('production');
+    expect(await hx.h['secrets:repoDefault'](hx.added.id)).toBe('development');
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](hx.input({ openShell: false }));
+    await done;
+    expect(t.environment).toBe('development');
+  });
+
+  it('says in the draft PR description which environment the task ran against', async () => {
+    const hx = await harness(fakeCrypto());
+    addOrigin(hx.repo);
+    const c = await hx.connections.save({
+      organizationUrl: 'https://dev.azure.com/contoso',
+      project: 'P',
+      pat: 'p',
+    });
+    await hx.h['repos:setConnection'](hx.added.id, c.id);
+    vi.spyOn(hx.services.git, 'remoteUrl').mockResolvedValue(
+      'https://dev.azure.com/contoso/P/_git/R',
+    );
+    const client = hx.services.ado.client(c.id);
+    vi.spyOn(client, 'repositoryId').mockResolvedValue('repo-1');
+    vi.spyOn(client, 'findActivePullRequest').mockResolvedValue(null);
+    const create = vi.spyOn(client, 'createPullRequest').mockResolvedValue({
+      pullRequestId: 7,
+      status: 'active',
+      isDraft: true,
+    });
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](
+      hx.input({
+        baseRef: 'origin/main',
+        openShell: false,
+        environment: 'uat',
+        environmentConfirmed: true,
+      }),
+    );
+    await done;
+    commitFile(t.worktreePath, 'feature.txt', 'a\n', 'Add the feature');
+    await hx.h['tasks:finish'](t.id, {
+      closeTerminals: true,
+      removeWorktree: true,
+      deleteBranch: true,
+      syncUsage: false,
+      createPullRequest: true,
+    });
+    expect(create.mock.calls[0][2].description).toContain('Run against UAT');
   });
 });

@@ -2,6 +2,7 @@ import type { ColorScheme } from './theme';
 import type {
   DiscoverResult,
   Environment,
+  EnvironmentInfo,
   ImportPlan,
   ImportRequest,
   ImportResult,
@@ -92,6 +93,8 @@ export type Channels = {
   'secrets:forget': { args: [repoId: string]; result: void };
   /** The repo's secrets status for the manager's panel. */
   'secrets:status': { args: [repoId: string]; result: SecretsStatus };
+  /** The environment Start uses for the repo: Development or Test, never UAT or Production. */
+  'secrets:repoDefault': { args: [repoId: string]; result: Environment };
   'secrets:setRepoDefault': {
     args: [repoId: string, env: Environment];
     result: void;
@@ -271,6 +274,16 @@ export type Channels = {
   };
   'tasks:list': { args: []; result: TaskView[] };
   'tasks:create': { args: [input: CreateTaskInput]; result: Task };
+  /**
+   * Switches the task's secrets to another environment and restarts the tabs that hold secrets (never agent tabs).
+   * UAT and Production are refused unless `confirmed` is true; Production lasts the productionMinutes setting.
+   */
+  'tasks:setEnvironment': {
+    args: [taskId: string, env: Environment, confirmed?: boolean];
+    result: Task;
+  };
+  /** What the environment chip and its confirm show: value counts, the tabs a switch restarts, key names. */
+  'tasks:environmentInfo': { args: [taskId: string]; result: EnvironmentInfo };
   'tasks:setupState': { args: [taskId: string]; result: SetupState | null };
   'tasks:retrySetup': { args: [taskId: string]; result: void };
   'tasks:cancelSetup': { args: [taskId: string]; result: void };

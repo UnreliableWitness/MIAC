@@ -84,6 +84,12 @@ export const AppSettingsSchema = z.object({
   editor: EditorPrefsSchema.default(defaultEditorPrefs()),
   /** The tabs Start opens and New task pre-ticks (Settings > Terminals and agents). */
   defaultTerminals: DefaultTerminalsSchema.default(defaultTerminals()),
+  /** Secrets: how long a task stays on Production before Shellie puts it back on Development. */
+  secrets: z
+    .object({
+      productionMinutes: z.number().int().min(5).max(480).default(60),
+    })
+    .default({ productionMinutes: 60 }),
   /** Auto-update (packaged Windows builds). No UI yet: set false in settings.json to turn it off. */
   autoUpdate: z.boolean().optional(),
 });

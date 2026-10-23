@@ -377,6 +377,7 @@ describe('SettingsScreen', () => {
       },
       sendTelemetry: true,
       editor: { default: null, repos: {} },
+      secrets: { productionMinutes: 60 },
       defaultTerminals: {
         claude: true,
         copilot: false,
@@ -425,6 +426,7 @@ describe('SettingsScreen', () => {
       },
       sendTelemetry: true,
       editor: { default: null, repos: {} },
+      secrets: { productionMinutes: 60 },
       defaultTerminals: {
         claude: true,
         copilot: false,
@@ -453,6 +455,7 @@ describe('SettingsScreen', () => {
       },
       sendTelemetry: true,
       editor: { default: null, repos: {} },
+      secrets: { productionMinutes: 60 },
       defaultTerminals: {
         claude: true,
         copilot: false,
@@ -502,6 +505,7 @@ describe('SettingsScreen', () => {
       },
       sendTelemetry: true,
       editor: { default: null, repos: {} },
+      secrets: { productionMinutes: 60 },
       defaultTerminals: {
         claude: true,
         copilot: false,

@@ -13,6 +13,24 @@ export const ENVIRONMENT_LABEL: Record<Environment, string> = {
   production: 'Production',
 };
 
+/** Environments a task only switches to after a confirm, shown with a coloured band. */
+export const isGuarded = (env: Environment): boolean =>
+  env === 'uat' || env === 'production';
+
+/** What the task's environment chip and its confirm show. Names only, never values. */
+export type EnvironmentInfo = {
+  /** Per environment: of the task's secrets (`of`), how many have a value (`have`). */
+  values: Record<Environment, { have: number; of: number }>;
+  /** The running tabs a switch restarts (never agent tabs). */
+  tabs: { id: string; label: string; kind: 'run' | 'shell' }[];
+  /** Per environment: the names with a value that go into those tabs. */
+  keys: Record<Environment, string[]>;
+  /** Per environment: launch profiles (`dotnet run`) that set a stored name themselves, so their value wins. */
+  overrides: Record<Environment, { profile: string; names: string[] }[]>;
+  /** How long Production lasts (setting). */
+  productionMinutes: number;
+};
+
 /** Which tabs get a secret: Setup, dev server/run tabs, test runs, the user's shell tab. Agent tabs never do. */
 export type GivenTo = 'setup' | 'run' | 'tests' | 'shell';
 

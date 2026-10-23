@@ -150,6 +150,8 @@ export const TaskSchema = z.object({
   environment: EnvironmentSchema.default('development'),
   /** When a Production task falls back to Development (ISO instant); null otherwise. */
   environmentUntil: z.string().nullable().default(null),
+  /** The environment the task was on when it finished (Finish then puts it back on Development); absent before. */
+  finishedEnvironment: EnvironmentSchema.optional(),
 });
 export type Task = z.infer<typeof TaskSchema>;
 
@@ -212,8 +214,10 @@ export type CreateTaskInput = {
   openShell: boolean;
   openCopilot?: boolean;
   openOpencode?: boolean;
-  /** Absent: the repo's default environment. */
+  /** Absent: the repo's default environment (Development or Test, never UAT or Production). */
   environment?: Environment;
+  /** UAT and Production need the developer's confirm; main refuses them without it. */
+  environmentConfirmed?: boolean;
 };
 
 /**

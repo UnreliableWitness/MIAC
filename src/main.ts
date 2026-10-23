@@ -687,6 +687,17 @@ async function boot(): Promise<void> {
       onHourly: (fn) => {
         setInterval(fn, 60 * 60 * 1000);
       },
+      // Production ends at its bound: checked every 30 s and when the machine wakes.
+      expiryTimers: {
+        every: (fn, ms) => {
+          const timer = setInterval(fn, ms);
+          return () => clearInterval(timer);
+        },
+        onResume: (fn) => {
+          powerMonitor.on('resume', fn);
+          return () => powerMonitor.off('resume', fn);
+        },
+      },
       finishFlushMs: 2500,
       connections,
       secrets,

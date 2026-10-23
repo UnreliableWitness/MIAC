@@ -37,6 +37,7 @@ const settings = {
   },
   sendTelemetry: true,
   editor: { default: null, repos: {} },
+  secrets: { productionMinutes: 60 },
   defaultTerminals: {
     claude: true,
     copilot: false,
@@ -122,6 +123,7 @@ describe('CostSection', () => {
       },
       sendTelemetry: true,
       editor: { default: null, repos: {} },
+      secrets: { productionMinutes: 60 },
       defaultTerminals: {
         claude: true,
         copilot: false,

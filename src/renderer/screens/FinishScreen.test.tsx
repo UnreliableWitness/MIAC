@@ -489,6 +489,7 @@ describe('FinishScreen AI usage', () => {
         },
         sendTelemetry: true,
         editor: { default: null, repos: {} },
+        secrets: { productionMinutes: 60 },
         defaultTerminals: {
           claude: true,
           copilot: false,
