@@ -77,6 +77,14 @@ function StatusPanel({
                 </ul>
               </>
             )}
+            {r.kind === 'unchecked' && (
+              <>
+                <strong>
+                  {`Shellie couldn't check ${repo.name} with git`}
+                </strong>{' '}
+                — the status may be incomplete.
+              </>
+            )}
             {r.kind === 'worktrees' && (
               <>
                 <strong>

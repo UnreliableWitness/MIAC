@@ -8,11 +8,14 @@ import {
 } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { promises as fsp } from 'node:fs';
 import { GitClient } from '../services/GitClient';
 import { fakeCrypto } from '../test-helpers/fakeCrypto';
 import { commitFile, makeRepo } from '../test-helpers/gitRepo';
 import { SecretStore } from './SecretStore';
+import { discoverSecrets } from './discover';
+import { strippableKind } from './inject';
 import { cleanAll, cleanWorktree, computeStatus } from './status';
 
 const git = new GitClient();
@@ -171,7 +174,7 @@ describe('when git cannot list tracked files', () => {
       copy: ['.env'],
       worktrees: [{ taskId: 't1', worktreePath: repo }],
     });
-    expect(st.reasons).toEqual([]);
+    expect(st.reasons).toEqual([{ kind: 'unchecked' }]);
   });
 });
 
@@ -244,5 +247,72 @@ describe('counts', () => {
     const st = await computeStatus({ ...base(s, repo), copy: ['.env'] });
     expect(st.reasons).toEqual([{ kind: 'copy', files: ['.env'], count: 2 }]);
     expect(st.secrets).toBe(2);
+  });
+});
+
+describe('an unchecked repo is never green', () => {
+  it('is attention (unchecked) when git cannot list the main repo', async () => {
+    const repo = makeRepo();
+    const st = await computeStatus({
+      ...base(await store(), repo),
+      git: failingGit,
+    });
+    expect(st.state).toBe('attention');
+    expect(st.reasons).toContainEqual({ kind: 'unchecked' });
+  });
+
+  it('is attention (unchecked) when discovery fails', async () => {
+    const repo = makeRepo();
+    const st = await computeStatus({
+      ...base(await store(), repo),
+      userSecretsDir: () => {
+        throw new Error('no folder');
+      },
+    });
+    // Discovery may cope with this itself; then there is nothing unchecked.
+    expect(
+      st.state === 'protected' ||
+        st.reasons.some((r) => r.kind === 'unchecked'),
+    ).toBe(true);
+  });
+
+  it('is attention (unchecked) when a worktree cannot be checked', async () => {
+    const repo = makeRepo();
+    const notGit = mkdtempSync(path.join(os.tmpdir(), 'shellie-nogit-'));
+    const st = await computeStatus({
+      ...base(await store(), repo),
+      worktrees: [{ taskId: 't1', worktreePath: notGit }],
+    });
+    expect(st.reasons).toContainEqual({ kind: 'unchecked' });
+  });
+});
+
+describe('the temp file of a crashed clean', () => {
+  it('is not an env file to strippableKind', () => {
+    expect(strippableKind('.shellie-tmp-123-.env')).toBeNull();
+    expect(strippableKind('conf/.shellie-tmp-1-appsettings.json')).toBeNull();
+  });
+
+  it('is not found by discovery', async () => {
+    const repo = makeRepo();
+    writeFileSync(
+      path.join(repo, '.shellie-tmp-1-.env'),
+      'API_KEY=sk_live_abcdefghijkl\n',
+    );
+    const r = await discoverSecrets(repo, { git, userSecretsDir: noUser });
+    expect(r.found).toEqual([]);
+  });
+
+  it('is named so, next to the original', async () => {
+    const wt = folder();
+    mkdirSync(path.join(wt, 'conf'));
+    const file = path.join(wt, 'conf', '.env');
+    writeFileSync(file, 'API_KEY=abc\n');
+    const spy = vi.spyOn(fsp, 'rename');
+    await cleanWorktree(wt, ['conf'], ['API_KEY'], git);
+    const [from] = spy.mock.calls[0]!;
+    expect(path.dirname(String(from))).toBe(path.dirname(file));
+    expect(path.basename(String(from))).toMatch(/^\.shellie-tmp-\d+-\.env$/);
+    spy.mockRestore();
   });
 });

@@ -103,7 +103,9 @@ export type DiscoverResult = {
 export type SecretsReason =
   | { kind: 'copy'; files: string[]; count: number }
   | { kind: 'tracked'; files: string[] }
-  | { kind: 'worktrees'; taskIds: string[] };
+  | { kind: 'worktrees'; taskIds: string[] }
+  /** Git (or discovery) failed, so the other answers may be incomplete. */
+  | { kind: 'unchecked' };
 
 /** The manager's status panel: green when protected, amber with reasons, nothing when the repo has no secrets. */
 export type SecretsStatus = {

@@ -417,6 +417,8 @@ export function createHandlers(s: Services): Handlers {
   const secretsChanged = () => {
     leakWatch.invalidate();
     diffMatchers.clear();
+    // A status being computed now may predate the change: the next call starts again.
+    statusRuns.clear();
     s.broadcast('secrets:changed', null);
   };
 
@@ -3020,7 +3022,9 @@ export function createHandlers(s: Services): Handlers {
           userSecretsDir: (id) => s.platform.userSecretsDir(id),
           worktrees: openWorktrees(repoId),
         });
-      })().finally(() => statusRuns.delete(repoId));
+      })().finally(() => {
+        if (statusRuns.get(repoId) === run) statusRuns.delete(repoId);
+      });
       statusRuns.set(repoId, run);
       return run;
     },

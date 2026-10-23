@@ -311,6 +311,23 @@ describe('Secrets page', () => {
     });
   });
 
+  it('shows an amber card when git could not check the repo', async () => {
+    installFakeApi({
+      'secrets:list': list,
+      'secrets:status': () => ({
+        state: 'attention',
+        reasons: [{ kind: 'unchecked' }],
+        given: [],
+        secrets: 1,
+      }),
+    });
+    render(<SecretsScreen repoId="r1" />);
+    expect(
+      await screen.findByText("Shellie couldn't check webshop with git"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/is protected/)).toBeNull();
+  });
+
   it('reloads on secrets:changed', async () => {
     let rows = [stripe, openai];
     const api = installFakeApi({ 'secrets:list': () => rows });

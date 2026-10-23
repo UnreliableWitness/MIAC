@@ -97,10 +97,16 @@ async function holding(
   return { files, count: held.size };
 }
 
+/** A temp file's name never looks like an env file, so one left by a crash is not picked up later. */
+const TEMP_PREFIX = '.shellie-tmp-';
+
 /** Writes next to the file and renames over it, so a crash never leaves half a file; the mode stays. */
 async function replaceFile(abs: string, text: string): Promise<void> {
   const mode = (await fs.stat(abs)).mode & 0o777;
-  const tmp = `${abs}.shellie-${process.pid}.tmp`;
+  const tmp = path.join(
+    path.dirname(abs),
+    `${TEMP_PREFIX}${process.pid}-${path.basename(abs)}`,
+  );
   try {
     await fs.writeFile(tmp, text, { encoding: 'utf8', mode });
     await fs.chmod(tmp, mode);
@@ -165,18 +171,22 @@ export async function dirtyWorktrees(
   copy: string[],
   names: string[],
   git: GitClient,
-): Promise<string[]> {
+): Promise<{ taskIds: string[]; unchecked: boolean }> {
   const out: string[] = [];
+  let unchecked = false;
   for (const w of worktrees) {
     const tracked = await trackedIn(git, w.worktreePath);
-    if (!tracked) continue;
+    if (!tracked) {
+      unchecked = true;
+      continue;
+    }
     if (
       (await holding(w.worktreePath, copy, names, tracked)).files.length > 0 &&
       !out.includes(w.taskId)
     )
       out.push(w.taskId);
   }
-  return out;
+  return { taskIds: out, unchecked };
 }
 
 /** The distinct names of every value stored for a repo (its own and All repositories). */
@@ -197,6 +207,7 @@ export async function computeStatus(deps: StatusDeps): Promise<SecretsStatus> {
   const reasons: SecretsReason[] = [];
 
   const tracked = await trackedIn(deps.git, deps.repoPath);
+  let unchecked = tracked === null;
   if (tracked) {
     const copied = await holding(deps.repoPath, deps.copy, names, tracked);
     if (copied.files.length > 0)
@@ -207,6 +218,7 @@ export async function computeStatus(deps: StatusDeps): Promise<SecretsStatus> {
     git: deps.git,
     userSecretsDir: deps.userSecretsDir,
   }).catch(() => null);
+  if (!found) unchecked = true;
   const committed = [
     ...new Set(
       (found?.found ?? [])
@@ -216,13 +228,17 @@ export async function computeStatus(deps: StatusDeps): Promise<SecretsStatus> {
   ];
   if (committed.length > 0) reasons.push({ kind: 'tracked', files: committed });
 
-  const taskIds = await dirtyWorktrees(
+  const dirty = await dirtyWorktrees(
     deps.worktrees,
     deps.copy,
     names,
     deps.git,
   );
-  if (taskIds.length > 0) reasons.push({ kind: 'worktrees', taskIds });
+  if (dirty.taskIds.length > 0)
+    reasons.push({ kind: 'worktrees', taskIds: dirty.taskIds });
+  if (dirty.unchecked) unchecked = true;
+  // Never green on something Shellie could not look at.
+  if (unchecked) reasons.push({ kind: 'unchecked' });
 
   const given = [
     ...new Set(

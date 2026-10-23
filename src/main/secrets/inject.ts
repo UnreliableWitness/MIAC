@@ -181,6 +181,7 @@ export function withLaunchProfile(command: string, args: string[]): string {
 export function strippableKind(file: string): 'dotenv' | 'json' | null {
   const parts = file.toLowerCase().split(/[\\/]/);
   const base = parts.at(-1)!;
+  if (base.startsWith('.shellie-tmp-')) return null;
   if (base === '.env' || base.startsWith('.env.') || base.endsWith('.env'))
     return 'dotenv';
   if (!base.endsWith('.json')) return null;

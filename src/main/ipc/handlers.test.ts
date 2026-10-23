@@ -5462,6 +5462,20 @@ describe('handlers: environment per task', () => {
     await e.hx.terminals.killAllForTask(e.task.id);
   });
 
+  it('starts a fresh status after secrets change or a clean finishes', async () => {
+    const e = await envScenario();
+    const repoId = e.hx.added.id;
+    const spy = vi.spyOn(e.hx.services.secrets, 'allValues');
+    const first = e.hx.h['secrets:status'](repoId);
+    // A secret saved meanwhile broadcasts a change: the pending answer is stale.
+    await e.hx.h['secrets:setRepoDefault'](repoId, 'test');
+    const second = e.hx.h['secrets:status'](repoId);
+    expect(second).not.toBe(first);
+    await Promise.all([first, second]);
+    expect(spy).toHaveBeenCalledTimes(2);
+    await e.hx.terminals.killAllForTask(e.task.id);
+  });
+
   it('reports an old worktree copy and cleans it, restarting only the secret tabs', async () => {
     const e = await envScenario();
     const envFile = path.join(e.task.worktreePath, '.env');
