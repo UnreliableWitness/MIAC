@@ -18,6 +18,9 @@ export type GivenTo = 'setup' | 'run' | 'tests' | 'shell';
 
 export type SecretScope = { repoId: string } | 'all';
 
+/** The mask of a stored value that cannot be decrypted. */
+export const UNREADABLE_MASK = '⚠ unreadable';
+
 /** What the renderer sees: masks only. */
 export type SecretView = {
   id: string;

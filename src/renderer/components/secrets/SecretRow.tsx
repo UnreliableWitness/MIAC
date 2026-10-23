@@ -6,6 +6,7 @@ import {
   ENVIRONMENT_LABEL,
   type GivenTo,
   type SecretView,
+  UNREADABLE_MASK,
 } from '../../../shared/secrets';
 import { api, tryInvoke } from '../../api';
 import { useStore } from '../../store';
@@ -18,8 +19,6 @@ export const GIVEN_LABEL: Record<GivenTo, string> = {
   shell: 'Your shell',
 };
 export const GIVEN_ORDER: GivenTo[] = ['setup', 'run', 'tests', 'shell'];
-
-const UNREADABLE = '⚠ unreadable';
 
 /** "3 days ago" within a week, else "12 Oct". */
 export function changedLabel(iso: string, now = Date.now()): string {
@@ -101,7 +100,7 @@ export function SecretRow({
               </button>
             </td>
           );
-        const unreadable = v.mask === UNREADABLE;
+        const unreadable = v.mask === UNREADABLE_MASK;
         return (
           <td key={env} className={unreadable ? 'secret-bad' : undefined}>
             <div className="secret-value">

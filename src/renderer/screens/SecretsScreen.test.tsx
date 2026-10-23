@@ -272,4 +272,96 @@ describe('Secrets page', () => {
       repoId: 'r1',
     });
   });
+
+  it('clears a revealed value on blur and on pointercancel', async () => {
+    installFakeApi({
+      'secrets:list': list,
+      'secrets:reveal': () => 'sk_test_PLAINTEXT',
+    });
+    render(<SecretsScreen repoId="r1" />);
+    await screen.findByText('STRIPE_SECRET_KEY');
+    const eye = screen.getByRole('button', {
+      name: 'Hold to reveal STRIPE_SECRET_KEY Development',
+    });
+    for (const end of [fireEvent.blur, fireEvent.pointerCancel]) {
+      fireEvent.pointerDown(eye);
+      expect(await screen.findByText('sk_test_PLAINTEXT')).toBeInTheDocument();
+      end(eye);
+      expect(document.body.textContent).not.toContain('PLAINTEXT');
+    }
+  });
+
+  it('shows the rows and status of the scope last clicked, not a slow earlier one', async () => {
+    let releaseA: () => void = () => {};
+    const gateA = new Promise<void>((r) => (releaseA = r));
+    let aSlow = false;
+    let statusSlow = false;
+    const aRow = { ...stripe, id: 'a', name: 'A_ONLY' };
+    const bRow = {
+      ...stripe,
+      id: 'b',
+      name: 'B_ONLY',
+      scope: { repoId: 'r2' },
+    };
+    installFakeApi({
+      'secrets:list': async (scope) => {
+        if (scope === 'r1') {
+          // Only the first request (the page's own scope list) is slow.
+          if (!aSlow) {
+            aSlow = true;
+            await gateA;
+          }
+          return [aRow];
+        }
+        return scope === 'r2' ? [bRow] : [];
+      },
+      'secrets:status': async (id) => {
+        if (id === 'r1' && !statusSlow) {
+          statusSlow = true;
+          await gateA;
+        }
+        return { state: 'protected', reasons: [], given: [] };
+      },
+    });
+    const user = userEvent.setup();
+    render(<SecretsScreen repoId="r1" />);
+    await user.click(screen.getByRole('button', { name: /payments-api/ }));
+    expect(await screen.findByText('B_ONLY')).toBeInTheDocument();
+    expect(
+      await screen.findByText(/payments-api is protected/),
+    ).toBeInTheDocument();
+    await act(async () => releaseA());
+    expect(screen.queryByText('A_ONLY')).toBeNull();
+    expect(screen.queryByText(/webshop is protected/)).toBeNull();
+    expect(screen.getByText('B_ONLY')).toBeInTheDocument();
+  });
+
+  it('removes one environment value with null', async () => {
+    const { calls } = installFakeApi({
+      'secrets:list': list,
+      'secrets:save': () => stripe,
+    });
+    const user = userEvent.setup();
+    render(<SecretsScreen repoId="r1" />);
+    await screen.findByText('STRIPE_SECRET_KEY');
+    await user.click(
+      screen.getByRole('button', { name: 'Actions for STRIPE_SECRET_KEY' }),
+    );
+    await user.click(screen.getByRole('menuitem', { name: 'Edit' }));
+    expect(
+      screen.queryByRole('button', { name: 'Remove Test value' }),
+    ).toBeNull();
+    await user.click(
+      screen.getByRole('button', { name: 'Remove Development value' }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() =>
+      expect(
+        calls.find((c) => c.channel === 'secrets:save')?.args[0],
+      ).toMatchObject({
+        id: 's1',
+        values: { development: null },
+      }),
+    );
+  });
 });

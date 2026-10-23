@@ -5,6 +5,7 @@ import { z } from 'zod';
 import {
   ENVIRONMENTS,
   SECRET_NAME,
+  UNREADABLE_MASK,
   maskValue,
   type Environment,
   type GivenTo,
@@ -256,7 +257,7 @@ export class SecretStore {
       if (!v) continue;
       const plain = this.decrypt(s, env);
       values[env] = {
-        mask: plain === null ? '⚠ unreadable' : maskValue(plain),
+        mask: plain === null ? UNREADABLE_MASK : maskValue(plain),
         source: v.source,
         changedAt: v.changedAt,
       };

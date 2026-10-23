@@ -1,5 +1,5 @@
 import { Shield16Filled, Warning16Regular } from '@fluentui/react-icons';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   Environment,
   SecretScope,
@@ -88,7 +88,11 @@ export function SecretsScreen({ repoId }: { repoId?: string }) {
   const [editing, setEditing] = useState<Editing | null>(null);
   const [deleting, setDeleting] = useState<SecretView | null>(null);
 
+  // Only the latest load applies: a slow answer for a scope left behind is dropped.
+  const loadToken = useRef(0);
   const load = useCallback(async () => {
+    const mine = ++loadToken.current;
+    const latest = () => loadToken.current === mine;
     const lists = await tryInvoke(
       () =>
         Promise.all([
@@ -98,7 +102,7 @@ export function SecretsScreen({ repoId }: { repoId?: string }) {
         ]),
       notify,
     );
-    if (!lists) return;
+    if (!lists || !latest()) return;
     const [current, all, ...perRepo] = lists;
     setShown(current);
     const next: Record<string, number> = { all: all.length };
@@ -113,7 +117,7 @@ export function SecretsScreen({ repoId }: { repoId?: string }) {
         () => api().invoke('secrets:status', scope),
         notify,
       );
-      if (st) setStatus(st);
+      if (latest()) setStatus(st ?? null);
     } else setStatus(null);
   }, [scope, repos, notify]);
 

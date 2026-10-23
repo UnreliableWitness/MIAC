@@ -40,6 +40,7 @@ export function SecretEditor({
   const [values, setValues] = useState<Partial<Record<Environment, string>>>(
     {},
   );
+  const [removed, setRemoved] = useState<Environment[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -49,11 +50,14 @@ export function SecretEditor({
       scope: chosen,
       name: name.trim(),
       givenTo: GIVEN_ORDER.filter((g) => given.includes(g)),
-      values: Object.fromEntries(
-        ENVIRONMENTS.filter((e) => values[e]).map((e) => [
-          e,
-          { value: values[e] as string },
-        ]),
+      values: Object.fromEntries<{ value: string } | null>(
+        ENVIRONMENTS.flatMap((e): [Environment, { value: string } | null][] =>
+          values[e]
+            ? [[e, { value: values[e] as string }]]
+            : removed.includes(e)
+              ? [[e, null]]
+              : [],
+        ),
       ),
     };
     setBusy(true);
@@ -131,21 +135,40 @@ export function SecretEditor({
       </fieldset>
       <div className="secret-editor-grid secret-editor-values">
         {ENVIRONMENTS.map((env) => (
-          <label key={env}>
-            {`${ENVIRONMENT_LABEL[env]} value`}
-            <input
-              className="input"
-              type="password"
-              value={values[env] ?? ''}
-              autoFocus={focusEnv === env}
-              autoComplete="off"
-              spellCheck={false}
-              placeholder={initial?.values[env] ? 'unchanged' : ''}
-              onChange={(e) =>
-                setValues((cur) => ({ ...cur, [env]: e.target.value }))
-              }
-            />
-          </label>
+          <div key={env} className="secret-env">
+            <label>
+              {`${ENVIRONMENT_LABEL[env]} value`}
+              <input
+                className="input"
+                type="password"
+                value={values[env] ?? ''}
+                autoFocus={focusEnv === env}
+                autoComplete="off"
+                spellCheck={false}
+                placeholder={
+                  removed.includes(env)
+                    ? 'will be removed'
+                    : initial?.values[env]
+                      ? 'unchanged'
+                      : ''
+                }
+                onChange={(e) => {
+                  setValues((cur) => ({ ...cur, [env]: e.target.value }));
+                  setRemoved((cur) => cur.filter((x) => x !== env));
+                }}
+              />
+            </label>
+            {initial?.values[env] && !removed.includes(env) && !values[env] && (
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                aria-label={`Remove ${ENVIRONMENT_LABEL[env]} value`}
+                onClick={() => setRemoved((cur) => [...cur, env])}
+              >
+                Remove value
+              </button>
+            )}
+          </div>
         ))}
       </div>
       {error && (
