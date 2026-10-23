@@ -56,7 +56,7 @@ const BASE_ARGS = ['-NoLogo', '-ExecutionPolicy', 'Bypass'];
 
 /** Windows: PowerShell 7 if installed, else Windows PowerShell 5.1. */
 export function windowsPlatform(
-  _env: NodeJS.ProcessEnv,
+  env: NodeJS.ProcessEnv,
   deps: {
     which: (name: string) => string | null;
     exists?: (p: string) => boolean;
@@ -139,6 +139,14 @@ export function windowsPlatform(
       ),
     copilotCommand: () => tool('copilot', []),
     opencodeCommand: () => tool('opencode', []),
+    userSecretsDir: (id) =>
+      path.win32.join(
+        env.APPDATA ??
+          path.win32.join(env.USERPROFILE ?? '', 'AppData', 'Roaming'),
+        'Microsoft',
+        'UserSecrets',
+        id,
+      ),
     editorCommand: (p) => vscode([p]),
     editorGotoCommand: (wt, f, line, col) =>
       vscode([wt, '-g', `${f}:${line ?? 1}:${col ?? 1}`]),

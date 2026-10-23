@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { SecretScope } from '../../shared/secrets';
+import { DiscoveryHold, discoverSecrets } from '../secrets/discover';
 import { SecretStore } from '../secrets/SecretStore';
 import type { Events, Handlers, PendingUpdate } from '../../shared/ipc';
 import { claudeContext, renderTaskMd, taskSlug } from '../../shared/naming';
@@ -278,6 +279,7 @@ export function createHandlers(s: Services): Handlers {
   const hasSessionsIn = s.claudeHasSessionsIn ?? claudeHasSessionsIn;
   const connectionsChanged = () =>
     s.broadcast('connections:changed', s.connections.list());
+  const discovery = new DiscoveryHold();
   const reposChanged = () => s.broadcast('repos:changed', s.repos.list());
 
   /** Work item types per connection, with icons, for the session. A failed load is not kept, so the next call retries. */
@@ -2232,6 +2234,14 @@ export function createHandlers(s: Services): Handlers {
       s.broadcast('secrets:changed', null);
     },
     'secrets:reveal': async (id, env) => s.secrets.reveal(id, env),
+    'secrets:discover': async (repoId) =>
+      discovery.hold(
+        repoId,
+        await discoverSecrets(s.repos.get(repoId).path, {
+          git: s.git,
+          userSecretsDir: (id) => s.platform.userSecretsDir(id),
+        }),
+      ),
     'secrets:setRepoDefault': async (repoId, env) => {
       await s.secrets.setRepoDefault(repoId, env);
       s.broadcast('secrets:changed', null);

@@ -12,6 +12,11 @@ import { describe, expect, it } from 'vitest';
 import { darwinPlatform } from './darwin';
 
 describe('darwinPlatform', () => {
+  it('keeps .NET user secrets under ~/.microsoft/usersecrets', () => {
+    expect(darwinPlatform({ HOME: '/Users/me' }).userSecretsDir('abc')).toBe(
+      '/Users/me/.microsoft/usersecrets/abc',
+    );
+  });
   const p = darwinPlatform({ SHELL: '/bin/zsh' });
   it('opens a login shell for interactive tabs', () => {
     expect(p.interactiveShell()).toEqual({ command: '/bin/zsh', args: ['-l'] });

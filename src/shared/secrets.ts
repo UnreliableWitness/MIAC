@@ -54,3 +54,21 @@ export function maskValue(value: string): string {
   const prefix = KNOWN_PREFIX.exec(value)?.[0].slice(0, 8) ?? '';
   return `${prefix}••••${value.slice(-4)}`;
 }
+
+/** One value discovery found in the repo (or in .NET user secrets). Stays in main: the renderer gets a `FoundView`. */
+export type Found = {
+  name: string;
+  value: string;
+  /** Null when the file or profile name maps to no environment (the Unassigned lane). */
+  env: Environment | null;
+  /** A repo-relative path with `/`, or "user secrets" / "launch profile <name>". */
+  source: string;
+  /** The file is committed to git. */
+  tracked: boolean;
+  secretLike: boolean;
+};
+
+/** A `Found` as the renderer sees it: a mask and a key that main resolves back to the value at import. */
+export type FoundView = Omit<Found, 'value'> & { key: string; mask: string };
+
+export type DiscoverResult = { found: FoundView[]; sources: string[] };

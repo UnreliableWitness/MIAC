@@ -1,5 +1,10 @@
 import type { ColorScheme } from './theme';
-import type { Environment, SecretInput, SecretView } from './secrets';
+import type {
+  DiscoverResult,
+  Environment,
+  SecretInput,
+  SecretView,
+} from './secrets';
 import type { TerminalFailure } from './terminalFailure';
 
 export type RestartOptions = { withoutProjectConfig?: boolean };
@@ -73,6 +78,8 @@ export type Channels = {
   'secrets:delete': { args: [id: string]; result: void };
   /** The plain value of one environment, for a held reveal; main logs the reveal (never the value). */
   'secrets:reveal': { args: [id: string, env: Environment]; result: string };
+  /** Looks in the repo's known places and .NET user secrets. Masks only; main keeps the values by key for the import. */
+  'secrets:discover': { args: [repoId: string]; result: DiscoverResult };
   'secrets:setRepoDefault': {
     args: [repoId: string, env: Environment];
     result: void;

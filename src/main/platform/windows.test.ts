@@ -21,6 +21,15 @@ const make = (found: Record<string, string>) =>
   windowsPlatform({}, { which: (n) => found[n] ?? null });
 
 describe('windowsPlatform', () => {
+  it('keeps .NET user secrets under %APPDATA%\\Microsoft\\UserSecrets', () => {
+    const p = windowsPlatform(
+      { APPDATA: 'C:\\Users\\me\\AppData\\Roaming' },
+      { which: () => null },
+    );
+    expect(p.userSecretsDir('abc')).toBe(
+      'C:\\Users\\me\\AppData\\Roaming\\Microsoft\\UserSecrets\\abc',
+    );
+  });
   it('prefers pwsh and falls back to Windows PowerShell', () => {
     expect(make({ pwsh: 'C:\\pwsh\\pwsh.exe' }).interactiveShell()).toEqual({
       command: 'C:\\pwsh\\pwsh.exe',

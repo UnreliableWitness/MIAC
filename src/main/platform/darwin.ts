@@ -50,6 +50,8 @@ export function darwinPlatform(env: NodeJS.ProcessEnv): Platform {
       ]),
     copilotCommand: () => login(['-c', 'exec copilot']),
     opencodeCommand: () => login(['-c', 'exec opencode']),
+    userSecretsDir: (id) =>
+      path.posix.join(env.HOME ?? '', '.microsoft', 'usersecrets', id),
     editorCommand: (p) => ({ command: 'code', args: [p] }),
     editorGotoCommand: (wt, f, line, col) => ({
       command: 'code',
