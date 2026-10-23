@@ -17,6 +17,7 @@ import type {
   FinishOptions,
   FinishRowResult,
   ShellieConfig,
+  PendingCleanup,
   PullRequestRef,
   SetupEvent,
   SetupState,
@@ -122,6 +123,7 @@ import { renderCostLine } from '../../shared/workItemUsage';
 import type { ColorScheme, ThemeChoice } from '../../shared/theme';
 import { colorFgBg } from '../services/claudeTheme';
 import type { TerminalFailures } from '../services/TerminalFailures';
+import { removeWorkspace, WorktreeCleanup } from '../services/worktreeCleanup';
 import type { TimeBooking } from '../../shared/time';
 import { errorMessage } from '../../shared/errors';
 import { OFFICIAL_USD_TO_EUR } from '../../shared/usage';
@@ -192,6 +194,11 @@ export type Services = {
   budget?: BudgetService;
   /** Registers a function to run every hour (main uses setInterval; tests capture it). */
   onHourly: (fn: () => void) => void;
+  /**
+   * Registers the retry of finished tasks' leftover worktree folders (#115): main runs it shortly after launch and
+   * every few minutes; tests capture it.
+   */
+  onCleanupRetry?: (retryAll: () => Promise<void>) => void;
   /** How long Finish waits after closing terminals so the last telemetry batch arrives (main 2500, tests 0). */
   finishFlushMs: number;
   /** App telemetry (usage, errors, timings); see docs/telemetry.md. Defaults to sending nothing. */
@@ -462,6 +469,45 @@ export function createHandlers(s: Services): Handlers {
 
   const patchTask = (id: string, patch: Partial<Task>) =>
     mutateTask(id, (t) => Object.assign(t, patch));
+
+  /** Finished tasks' worktree folders a process still held at Finish, retried until they are gone (#115). */
+  const cleanup = new WorktreeCleanup({
+    git: s.git,
+    tasks: () => s.store.state.tasks,
+    claim: (id) => {
+      if (inFlight.has(id)) return false;
+      inFlight.add(id);
+      return true;
+    },
+    release,
+    mutate: mutateTask,
+    notice: (message) => s.broadcast('notice', { level: 'warn', message }),
+    event: (name, props, m) => tel.event(name, props, m),
+  });
+  s.onCleanupRetry?.(() => cleanup.retryAll());
+
+  /**
+   * Removes a workspace's worktree folder and, when `deleteBranch`, its branch. A failure does not fail Finish:
+   * what is left comes back to be stored on the task and retried in the background (#115).
+   */
+  const removeForFinish = async (
+    w: { id: string; worktreePath: string; branch: string },
+    repoPath: string,
+    deleteBranch: boolean,
+  ): Promise<PendingCleanup | null> => {
+    const left = await removeWorkspace(
+      s.git,
+      {
+        workspaceId: w.id,
+        repoPath,
+        worktreePath: w.worktreePath,
+        branch: deleteBranch ? w.branch : null,
+      },
+      { now: Date.now },
+    );
+    if (left) tel.event('cleanup.deferred', { code: left.code });
+    return left;
+  };
 
   /**
    * Where a workspace's pull request would go (the home's by default): its repo's connection and `origin`
@@ -1235,7 +1281,8 @@ export function createHandlers(s: Services): Handlers {
         target: null,
         linksWorkItem: false,
       })),
-      pathExists(w.worktreePath),
+      // A folder an earlier failed cleanup left without its .git file counts as gone: git cannot read it (#115).
+      pathExists(path.join(w.worktreePath, '.git')),
     ]);
     const base = {
       workspaceId: w.id,
@@ -1632,17 +1679,20 @@ export function createHandlers(s: Services): Handlers {
         const killTerminals =
           options.closeTerminals || options.removeWorktree || dropping;
         if (killTerminals) await closeTaskTerminals(taskId);
+        const pendingCleanup: PendingCleanup[] = [];
         for (const r of rows) {
           // Never cleaned up: neither its worktree nor its branch belongs to this task.
           if (!ownBranch(task, r.w)) continue;
           const drop = r.action === 'drop';
-          if (
-            (options.removeWorktree || drop) &&
-            (await pathExists(r.w.worktreePath))
-          )
-            await s.git.worktreeRemove(r.repoPath, r.w.worktreePath, true);
-          if (options.deleteBranch || drop) {
-            // A deleted folder leaves a stale registration that blocks branch deletion.
+          if (options.removeWorktree || drop) {
+            const left = await removeForFinish(
+              r.w,
+              r.repoPath,
+              options.deleteBranch || drop,
+            );
+            if (left) pendingCleanup.push(left);
+          } else if (options.deleteBranch) {
+            // The folder stays, so git refuses: that refusal protects uncommitted work.
             await s.git.worktreePrune(r.repoPath);
             await s.git.deleteBranch(r.repoPath, r.w.branch);
           }
@@ -1653,6 +1703,7 @@ export function createHandlers(s: Services): Handlers {
           status: 'done',
           finishedAt,
           openPeriods: withPeriodClosed(taskById(taskId), finishedAt),
+          pendingCleanup,
         });
         reportFinished(task, options, {
           workspaces: rows.length,
@@ -1837,6 +1888,7 @@ export function createHandlers(s: Services): Handlers {
         homeDropped: false,
         connectionId: repo.connectionId,
         mainCheckoutEdits: [],
+        pendingCleanup: [],
         openPeriods: [{ start: createdAt, end: null }],
         time: null,
       };
@@ -1938,7 +1990,14 @@ export function createHandlers(s: Services): Handlers {
       // A scan error must never keep the user from finishing.
       await workspaces.scan(taskId).catch(() => undefined);
       const task = taskById(taskId);
-      const homeSummary = s.git.summary(task.worktreePath, task.baseRef);
+      const homeSummary = s.git
+        .summary(task.worktreePath, task.baseRef)
+        .catch(async (e: unknown) => {
+          // What an earlier failed cleanup left (no .git file) has nothing git can lose; Finish deletes it (#115).
+          if (!(await pathExists(path.join(task.worktreePath, '.git'))))
+            return { files: [], ahead: 0 };
+          throw e;
+        });
       const [checks, home] = await Promise.all([
         Promise.all(activeWorkspaces(task).map((w) => workspaceCheck(task, w))),
         // The home's own fields, as before #48; with other repos in the task a missing home must not fail the page.
@@ -1954,6 +2013,10 @@ export function createHandlers(s: Services): Handlers {
       };
     },
     'tasks:finishResults': async (taskId) => finishResults.get(taskId) ?? null,
+    'tasks:retryCleanup': async (taskId) => {
+      taskById(taskId);
+      return cleanup.retryTask(taskId);
+    },
     'tasks:prSummary': async (taskId, workspaceId) => {
       const task = taskById(taskId);
       const w = workspaceById(task, workspaceId);
@@ -2063,6 +2126,9 @@ export function createHandlers(s: Services): Handlers {
               `${l.path} is left over from an earlier cleanup and could not be deleted (${errorMessage(e)}). Delete it and reopen again.`,
             );
           });
+        // The task takes its folders back (#115): the background cleanup must never remove them now.
+        if (task.pendingCleanup.length > 0)
+          await patchTask(taskId, { pendingCleanup: [] });
         if (restores.size === 0) {
           // Every worktree was kept: back to ready with the tabs it had.
           const defs =
@@ -2185,11 +2251,22 @@ export function createHandlers(s: Services): Handlers {
         // A terminal running in the folder blocks its removal on Windows (and a terminal without its
         // folder is useless), so removing the worktree closes the terminals even when that was unticked.
         const killTerminals = options.closeTerminals || options.removeWorktree;
+        const pendingCleanup: PendingCleanup[] = [];
         try {
           if (killTerminals) await closeTaskTerminals(taskId);
-          if (options.removeWorktree && (await pathExists(task.worktreePath)))
-            await s.git.worktreeRemove(repo.path, task.worktreePath, true);
-          if (options.deleteBranch) {
+          if (options.removeWorktree) {
+            // A folder a process still holds is retried in the background; the task is done anyway (#115).
+            const left = await removeForFinish(
+              {
+                id: HOME_ID,
+                worktreePath: task.worktreePath,
+                branch: task.branch,
+              },
+              repo.path,
+              options.deleteBranch,
+            );
+            if (left) pendingCleanup.push(left);
+          } else if (options.deleteBranch) {
             // A deleted folder leaves a stale registration that blocks branch deletion.
             // A folder that still exists keeps the refusal, which protects uncommitted work.
             await s.git.worktreePrune(repo.path);
@@ -2205,6 +2282,7 @@ export function createHandlers(s: Services): Handlers {
           finishedAt,
           summary,
           openPeriods: withPeriodClosed(taskById(taskId), finishedAt),
+          pendingCleanup,
         });
         reportFinished(task, options, {
           workspaces: 1,

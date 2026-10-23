@@ -661,6 +661,15 @@
   margin: 0;
   padding: 16px 32px 0;
 }
+/* A worktree folder Finish could not remove yet; retried in the background (issue 115). */
+.done-cleanup {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 32px 0;
+  overflow-wrap: anywhere;
+}
 
 /* Finish: Time spent */
 .time-slider {

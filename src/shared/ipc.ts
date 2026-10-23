@@ -308,6 +308,8 @@ export type Channels = {
   };
   /** Brings a finished task back: `setup` is true when its worktree is being made again (Setup page). */
   'tasks:reopen': { args: [taskId: string]; result: { setup: boolean } };
+  /** Retries a done task's leftover worktree folders now (#115); true when nothing is left. */
+  'tasks:retryCleanup': { args: [taskId: string]; result: boolean };
   'tasks:finish': {
     args: [taskId: string, options: FinishOptions];
     result: void;

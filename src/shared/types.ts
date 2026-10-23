@@ -97,6 +97,27 @@ export const WorkspaceSchema = z.object({
 });
 export type Workspace = z.infer<typeof WorkspaceSchema>;
 
+/**
+ * A worktree folder (and maybe its branch) Finish could not remove yet, usually because a process still holds
+ * a file in it (#115). The task is done; Shellie retries in the background until it is gone.
+ */
+export const PendingCleanupSchema = z.object({
+  workspaceId: z.string().min(1),
+  repoPath: z.string().min(1),
+  worktreePath: z.string().min(1),
+  /** The branch to delete once the folder is gone; null keeps it. */
+  branch: z.string().nullable(),
+  /** When Finish first failed to remove it. */
+  since: z.string(),
+  attempts: z.number().int().min(0),
+  /** The last failure, as git or the file system said it, and its code (EPERM, EBUSY, git, ...). */
+  error: z.string(),
+  code: z.string(),
+  /** The one notice that it still fails after a day was shown. */
+  notified: z.boolean().default(false),
+});
+export type PendingCleanup = z.infer<typeof PendingCleanupSchema>;
+
 export const TaskSchema = z.object({
   id: z.string().min(1),
   repoId: z.string().min(1),
@@ -144,6 +165,8 @@ export const TaskSchema = z.object({
     .default([]),
   /** What was booked at Finish; null while open and for tasks finished before time tracking. */
   time: TimeBookingSchema.nullable().default(null),
+  /** Worktrees a finished task still has to remove; retried in the background (#115). */
+  pendingCleanup: z.array(PendingCleanupSchema).default([]),
 });
 export type Task = z.infer<typeof TaskSchema>;
 

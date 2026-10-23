@@ -46,6 +46,7 @@ const task = (over: Partial<Task> = {}): Task => ({
   homeDropped: false,
   connectionId: null,
   mainCheckoutEdits: [],
+  pendingCleanup: [],
   ...over,
 });
 const usage: TaskUsage = {

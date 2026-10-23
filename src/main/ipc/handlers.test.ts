@@ -723,6 +723,100 @@ describe('handlers: finish', () => {
     expect(await services.git.worktreeList(repo)).toHaveLength(1);
   });
 
+  /** Finish with a worktree a process holds: the removal fails with EPERM and the folder stays. */
+  const finishWithHeldFolder = async () => {
+    const telemetry: Telemetry = { ...NoopTelemetry };
+    const event = vi.spyOn(telemetry, 'event');
+    let retryAll: (() => Promise<void>) | null = null;
+    const hx = await harness(fakeCrypto(), {
+      telemetry,
+      onCleanupRetry: (fn) => {
+        retryAll = fn;
+      },
+    });
+    const done = hx.setupDone();
+    const t = await hx.h['tasks:create'](hx.input());
+    await done;
+    const remove = vi
+      .spyOn(hx.services.git, 'worktreeRemove')
+      .mockRejectedValue(
+        Object.assign(
+          new Error(`Could not delete ${t.worktreePath}: EPERM, unlink`),
+          { code: 'EPERM' },
+        ),
+      );
+    await hx.h['tasks:finish'](t.id, {
+      closeTerminals: true,
+      removeWorktree: true,
+      deleteBranch: true,
+      syncUsage: false,
+    });
+    return { ...hx, t, event, remove, retryAll: () => retryAll!() };
+  };
+
+  it('Finish checks pass on a folder an earlier failed cleanup left without its .git file (#115)', async () => {
+    const { h, input, setupDone, store, terminals } = await harness();
+    const done = setupDone();
+    const t = await h['tasks:create'](input({ openShell: false }));
+    await done;
+    rmSync(path.join(store.state.tasks[0].worktreePath, '.git'));
+    const checks = await h['tasks:finishChecks'](t.id);
+    expect(checks).toMatchObject({ uncommitted: [], unpushed: 0 });
+    await terminals.killAllForTask(t.id);
+  });
+
+  it('a worktree a process still holds does not fail Finish: the task is done and the cleanup waits (#115)', async () => {
+    const hx = await finishWithHeldFolder();
+    const task = hx.store.state.tasks[0];
+    expect(task.status).toBe('done');
+    expect(task.pendingCleanup).toEqual([
+      expect.objectContaining({
+        workspaceId: 'home',
+        worktreePath: hx.t.worktreePath,
+        branch: hx.t.branch,
+        attempts: 1,
+        code: 'EPERM',
+      }),
+    ]);
+    expect(existsSync(hx.t.worktreePath)).toBe(true);
+    // Still checked out there, so the branch waits for the folder.
+    expect(await new GitClient().branchExists(hx.repo, hx.t.branch)).toBe(true);
+    expect(hx.event).toHaveBeenCalledWith('cleanup.deferred', {
+      code: 'EPERM',
+    });
+  });
+
+  it('retries the leftover in the background until it is gone (#115)', async () => {
+    const hx = await finishWithHeldFolder();
+    await hx.retryAll();
+    expect(hx.store.state.tasks[0].pendingCleanup[0].attempts).toBe(2);
+    hx.remove.mockRestore();
+    await hx.retryAll();
+    expect(hx.store.state.tasks[0].pendingCleanup).toEqual([]);
+    expect(existsSync(hx.t.worktreePath)).toBe(false);
+    expect(await new GitClient().branchExists(hx.repo, hx.t.branch)).toBe(
+      false,
+    );
+  });
+
+  it('Retry now on the Done page retries at once and says whether anything is left (#115)', async () => {
+    const hx = await finishWithHeldFolder();
+    expect(await hx.h['tasks:retryCleanup'](hx.t.id)).toBe(false);
+    hx.remove.mockRestore();
+    expect(await hx.h['tasks:retryCleanup'](hx.t.id)).toBe(true);
+    expect(existsSync(hx.t.worktreePath)).toBe(false);
+  });
+
+  it('a reopen takes the folder back, so the background cleanup leaves it alone (#115)', async () => {
+    const hx = await finishWithHeldFolder();
+    hx.remove.mockRestore();
+    await hx.h['tasks:reopen'](hx.t.id);
+    expect(hx.store.state.tasks[0].pendingCleanup).toEqual([]);
+    await hx.retryAll();
+    expect(existsSync(hx.t.worktreePath)).toBe(true);
+    await hx.terminals.killAllForTask(hx.t.id);
+  });
+
   it('finish waits for the terminals to exit before removing the worktree', async () => {
     const { h, input, setupDone, terminals, services } = await harness();
     const done = setupDone();
@@ -1705,6 +1799,7 @@ describe('handlers: reopen a finished task', () => {
       homeDropped: false,
       connectionId: null,
       mainCheckoutEdits: [],
+      pendingCleanup: [],
       finishedAt: null,
       baseSha: hx.t.baseSha ?? hx.store.state.tasks[0].baseSha,
     });
@@ -1790,6 +1885,7 @@ describe('handlers: reopen a finished task', () => {
       homeDropped: false,
       connectionId: null,
       mainCheckoutEdits: [],
+      pendingCleanup: [],
     });
     expect(
       hx.store.state.tasks[0].openPeriods.every((p) => p.end !== null),
@@ -2183,6 +2279,7 @@ describe('recoverInterruptedTasks', () => {
       homeDropped: false,
       connectionId: null,
       mainCheckoutEdits: [],
+      pendingCleanup: [],
     };
     await store.update((s) => {
       s.tasks.push(
@@ -4447,23 +4544,30 @@ describe('handlers: finish every workspace of a task', () => {
     expect(existsSync(path.join(hx.t.worktreePath, 'draft.txt'))).toBe(true);
   });
 
-  it('keeps the summaries when cleanup fails midway', async () => {
+  it('a folder that cannot be removed yet waits for the background cleanup; the rest finishes (#115)', async () => {
     const hx = await multiHarness([{ name: 'api' }]);
     commitFile(hx.repos[0].wt, 'api.txt', 'a\n', 'API change');
     vi.spyOn(hx.services.git, 'worktreeRemove').mockRejectedValueOnce(
       new Error('folder locked'),
     );
-    await expect(
-      hx.h['tasks:finish'](hx.t.id, {
-        ...opts,
-        workspaces: [
-          { workspaceId: 'home', action: 'keep' },
-          { workspaceId: hx.ids[0], action: 'push' },
-        ],
-      }),
-    ).rejects.toThrow('folder locked');
+    await hx.h['tasks:finish'](hx.t.id, {
+      ...opts,
+      workspaces: [
+        { workspaceId: 'home', action: 'keep' },
+        { workspaceId: hx.ids[0], action: 'push' },
+      ],
+    });
     const task = hx.store.state.tasks[0];
-    expect(task.status).toBe('ready');
+    expect(task.status).toBe('done');
+    expect(task.pendingCleanup).toEqual([
+      expect.objectContaining({
+        workspaceId: 'home',
+        worktreePath: hx.t.worktreePath,
+        error: 'folder locked',
+        code: 'other',
+      }),
+    ]);
+    expect(existsSync(hx.repos[0].wt)).toBe(false);
     expect(task.summary).toMatchObject({ commitCount: 0 });
     expect(ws(hx, hx.ids[0]).summary).toMatchObject({
       commitCount: 1,

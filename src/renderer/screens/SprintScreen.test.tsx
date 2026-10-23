@@ -134,6 +134,7 @@ const task = (over: Partial<TaskView>): TaskView => ({
   homeDropped: false,
   connectionId: null,
   mainCheckoutEdits: [],
+  pendingCleanup: [],
   ...over,
 });
 
