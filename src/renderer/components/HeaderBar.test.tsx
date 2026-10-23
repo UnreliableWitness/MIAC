@@ -113,6 +113,12 @@ beforeEach(() => {
         status: 'ok',
         checkedAt: null,
         userUniqueName: null,
+        provider: 'azure-devops' as const,
+        workItemOnStart: {
+          moveToInProgress: true,
+          assignToMe: true,
+          stateOverrides: {},
+        },
       },
     ],
   });

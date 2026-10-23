@@ -14,6 +14,12 @@ export function ipcErrorMessage(e: unknown): string {
     : String(e);
 }
 
+let settingsSaved: ((settings: AppSettings) => void) | null = null;
+/** The store keeps its copy of the settings current through this. */
+export function onSettingsSaved(listener: (settings: AppSettings) => void) {
+  settingsSaved = listener;
+}
+
 /**
  * Saves a change to the settings on top of a fresh read, so a save from
  * another section is not overwritten.
@@ -22,10 +28,12 @@ export async function saveSettings(
   patch: Partial<AppSettings> | ((fresh: AppSettings) => Partial<AppSettings>),
 ): Promise<AppSettings> {
   const fresh = await api().invoke('settings:get');
-  return api().invoke('settings:save', {
+  const saved = await api().invoke('settings:save', {
     ...fresh,
     ...(typeof patch === 'function' ? patch(fresh) : patch),
   });
+  settingsSaved?.(saved);
+  return saved;
 }
 
 /** Runs an IPC call and turns a rejection into a notice instead of an unhandled error. */

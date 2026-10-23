@@ -21,6 +21,22 @@ const make = (found: Record<string, string>) =>
   windowsPlatform({}, { which: (n) => found[n] ?? null });
 
 describe('windowsPlatform', () => {
+  it('probes an agent CLI with Get-Command', () => {
+    expect(make({ pwsh: 'C:\\pwsh\\pwsh.exe' }).probeCommand('claude')).toEqual(
+      {
+        command: 'C:\\pwsh\\pwsh.exe',
+        args: [
+          '-NoLogo',
+          '-ExecutionPolicy',
+          'Bypass',
+          '-NoProfile',
+          '-Command',
+          '(Get-Command claude -ErrorAction Stop).Source; & claude --version',
+        ],
+      },
+    );
+  });
+
   it('prefers pwsh and falls back to Windows PowerShell', () => {
     expect(make({ pwsh: 'C:\\pwsh\\pwsh.exe' }).interactiveShell()).toEqual({
       command: 'C:\\pwsh\\pwsh.exe',

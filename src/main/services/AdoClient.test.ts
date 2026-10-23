@@ -1159,6 +1159,51 @@ describe('work item state and pull request calls', () => {
   });
 });
 
+describe('AdoClient.projects and whoAmI', () => {
+  const org = '/unreliablewitness';
+  it('lists the projects the token can see', async () => {
+    server.route('GET', `${org}/_apis/projects`, {
+      body: {
+        count: 3,
+        value: [
+          { id: 'p1', name: 'Shellie', state: 'wellFormed' },
+          { id: 'p2', name: 'Webshop' },
+          { name: 'no id' },
+        ],
+      },
+    });
+    expect(await client.projects()).toEqual([
+      { id: 'p1', name: 'Shellie' },
+      { id: 'p2', name: 'Webshop' },
+    ]);
+    expect(server.requests.at(-1)?.path).toMatch(
+      /^\/unreliablewitness\/_apis\/projects\?/,
+    );
+  });
+  it('maps a 403 on projects to unauthorized with the status', async () => {
+    server.route('GET', `${org}/_apis/projects`, { status: 403, body: {} });
+    const err = await client.projects().catch((e) => e);
+    expect(err).toBeInstanceOf(AdoError);
+    expect(err.kind).toBe('unauthorized');
+    expect(err.status).toBe(403);
+  });
+  it('whoAmI returns the user without a project', async () => {
+    server.route('GET', `${org}/_apis/connectionData`, {
+      body: {
+        authenticatedUser: {
+          providerDisplayName: 'Dries Hoebeke',
+          properties: { Account: { $value: 'dries@example.com' } },
+        },
+      },
+    });
+    expect(await client.whoAmI()).toEqual({
+      user: 'Dries Hoebeke',
+      uniqueName: 'dries@example.com',
+    });
+    expect(server.requests).toHaveLength(1);
+  });
+});
+
 describe('Home calls', () => {
   const org = '/unreliablewitness';
   it('me reads the authenticated user id', async () => {

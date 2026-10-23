@@ -13,6 +13,7 @@ import {
 import { WorkspaceDetector } from '../workspaces/WorkspaceDetector';
 import type {
   Connection,
+  ConnectionInput,
   FinishOptions,
   FinishRowResult,
   ShellieConfig,
@@ -47,6 +48,12 @@ import { HomeService } from '../home/HomeService';
 import { homeStats } from '../home/homeStats';
 import { DocsWatcher } from '../docs/DocsWatcher';
 import { GitDirWatcher } from '../review/GitDirWatcher';
+import type { AgentsDetected } from '../../shared/agents';
+import {
+  detectAgents,
+  runProbe,
+  type ProbeRunner,
+} from '../services/agentDetector';
 import { createEditorHandlers } from '../editors/editorHandlers';
 import {
   detectEditors,
@@ -67,7 +74,7 @@ import type { TimeStore } from '../time/TimeStore';
 import type { Command, Platform } from '../platform/Platform';
 import { OFFICIAL_RATES, OFFICIAL_RATES_AS_OF } from '../pricing/officialRates';
 import { AdoClient, AdoError } from '../services/AdoClient';
-import type { AdoRegistry } from '../services/AdoRegistry';
+import type { TrackerRegistry } from '../trackers/TrackerRegistry';
 import {
   TokenUnavailableError,
   type ConnectionStore,
@@ -82,6 +89,7 @@ import {
 } from '../services/azureRepos';
 import { GitAuthError, type GitClient } from '../services/GitClient';
 import type { RepoRegistry } from '../services/RepoRegistry';
+import { inspectRepo } from '../services/repoInspect';
 import {
   planSteps,
   type ExtraRestore,
@@ -130,7 +138,7 @@ export type Services = {
   platform: Platform;
   repos: RepoRegistry;
   connections: ConnectionStore;
-  ado: AdoRegistry;
+  trackers: TrackerRegistry;
   openExternal: (url: string) => Promise<void>;
   /** Shows a file in Finder or Explorer (main uses shell.showItemInFolder). */
   revealFile?: (absPath: string) => void;
@@ -149,6 +157,8 @@ export type Services = {
   loadConfig: (repoPath: string) => Promise<ShellieConfig>;
   pickFolder: () => Promise<string | null>;
   launch: (cmd: Command) => Promise<void>;
+  /** Runs an agent probe with a timeout; defaults to `execFile` (tests inject a fake). */
+  runProbe?: ProbeRunner;
   /** Editor detection and launch; handlers build one from platform, settings and launch when absent (tests). */
   editors?: EditorService;
   broadcast: <K extends keyof Events>(event: K, payload: Events[K]) => void;
@@ -278,6 +288,7 @@ export async function pruneDanglingConnectionLinks(
 
 export function createHandlers(s: Services): Handlers {
   const tel = s.telemetry ?? NoopTelemetry;
+  let agentsCache: AgentsDetected | null = null;
   const sessionExists = s.claudeSessionExists ?? claudeSessionExists;
   const hasSessionsIn = s.claudeHasSessionsIn ?? claudeHasSessionsIn;
   const connectionsChanged = () =>
@@ -332,7 +343,7 @@ export function createHandlers(s: Services): Handlers {
     new HomeService({
       file: path.join(s.usageDir, 'home.json'),
       connections: () => s.connections.list(),
-      client: (id) => s.ado.client(id),
+      client: (id) => s.trackers.client(id),
       withConnection,
       onBuilt: (snapshot, info) => {
         s.broadcast('home:updated', snapshot);
@@ -351,7 +362,7 @@ export function createHandlers(s: Services): Handlers {
   ): Promise<Connection> => {
     const c = s.connections.get(connectionId);
     const { user, uniqueName } = await withConnection(connectionId, () =>
-      s.ado.client(connectionId).verify(c.project),
+      s.trackers.tracker(connectionId).probe(c.project),
     );
     const updated = await s.connections.setStatus(
       connectionId,
@@ -361,6 +372,38 @@ export function createHandlers(s: Services): Handlers {
     );
     connectionsChanged();
     return updated;
+  };
+
+  const saveConnection = async (
+    input: ConnectionInput,
+  ): Promise<Connection> => {
+    // Verify with a throwaway client before anything is written, so a bad token never lands on disk.
+    s.connections.assertCanSave(input);
+    const organizationUrl = s.connections.normalizeUrl(input.organizationUrl);
+    const probe = new AdoClient(organizationUrl, async () => input.pat.trim());
+    const { user, uniqueName } = await probe.verify(input.project.trim());
+    const saved = await s.connections.save(input);
+    s.trackers.invalidate(saved.id);
+    dropTypes(saved.id);
+    // The unique name is what "assign to me" writes on start; without it a new connection never assigns.
+    const verified = await s.connections.setStatus(
+      saved.id,
+      'ok',
+      user,
+      uniqueName,
+    );
+    connectionsChanged();
+    tel.event('connection.saved', {
+      connections: s.connections.list().length,
+    });
+    // A tracker after all: the earlier No-tracker choice no longer holds.
+    const current = s.settings.get();
+    if (current.onboarding.tracker === 'none')
+      await s.settings.save({
+        ...current,
+        onboarding: { ...current.onboarding, tracker: null },
+      });
+    return verified;
   };
 
   const allowedExternal = (url: string): boolean => {
@@ -539,7 +582,7 @@ export function createHandlers(s: Services): Handlers {
     task: taskById,
     tasks: () => s.store.state.tasks,
     target: adoTarget,
-    client: (connectionId) => s.ado.client(connectionId),
+    client: (connectionId) => s.trackers.client(connectionId),
     run: withConnection,
     usage: (taskId) => s.usage.summarize(taskId),
     changedSince: (iso) => s.usage.changedSince(iso),
@@ -566,9 +609,9 @@ export function createHandlers(s: Services): Handlers {
       };
       try {
         const hours = await withConnection(target.connectionId, async () => {
-          const client = s.ado.client(target.connectionId);
+          const client = s.trackers.tracker(target.connectionId);
           const id = Number(workItem.id);
-          const current = await client.workItemEstimate(id);
+          const current = await client.itemEstimate(id);
           const type = (current.type || workItem.type).toLowerCase();
           const fieldsOf = async (refresh: boolean) =>
             (
@@ -586,7 +629,7 @@ export function createHandlers(s: Services): Handlers {
             current,
             fields: fields ?? [],
           });
-          if (plan) await client.updateWorkItemFields(id, plan.patch);
+          if (plan) await client.updateItemFields(id, plan.patch);
           return plan?.hours ?? booking.writtenHours;
         });
         await patchBooking({ writtenHours: hours, syncError: null });
@@ -651,9 +694,9 @@ export function createHandlers(s: Services): Handlers {
     if (!task.workItem || !target) return;
     try {
       const e = await withConnection(target.connectionId, () =>
-        s.ado
-          .client(target.connectionId)
-          .workItemEstimate(Number(task.workItem!.id)),
+        s.trackers
+          .tracker(target.connectionId)
+          .itemEstimate(Number(task.workItem!.id)),
       );
       if (e.originalEstimate === null && e.remainingWork !== null)
         await s.time.recordBaseline(
@@ -1055,9 +1098,9 @@ export function createHandlers(s: Services): Handlers {
             const connection = s.connections.get(
               taskConnectionId(task, [repo])!,
             );
-            const client = s.ado.client(connection.id);
+            const client = s.trackers.tracker(connection.id);
             const id = Number(task.workItem!.id);
-            const current = await client.workItemForStart(id);
+            const current = await client.itemForStart(id);
             const states = await client.typeStates(
               connection.project,
               current.type,
@@ -1075,7 +1118,7 @@ export function createHandlers(s: Services): Handlers {
               user,
             );
             if (plan.state || plan.assignTo)
-              await client.updateWorkItem(id, {
+              await client.updateItem(id, {
                 ...(plan.state ? { state: plan.state } : {}),
                 ...(plan.assignTo ? { assignedTo: plan.assignTo } : {}),
               });
@@ -1325,7 +1368,7 @@ export function createHandlers(s: Services): Handlers {
     const connection = c.connection;
     const { project, repo: repoName } = c.availability.target;
     summary = await pushIfNeeded(w, summary);
-    const client = s.ado.client(connection.id);
+    const client = s.trackers.tracker(connection.id);
     const repositoryId = await client.repositoryId(project, repoName);
     const existing = await client.findActivePullRequest(
       project,
@@ -1718,10 +1761,36 @@ export function createHandlers(s: Services): Handlers {
       tracker: s.tracker,
     }),
     'repos:list': async () => s.repos.list(),
-    'repos:add': async (folder) => {
-      const repo = await s.repos.add(folder);
+    'repos:inspect': async (folder) => {
+      const r = await inspectRepo(folder, {
+        git: s.git,
+        connections: s.connections.list(),
+      });
+      tel.event('repo.inspected', {
+        remote: r.remote?.provider ?? 'none',
+        linked: r.remote?.connectionId != null,
+        lockfile: r.facts.lockfile ?? 'none',
+        dotnet: r.facts.dotnet.length > 0,
+        devScript: r.facts.devScript !== null,
+        apm: r.facts.apm,
+        existingConfig: r.facts.existing !== null,
+      });
+      return r;
+    },
+    'repos:add': async (folder, options) => {
+      const linked = options?.connectionId
+        ? s.connections.list().find((c) => c.id === options.connectionId)
+        : undefined;
+      // A new repo starts with its connection's on-start options; Settings stays the place to change them.
+      const repo = await s.repos.add(folder, {
+        ...options,
+        workItemOnStart: linked?.workItemOnStart,
+      });
       reposChanged();
-      tel.event('repo.added', { repos: s.repos.list().length });
+      tel.event('repo.added', {
+        repos: s.repos.list().length,
+        wroteConfig: options?.writeConfig !== undefined,
+      });
       return repo;
     },
     'repos:remove': async (id) => {
@@ -1735,10 +1804,23 @@ export function createHandlers(s: Services): Handlers {
       return repo;
     },
     'repos:pickFolder': () => s.pickFolder(),
+    'agents:detect': async (force) => {
+      if (!force && agentsCache) return agentsCache;
+      const result = await detectAgents(s.platform, s.runProbe ?? runProbe);
+      agentsCache = result;
+      tel.event('agents.detected', {
+        claude: result.agents.claude.found,
+        copilot: result.agents.copilot.found,
+        opencode: result.agents.opencode.found,
+      });
+      return result;
+    },
     'repos:config': async (repoId) => {
       const repo = s.repos.get(repoId);
+      const config = await s.loadConfig(repo.path);
       return {
-        config: await s.loadConfig(repo.path),
+        // A repo kept in Shellie only (no file) starts from the base branch it was added with, not the built-in `main`.
+        config: config.found ? config : { ...config, base: repo.baseBranch },
         worktreeRoot: worktreeRoot(repo.path),
       };
     },
@@ -2116,7 +2198,7 @@ export function createHandlers(s: Services): Handlers {
                 pushed: true,
                 upstream: `origin/${task.branch}`,
               };
-            const client = s.ado.client(connection.id);
+            const client = s.trackers.tracker(connection.id);
             const repositoryId = await client.repositoryId(project, repoName);
             const existing = await client.findActivePullRequest(
               project,
@@ -2294,36 +2376,74 @@ export function createHandlers(s: Services): Handlers {
     'terminals:reportScheme': async (id, scheme) =>
       s.terminals.reportScheme(id, scheme === 'dark' ? 'dark' : 'light'),
     'connections:list': async () => s.connections.list(),
-    'connections:save': async (input) => {
-      // Verify with a throwaway client before anything is written, so a bad token never lands on disk.
-      s.connections.assertCanSave(input);
-      const organizationUrl = s.connections.normalizeUrl(input.organizationUrl);
-      const probe = new AdoClient(organizationUrl, async () =>
-        input.pat.trim(),
+    'connections:save': saveConnection,
+    'connections:probe': async (input) => {
+      // A stored token only ever goes to its own organization, whatever URL came with it.
+      const organizationUrl = input.connectionId
+        ? s.connections.get(input.connectionId).organizationUrl
+        : s.connections.normalizeUrl(input.organizationUrl);
+      const pat = input.connectionId
+        ? await s.connections.token(input.connectionId)
+        : (input.pat ?? '').trim();
+      if (!pat) throw new Error('Enter a personal access token');
+      const client = new AdoClient(organizationUrl, async () => pat);
+      try {
+        const who = await client.whoAmI();
+        let projects: { id: string; name: string }[] = [];
+        let canListProjects = true;
+        try {
+          projects = await client.projects();
+        } catch (e) {
+          if (
+            !(e instanceof AdoError && (e.status === 401 || e.status === 403))
+          )
+            throw e;
+          canListProjects = false;
+        }
+        return { ...who, projects, canListProjects };
+      } catch (e) {
+        tel.event('connection.probeFailed', {
+          status: e instanceof AdoError ? (e.status ?? 0) : 0,
+        });
+        throw e;
+      }
+    },
+    'connections:saveMany': async (input) => {
+      const organizationUrl = input.connectionId
+        ? s.connections.get(input.connectionId).organizationUrl
+        : s.connections.normalizeUrl(input.organizationUrl);
+      const pat = input.connectionId
+        ? await s.connections.token(input.connectionId)
+        : (input.pat ?? '');
+      const known = new Set(
+        s.connections
+          .list()
+          .filter((c) => c.organizationUrl === organizationUrl)
+          .map((c) => c.project.toLowerCase()),
       );
-      const { user, uniqueName } = await probe.verify(input.project.trim());
-      const saved = await s.connections.save(input);
-      s.ado.invalidate(saved.id);
-      dropTypes(saved.id);
-      // The unique name is what "assign to me" writes on start; without it a new connection never assigns.
-      const verified = await s.connections.setStatus(
-        saved.id,
-        'ok',
-        user,
-        uniqueName,
-      );
-      connectionsChanged();
-      tel.event('connection.saved', {
-        connections: s.connections.list().length,
-      });
-      return verified;
+      const saved: Connection[] = [];
+      for (const raw of input.projects) {
+        const project = raw.trim();
+        if (!project || known.has(project.toLowerCase())) continue;
+        known.add(project.toLowerCase());
+        saved.push(
+          await saveConnection({
+            organizationUrl,
+            project,
+            pat,
+            provider: input.provider,
+            workItemOnStart: input.workItemOnStart,
+          }),
+        );
+      }
+      return saved;
     },
     'connections:remove': async (id) => {
       s.connections.get(id);
       for (const r of s.repos.list())
         if (r.connectionId === id) await s.repos.setConnection(r.id, null);
       await s.connections.remove(id);
-      s.ado.invalidate(id);
+      s.trackers.invalidate(id);
       dropTypes(id);
       connectionsChanged();
       reposChanged();
@@ -2395,8 +2515,8 @@ export function createHandlers(s: Services): Handlers {
         taskConnectionId(task, s.repos.list());
       if (!connectionId) return pr;
       try {
-        const raw = await s.ado
-          .client(connectionId)
+        const raw = await s.trackers
+          .tracker(connectionId)
           .pullRequest(pr.project, pr.repositoryId, pr.id);
         const next = { ...pr, status: raw.status, isDraft: raw.isDraft };
         await patchWorkspace(taskId, w.id, { pullRequest: next });
@@ -2408,7 +2528,7 @@ export function createHandlers(s: Services): Handlers {
     'workItems:currentIteration': async (connectionId) => {
       const c = s.connections.get(connectionId);
       return withConnection(connectionId, () =>
-        s.ado.client(connectionId).currentIteration(c.project),
+        s.trackers.tracker(connectionId).currentIteration(c.project),
       );
     },
     'workItems:search': async (connectionId, search) => {
@@ -2418,13 +2538,13 @@ export function createHandlers(s: Services): Handlers {
         hasText: search.text.trim().length > 0,
       });
       return withConnection(connectionId, async () => {
-        const client = s.ado.client(connectionId);
+        const client = s.trackers.tracker(connectionId);
         const iteration =
           search.scope === 'sprint'
             ? await client.currentIteration(c.project)
             : null;
         if (search.scope === 'sprint' && !iteration) return [];
-        return client.searchWorkItems({
+        return client.searchItems({
           project: c.project,
           scope: search.scope,
           text: search.text,
@@ -2435,16 +2555,16 @@ export function createHandlers(s: Services): Handlers {
     'workItems:sprint': async (connectionId) => {
       const c = s.connections.get(connectionId);
       return withConnection(connectionId, () =>
-        s.ado.client(connectionId).sprint(c.project),
+        s.trackers.tracker(connectionId).iteration(c.project),
       );
     },
     'workItems:types': async (connectionId) => {
       const c = s.connections.get(connectionId);
       let hit = typesCache.get(connectionId);
       if (!hit) {
-        const client = s.ado.client(connectionId);
+        const client = s.trackers.tracker(connectionId);
         hit = withConnection(connectionId, () =>
-          client.workItemTypes(c.project),
+          client.itemTypes(c.project),
         ).then((types) =>
           Promise.all(
             types.map(async ({ iconUrl, ...t }) => ({
@@ -2465,7 +2585,7 @@ export function createHandlers(s: Services): Handlers {
       const n = Number(id);
       if (!Number.isInteger(n) || n < 1) return null;
       const [item] = await withConnection(connectionId, () =>
-        s.ado.client(connectionId).workItems(c.project, [n]),
+        s.trackers.tracker(connectionId).items(c.project, [n]),
       );
       return item ?? null;
     },

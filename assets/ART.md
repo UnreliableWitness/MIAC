@@ -61,6 +61,20 @@ Generated with `tools/art/generate.mjs` (see `tools/art/README.md`). Rejected ca
   >
   > A glowing ship Mind core, a small cream sphere with an amber halo, held in a cradle of fine concentric rings and tick marks like an instrument dial, floating in the dark. Portrait.
 
+## get-started.jpg (pending: candidates not yet generated; the owner picks and logs)
+
+Used on the Get started page only (the one picture in the app). Until `assets/art/get-started.jpg` exists the page
+shows the app icon in the same box. No Gemini key was available when the prompt was written.
+
+- Candidate: `get-started-<timestamp>.png` (to fill after `node tools/art/generate.mjs generate get-started`)
+- Pick: to fill (which candidate, and why)
+- Post-processing: to fill (JPEG under 400 KB, e.g. `sips -Z 1600`, then JPEG quality 70)
+- Prompt (style block, then subject; the "Onboarding" section of `tools/art/prompts.md`):
+
+  > Flat, minimal vector-like illustration for a developer tool, soft pale blue (#dbeafb) background, a single faceted clam shell in four blues from near-white (#f1f7ff) through #a9d0f8 and #1f56a8 to navy #122f5c, hinge up, resting on a thin pale shelf, lots of empty space, no text, no letters, no logos, no people, no gradients heavier than a soft shadow.
+  >
+  > The clam shell resting on the shelf slightly left of centre, its lit side towards the upper left, a soft shadow beneath it, the rest of the picture calm and empty. Landscape.
+
 ## App icon (assets/icon)
 
 Since 2026-10-21 the app icon is a vector clam, not a Gemini picture: the conch sat small inside its navy tile and its

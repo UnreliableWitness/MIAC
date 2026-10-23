@@ -33,6 +33,11 @@ export interface Platform {
    * (session id, resume).
    */
   claudeCommand(context: string | null, flags?: string[]): Command;
+  /**
+   * Look for an agent CLI on the user's PATH: stdout is the executable's path on line 1 and `<name> --version`
+   * on line 2; the exit code is non-zero when `name` is not found.
+   */
+  probeCommand(name: string): Command;
   /** Start GitHub Copilot CLI. */
   copilotCommand(): Command;
   /** Start OpenCode (no AI cost tracking). */

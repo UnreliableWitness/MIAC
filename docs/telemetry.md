@@ -26,13 +26,16 @@ This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 
 
 | Name | Properties / measurements |
 | --- | --- |
-| Screen views (page views) | `sprint`, `task`, `new-task`, `setup`, `finish`, `settings`, `home` |
+| Screen views (page views) | `sprint`, `task`, `new-task`, `setup`, `finish`, `settings`, `home`, `add-repo`, `connect`, `get-started`, `agents` |
 | `app.started` | splash on/off; counts of repos, open tasks, connections; whether the usage receiver listens; boot step timings (see Performance) |
 | `app.quit` | session length in minutes |
 | `home.refreshed` | the Home page's data was rebuilt; number of connections, number that failed; duration in ms |
 | `home.failed` | a connection failed in a Home rebuild; `kind` (`unauthorized`, `unreachable`, `timeout`, `step`) |
 | `home.clicked` | a click on Home; `band` (`task`, `up-next`, `review`, `team-review`, `my-pr`, `sprint`, `stats-period`, `budget-month`, `budget-settings`) |
 | `budget.alert` | a Claude budget alert fired (main); `kind` (`at80`, `forecastOver`, `at100`) |
+| `onboarding.shown` | the Get started page opened; none |
+| `onboarding.dismissed` | Skip for now on Get started, or Dismiss on its Home band; `repos`, `connections` (counts) |
+| `onboarding.step` | a step of first-run setup was left; `step` (`agents`, `connect`, `repository`), `outcome` (`continued`, `skipped`, `back`) |
 | `update.ready` | an update finished downloading (Windows); none |
 | `update.restart`, `update.later` | the choice on the update notice; none |
 | `task.created` | has a work item; copy files, start Claude, open shell, open Copilot, open OpenCode (booleans); number of setup commands |
@@ -52,6 +55,7 @@ This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 
 | `migration.miac` | first start after the rename from MIAC copied its data folder, or gave up after the third failed attempt; `result` (`ok`, `failed`); `tokens` (`migrated`, `partial`, `refused`, `none`; `none` when the copy gave up); `copied` (number of top-level entries), `ms` |
 | `workspace.joined` | a worktree of another repo joined a task; `source` (`log`: found in a Claude session log, `branch`: found by the task branch, `manual`: added by hand) |
 | `workspace.removed` | a joined worktree was removed from its task; none |
+| `agents.detected` | the agent CLI check ran; `claude`, `copilot`, `opencode` (true when found; never versions or paths) |
 | `terminal.opened` | kind (`claude`, `copilot`, `opencode`, `shell`, `run`); opened by setup or by hand |
 | `terminal.closed` | kind |
 | `terminal.restarted` | kind; after an app relaunch or not (a Claude Code restart resumes its session); `withoutProjectConfig` when OpenCode was started again without the repo's config (#109) |
@@ -76,7 +80,9 @@ This is separate from the AI usage capture (the OTLP receiver on 127.0.0.1:4319 
 | `focus.toggled`, `nav.toggled` | on / collapsed |
 | `settings.changed` | names of the changed settings (not their values) |
 | `workItems.search` | picker scope (`sprint` or `mine`); whether search text was typed (not the text) |
-| `repo.added`, `repo.removed`, `repo.connectionLinked`, `connection.saved`, `connection.removed` | counts or linked/unlinked only |
+| `repo.added`, `repo.removed`, `repo.connectionLinked`, `connection.saved`, `connection.removed` | counts or linked/unlinked only; `repo.added` also has `wroteConfig` (true when Shellie wrote `.shellie.yml`) |
+| `connection.probeFailed` | the Connect page's Test failed: `status`, the HTTP status Azure DevOps answered with (0 when it could not be reached); never the URL, organization or token |
+| `repo.inspected` | a folder was inspected for adding: `remote` (`azure-devops`, `github`, `other` or `none`), `lockfile` (`npm`, `pnpm`, `yarn` or `none`), and `linked`, `dotnet`, `devScript`, `apm`, `existingConfig` (booleans); never paths, URLs or names |
 
 ## Errors
 

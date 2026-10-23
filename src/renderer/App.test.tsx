@@ -103,6 +103,7 @@ describe('App', () => {
         'attention:view',
         'connections:list',
         'repos:list',
+        'settings:get',
         'tasks:list',
         'time:focus',
         'update:status',
@@ -162,6 +163,78 @@ describe('App', () => {
         { name: 'Sprint', current: 'page' },
       ),
     ).toBeInTheDocument();
+  });
+});
+
+describe('first page', () => {
+  const fresh = {
+    dismissedAt: null,
+    agentsCheckedAt: null,
+    tracker: null,
+    migrated: false,
+  };
+  const withOnboarding = (onboarding: typeof fresh) => async () => {
+    const { defaultSettings } = await import('../shared/usage');
+    return { ...defaultSettings(), onboarding };
+  };
+  beforeEach(() =>
+    useStore.setState({ screen: { kind: 'home' }, settings: null }),
+  );
+
+  it('a fresh install opens on Get started', async () => {
+    installFakeApi({ 'settings:get': withOnboarding(fresh) });
+    render(<App />);
+    expect(
+      await screen.findByRole('heading', { name: 'Welcome to Shellie' }),
+    ).toBeInTheDocument();
+    expect(useStore.getState().screen).toEqual({ kind: 'get-started' });
+  });
+
+  it('with a repository it opens on Home', async () => {
+    const { calls } = installFakeApi({
+      'settings:get': withOnboarding(fresh),
+      'repos:list': () => [repo],
+    });
+    render(<App />);
+    await waitFor(() =>
+      expect(calls.some((c) => c.channel === 'settings:get')).toBe(true),
+    );
+    await waitFor(() => expect(useStore.getState().settings).not.toBeNull());
+    expect(useStore.getState().screen).toEqual({ kind: 'home' });
+  });
+
+  it('a connection without a repository still opens Get started, with Connect done and Agents to do', async () => {
+    installFakeApi({
+      'settings:get': withOnboarding(fresh),
+      'connections:list': () => [
+        {
+          id: 'c1',
+          name: 'uw',
+          organizationUrl: 'https://dev.azure.com/uw',
+          project: 'Shellie',
+          user: 'D',
+          status: 'ok',
+          checkedAt: null,
+          userUniqueName: null,
+          provider: 'azure-devops',
+          workItemOnStart: {
+            moveToInProgress: true,
+            assignToMe: true,
+            stateOverrides: {},
+          },
+        },
+      ],
+    });
+    render(<App />);
+    const connect = await screen.findByRole('region', {
+      name: '2 · Connect your tracker',
+    });
+    expect(within(connect).getByLabelText('Done')).toBeInTheDocument();
+    const agents = screen.getByRole('region', { name: '1 · Agents' });
+    expect(within(agents).queryByLabelText('Done')).toBeNull();
+    expect(within(agents).getByRole('button', { name: 'Open' })).toHaveClass(
+      'btn-primary',
+    );
   });
 });
 

@@ -218,6 +218,12 @@ describe('matchConnection', () => {
     status: 'ok',
     checkedAt: null,
     userUniqueName: null,
+    provider: 'azure-devops' as const,
+    workItemOnStart: {
+      moveToInProgress: true,
+      assignToMe: true,
+      stateOverrides: {},
+    },
   });
   const other = conn('other', 'https://dev.azure.com/fabrikam', 'Web');
   const sameOrg = conn('org', 'https://dev.azure.com/contoso', 'Intranet');

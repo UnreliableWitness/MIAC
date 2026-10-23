@@ -45,3 +45,12 @@ section. Each image is the line starting with its file name in bold. A subject e
 **icon-hermit.png** - A tiny faceted hermit crab peeking out of a spiral shell, the shell's opening glowing faintly like a terminal screen.
 
 **icon-conch.png** - A faceted spiral conch shell standing upright, its opening facing the viewer with a faint glowing cursor bar inside.
+
+## Onboarding
+
+> Flat, minimal vector-like illustration for a developer tool, soft pale blue (#dbeafb) background, a single faceted
+> clam shell in four blues from near-white (#f1f7ff) through #a9d0f8 and #1f56a8 to navy #122f5c, hinge up, resting on
+> a thin pale shelf, lots of empty space, no text, no letters, no logos, no people, no gradients heavier than a soft
+> shadow.
+
+**get-started.png** - The clam shell resting on the shelf slightly left of centre, its lit side towards the upper left, a soft shadow beneath it, the rest of the picture calm and empty. Landscape.
