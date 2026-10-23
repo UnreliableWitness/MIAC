@@ -149,6 +149,12 @@ export class LedgerService {
     return this.running;
   }
 
+  /** A pass that starts after this call (a running one is waited for), so it sees what changed before it. */
+  async freshPass(): Promise<void> {
+    if (this.running) await this.running;
+    await this.pass();
+  }
+
   /**
    * Billable comes from the usage store for a task's session, also when the record sits at repo level because its
    * task has no connection; a task Shellie no longer has keeps the stored value; no task at all is billable.
@@ -274,7 +280,8 @@ export class LedgerService {
       }
       const billable = this.billableOf(rec, input, ctx, prev.billable);
       if (billable !== rec.billable) rec = { ...rec, billable };
-      if (rec.developer === null && developer !== null)
+      // Every record carries the email saved in Settings › Cost server; a disconnect leaves it as it was.
+      if (developer !== null && rec.developer !== developer)
         rec = { ...rec, developer };
       // A Shellie update may bring a rate for a model that had none.
       if (this.firstPass && rec.costEur === null) {

@@ -268,6 +268,8 @@ export type Services = {
     sender: Pick<CostSender, 'onConnected' | 'onDisconnected' | 'status'>;
     /** Defaults to the real client's `hello`. */
     hello?: typeof costServerHello;
+    /** A fresh ledger pass, so stored records carry the saved email before the sender starts over. */
+    ledgerPass?: () => Promise<void>;
   };
   /**
    * Registers the retry of finished tasks' leftover worktree folders (#115): main runs it shortly after launch and
@@ -3739,6 +3741,7 @@ export function createHandlers(s: Services): Handlers {
         return failed(err instanceof Error ? err.message : String(err));
       }
       await cs.store.setBudgets(answer.budgets);
+      await cs.ledgerPass?.();
       await cs.sender.onConnected();
       tel.event('costServer.connected');
       const st = costServerStatus();

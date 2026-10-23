@@ -85,6 +85,7 @@ function setup(
     notBillable: new Set<string>(),
     /** Claude sessions per task from the usage store (OTLP). */
     usageSessions: {} as Record<string, string[]>,
+    developer: null as string | null,
   };
   const claudeQueue = [...(o.claude ?? [])];
   const ocQueue = [...(o.openCode ?? [])];
@@ -119,7 +120,7 @@ function setup(
       ),
     isBillable: (taskId, sessionId) =>
       !state.notBillable.has(`${taskId}/${sessionId}`),
-    developer: () => null,
+    developer: () => state.developer,
     version: '9.9.0',
     toUsage,
     changed,
@@ -364,6 +365,30 @@ describe('LedgerService', () => {
     s.state.notBillable.clear();
     await s.svc.pass();
     expect(s.store.get('cc:m1')!.billable).toBe(true);
+  });
+
+  it('stamps the saved email on every record, also a changed one, and keeps it after a disconnect', async () => {
+    const s = setup({ claude: [[rec()]] });
+    await s.svc.pass();
+    expect(s.store.get('cc:m1')!.developer).toBeNull();
+    s.state.developer = 'dev@example.com';
+    await s.svc.pass();
+    expect(s.store.get('cc:m1')!.developer).toBe('dev@example.com');
+    s.state.developer = 'new@example.com';
+    await s.svc.pass();
+    expect(s.store.get('cc:m1')!.developer).toBe('new@example.com');
+    s.state.developer = null;
+    await s.svc.pass();
+    expect(s.store.get('cc:m1')!.developer).toBe('new@example.com');
+  });
+
+  it('freshPass runs a pass that starts after the call', async () => {
+    const s = setup({ claude: [[rec()]] });
+    const running = s.svc.pass();
+    s.state.developer = 'dev@example.com';
+    await s.svc.freshPass();
+    await running;
+    expect(s.store.get('cc:m1')!.developer).toBe('dev@example.com');
   });
 
   it('keeps a record not billable when its task is gone and it is read again', async () => {

@@ -4,7 +4,10 @@ import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { BudgetRecord } from '../../shared/budget';
 import type { CostRecord } from '../../shared/ledger';
+import { attributionContext } from '../ledger/attribute';
+import { LedgerService } from '../ledger/LedgerService';
 import { LedgerStore } from '../ledger/LedgerStore';
 import type { TokenCrypto } from '../services/ConnectionStore';
 import { CostSender } from './CostSender';
@@ -227,6 +230,94 @@ describe('cost server end to end', () => {
     expect(server.posts()).toBe(0);
     expect(sender.status().error).toBe(helloFailed);
     expect(ledger.dirty(10)).toHaveLength(1);
+    sender.stop();
+  });
+
+  it('a first connect sends the stored history once, with the email; a new email sends it again', async () => {
+    const server = await startServer();
+    servers.push(server);
+    const url = `http://127.0.0.1:${server.port}`;
+    const store = new LedgerStore(path.join(dir, 'ledger'));
+    const cs = new CostServerStore(path.join(dir, 'cost-server.json'), crypto);
+    await cs.load();
+    const sender = new CostSender({
+      ledger: store,
+      server: cs,
+      status: () => {},
+      notice: () => {},
+      telemetry: () => {},
+    });
+    const history: BudgetRecord[] = [1, 2, 3].map((i) => ({
+      id: `cc:h${i}`,
+      tool: 'claude-code',
+      sessionId: 'S',
+      model: 'claude-sonnet-5-5',
+      provider: 'anthropic',
+      at: `2026-10-12T10:0${i}:00.000Z`,
+      cwd: null,
+      fast: false,
+      inputTokens: 10,
+      outputTokens: 20,
+      cacheReadTokens: 0,
+      cacheWrite5mTokens: 0,
+      cacheWrite1hTokens: 0,
+    }));
+    const queue = [history];
+    const ledger = new LedgerService({
+      store,
+      claude: {
+        read: async (cursors) => ({
+          records: queue.shift() ?? [],
+          cursors,
+          found: true,
+        }),
+      },
+      openCode: { read: () => ({ records: [], cursor: 0, found: false }) },
+      usageRecords: () => [],
+      context: () => attributionContext([], [], []),
+      isBillable: () => true,
+      developer: () => cs.get()?.email ?? null,
+      version: '9.9.0',
+      toUsage: () => {},
+      changed: () => sender.kick(),
+    });
+    sender.start();
+    // Before any connection: the backfill is stored without a developer.
+    await ledger.pass();
+    expect(store.all().map((r) => r.developer)).toEqual([null, null, null]);
+
+    // What costServer:connect does: save, a fresh ledger pass, then the sender starts over.
+    const connect = async (email: string) => {
+      await cs.set({ url, email, key: KEY });
+      await ledger.freshPass();
+      await sender.onConnected();
+      await settle(5_000);
+    };
+    const sent = () =>
+      server.bodies.flatMap((b) =>
+        (
+          JSON.parse(b) as { records: { id: string; developer: string }[] }
+        ).records.map((r) => `${r.id} ${r.developer}`),
+      );
+    await connect(EMAIL);
+    await vi.waitFor(() => expect(server.stored.size).toBe(3));
+    await ledger.pass();
+    await settle(5 * 60_000);
+    expect(sent()).toEqual([
+      `cc:h1 ${EMAIL}`,
+      `cc:h2 ${EMAIL}`,
+      `cc:h3 ${EMAIL}`,
+    ]);
+
+    server.bodies.length = 0;
+    await connect('new@example.com');
+    await vi.waitFor(() => expect(sent()).toHaveLength(3));
+    expect(sent()).toEqual([
+      'cc:h1 new@example.com',
+      'cc:h2 new@example.com',
+      'cc:h3 new@example.com',
+    ]);
+    expect(store.dirty(10)).toEqual([]);
     sender.stop();
   });
 });

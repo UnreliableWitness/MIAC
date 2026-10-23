@@ -780,7 +780,11 @@ async function boot(): Promise<void> {
     const handlers = createHandlers({
       terminalFailures,
       budget,
-      costServer: { store: costServer, sender },
+      costServer: {
+        store: costServer,
+        sender,
+        ledgerPass: () => ledger.freshPass(),
+      },
       applyTheme: (theme) => {
         nativeTheme.themeSource = theme;
       },

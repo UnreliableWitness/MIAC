@@ -297,10 +297,17 @@ describe('handlers: cost server', () => {
       },
     };
     const helloFn = vi.fn(hello);
-    const hx = await harness(undefined, {
-      costServer: { store, sender, hello: helloFn as never },
+    const order: string[] = [];
+    sender.onConnected.mockImplementation(async () => {
+      order.push('sender');
     });
-    return { hx, store, sender, hello: helloFn };
+    const ledgerPass = vi.fn(async () => {
+      order.push(`ledger ${store.get()?.email ?? 'none'}`);
+    });
+    const hx = await harness(undefined, {
+      costServer: { store, sender, hello: helloFn as never, ledgerPass },
+    });
+    return { hx, store, sender, hello: helloFn, order };
   }
   const conn = {
     url: 'https://cost.example',
@@ -327,6 +334,8 @@ describe('handlers: cost server', () => {
     expect(cs.store.get()).toEqual(conn);
     expect(cs.store.budgets).toEqual(budgets);
     expect(cs.sender.onConnected).toHaveBeenCalledTimes(1);
+    // The ledger stamps the saved email on its records before the sender starts over.
+    expect(cs.order).toEqual([`ledger ${conn.email}`, 'sender']);
     expect(st).toMatchObject({
       connected: true,
       email: conn.email,
