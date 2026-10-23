@@ -15,7 +15,8 @@ const commandLine = (r: PendingRun) =>
 
 /**
  * On UAT and Production every `shellie run` waits here: which named command an agent asks to run, with which
- * arguments and secrets, and Approve or Refuse. A refuse tells the agent "Not approved in Shellie".
+ * arguments and secrets, and Approve or Refuse. A refuse tells the agent "Not approved in Shellie". It shows what
+ * really runs (the package.json script behind `npm test`), since an agent can edit that script in the worktree.
  */
 export function RunApproveBar({ taskId }: { taskId: string }) {
   const notify = useStore((s) => s.notify);
@@ -64,6 +65,12 @@ export function RunApproveBar({ taskId }: { taskId: string }) {
             {`An agent asks to run ${r.name} with ${ENVIRONMENT_LABEL[r.environment]} secrets`}
           </span>
           <code className="run-approve-command">{commandLine(r)}</code>
+          {r.script !== undefined && (
+            <>
+              <span>runs the script</span>
+              <code className="run-approve-command">{r.script}</code>
+            </>
+          )}
           <span className="spacer" />
           <button
             type="button"
@@ -81,6 +88,10 @@ export function RunApproveBar({ taskId }: { taskId: string }) {
           >
             Refuse
           </button>
+          <span className="run-approve-note">
+            Files in this worktree changed since the base can change what this
+            runs.
+          </span>
         </div>
       ))}
     </>

@@ -167,9 +167,18 @@ Azure `AccountKey=`/`SharedAccessKey=`, URLs with `user:password@`). Others are 
   **after leak filtering** (stored values → `[NAME]`), then exits with the command's exit code.
 - Only **named** commands: the repo's `run:` entries in `.shellie.yml`, plus `test` (see "Tests") and `setup`. No
   arbitrary command lines (`shellie run "printenv"` is refused with the list of names). Extra args after `--` are
-  passed through as arguments, never through a shell.
+  passed through as arguments, never through a shell (with `--` in front for an npm, pnpm or yarn script). They are
+  refused, not escaped, where they would not stay arguments: when the command's last line ends in an operator or has
+  a comment, and on Windows when an argument holds `& | < > ^ % ! "` or a line break (a `.cmd` target re-parses it).
 - UAT and Production: each `shellie run` asks in Shellie (an approve bar on the task: command, environment) before it
-  starts; Development and Test run straight away.
+  starts; Development and Test run straight away. The bar shows what will really run: the `run:` entry's full
+  command, or for `npm test` / `npm run <x>` the worktree package.json's script text, the arguments quoted, and
+  "Files in this worktree changed since the base can change what this runs."
+- **Threat model.** `shellie run` and leak watch protect against accidental exposure: an agent printing a value,
+  pasting it into a file or a commit. They do not stop an agent that sets out to leak: it can edit the tests, the
+  package.json scripts or `.shellie.yml` so a named command prints a value in a form the matcher does not know.
+  That is why UAT and Production approvals show the resolved script, not just the name. Pinning scripts to the base
+  would close it but breaks the normal loop (agents run the tests they write).
 - Claude Code tabs are told in the system prompt (`claudeContext`) that commands needing secrets run as
   `shellie run <name>` and which names exist; OpenCode gets the same line in its instructions file.
 - Import shows the cost once: "Agents run tests and the dev server through `shellie run`; plain `npm test` in an agent

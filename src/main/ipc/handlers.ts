@@ -986,7 +986,7 @@ export function createHandlers(s: Services): Handlers {
   const openRunTab = async (
     taskId: string,
     spec: RunSpec,
-    attach: (terminalId: string) => void,
+    attach: (terminalId: string) => boolean,
   ) => {
     const label = `agent · ${spec.name}`;
     const old = taskById(taskId).terminals.find(
@@ -1006,7 +1006,6 @@ export function createHandlers(s: Services): Handlers {
         ? { setupCommands: spec.setupCommands }
         : { command: spec.command ?? '' }),
     };
-    runArgs.set(def.id, spec.args);
     if (old) {
       await s.terminals.kill(old.id);
       spawnedEnv.delete(old.id);
@@ -1017,7 +1016,9 @@ export function createHandlers(s: Services): Handlers {
     try {
       if (taskById(taskId).environment !== spec.environment)
         throw new Error("The task's environment changed; run it again");
-      attach(def.id);
+      // The agent went away (or the run was stopped) while the tab was prepared: nothing spawns with the secrets.
+      if (!attach(def.id)) return;
+      runArgs.set(def.id, spec.args);
       startTerminal(taskById(taskId), def, prepared);
     } finally {
       release(taskId);

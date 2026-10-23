@@ -53,9 +53,11 @@ else
     --data-urlencode "terminal=\${SHELLIE_TERMINAL_ID-}"
 fi
 # No time limit (tests and dev servers run long), but a connect timeout, so a stuck Shellie never hangs the agent.
-# The answer ends with the line NUL exit:<code>; sed keeps it out of the output (unbuffered, NUL safe).
+# The answer ends with the line NUL exit:<code>; sed keeps it out of the output (unbuffered, NUL safe). sed
+# cannot name NUL, so the line starts with a control character that is none of the others (output holds no NUL).
+others=$(printf '[\\001-\\037\\177]')
 curl -q -s -N --noproxy '*' --connect-timeout 5 -D "$dir/head" -H "@$dir/auth" "$@" "$SHELLIE_RUN_URL" |
-  LC_ALL=C sed -u -n -e '/^[[:cntrl:]]exit:-\\{0,1\\}[0-9]\\{1,\\}$/{' -e "w $dir/exit" -e 'd' -e '}' -e 'p'
+  LC_ALL=C sed -u -n -e '/^[[:cntrl:]]exit:-\\{0,1\\}[0-9]\\{1,\\}$/{' -e "/^$others/!{" -e "w $dir/exit" -e 'd' -e '}' -e '}' -e 'p'
 status=$(sed -n 's/^HTTP\\/[0-9.]* \\([0-9][0-9]*\\).*/\\1/p' "$dir/head" 2>/dev/null | tail -n 1)
 if [ -z "$status" ]; then
   echo 'Shellie is not running' >&2

@@ -79,3 +79,8 @@ Download the installer from GitHub: open the Actions run for the commit, then th
 If a setup command or a shim fails with "running scripts is disabled on this system": Shellie passes `-ExecutionPolicy Bypass`, but an execution policy set by Group Policy overrides it. Ask IT, or install claude and copilot as native `.exe` builds.
 
 17. **Claude budget.** Home band shows Claude Code usage from `%USERPROFILE%\.claude\projects` and OpenCode from `%USERPROFILE%\.local\share\opencode\opencode.db`.
+
+18. **`shellie run` arguments.** In a task whose repo has a stored secret and a `run:` entry that points at a `.cmd` or `.bat` file:
+    - Ask Claude to run `shellie run <name> -- --flag value`: the agent tab gets the output and the exit code.
+    - Ask for `shellie run <name> -- "a&b"` and `-- %DB%`: both are refused with "On Windows an argument for shellie run cannot hold …", exit 2, and nothing runs (no `agent · <name>` tab output).
+    - `shellie run test -- --watch=false` in an npm repo passes `--watch=false` to the test script (npm gets `-- --watch=false`).

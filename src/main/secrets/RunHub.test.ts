@@ -1,5 +1,7 @@
+import { promises as fs } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Environment, PendingRun } from '../../shared/secrets';
 import type { ShellieConfig } from '../../shared/types';
 import { LeakMatcher } from './LeakMatcher';
@@ -26,6 +28,10 @@ function setup(
     setupCommands?: string[];
     ready?: boolean;
     failOpen?: string;
+    /** openTab waits for it before attaching (an abort can come in between). */
+    gate?: Promise<void>;
+    home?: string;
+    platform?: NodeJS.Platform;
   } = {},
 ) {
   const task: RunTask = {
@@ -34,7 +40,7 @@ function setup(
     environment: o.environment ?? 'development',
     setupCommands: o.setupCommands ?? ['npm ci'],
     workspaces: [
-      { id: 'home', repoPath: '/r/app', worktreePath: HOME },
+      { id: 'home', repoPath: '/r/app', worktreePath: o.home ?? HOME },
       { id: 'ws-api', repoPath: '/r/api', worktreePath: OTHER },
     ],
     agentTabs: ['claude-1'],
@@ -47,18 +53,23 @@ function setup(
     { name: 'STRIPE_KEY', value: SECRET, env: 'production' },
   ]);
   let n = 0;
-  const hub = new RunHub({ random: () => `token-${++n}` });
+  const hub = new RunHub({
+    random: () => `token-${++n}`,
+    platform: o.platform ?? 'darwin',
+  });
   hub.attach({
     task: (id) => (id === task.id ? task : null),
     config: async (repoPath) =>
       repoPath === '/r/app'
         ? config(o.run ?? { dev: 'npm run dev' })
-        : config({ serve: 'dotnet run' }),
+        : { ...config({ serve: 'dotnet run' }), setup: ['dotnet restore'] },
     testCommand: async () => (o.test === undefined ? 'npm test' : o.test),
     openTab: async (taskId, spec, attach) => {
       if (o.failOpen) throw new Error(o.failOpen);
+      if (o.gate) await o.gate;
       const id = `tab-${tabs.length + 1}`;
-      attach(id);
+      // Only a live run gets a tab (no spawn after a cancel).
+      if (!attach(id)) throw new Error('The run was cancelled');
       tabs.push({ taskId, spec, id });
     },
     kill: (id) => killed.push(id),
@@ -87,7 +98,10 @@ function setup(
     return { done, text: () => text };
   };
   const tick = () => new Promise((r) => setTimeout(r, 0));
-  return { hub, task, tabs, pending, killed, leaks, run, tick };
+  /** Until a run waits for its approve (reading the worktree's package.json comes first). */
+  const waiting = () =>
+    vi.waitFor(() => expect(pending.at(-1)?.length).toBeGreaterThan(0));
+  return { hub, task, tabs, pending, killed, leaks, run, tick, waiting };
 }
 
 describe('RunHub tokens', () => {
@@ -118,6 +132,15 @@ describe('RunHub.names', () => {
   });
   it("uses the workspace's own repo for a folder inside another worktree", async () => {
     const { hub } = setup();
+    expect(await hub.names('task-1', path.join(OTHER, 'src'))).toEqual([
+      'serve',
+      'test',
+      'setup',
+    ]);
+  });
+  it('leaves out setup in a workspace whose repo has no setup commands', async () => {
+    const { hub } = setup({ setupCommands: [] });
+    expect(await hub.names('task-1')).toEqual(['dev', 'test']);
     expect(await hub.names('task-1', path.join(OTHER, 'src'))).toEqual([
       'serve',
       'test',
@@ -155,7 +178,8 @@ describe('RunHub.resolve', () => {
       given: 'run',
       command: 'npm run dev',
       setupCommands: null,
-      args: ['--port', '5000'],
+      // npm run: the arguments go to the script.
+      args: ['--', '--port', '5000'],
       workspaceId: 'home',
       environment: 'development',
     });
@@ -192,6 +216,82 @@ describe('RunHub.resolve', () => {
   });
 });
 
+describe('RunHub.resolve: arguments', () => {
+  it('refuses arguments that would not stay arguments after the command line', async () => {
+    for (const dev of ['npm run a;', 'npm run a # x', 'npm run a &&'])
+      expect(
+        await setup({ run: { dev } }).hub.resolve('task-1', 'dev', ['x']),
+      ).toEqual({
+        error:
+          'dev takes no extra arguments in Shellie: its command line ends in an operator or comment',
+        code: 2,
+      });
+    expect(
+      await setup({ run: { dev: 'npm run a' } }).hub.resolve('task-1', 'dev', [
+        'x',
+      ]),
+    ).toMatchObject({ args: ['--', 'x'] });
+    // Without arguments the command runs as written.
+    expect(
+      await setup({ run: { dev: 'npm run a;' } }).hub.resolve(
+        'task-1',
+        'dev',
+        [],
+      ),
+    ).toMatchObject({ command: 'npm run a;', args: [] });
+  });
+  it('refuses cmd.exe metacharacters in arguments on Windows only', async () => {
+    const win = setup({ platform: 'win32' });
+    expect(await win.hub.resolve('task-1', 'dev', ['%DB%'])).toEqual({
+      error:
+        'On Windows an argument for shellie run cannot hold & | < > ^ % ! " or a line break',
+      code: 2,
+    });
+    expect(await setup().hub.resolve('task-1', 'dev', ['%DB%'])).toMatchObject({
+      args: ['--', '%DB%'],
+    });
+  });
+  it('gives npm scripts their arguments after --', async () => {
+    const { hub } = setup({ run: { serve: 'dotnet run' } });
+    expect(await hub.resolve('task-1', 'test', ['--watch'])).toMatchObject({
+      command: 'npm test',
+      args: ['--', '--watch'],
+    });
+    expect(
+      await hub.resolve('task-1', 'test', ['--', '--watch']),
+    ).toMatchObject({ args: ['--', '--watch'] });
+    expect(await hub.resolve('task-1', 'serve', ['--x'])).toMatchObject({
+      args: ['--x'],
+    });
+  });
+  it('exits 2 with the reason when arguments are refused', async () => {
+    const { tabs, run } = setup({ run: { dev: 'npm run a;' } });
+    const r = run('dev', ['x']);
+    expect(await r.done).toBe(2);
+    expect(r.text()).toBe(
+      'dev takes no extra arguments in Shellie: its command line ends in an operator or comment\n',
+    );
+    expect(tabs).toHaveLength(0);
+  });
+});
+
+describe('RunHub setup in another workspace', () => {
+  it("runs that workspace's own setup commands, not the home's", async () => {
+    const { hub } = setup();
+    expect(
+      await hub.resolve('task-1', 'setup', [], path.join(OTHER, 'src')),
+    ).toMatchObject({
+      workspaceId: 'ws-api',
+      given: 'setup',
+      setupCommands: ['dotnet restore'],
+    });
+    expect(await hub.resolve('task-1', 'setup', [])).toMatchObject({
+      workspaceId: 'home',
+      setupCommands: ['npm ci'],
+    });
+  });
+});
+
 describe('RunHub.start', () => {
   it('runs in a tab, streams masked output and returns the exit code', async () => {
     const { hub, tabs, leaks, run, tick } = setup();
@@ -200,7 +300,7 @@ describe('RunHub.start', () => {
     expect(tabs).toHaveLength(1);
     expect(tabs[0]!.spec).toMatchObject({
       name: 'dev',
-      args: ['--port', '5000'],
+      args: ['--', '--port', '5000'],
     });
     hub.data('tab-1', `key=${SECRET}\r\n`);
     hub.data('other-tab', 'not mine');
@@ -284,6 +384,21 @@ describe('RunHub.start', () => {
     expect(killed).toEqual(['tab-1']);
     hub.exit('tab-1', 0); // late: ignored
   });
+  it('never spawns a tab for a run cancelled while its tab was being prepared', async () => {
+    let open = () => {};
+    const gate = new Promise<void>((r) => {
+      open = r;
+    });
+    const { tabs, run, tick } = setup({ gate });
+    const ac = new AbortController();
+    const r = run('dev', [], { signal: ac.signal });
+    await tick();
+    ac.abort();
+    expect(await r.done).toBe(1);
+    open();
+    await tick();
+    expect(tabs).toHaveLength(0);
+  });
   it('ends the run when its tab is stopped or restarted in Shellie', async () => {
     const { hub, run, tick } = setup();
     const r = run('dev');
@@ -305,11 +420,11 @@ describe('RunHub approvals (UAT and Production)', () => {
     }
   });
   it('waits for an approve on Production, then runs', async () => {
-    const { hub, pending, tabs, run, tick } = setup({
+    const { hub, pending, tabs, run, tick, waiting } = setup({
       environment: 'production',
     });
     const r = run('test', ['--watch=false']);
-    await tick();
+    await waiting();
     expect(tabs).toHaveLength(0);
     expect(pending.at(-1)).toEqual([
       {
@@ -317,7 +432,7 @@ describe('RunHub approvals (UAT and Production)', () => {
         taskId: 'task-1',
         name: 'test',
         command: 'npm test',
-        args: ['--watch=false'],
+        args: ['--', '--watch=false'],
         environment: 'production',
       },
     ]);
@@ -331,28 +446,47 @@ describe('RunHub approvals (UAT and Production)', () => {
     expect(await r.done).toBe(0);
   });
   it('returns 1 with "Not approved in Shellie" when refused', async () => {
-    const { hub, pending, tabs, run, tick } = setup({ environment: 'uat' });
+    const { hub, pending, tabs, run, waiting } = setup({ environment: 'uat' });
     const r = run('dev');
-    await tick();
+    await waiting();
     hub.approve(pending.at(-1)![0]!.id, false);
     expect(await r.done).toBe(1);
     expect(r.text()).toContain('Not approved in Shellie\n');
     expect(tabs).toHaveLength(0);
   });
+  it('shows the package.json script npm test really runs in the worktree', async () => {
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), 'shellie-runhub-'));
+    try {
+      await fs.writeFile(
+        path.join(home, 'package.json'),
+        JSON.stringify({ scripts: { test: 'vitest run' } }),
+      );
+      const { pending, run, waiting } = setup({ environment: 'uat', home });
+      void run('test', ['--watch']);
+      await waiting();
+      expect(pending.at(-1)![0]).toMatchObject({
+        command: 'npm test',
+        script: 'vitest run',
+        args: ['--', '--watch'],
+      });
+    } finally {
+      await fs.rm(home, { recursive: true, force: true });
+    }
+  });
   it('shows setup as its commands', async () => {
-    const { pending, run, tick } = setup({
+    const { pending, run, waiting } = setup({
       environment: 'production',
       setupCommands: ['npm ci', 'npm run build'],
     });
     void run('setup');
-    await tick();
+    await waiting();
     expect(pending.at(-1)![0]!.command).toBe('npm ci && npm run build');
   });
   it('drops a pending run when the caller goes away', async () => {
-    const { pending, run, tick } = setup({ environment: 'production' });
+    const { pending, run, waiting } = setup({ environment: 'production' });
     const ac = new AbortController();
     const r = run('dev', [], { signal: ac.signal });
-    await tick();
+    await waiting();
     ac.abort();
     expect(await r.done).toBe(1);
     expect(pending.at(-1)).toEqual([]);
@@ -365,14 +499,14 @@ describe('RunHub approvals (UAT and Production)', () => {
 
 describe('RunHub.stopForTask', () => {
   it('ends running and pending runs with the reason and exit 1', async () => {
-    const { hub, killed, pending, run, tick } = setup({
+    const { hub, killed, pending, run, waiting } = setup({
       environment: 'production',
     });
-    const waiting = run('dev');
-    await tick();
+    const queued = run('dev');
+    await waiting();
     hub.stopForTask('task-1', 'Production ended');
-    expect(await waiting.done).toBe(1);
-    expect(waiting.text()).toContain('Production ended\n');
+    expect(await queued.done).toBe(1);
+    expect(queued.text()).toContain('Production ended\n');
     expect(pending.at(-1)).toEqual([]);
 
     const { hub: hub2, killed: killed2, run: run2, tick: tick2 } = setup();

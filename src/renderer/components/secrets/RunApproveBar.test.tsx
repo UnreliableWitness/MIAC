@@ -41,6 +41,34 @@ describe('RunApproveBar', () => {
     expect(screen.getAllByRole('alert')).toHaveLength(1);
   });
 
+  it('shows the script npm test really runs and that the worktree can change it', async () => {
+    installFakeApi({
+      'runs:pending': () => [
+        run({ script: 'vitest run', args: ['--', '--watch=false'] }),
+      ],
+    });
+    render(<RunApproveBar taskId="t1" />);
+    const bar = await screen.findByRole('alert');
+    expect(within(bar).getByText('npm test -- --watch=false')).toBeTruthy();
+    expect(within(bar).getByText('vitest run')).toBeTruthy();
+    expect(bar).toHaveTextContent('runs the script');
+    expect(bar).toHaveTextContent(
+      'Files in this worktree changed since the base can change what this runs.',
+    );
+  });
+
+  it('shows the full command of a run: entry', async () => {
+    installFakeApi({
+      'runs:pending': () => [
+        run({ name: 'seed', command: 'node tools/seed.mjs --all', args: [] }),
+      ],
+    });
+    render(<RunApproveBar taskId="t1" />);
+    const bar = await screen.findByRole('alert');
+    expect(within(bar).getByText('node tools/seed.mjs --all')).toBeTruthy();
+    expect(bar).not.toHaveTextContent('runs the script');
+  });
+
   it('approves or refuses through main', async () => {
     const { calls } = installFakeApi({
       'runs:pending': () => [run(), run({ id: 'r2', environment: 'uat' })],

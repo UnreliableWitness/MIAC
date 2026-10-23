@@ -20,7 +20,7 @@ import {
 } from '../../shared/terminalFailure';
 import { AdoRegistry } from '../services/AdoRegistry';
 import { ConnectionStore, type TokenCrypto } from '../services/ConnectionStore';
-import { RunHub } from '../secrets/RunHub';
+import { RunHub, type RunBackend } from '../secrets/RunHub';
 import { SecretStore } from '../secrets/SecretStore';
 import { fakeCrypto } from '../test-helpers/fakeCrypto';
 import { startAdoServer, type AdoServer } from '../test-helpers/adoServer';
@@ -5777,7 +5777,13 @@ describe('handlers: shellie run', () => {
   const PROD_VALUE = 'prod-db-value-5678';
 
   /** A ready task whose repo has `run:` entries and DB stored; agents' context and env are recorded. */
-  async function runHarness(o: { secrets?: boolean } = {}) {
+  async function runHarness(
+    o: {
+      secrets?: boolean;
+      /** Wraps RunHub's openTab (handlers' openRunTab). */
+      openTab?: (open: RunBackend['openTab']) => RunBackend['openTab'];
+    } = {},
+  ) {
     const base = testPlatform();
     const contexts: (string | null)[] = [];
     const platform = {
@@ -5788,6 +5794,11 @@ describe('handlers: shellie run', () => {
       },
     };
     const runs = new RunHub();
+    if (o.openTab) {
+      const wrap = o.openTab;
+      const attach = runs.attach.bind(runs);
+      runs.attach = (b) => attach({ ...b, openTab: wrap(b.openTab) });
+    }
     const envCalls: { kind: string; taskId: string; runNames?: string[] }[] =
       [];
     const hx = await harness(fakeCrypto(), {
@@ -5928,6 +5939,36 @@ describe('handlers: shellie run', () => {
     expect(await ok.code).toBe(0);
     expect(ok.text()).toContain('db=[DB]');
     expect(ok.text()).not.toContain(PROD_VALUE);
+    await hx.terminals.killAllForTask(hx.task.id);
+  });
+
+  it('spawns no tab for a run the agent cancelled while its tab was being prepared', async () => {
+    const ac = new AbortController();
+    const hx = await runHarness({
+      // The agent goes away right as the tab is about to spawn (after prepareTab).
+      openTab: (open) => (taskId, spec, attach) =>
+        open(taskId, spec, (id) => {
+          ac.abort();
+          return attach(id);
+        }),
+    });
+    const before = hx.terminals.ids().length;
+    let text = '';
+    const code = await hx.runs.start(
+      hx.task.id,
+      'show',
+      [],
+      (c) => {
+        text += c;
+      },
+      { terminal: hx.claude().id, signal: ac.signal },
+    );
+    expect(code).toBe(1);
+    await new Promise((r) => setTimeout(r, 50));
+    const task = hx.store.state.tasks.find((t) => t.id === hx.task.id)!;
+    expect(task.terminals.some((d) => d.label === 'agent · show')).toBe(false);
+    expect(hx.terminals.ids()).toHaveLength(before);
+    expect(text).not.toContain(DB_VALUE);
     await hx.terminals.killAllForTask(hx.task.id);
   });
 

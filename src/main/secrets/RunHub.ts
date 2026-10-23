@@ -7,6 +7,7 @@ import {
 } from '../../shared/secrets';
 import type { ShellieConfig } from '../../shared/types';
 import { errorMessage } from '../../shared/errors';
+import { argsRefusal, packageScript, withScriptSeparator } from './runArgs';
 
 /** The start of the last line of a `/v1/run` response: `\0exit:<code>`. Output never holds a NUL. */
 export const RUN_EXIT = '\u0000exit:';
@@ -17,7 +18,7 @@ export type RunTask = {
   /** Only a ready task runs commands. */
   ready: boolean;
   environment: Environment;
-  /** The task's setup commands (`setup`). */
+  /** The task's setup commands (`setup` in the home; another workspace runs its repo's own `setup:`). */
   setupCommands: string[];
   /** The task's active workspaces, home first. `repoPath` is the repo's main checkout. */
   workspaces: { id: string; repoPath: string; worktreePath: string }[];
@@ -31,7 +32,7 @@ export type RunSpec = {
   given: 'run' | 'tests' | 'setup';
   command: string | null;
   setupCommands: string[] | null;
-  /** Passed as arguments, never through a shell line. */
+  /** Passed as arguments, never through a shell line (with `--` in front for an npm script). */
   args: string[];
   workspaceId: string;
   /** The environment the run was resolved (and approved) for; the tab refuses to start on another. */
@@ -56,12 +57,13 @@ export type RunBackend = {
   ): Promise<string | null>;
   /**
    * Opens (or reuses) the visible run tab `agent · <name>` and spawns the command with the task environment's
-   * secrets. Calls `attach` with the tab's id right before the spawn, so no output is missed.
+   * secrets. Calls `attach` with the tab's id right before the spawn, so no output is missed; `attach` returns
+   * false when the run already ended (cancelled while the tab was being prepared), and then nothing may spawn.
    */
   openTab(
     taskId: string,
     spec: RunSpec,
-    attach: (terminalId: string) => void,
+    attach: (terminalId: string) => boolean,
   ): Promise<void>;
   kill(terminalId: string): void;
   /** Leak watch's filter, the same as agent tabs' output goes through. */
@@ -117,9 +119,11 @@ export class RunHub {
   private readonly runs = new Set<Running>();
   private readonly waiting = new Map<string, Waiting>();
   private readonly random: () => string;
+  private readonly platform: NodeJS.Platform;
 
-  constructor(o: { random?: () => string } = {}) {
+  constructor(o: { random?: () => string; platform?: NodeJS.Platform } = {}) {
     this.random = o.random ?? (() => randomBytes(24).toString('hex'));
+    this.platform = o.platform ?? process.platform;
   }
 
   attach(backend: RunBackend): void {
@@ -155,16 +159,22 @@ export class RunHub {
     return (await this.catalog(task, folder)).names;
   }
 
-  /** The named command, or why not. `args` are passed as they are, never through a shell line. */
+  /**
+   * The named command, or why not (`code` is the exit code, 1 when absent). `args` are passed as arguments, never
+   * through a shell line; refused where they would not stay arguments.
+   */
   async resolve(
     taskId: string,
     name: string,
     args: string[],
     folder?: string,
-  ): Promise<RunSpec | { error: string }> {
+  ): Promise<RunSpec | { error: string; code?: number }> {
     const task = this.backend?.task(taskId);
     if (!task) return { error: 'This task is not in Shellie' };
-    const { names, ws, run, test } = await this.catalog(task, folder);
+    const { names, ws, run, test, setupCommands } = await this.catalog(
+      task,
+      folder,
+    );
     const list =
       names.length > 0
         ? `Commands for shellie run: ${names.join(', ')}`
@@ -178,25 +188,32 @@ export class RunHub {
       return { error: 'An argument holds a NUL character' };
     const base = {
       name,
-      args,
       workspaceId: ws.id,
       environment: task.environment,
     };
-    if (Object.hasOwn(run, name))
+    const command = Object.hasOwn(run, name)
+      ? run[name]!
+      : name === 'test'
+        ? test
+        : null;
+    if (command === null) {
+      if (args.length > 0) return { error: 'setup takes no arguments' };
       return {
         ...base,
-        given: name === 'test' ? 'tests' : 'run',
-        command: run[name]!,
-        setupCommands: null,
+        args,
+        given: 'setup',
+        command: null,
+        setupCommands,
       };
-    if (name === 'test')
-      return { ...base, given: 'tests', command: test, setupCommands: null };
-    if (args.length > 0) return { error: 'setup takes no arguments' };
+    }
+    const refused = argsRefusal(name, command, args, this.platform);
+    if (refused) return { error: refused, code: 2 };
     return {
       ...base,
-      given: 'setup',
-      command: null,
-      setupCommands: task.setupCommands,
+      args: withScriptSeparator(command, args),
+      given: name === 'test' ? 'tests' : 'run',
+      command,
+      setupCommands: null,
     };
   }
 
@@ -220,7 +237,10 @@ export class RunHub {
     const task = backend.task(taskId);
     if (!task?.ready) return say('This task is not ready in Shellie');
     const spec = await this.resolve(taskId, name, args, o.workspace);
-    if ('error' in spec) return say(spec.error);
+    if ('error' in spec) {
+      say(spec.error);
+      return spec.code ?? 1;
+    }
     const label = `agent · ${spec.name}`;
     if (o.signal?.aborted) return 1;
     if (
@@ -261,7 +281,14 @@ export class RunHub {
     o.signal?.addEventListener('abort', onAbort, { once: true });
     void (async () => {
       if (isGuarded(spec.environment)) {
-        const ok = await this.approval(taskId, spec, run, o.signal);
+        const ws = task.workspaces.find((w) => w.id === spec.workspaceId);
+        // What `npm test` really runs: the worktree's script, which the agent can change.
+        const script =
+          spec.command && ws
+            ? await packageScript(ws.worktreePath, spec.command)
+            : null;
+        if (!this.runs.has(run)) return;
+        const ok = await this.approval(taskId, spec, script, run, o.signal);
         if (!this.runs.has(run)) return;
         if (ok !== true) {
           if (typeof ok === 'string') run.finish(1, ok);
@@ -276,8 +303,11 @@ export class RunHub {
       // TODO(telemetry): secrets.runStarted kind=<run|test|setup> environment
       try {
         await backend.openTab(taskId, spec, (id) => {
+          // Cancelled or stopped while the tab was being prepared: no tab may spawn with the secrets.
+          if (!this.runs.has(run)) return false;
           run.terminalId = id;
           run.noticeId ??= id;
+          return true;
         });
       } catch (e) {
         if (!this.runs.has(run)) return;
@@ -338,6 +368,7 @@ export class RunHub {
   private approval(
     taskId: string,
     spec: RunSpec,
+    script: string | null,
     run: Running,
     signal: AbortSignal | undefined,
   ): Promise<boolean | string> {
@@ -359,6 +390,7 @@ export class RunHub {
         command: spec.setupCommands
           ? spec.setupCommands.join(' && ')
           : (spec.command ?? ''),
+        ...(script !== null ? { script } : {}),
         args: spec.args,
         environment: spec.environment,
         decide: done,
@@ -397,10 +429,12 @@ export class RunHub {
     const config = await this.backend!.config(ws.repoPath);
     const run = config.run;
     const test = await this.backend!.testCommand(ws.worktreePath, config);
+    // The home runs the task's own setup commands; another workspace its repo's `setup:`.
+    const setupCommands = ws === home ? task.setupCommands : config.setup;
     const names = Object.keys(run);
     if (test !== null && !names.includes('test')) names.push('test');
-    if (task.setupCommands.length > 0 && !names.includes('setup'))
+    if (setupCommands.length > 0 && !names.includes('setup'))
       names.push('setup');
-    return { names, ws, run, test };
+    return { names, ws, run, test, setupCommands };
   }
 }

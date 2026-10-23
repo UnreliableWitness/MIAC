@@ -153,7 +153,10 @@ describe.skipIf(process.platform === 'win32')('sh shim against Shellie', () => {
       }
       out('starting\n');
       await new Promise((r) => setTimeout(r, 20));
-      out('key=[STRIPE_KEY]\nexit:9\nlast line without newline');
+      // Lines that look like the exit line but start with another control character are output.
+      out(
+        'key=[STRIPE_KEY]\nexit:9\n\u001bexit:0\n\u0001exit:5\nlast line without newline',
+      );
       return 7;
     },
   };
@@ -207,7 +210,7 @@ describe.skipIf(process.platform === 'win32')('sh shim against Shellie', () => {
       '@f',
     ]);
     expect(r.stdout).toBe(
-      'starting\nkey=[STRIPE_KEY]\nexit:9\nlast line without newline\n',
+      'starting\nkey=[STRIPE_KEY]\nexit:9\n\u001bexit:0\n\u0001exit:5\nlast line without newline\n',
     );
     expect(r.code).toBe(7);
     expect(calls).toEqual([
